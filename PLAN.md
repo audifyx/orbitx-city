@@ -6,6 +6,14 @@ One line: a full Minecraft city you can download and walk around in — every Or
 
 Free, forever. The world download is free. The city is free. That never changes.
 
+## Status (2026-11-09)
+
+- **Live:** https://orbitx-city-audifyxbeta-4145s-projects.vercel.app/
+- **Repo:** https://github.com/audifyx/orbitx-city
+- **Part 0 (home) ✅ · Part 1 (world generator) ✅ · Part 2 (game menu) ✅** — world + lobby live and verified (see below).
+- **Next:** Part 3 (districts detail pass) → Part 4 (city systems) → Part 5 (wiring).
+- **Known deploy notes:** Vercel has no GitHub account connected, so deploys go through the file-upload path (`upload_deploy.py`); the world zip is served from GitHub Raw until the GitHub App is reconnected, then the download button switches back to `/orbitx-city-world.zip`. React loads from esm.sh via import map for the same reason (keeps the deployed bundle small).
+
 ---
 
 ## Vision

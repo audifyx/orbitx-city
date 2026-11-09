@@ -174,6 +174,12 @@ export const JOBS: Job[] = [
   },
 ]
 
-export const WORLD_ZIP_PATH = '/orbitx-city-world.zip'
+// World download. The zip lives in the public repo (web/public/) and is
+// served from GitHub Raw for now: Vercel has no GitHub account connected,
+// so the file cannot be deployed to Vercel yet. Once the GitHub App is
+// reconnected to Vercel, switch this back to '/orbitx-city-world.zip' —
+// the file is already in web/public/ waiting for that day.
+export const WORLD_ZIP_PATH =
+  'https://raw.githubusercontent.com/audifyx/orbitx-city/main/web/public/orbitx-city-world.zip'
 
 export const MINECRAFT_VERSION = '1.21.x'
