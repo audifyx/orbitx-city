@@ -1,0 +1,223 @@
+{
+  "seed": 1337,
+  "version": "1.21.1",
+  "bounds": {
+    "x": [
+      -256,
+      256
+    ],
+    "z": [
+      -256,
+      256
+    ]
+  },
+  "ground_y": 64,
+  "spawn": {
+    "x": 0,
+    "y": 65,
+    "z": 0
+  },
+  "plaza": {
+    "center": [
+      0,
+      0
+    ],
+    "size": 41
+  },
+  "districts": {
+    "terminal": {
+      "name": "Terminal",
+      "center": [
+        0,
+        -160
+      ],
+      "size": [
+        80,
+        80
+      ],
+      "desc": "Command tower \u2014 the tallest building in the city"
+    },
+    "dex": {
+      "name": "DEX",
+      "center": [
+        160,
+        0
+      ],
+      "size": [
+        80,
+        80
+      ],
+      "desc": "Trading hall \u2014 swap floor and pair boards"
+    },
+    "launchpad": {
+      "name": "Launchpad",
+      "center": [
+        0,
+        160
+      ],
+      "size": [
+        80,
+        80
+      ],
+      "desc": "Launch bay \u2014 pads, bonding ramps, graduation gate"
+    },
+    "social": {
+      "name": "Social",
+      "center": [
+        -160,
+        0
+      ],
+      "size": [
+        80,
+        80
+      ],
+      "desc": "Social hub \u2014 plaza, post boards, DM rooms"
+    },
+    "scanner": {
+      "name": "Scanner",
+      "center": [
+        160,
+        -160
+      ],
+      "size": [
+        80,
+        80
+      ],
+      "desc": "Watchtower \u2014 OG-score board, bundle map, X signals"
+    },
+    "jobs": {
+      "name": "Jobs / Market",
+      "center": [
+        -160,
+        160
+      ],
+      "size": [
+        80,
+        80
+      ],
+      "desc": "Market stalls and job stands"
+    },
+    "park_nw": {
+      "name": "Park NW",
+      "center": [
+        -160,
+        -160
+      ],
+      "size": [
+        80,
+        80
+      ],
+      "desc": "Park \u2014 trees, paths, lamps"
+    },
+    "park_se": {
+      "name": "Park SE",
+      "center": [
+        160,
+        160
+      ],
+      "size": [
+        80,
+        80
+      ],
+      "desc": "Park \u2014 trees, paths, lamps, pond"
+    }
+  },
+  "roads": {
+    "avenues": [
+      {
+        "axis": "x",
+        "at": 0,
+        "width": 7
+      },
+      {
+        "axis": "z",
+        "at": 0,
+        "width": 7
+      }
+    ],
+    "ring": {
+      "half": 64,
+      "width": 7
+    }
+  },
+  "taxi_loop": {
+    "shape": "rectangle",
+    "half": 64,
+    "stops": [
+      {
+        "id": "taxi_n",
+        "pos": [
+          0,
+          -64
+        ],
+        "label": "LOOP - NORTH"
+      },
+      {
+        "id": "taxi_ne",
+        "pos": [
+          64,
+          -64
+        ],
+        "label": "LOOP - NORTH EAST"
+      },
+      {
+        "id": "taxi_e",
+        "pos": [
+          64,
+          0
+        ],
+        "label": "LOOP - EAST"
+      },
+      {
+        "id": "taxi_se",
+        "pos": [
+          64,
+          64
+        ],
+        "label": "LOOP - SOUTH EAST"
+      },
+      {
+        "id": "taxi_s",
+        "pos": [
+          0,
+          64
+        ],
+        "label": "LOOP - SOUTH"
+      },
+      {
+        "id": "taxi_sw",
+        "pos": [
+          -64,
+          64
+        ],
+        "label": "LOOP - SOUTH WEST"
+      },
+      {
+        "id": "taxi_w",
+        "pos": [
+          -64,
+          0
+        ],
+        "label": "LOOP - WEST"
+      },
+      {
+        "id": "taxi_nw",
+        "pos": [
+          -64,
+          -64
+        ],
+        "label": "LOOP - NORTH WEST"
+      }
+    ]
+  },
+  "mint": "13H4WJvGEg4xrrBwWn2vsQgz7xhmhxgNdw19i1QsxPX9",
+  "site": "orbitx.world",
+  "stats": {
+    "chunks": 1089,
+    "regions": 4,
+    "signs": 56,
+    "blocks_placed": 84164,
+    "terrain_cells": 17105985,
+    "non_air_cells": 17128102
+  }
+}

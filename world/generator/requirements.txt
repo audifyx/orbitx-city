@@ -1,0 +1,14 @@
+# OrbitX City world generator — Python deps.
+# Install into the venv:  python -m venv .venv && .venv/bin/pip install -r requirements.txt
+#
+# Library choice (tried in order, per PLAN.md):
+# * amulet-core — could NOT be installed in this VM: its amulet-leveldb
+#   dependency has no wheel for Python 3.12 and fails to build from source
+#   (needs a C++20/CMake toolchain the build script does not detect).
+# * nbtlib — the writer. Real NBT read/write; region .mca container and
+#   modern 1.21 chunk format are built on top of it (see mcworld.py).
+# * anvil-parser — installed for the verify.py cross-check only; 0.9.0
+#   writes/reads the pre-1.18 chunk format, so it cannot read 1.21 chunks.
+nbtlib==2.0.4
+numpy==2.5.4
+anvil-parser==0.9.0
