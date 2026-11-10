@@ -705,7 +705,7 @@ export function buildCity(seed: number): City {
     colliders,
     rail,
     ships,
-    spawn: { x: sx, y: 0, z: sz, yaw: 0, pitch: 0.36 },
+    spawn: { x: sx, y: 0, z: sz, yaw: 0, pitch: 0.44 },
     focus: { x: 0, y: Math.max(36, towerTop * 0.45), z: -10 },
     fountain: FOUNTAIN,
   };
