@@ -1,15 +1,36 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig, type Plugin } from "vite";
+import react from "@vitejs/plugin-react";
 
-// React + ReactDOM stay external (loaded from esm.sh via the import map in
-// index.html) so the built JS stays small enough to deploy through the
-// Vercel file-upload path used here. If the deploy path changes to a git
-// integration, this external block can be dropped and React bundled again.
+const classicScript: Plugin = {
+  name: "classic-script",
+  apply: "build",
+  transformIndexHtml(html) {
+    return html
+      .replace(/<script type="module" crossorigin/g, "<script defer")
+      .replace(/<script type="module"/g, "<script defer");
+  },
+};
+
+// One self-contained game.js plus style.css so the built folder can be opened
+// from a zip (index.html at the root) or uploaded as a static site.
 export default defineConfig({
-  plugins: [react()],
+  base: "./",
+  plugins: [react(), classicScript],
   build: {
+    cssCodeSplit: false,
+    modulePreload: false,
     rollupOptions: {
-      external: ['react', 'react/jsx-runtime', 'react-dom', 'react-dom/client'],
+      output: {
+        format: "iife",
+        inlineDynamicImports: true,
+        entryFileNames: "game.js",
+        name: "OrbitxCity",
+        assetFileNames(asset) {
+          const name = asset.names?.[0] ?? asset.name ?? "";
+          if (name.endsWith(".css")) return "style.css";
+          return "assets/[name][extname]";
+        },
+      },
     },
   },
-})
+});

@@ -54,6 +54,32 @@ export interface RailPoint {
   z: number;
 }
 
+export interface Anchor {
+  id: string;
+  name: string;
+  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads";
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  slot: number;
+}
+
+export interface BoardSlot {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+}
+
+export interface CarSpawn {
+  id: string;
+  x: number;
+  z: number;
+  yaw: number;
+}
+
 export interface City {
   boxes: Box[];
   colliders: Collider[];
@@ -62,6 +88,9 @@ export interface City {
   spawn: { x: number; y: number; z: number; yaw: number; pitch: number };
   focus: { x: number; y: number; z: number };
   fountain: { x: number; z: number };
+  anchors: Anchor[];
+  boards: BoardSlot[];
+  cars: CarSpawn[];
 }
 
 const CENTERS = [-108, -72, -36, 0, 36, 72, 108];
@@ -423,6 +452,7 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng) {
   for (const [x0, x1] of plots) {
     for (const [z0, z1] of plots) {
       if (intervalsOverlap(x0, x1, -29, 29) && intervalsOverlap(z0, z1, -29, 29)) continue;
+      if (reservedPlot(x0, x1, z0, z1)) continue;
       const w = x1 - x0;
       const d = z1 - z0;
       const cx = (x0 + x1) / 2;
@@ -478,7 +508,7 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng) {
         put(boxes, gx0 + gw / 2, roofY + 0.7, gz0 + gd - 0.4, gw, 0.7, 0.7, "hedge");
         if (gw > 6) addTree(boxes, cols, gx0 + 2, gz0 + Math.max(3, gd / 2), roofY + 0.3);
       }
-      if (height > 18 && (dist < 78 || rng() > 0.4)) {
+      if (height > 22 && dist > 40 && dist < 96 && rng() > 0.55) {
         addBillboard(boxes, x0, 8, z0, w, d, face, Math.floor(rng() * 6));
       }
     }
@@ -669,6 +699,95 @@ function addHills(boxes: Box[], cols: Collider[], rng: Rng) {
   }
 }
 
+function reservedPlot(x0: number, x1: number, z0: number, z1: number) {
+  if (x0 >= -101 && x1 <= -79) return true;
+  const spots: Array<[number, number, number, number]> = [
+    [7, 29, 43, 65],
+    [-29, -7, 43, 65],
+    [43, 65, 7, 29],
+  ];
+  return spots.some(([a, b, c, d]) => x0 >= a - 0.2 && x1 <= b + 0.2 && z0 >= c - 0.2 && z1 <= d + 0.2);
+}
+
+function addVenue(
+  boxes: Box[],
+  cols: Collider[],
+  x0: number,
+  z0: number,
+  w: number,
+  d: number,
+  h: number,
+  door: Face,
+) {
+  shell(boxes, cols, x0, 0, z0, w, h, d, (u, ly, face) => {
+    const len = face === "n" || face === "s" ? w : d;
+    return officeSample(1, face === door && ly <= 2, len)(u, ly);
+  }, "black");
+}
+
+function addPark(boxes: Box[], cols: Collider[], x0: number, z0: number, x1: number, z1: number) {
+  const cx = (x0 + x1) / 2;
+  const cz = (z0 + z1) / 2;
+  put(boxes, cx, 0.08, cz, x1 - x0 - 1, 0.14, z1 - z0 - 1, "grass");
+  addTree(boxes, cols, cx - 4, cz - 3, 0.1);
+  addTree(boxes, cols, cx + 5, cz + 4, 0.1);
+  addLamp(boxes, cx, cz + 6);
+}
+
+function addKiosk(boxes: Box[], cols: Collider[], x: number, z: number, top: Mat) {
+  put(boxes, x, 0.85, z, 1.5, 1.5, 1.5, "black");
+  put(boxes, x, 1.72, z, 1.7, 0.22, 1.7, top);
+  put(boxes, x, 2.05, z, 0.4, 0.5, 0.4, "cyanhot");
+  cols.push(col(x, 0.9, z, 1.5, 1.6, 1.5));
+}
+
+function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; boards: BoardSlot[] } {
+  addVenue(boxes, cols, 7, 43, 22, 22, 14, "w");
+  addVenue(boxes, cols, -29, 43, 22, 22, 12, "e");
+  addVenue(boxes, cols, 43, 7, 22, 22, 16, "w");
+
+  const projectZs = [-65, -29, 43, 79];
+  projectZs.forEach((z0, index) => {
+    const h = [20, 28, 16, 24][index];
+    addVenue(boxes, cols, -101, z0, 22, 22, h, "e");
+  });
+  addPark(boxes, cols, -101, -101, -79, -79);
+  addPark(boxes, cols, -101, 7, -79, 29);
+
+  addKiosk(boxes, cols, 10, 16, "white");
+  addKiosk(boxes, cols, -10, 16, "cyan");
+  addKiosk(boxes, cols, 8, 68, "white");
+
+  const anchors: Anchor[] = [
+    { id: "shop", name: "OrbitX Shop", kind: "shop", x: 5.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
+    { id: "cafe", name: "Cafe Nova", kind: "cafe", x: -5.6, y: 0, z: 54, yaw: -Math.PI / 2, slot: 1 },
+    { id: "hall", name: "Community Hall", kind: "hall", x: 41.6, y: 0, z: 18, yaw: Math.PI / 2, slot: 2 },
+    { id: "jobs", name: "Jobs board", kind: "jobs", x: 10, y: 0, z: 17.6, yaw: 0, slot: 0 },
+    { id: "events", name: "Events board", kind: "events", x: -10, y: 0, z: 17.6, yaw: 0, slot: 0 },
+    { id: "ads", name: "Billboard desk", kind: "ads", x: 8, y: 0, z: 69.8, yaw: 0, slot: 0 },
+  ];
+  projectZs.forEach((z0, index) => {
+    anchors.push({
+      id: `project-${index}`,
+      name: "Project office",
+      kind: "project",
+      x: -77.4,
+      y: 0,
+      z: z0 + 11,
+      yaw: -Math.PI / 2,
+      slot: index,
+    });
+  });
+
+  const boards: BoardSlot[] = [
+    { id: "plaza-east", x: 6.35, y: 7.2, z: 54, rotY: -Math.PI / 2 },
+    { id: "plaza-west", x: -6.35, y: 6.6, z: 54, rotY: Math.PI / 2 },
+    { id: "hall-front", x: 42.35, y: 7.4, z: 18, rotY: -Math.PI / 2 },
+    { id: "district-row", x: -78.35, y: 8.2, z: -54, rotY: Math.PI / 2 },
+  ];
+  return { anchors, boards };
+}
+
 function blocked(cols: Collider[], x: number, z: number) {
   return cols.some(
     (c) => x > c.minX - 0.4 && x < c.maxX + 0.4 && z > c.minZ - 0.4 && z < c.maxZ + 0.4 && c.minY < 1.8 && c.maxY > 0.05,
@@ -683,6 +802,7 @@ export function buildCity(seed: number): City {
   addPlaza(boxes, colliders);
   const towerTop = addTower(boxes, colliders);
   addBuildings(boxes, colliders, rng);
+  const fixed = addFixedPlaces(boxes, colliders);
   addStreetLife(boxes, colliders, rng);
   const rail = loopPoints();
   addMonorail(boxes, colliders, rail);
@@ -708,5 +828,13 @@ export function buildCity(seed: number): City {
     spawn: { x: sx, y: 0, z: sz, yaw: 0, pitch: 0.44 },
     focus: { x: 0, y: Math.max(36, towerTop * 0.45), z: -10 },
     fountain: FOUNTAIN,
+    anchors: fixed.anchors,
+    boards: fixed.boards,
+    cars: [
+      { id: "north", x: 0, z: 46, yaw: 0 },
+      { id: "south", x: 0, z: 84, yaw: 0 },
+      { id: "east", x: 36, z: 50, yaw: 0 },
+      { id: "west", x: -36, z: 50, yaw: Math.PI },
+    ],
   };
 }

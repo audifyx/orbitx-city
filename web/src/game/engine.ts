@@ -8,7 +8,6 @@ import {
   HemisphereLight,
   InstancedMesh,
   Mesh,
-  MeshLambertMaterial,
   Object3D,
   PerspectiveCamera,
   Scene,
@@ -20,7 +19,9 @@ import {
   WebGLRenderer,
   type Material,
 } from "three";
-import { buildCity, type City, type Collider, type Mat, type RailPoint, type ShipPath } from "./city";
+import { buildCity, type City, type Mat, type RailPoint, type ShipPath } from "./city";
+import { MATERIALS } from "./materials";
+import { createRuntime, wantsTouch, type Body, type Runtime } from "./runtime";
 
 export type PlayMode = "orbit" | "play" | "air";
 
@@ -35,116 +36,6 @@ declare global {
 
 const RADIUS = 0.28;
 const HEIGHT = 1.7;
-
-interface Player {
-  x: number;
-  y: number;
-  z: number;
-  yaw: number;
-  pitch: number;
-  vy: number;
-  flying: boolean;
-  onGround: boolean;
-}
-
-function styledMaterial(opts: {
-  color: number;
-  emissive?: number;
-  emissiveIntensity?: number;
-  transparent?: boolean;
-  opacity?: number;
-  grid?: number;
-  polygonOffset?: boolean;
-}) {
-  const mat = new MeshLambertMaterial({
-    color: opts.color,
-    emissive: opts.emissive ?? 0x000000,
-    emissiveIntensity: opts.emissiveIntensity ?? 1,
-    transparent: opts.transparent ?? false,
-    opacity: opts.opacity ?? 1,
-    polygonOffset: opts.polygonOffset ?? false,
-    polygonOffsetFactor: opts.polygonOffset ? -2 : 0,
-    polygonOffsetUnits: opts.polygonOffset ? -4 : 0,
-  });
-  const grid = opts.grid ?? 0;
-  if (grid > 0) {
-    const g = grid.toFixed(3);
-    mat.customProgramCacheKey = () => `voxel-${g}`;
-    mat.onBeforeCompile = (shader) => {
-      shader.vertexShader =
-        "varying vec3 vBlockWorld;\nvarying vec3 vBlockNormal;\n" +
-        shader.vertexShader.replace(
-          "#include <project_vertex>",
-          `#include <project_vertex>
-          vec3 blockN = objectNormal;
-          vec4 blockW = vec4(transformed, 1.0);
-          #ifdef USE_INSTANCING
-            mat3 bMat = mat3(instanceMatrix);
-            blockN /= vec3(dot(bMat[0], bMat[0]), dot(bMat[1], bMat[1]), dot(bMat[2], bMat[2]));
-            blockN = bMat * blockN;
-            blockW = instanceMatrix * blockW;
-          #endif
-          blockW = modelMatrix * blockW;
-          blockN = mat3(modelMatrix) * blockN;
-          vBlockWorld = blockW.xyz;
-          vBlockNormal = normalize(blockN);
-          `,
-        );
-      shader.fragmentShader =
-        "varying vec3 vBlockWorld;\nvarying vec3 vBlockNormal;\n" +
-        shader.fragmentShader.replace(
-          "#include <color_fragment>",
-          `#include <color_fragment>
-          vec3 bDist = min(fract(vBlockWorld), 1.0 - fract(vBlockWorld));
-          vec3 aN = abs(normalize(vBlockNormal));
-          float edgeDist = aN.x > aN.y && aN.x > aN.z ? min(bDist.y, bDist.z) : (aN.y > aN.z ? min(bDist.x, bDist.z) : min(bDist.x, bDist.y));
-          float crack = 1.0 - smoothstep(0.012, 0.085, edgeDist);
-          float n = fract(sin(dot(floor(vBlockWorld + aN * 0.5), vec3(127.1, 311.7, 74.7))) * 43758.5453);
-          diffuseColor.rgb *= mix(1.0, 0.55, crack * ${g});
-          diffuseColor.rgb *= 0.9 + 0.1 * n;
-          `,
-        );
-    };
-  }
-  return mat;
-}
-
-const MATERIALS: Record<Mat, MeshLambertMaterial> = {
-  asphalt: styledMaterial({ color: 0x171a22 }),
-  sidewalk: styledMaterial({ color: 0xc5c9d1, grid: 0.35 }),
-  plaza: styledMaterial({ color: 0xe4e7ee, grid: 0.45 }),
-  grass: styledMaterial({ color: 0x3c9a3a, grid: 0.4 }),
-  hedge: styledMaterial({ color: 0x1d6e32, grid: 0.7 }),
-  leaves: styledMaterial({ color: 0x37b24a, grid: 0.55 }),
-  leavesDark: styledMaterial({ color: 0x1f8a34, grid: 0.55 }),
-  trunk: styledMaterial({ color: 0x6b4a2e, grid: 0.4 }),
-  black: styledMaterial({ color: 0x12151c, grid: 0.85 }),
-  white: styledMaterial({ color: 0xf4f6fa, grid: 0.75 }),
-  gray: styledMaterial({ color: 0x3a404c, grid: 0.7 }),
-  cyan: styledMaterial({
-    color: 0x7eefff,
-    emissive: 0x19d8ff,
-    emissiveIntensity: 0.95,
-    grid: 0.25,
-  }),
-  cyanhot: styledMaterial({
-    color: 0xe9fbff,
-    emissive: 0x5ef3ff,
-    emissiveIntensity: 1.15,
-  }),
-  water: styledMaterial({
-    color: 0x1a74ff,
-    emissive: 0x0a3ec8,
-    emissiveIntensity: 0.55,
-    transparent: true,
-    opacity: 0.82,
-  }),
-  stone: styledMaterial({ color: 0xd5dae2, grid: 0.65 }),
-  lane: styledMaterial({ color: 0xf7f7f2, polygonOffset: true }),
-  hill: styledMaterial({ color: 0x6a3b2c, grid: 0.25 }),
-  track: styledMaterial({ color: 0x1c212b, grid: 0.2 }),
-};
-MATERIALS.water.depthWrite = false;
 
 function makeShip(body: Material, glass: Material, hot: Material) {
   const g = new Group();
@@ -195,6 +86,7 @@ function makeTrain(body: Material, glass: Material, hot: Material, dark: Materia
 export interface Game {
   start: (seed: number, mode: PlayMode) => void;
   dispose: () => void;
+  runtime: Runtime;
 }
 
 export function createGame(
@@ -202,9 +94,10 @@ export function createGame(
   onStatus: (text: string) => void,
   preserveDrawingBuffer: boolean,
 ): Game {
+  const touch = wantsTouch();
   const renderer = new WebGLRenderer({
     canvas,
-    antialias: true,
+    antialias: !touch,
     alpha: false,
     powerPreference: "high-performance",
     preserveDrawingBuffer,
@@ -213,11 +106,13 @@ export function createGame(
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.toneMapping = ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.08;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, touch ? 1 : 1.25));
   renderer.setClearColor(0xf09158, 1);
 
   const scene = new Scene();
-  scene.fog = new Fog(0xf09158, 170, 460);
+  const baseFog = new Fog(0xf09158, touch ? 100 : 170, touch ? 300 : 460);
+  scene.fog = baseFog;
+  const runtime = createRuntime(scene);
 
   const camera = new PerspectiveCamera(62, 1, 0.08, 520);
 
@@ -293,13 +188,13 @@ export function createGame(
   let railDist: number[] = [];
   let railLen = 1;
   let shipPaths: ShipPath[] = [];
-  let colliders: Collider[] = [];
+  let boot = 0;
   let fountain = { x: 0, z: 12 };
   let seed = 1;
   let mode: PlayMode = "orbit";
   let playing = false;
 
-  const player: Player = {
+  const player: Body = {
     x: 0,
     y: 0,
     z: 80,
@@ -326,19 +221,21 @@ export function createGame(
     const maxY = y + HEIGHT;
     const minZ = z - RADIUS;
     const maxZ = z + RADIUS;
-    for (let i = 0; i < colliders.length; i++) {
-      const c = colliders[i];
+    const list = runtime.cols();
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
       if (maxX > c.minX && minX < c.maxX && maxY > c.minY && minY < c.maxY && maxZ > c.minZ && minZ < c.maxZ) {
         return true;
       }
     }
-    return false;
+    return runtime.blocks(x, y, z);
   }
 
   function groundY(x: number, z: number, maxY: number) {
-    let top = 0;
-    for (let i = 0; i < colliders.length; i++) {
-      const c = colliders[i];
+    let top = runtime.indoors() ? -200 : 0;
+    const list = runtime.cols();
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
       if (x + RADIUS <= c.minX || x - RADIUS >= c.maxX || z + RADIUS <= c.minZ || z - RADIUS >= c.maxZ) continue;
       if (c.maxY <= maxY + 0.08 && c.maxY > top) top = c.maxY;
     }
@@ -348,7 +245,7 @@ export function createGame(
   function move(dx: number, dy: number, dz: number) {
     if (dy !== 0) {
       const ny = player.y + dy;
-      if (ny < 0) {
+      if (!runtime.indoors() && ny < 0) {
         player.y = 0;
         player.vy = 0;
         player.onGround = true;
@@ -380,15 +277,21 @@ export function createGame(
     }
   }
 
+  function carHit(x: number, z: number) {
+    const list = runtime.cols();
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (c.maxY < 0.5) continue;
+      if (x > c.minX - 1.15 && x < c.maxX + 1.15 && z > c.minZ - 0.8 && z < c.maxZ + 0.8) return true;
+    }
+    return false;
+  }
+
   function tick(dt: number) {
-    const forward = (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0);
-    const strafe = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0);
-    const mag = Math.hypot(forward, strafe);
-    const f = mag > 0 ? forward / mag : 0;
-    const s = mag > 0 ? strafe / mag : 0;
-    const shift = keys.has("ShiftLeft") || keys.has("ShiftRight");
+    const { f, s } = runtime.moveAxes(keys);
+    const shift = keys.has("ShiftLeft") || keys.has("ShiftRight") || runtime.downHeld();
     const ctrl = keys.has("ControlLeft") || keys.has("ControlRight");
-    const space = keys.has("Space");
+    const space = keys.has("Space") || runtime.jumpHeld();
     const speed = player.flying ? (ctrl ? 28 : 14) : shift ? 1.6 : ctrl ? 8.5 : 5.2;
     const sin = Math.sin(player.yaw);
     const cos = Math.cos(player.yaw);
@@ -407,7 +310,7 @@ export function createGame(
       move((sin * f + cos * s) * speed * dt, player.vy * dt, (-cos * f + sin * s) * speed * dt);
       player.onGround = overlaps(player.x, player.y - 0.04, player.z) || player.y <= 0.001;
     }
-    if (player.y < -4 || player.y > 220) {
+    if (!runtime.indoors() && (player.y < -4 || player.y > 220)) {
       player.x = spawn.x;
       player.y = spawn.y;
       player.z = spawn.z;
@@ -520,27 +423,47 @@ export function createGame(
   }
 
   function onKeyDown(event: KeyboardEvent) {
+    if (runtime.typing() || runtime.paused()) {
+      if (event.code === "Escape") runtime.request("close");
+      return;
+    }
     keys.add(event.code);
     if (!playing) return;
-    if (event.code === "KeyF" && !event.repeat) {
-      player.flying = !player.flying;
-      player.vy = 0;
-    }
+    if (event.code === "KeyF" && !event.repeat) runtime.toggleFly(player);
+    if (event.code === "KeyE" && !event.repeat) runtime.interact(player);
+    if (event.code === "KeyB" && !event.repeat) runtime.request("shop");
+    if (event.code === "KeyJ" && !event.repeat) runtime.request("jobs");
+    if (event.code === "KeyC" && !event.repeat) runtime.request("chat");
+    if (event.code === "KeyG" && !event.repeat) runtime.request("ads");
+    if (event.code === "KeyH" && !event.repeat) runtime.request("events");
+    if (event.code === "KeyM" && !event.repeat) runtime.request("menu");
+    if (event.code === "Escape") runtime.request("close");
     if (event.code === "Space") event.preventDefault();
   }
   function onKeyUp(event: KeyboardEvent) {
     keys.delete(event.code);
   }
   function onMouseMove(event: MouseEvent) {
-    if (document.pointerLockElement !== canvas) return;
-    player.yaw += event.movementX * 0.0022;
-    player.pitch -= event.movementY * 0.0022;
-    const limit = Math.PI / 2 - 0.02;
-    if (player.pitch > limit) player.pitch = limit;
-    if (player.pitch < -limit) player.pitch = -limit;
+    if (touch || document.pointerLockElement !== canvas) return;
+    const dx = event.movementX * 0.0022;
+    const dy = event.movementY * 0.0022;
+    if (runtime.driving()) runtime.addLook(dx, dy);
+    else {
+      player.yaw += dx;
+      player.pitch -= dy;
+      const limit = Math.PI / 2 - 0.02;
+      if (player.pitch > limit) player.pitch = limit;
+      if (player.pitch < -limit) player.pitch = -limit;
+    }
   }
   function onClick() {
-    if (playing && document.pointerLockElement !== canvas) canvas.requestPointerLock();
+    if (touch || !playing || runtime.paused() || runtime.typing()) return;
+    if (document.pointerLockElement !== canvas) canvas.requestPointerLock();
+  }
+  function blockScroll(event: TouchEvent) {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest(".panel, .chat-log, input, textarea")) return;
+    event.preventDefault();
   }
   function onResize() {
     const width = canvas.clientWidth || window.innerWidth;
@@ -555,6 +478,10 @@ export function createGame(
   window.addEventListener("mousemove", onMouseMove);
   canvas.addEventListener("click", onClick);
   window.addEventListener("resize", onResize);
+  window.addEventListener("orientationchange", onResize);
+  window.visualViewport?.addEventListener("resize", onResize);
+  document.addEventListener("touchmove", blockScroll, { passive: false });
+  document.addEventListener("gesturestart", (event) => event.preventDefault());
   onResize();
 
   let raf = 0;
@@ -564,13 +491,16 @@ export function createGame(
   let clock = 0;
 
   function frame(now: number) {
+    try {
     let dt = (now - last) / 1000;
     last = now;
     if (dt > 0.05) dt = 0.05;
     clock += dt;
-    if (playing && mode !== "orbit" && document.pointerLockElement === canvas) tick(dt);
-    else if (playing && mode === "air" && keys.size > 0) tick(dt);
-    else if (playing && mode === "play" && keys.size > 0 && document.pointerLockElement !== canvas) tick(dt);
+    if (runtime.paused()) keys.clear();
+    if (playing && mode !== "orbit" && !runtime.paused() && !runtime.typing()) {
+      if (runtime.driving()) runtime.drive(dt, player, keys, carHit);
+      else tick(dt);
+    }
 
     MATERIALS.cyanhot.emissiveIntensity = 1.35 + Math.sin(clock * 2.4) * 0.22;
 
@@ -600,11 +530,13 @@ export function createGame(
     }
 
     sky.position.copy(camera.position);
+    scene.fog = runtime.indoors() ? null : baseFog;
+    const tookCamera = runtime.after(dt, player, camera, { orbit: mode === "orbit", fountain });
     if (mode === "orbit") {
       const t = clock * 0.07;
       camera.position.set(Math.sin(t) * 150, 64, Math.cos(t) * 132 + 10);
       camera.lookAt(0, 24, -8);
-    } else {
+    } else if (!tookCamera) {
       const cp = Math.cos(player.pitch);
       const sp = Math.sin(player.pitch);
       const sy = Math.sin(player.yaw);
@@ -613,7 +545,10 @@ export function createGame(
       look.set(player.x + sy * cp, player.y + 1.62 + sp, player.z - cy * cp);
       camera.up.set(0, 1, 0);
       camera.lookAt(look);
-      const label = player.flying ? "FLYING" : "WALKING";
+      const label = runtime.driving() ? "DRIVING" : player.flying ? "FLYING" : "WALKING";
+      onStatus(`${label}  ${Math.round(player.x)} ${Math.round(player.y)} ${Math.round(player.z)}  seed ${seed}`);
+    } else {
+      const label = runtime.driving() ? "DRIVING" : "WALKING";
       onStatus(`${label}  ${Math.round(player.x)} ${Math.round(player.y)} ${Math.round(player.z)}  seed ${seed}`);
     }
 
@@ -626,6 +561,10 @@ export function createGame(
       frames = 0;
       fpsStamp = now;
     }
+    } catch (err) {
+      const slot = window as unknown as { __FRAME_ERR?: string };
+      if (!slot.__FRAME_ERR) slot.__FRAME_ERR = err instanceof Error ? err.stack ?? err.message : String(err);
+    }
     raf = requestAnimationFrame(frame);
   }
   raf = requestAnimationFrame(frame);
@@ -634,8 +573,8 @@ export function createGame(
     start(nextSeed: number, nextMode: PlayMode) {
       seed = nextSeed;
       mode = nextMode;
+      const token = ++boot;
       const city = buildCity(seed);
-      colliders = city.colliders;
       spawn = city.spawn;
       focus = city.focus;
       buildMeshes(city);
@@ -666,6 +605,10 @@ export function createGame(
         playing = false;
         player.flying = false;
       }
+      void runtime.begin(city, nextMode !== "orbit").then(() => {
+        if (token !== boot) return;
+        runtime.applyShot(new URLSearchParams(location.search).get("shot"), player);
+      });
     },
     dispose() {
       cancelAnimationFrame(raf);
@@ -674,10 +617,15 @@ export function createGame(
       window.removeEventListener("mousemove", onMouseMove);
       canvas.removeEventListener("click", onClick);
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+      window.visualViewport?.removeEventListener("resize", onResize);
+      document.removeEventListener("touchmove", blockScroll);
+      runtime.destroy();
       clearGroup(staticRoot);
       unit.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
     },
+    runtime,
   };
 }

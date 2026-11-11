@@ -1,0 +1,23 @@
+[
+  {
+    "id": "sunset-meetup",
+    "title": "Sunset meetup",
+    "where": "Fountain plaza",
+    "when": "Tonight, 7:00",
+    "detail": "Meet by the fountain. Bring a project story."
+  },
+  {
+    "id": "fountain-lights",
+    "title": "Fountain lights",
+    "where": "Fountain plaza",
+    "when": "Demo — start it anytime",
+    "detail": "A short countdown, then lights and fireworks over the fountain."
+  },
+  {
+    "id": "district-open",
+    "title": "District open house",
+    "where": "Project District",
+    "when": "Saturday, 2:00",
+    "detail": "Walk the offices. Empty floors are waiting for real projects."
+  }
+]

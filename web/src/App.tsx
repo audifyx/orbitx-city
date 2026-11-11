@@ -1,15 +1,47 @@
 import { useEffect, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
+import type { PanelName, Snap } from "./game/runtime";
+import { AD_PRICE } from "./game/content";
 import { parseSeed } from "./game/seed";
 
 const HELP =
-  "WASD move · mouse look · Space jump · F fly · Shift down · Ctrl faster · click the view to capture the mouse · Esc releases it";
+  "WASD move · mouse look · Space jump · F fly · E use or drive · Shift down · Ctrl faster · B shop · J jobs · G ads · H events · C chat";
+
+const EMPTY: Snap = {
+  playing: false,
+  touch: false,
+  driving: false,
+  flying: false,
+  indoors: "",
+  prompt: "",
+  balance: 0,
+  burned: 0,
+  owned: [],
+  color: "white",
+  hat: "none",
+  car: "black",
+  jobTitle: "",
+  objective: "",
+  notice: "",
+  chat: [],
+  others: 0,
+  netMode: "",
+  name: "",
+  projects: [],
+  billboards: [],
+  events: [],
+  shop: [],
+  eventLabel: "",
+  panel: "",
+};
 
 function shotMode(): PlayMode | null {
   const params = new URLSearchParams(window.location.search);
   const shot = params.get("shot");
   if (shot === "air") return "air";
-  if (shot === "spawn" || params.has("autostart")) return "play";
+  if (shot === "spawn" || shot === "drive" || shot === "shop" || shot === "district" || shot === "billboard" || shot === "players" || shot === "meet" || params.has("autostart")) {
+    return "play";
+  }
   return null;
 }
 
@@ -21,6 +53,12 @@ export default function App() {
   const [seedText, setSeedText] = useState(() => new URLSearchParams(window.location.search).get("seed") ?? "");
   const [status, setStatus] = useState("");
   const [webglMissing, setWebglMissing] = useState(false);
+  const [snap, setSnap] = useState<Snap>(EMPTY);
+  const [panel, setPanel] = useState<PanelName | "">("");
+  const [adText, setAdText] = useState("ORBITX LIVE");
+  const [adId, setAdId] = useState("plaza-east");
+  const [adDays, setAdDays] = useState<1 | 7 | 30>(7);
+  const [chatText, setChatText] = useState("");
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -34,6 +72,15 @@ export default function App() {
       return;
     }
     gameRef.current = game;
+    const off = game.runtime.subscribe((next) => {
+      setSnap(next);
+      if (next.panel) {
+        setPanel(next.panel);
+        const lock = next.panel !== "chat";
+        game.runtime.setPaused(lock);
+        if (lock) document.exitPointerLock();
+      }
+    });
     const mode = shotMode();
     if (mode) {
       game.start(parseSeed(params.get("seed") ?? "1"), mode);
@@ -42,10 +89,29 @@ export default function App() {
       game.start(parseSeed(params.get("seed") ?? "1"), "orbit");
     }
     return () => {
+      off();
       game.dispose();
       gameRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle("touch", snap.touch);
+    document.body.classList.toggle("playing", !menu);
+  }, [snap.touch, menu]);
+
+  const open = (name: PanelName) => {
+    setPanel(name);
+    const lock = name !== "chat";
+    gameRef.current?.runtime.setPaused(lock);
+    if (lock) document.exitPointerLock();
+  };
+
+  const close = () => {
+    setPanel("");
+    gameRef.current?.runtime.setPaused(false);
+    gameRef.current?.runtime.setTyping(false);
+  };
 
   const play = () => {
     const game = gameRef.current;
@@ -55,8 +121,11 @@ export default function App() {
     game.start(parseSeed(seedText), "play");
     setBusy(false);
     setMenu(false);
-    canvas.requestPointerLock();
+    if (!snap.touch) canvas.requestPointerLock();
   };
+
+  const price = AD_PRICE[adDays];
+  const burn = gameRef.current?.runtime.quote(price) ?? Math.max(1, Math.round(price * 0.25));
 
   return (
     <>
@@ -64,7 +133,212 @@ export default function App() {
       <p className="status" id="status">
         {menu ? "" : status}
       </p>
-      <div className="crosshair" id="crosshair" hidden={menu} />
+      <div className="crosshair" id="crosshair" hidden={menu || snap.touch || !!panel} />
+      {!menu && (
+        <div className="hud" id="hud">
+          <strong>DEMO ORBITX {snap.balance}</strong>
+          <span>Burned {snap.burned}</span>
+          <span>{snap.jobTitle ? `${snap.jobTitle} — ${snap.objective}` : snap.objective}</span>
+          {snap.eventLabel ? <span>{snap.eventLabel}</span> : null}
+          {snap.notice ? <em>{snap.notice}</em> : null}
+          <span className="quiet">
+            {snap.others} other player{snap.others === 1 ? "" : "s"} · {snap.netMode}
+          </span>
+        </div>
+      )}
+      {!menu && snap.prompt ? <p className="prompt">{snap.prompt}</p> : null}
+      {!menu && (
+        <div className="actions">
+          <button type="button" onClick={() => open("shop")}>Shop</button>
+          <button type="button" onClick={() => open("jobs")}>Jobs</button>
+          <button type="button" onClick={() => open("ads")}>Ads</button>
+          <button type="button" onClick={() => open("events")}>Events</button>
+          <button type="button" onClick={() => open("chat")}>Chat</button>
+          <button type="button" onClick={() => open("menu")}>Menu</button>
+        </div>
+      )}
+      {!menu && snap.touch && !panel ? (
+        <div className="touch-ui">
+          <LookPad
+            onLook={(dx, dy) => gameRef.current?.runtime.addLook(dx, dy)}
+          />
+          <Stick onChange={(x, y) => gameRef.current?.runtime.setStick(x, y)} />
+          <div className="pad-buttons">
+            <Hold label="Jump" onDown={() => gameRef.current?.runtime.hold("jump", true)} onUp={() => gameRef.current?.runtime.hold("jump", false)} />
+            <button type="button" onClick={() => gameRef.current?.runtime.toggleFly()}>Fly</button>
+            <Hold label="Down" onDown={() => gameRef.current?.runtime.hold("down", true)} onUp={() => gameRef.current?.runtime.hold("down", false)} />
+            <button type="button" onClick={() => gameRef.current?.runtime.interact()}>Use</button>
+            <button type="button" onClick={() => open("chat")}>Chat</button>
+            <button type="button" onClick={() => open("shop")}>Shop</button>
+          </div>
+        </div>
+      ) : null}
+      {panel ? (
+        <section className="panel-wrap" id="panel">
+          <div className="panel" role="dialog">
+            <header>
+              <strong>
+                {panel === "shop" && "OrbitX shop"}
+                {panel === "jobs" && "Jobs"}
+                {panel === "ads" && "Book a billboard"}
+                {panel === "events" && "Events"}
+                {panel === "chat" && "Chat"}
+                {panel === "menu" && "Menu"}
+              </strong>
+              <button type="button" onClick={close}>Close</button>
+            </header>
+            <p className="demo">Demo economy only. These credits are not real ORBITX tokens. Nothing is connected to a wallet or a blockchain.</p>
+            {panel === "shop" && (
+              <div className="list">
+                <p>Balance {snap.balance} · Burned total {snap.burned}</p>
+                {snap.shop.map((item) => {
+                  const part = gameRef.current?.runtime.quote(item.price) ?? Math.round(item.price * 0.25);
+                  const owned = snap.owned.includes(item.id);
+                  return (
+                    <article key={item.id}>
+                      <div>
+                        <b>{item.name}</b>
+                        <span>{item.price} demo ORBITX · burns {part}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => gameRef.current?.runtime.buy(item.id)}
+                      >
+                        {owned ? "Equip" : "Buy"}
+                      </button>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+            {panel === "jobs" && (
+              <div className="list">
+                <article>
+                  <div>
+                    <b>Courier</b>
+                    <span>Pick up a package at the fountain and drop it at the shop. Pays 45.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("courier"); close(); }}>Start</button>
+                </article>
+                <article>
+                  <div>
+                    <b>Taxi driver</b>
+                    <span>Drive a hover-car, pick up a rider, drop them at the cafe. Pays 70.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("taxi"); close(); }}>Start</button>
+                </article>
+                <article>
+                  <div>
+                    <b>City guide</b>
+                    <span>Visit the shop, the hall, and OrbitX HQ. Pays 60.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("guide"); close(); }}>Start</button>
+                </article>
+              </div>
+            )}
+            {panel === "ads" && (
+              <form
+                className="list"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  gameRef.current?.runtime.book(adId, adDays, adText);
+                }}
+              >
+                <label>
+                  Billboard
+                  <select value={adId} onChange={(event) => setAdId(event.target.value)}>
+                    {(snap.billboards.length ? snap.billboards : [{ id: "plaza-east", project: "OrbitX", text: "" }]).map((board) => (
+                      <option key={board.id} value={board.id}>
+                        {board.id} — {board.project}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Message
+                  <input value={adText} maxLength={32} onChange={(event) => setAdText(event.target.value)} />
+                </label>
+                <div className="days">
+                  {([1, 7, 30] as const).map((days) => (
+                    <button key={days} type="button" className={adDays === days ? "on" : ""} onClick={() => setAdDays(days)}>
+                      {days} day{days === 1 ? "" : "s"} · {AD_PRICE[days]}
+                    </button>
+                  ))}
+                </div>
+                <p>
+                  Price {price} demo ORBITX. Burned on this purchase: {burn}. Running burned total: {snap.burned}.
+                </p>
+                <button type="submit">Book it</button>
+              </form>
+            )}
+            {panel === "events" && (
+              <div className="list">
+                {snap.events.map((item) => (
+                  <article key={item.id}>
+                    <div>
+                      <b>{item.title}</b>
+                      <span>{item.when} · {item.where}</span>
+                      <span>{item.detail}</span>
+                    </div>
+                  </article>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    gameRef.current?.runtime.startEvent();
+                    close();
+                  }}
+                >
+                  Start fountain lights
+                </button>
+              </div>
+            )}
+            {panel === "chat" && (
+              <form
+                className="list"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  gameRef.current?.runtime.sendChat(chatText);
+                  setChatText("");
+                }}
+              >
+                <div className="chat-log">
+                  {snap.chat.length === 0 ? <span>No messages yet. Open another tab to see someone else.</span> : null}
+                  {snap.chat.map((line, index) => (
+                    <p key={`${line.id}-${index}`}>
+                      <b>{line.self ? "You" : line.name}</b> {line.text}
+                    </p>
+                  ))}
+                </div>
+                <input
+                  value={chatText}
+                  placeholder="Say something"
+                  onChange={(event) => setChatText(event.target.value)}
+                  onFocus={() => gameRef.current?.runtime.setTyping(true)}
+                  onBlur={() => gameRef.current?.runtime.setTyping(false)}
+                />
+                <button type="submit">Send</button>
+              </form>
+            )}
+            {panel === "menu" && (
+              <div className="list">
+                <p>{HELP}</p>
+                <p>On a phone, use the stick to move, drag the right side to look, and the buttons to jump, fly, and use things.</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    close();
+                    setMenu(true);
+                    gameRef.current?.start(parseSeed(seedText || "1"), "orbit");
+                  }}
+                >
+                  Back to title
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+      ) : null}
       {menu && (
         <section className="menu" id="menu">
           <div className="card">
@@ -88,9 +362,91 @@ export default function App() {
               {busy ? "BUILDING" : "PLAY"}
             </button>
             <p className="help">{HELP}</p>
+            <p className="help">Demo credits only. No real tokens.</p>
           </div>
         </section>
       )}
     </>
+  );
+}
+
+function Stick({ onChange }: { onChange: (x: number, y: number) => void }) {
+  const base = useRef<HTMLDivElement>(null);
+  const [knob, setKnob] = useState({ x: 0, y: 0 });
+  const move = (clientX: number, clientY: number) => {
+    const rect = base.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    let x = (clientX - cx) / (rect.width / 2);
+    let y = (cy - clientY) / (rect.height / 2);
+    const mag = Math.hypot(x, y);
+    if (mag > 1) {
+      x /= mag;
+      y /= mag;
+    }
+    setKnob({ x, y });
+    onChange(x, y);
+  };
+  return (
+    <div
+      className="stick"
+      ref={base}
+      onPointerDown={(event) => {
+        event.currentTarget.setPointerCapture(event.pointerId);
+        event.stopPropagation();
+        move(event.clientX, event.clientY);
+      }}
+      onPointerMove={(event) => {
+        if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+        move(event.clientX, event.clientY);
+      }}
+      onPointerUp={(event) => {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+        setKnob({ x: 0, y: 0 });
+        onChange(0, 0);
+      }}
+    >
+      <span className="knob" style={{ transform: `translate(${knob.x * 28}px, ${-knob.y * 28}px)` }} />
+    </div>
+  );
+}
+
+function LookPad({ onLook }: { onLook: (dx: number, dy: number) => void }) {
+  const last = useRef<{ x: number; y: number } | null>(null);
+  return (
+    <div
+      className="look-pad"
+      onPointerDown={(event) => {
+        if ((event.target as HTMLElement).closest("button, .stick")) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        last.current = { x: event.clientX, y: event.clientY };
+      }}
+      onPointerMove={(event) => {
+        if (!last.current) return;
+        onLook((event.clientX - last.current.x) * 0.0045, (event.clientY - last.current.y) * 0.0045);
+        last.current = { x: event.clientX, y: event.clientY };
+      }}
+      onPointerUp={() => {
+        last.current = null;
+      }}
+    />
+  );
+}
+
+function Hold({ label, onDown, onUp }: { label: string; onDown: () => void; onUp: () => void }) {
+  return (
+    <button
+      type="button"
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        onDown();
+      }}
+      onPointerUp={() => onUp()}
+      onPointerCancel={() => onUp()}
+    >
+      {label}
+    </button>
   );
 }
