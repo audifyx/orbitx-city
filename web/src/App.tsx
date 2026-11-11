@@ -1,209 +1,643 @@
-import { useState } from 'react'
-import CityMap from './CityMap'
-import {
-  DISTRICTS,
-  JOBS,
-  MAP_PROVISIONAL,
-  MINECRAFT_VERSION,
-  WORLD_ZIP_PATH,
-  type DistrictId,
-} from './data'
+import { useEffect, useRef, useState } from "react";
+import { createGame, type Game, type PlayMode } from "./game/engine";
+import type { PanelName, Runtime, Snap } from "./game/runtime";
+import { AD_PRICE } from "./game/content";
+import { parseSeed } from "./game/seed";
+
+const HELP =
+  "WASD move · mouse look · Space jump · F fly · E use or drive · Shift down · Ctrl faster · B shop · J jobs · G ads · H events · C chat";
+
+const EMPTY: Snap = {
+  playing: false,
+  touch: false,
+  driving: false,
+  flying: false,
+  indoors: "",
+  prompt: "",
+  balance: 0,
+  burned: 0,
+  owned: [],
+  color: "white",
+  hat: "none",
+  car: "black",
+  jobTitle: "",
+  objective: "",
+  notice: "",
+  chat: [],
+  others: 0,
+  netMode: "",
+  name: "",
+  projects: [],
+  billboards: [],
+  events: [],
+  shop: [],
+  eventLabel: "",
+  panel: "",
+  people: [],
+  friends: [],
+  requests: [],
+  party: [],
+  lobbies: [],
+  lobby: "",
+  muted: false,
+  deafened: false,
+  pushToTalk: false,
+  voiceProvider: "",
+  voiceError: "",
+  quality: "high",
+  time: "sunset",
+  me: { x: 0, z: 0, yaw: 0 },
+  profile: null,
+  server: "",
+  chatScope: "global",
+};
+
+function shotMode(): PlayMode | null {
+  const params = new URLSearchParams(window.location.search);
+  const shot = params.get("shot");
+  if (shot === "air") return "air";
+  if (
+    shot === "spawn" ||
+    shot === "drive" ||
+    shot === "shop" ||
+    shot === "district" ||
+    shot === "billboard" ||
+    shot === "players" ||
+    shot === "meet" ||
+    shot === "inside" ||
+    shot === "cafe" ||
+    shot === "hall" ||
+    params.has("autostart")
+  ) {
+    return "play";
+  }
+  return null;
+}
 
 export default function App() {
-  const [selected, setSelected] = useState<DistrictId>('terminal')
-  const district = DISTRICTS.find((d) => d.id === selected) ?? DISTRICTS[0]
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const gameRef = useRef<Game | null>(null);
+  const [menu, setMenu] = useState(() => shotMode() === null);
+  const [busy, setBusy] = useState(false);
+  const [seedText, setSeedText] = useState(() => new URLSearchParams(window.location.search).get("seed") ?? "");
+  const [status, setStatus] = useState("");
+  const [webglMissing, setWebglMissing] = useState(false);
+  const [snap, setSnap] = useState<Snap>(EMPTY);
+  const [panel, setPanel] = useState<PanelName | "">("");
+  const [adText, setAdText] = useState("ORBITX LIVE");
+  const [adId, setAdId] = useState("plaza-east");
+  const [adDays, setAdDays] = useState<1 | 7 | 30>(7);
+  const [chatText, setChatText] = useState("");
 
-  const scrollTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
-  }
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const params = new URLSearchParams(window.location.search);
+    let game: Game;
+    try {
+      game = createGame(canvas, setStatus, params.has("shot"));
+    } catch {
+      setWebglMissing(true);
+      return;
+    }
+    gameRef.current = game;
+    const off = game.runtime.subscribe((next) => {
+      setSnap(next);
+      if (next.panel) {
+        setPanel(next.panel);
+        const lock = next.panel !== "chat";
+        game.runtime.setPaused(lock);
+        if (lock) document.exitPointerLock();
+      }
+    });
+    const mode = shotMode();
+    if (mode) {
+      game.start(parseSeed(params.get("seed") ?? "1"), mode);
+      setMenu(false);
+    } else {
+      game.start(parseSeed(params.get("seed") ?? "1"), "orbit");
+    }
+    return () => {
+      off();
+      game.dispose();
+      gameRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle("touch", snap.touch);
+    document.body.classList.toggle("playing", !menu);
+  }, [snap.touch, menu]);
+
+  const open = (name: PanelName) => {
+    setPanel(name);
+    const lock = name !== "chat";
+    gameRef.current?.runtime.setPaused(lock);
+    if (lock) document.exitPointerLock();
+  };
+
+  const close = () => {
+    setPanel("");
+    gameRef.current?.runtime.setPaused(false);
+    gameRef.current?.runtime.setTyping(false);
+  };
+
+  const play = () => {
+    const game = gameRef.current;
+    const canvas = canvasRef.current;
+    if (!game || !canvas || busy) return;
+    setBusy(true);
+    game.start(parseSeed(seedText), "play");
+    setBusy(false);
+    setMenu(false);
+    if (!snap.touch) canvas.requestPointerLock();
+  };
+
+  const price = AD_PRICE[adDays];
+  const burn = gameRef.current?.runtime.quote(price) ?? Math.max(1, Math.round(price * 0.25));
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <span className="topbar-logo">ORBITX CITY</span>
-        <nav className="topbar-nav">
-          <button type="button" onClick={() => scrollTo('districts')}>Districts</button>
-          <button type="button" onClick={() => scrollTo('map')}>City Map</button>
-          <button type="button" onClick={() => scrollTo('jobs')}>Jobs</button>
-          <button type="button" onClick={() => scrollTo('how-to-play')}>How to Play</button>
-        </nav>
-        <a className="topbar-download" href={WORLD_ZIP_PATH} download>
-          Download the World
-        </a>
-      </header>
-
-      <main>
-        {/* HERO */}
-        <section className="hero">
-          <p className="hero-kicker">ORBITX · MINECRAFT JAVA EDITION {MINECRAFT_VERSION}</p>
-          <h1>
-            ORBITX
-            <br />
-            <span className="gold">CITY</span>
-          </h1>
-          <p className="hero-pitch">
-            Every OrbitX platform is a district you can walk to. Spawn in the
-            plaza, visit the Terminal tower, trade in the DEX hall, launch from
-            the bay — a whole city, free forever.
-          </p>
-          <div className="hero-actions">
-            <button type="button" className="btn-primary" onClick={() => scrollTo('districts')}>
-              Enter the City
-            </button>
-            <a className="btn-secondary" href={WORLD_ZIP_PATH} download>
-              Download the World — Free
-            </a>
+    <>
+      <canvas ref={canvasRef} className="view" id="view" />
+      <p className="status" id="status">
+        {menu ? "" : status}
+      </p>
+      <div className="crosshair" id="crosshair" hidden={menu || snap.touch || !!panel} />
+      {!menu && (
+        <div className="hud" id="hud">
+          <strong>DEMO ORBITX {snap.balance}</strong>
+          <span>Burned {snap.burned}</span>
+          <span>{snap.jobTitle ? `${snap.jobTitle} — ${snap.objective}` : snap.objective}</span>
+          {snap.eventLabel ? <span>{snap.eventLabel}</span> : null}
+          {snap.notice ? <em>{snap.notice}</em> : null}
+          <span className="quiet">
+            {snap.others + 1} in the city · {snap.netMode}
+          </span>
+          <Minimap me={snap.me} people={snap.people} />
+        </div>
+      )}
+      {!menu && snap.prompt ? <p className="prompt">{snap.prompt}</p> : null}
+      {!menu && (
+        <div className="actions">
+          <button type="button" onClick={() => open("shop")}>Shop</button>
+          <button type="button" onClick={() => open("jobs")}>Jobs</button>
+          <button type="button" onClick={() => open("ads")}>Ads</button>
+          <button type="button" onClick={() => open("events")}>Events</button>
+          <button type="button" onClick={() => open("chat")}>Chat</button>
+          <button type="button" onClick={() => open("phone")}>Phone</button>
+          <button type="button" onClick={() => open("menu")}>Menu</button>
+        </div>
+      )}
+      {!menu && snap.touch && !panel ? (
+        <div className="touch-ui">
+          <LookPad
+            onLook={(dx, dy) => gameRef.current?.runtime.addLook(dx, dy)}
+          />
+          <Stick onChange={(x, y) => gameRef.current?.runtime.setStick(x, y)} />
+          <div className="pad-buttons">
+            <Hold label="Jump" onDown={() => gameRef.current?.runtime.hold("jump", true)} onUp={() => gameRef.current?.runtime.hold("jump", false)} />
+            <button type="button" onClick={() => gameRef.current?.runtime.toggleFly()}>Fly</button>
+            <Hold label="Down" onDown={() => gameRef.current?.runtime.hold("down", true)} onUp={() => gameRef.current?.runtime.hold("down", false)} />
+            <button type="button" onClick={() => gameRef.current?.runtime.interact()}>Use</button>
+            <button type="button" onClick={() => open("chat")}>Chat</button>
+            <button type="button" onClick={() => open("shop")}>Shop</button>
           </div>
-          <p className="hero-note">Free, forever. No account, no wallet, no charge — just the world file.</p>
-        </section>
-
-        {/* DISTRICTS */}
-        <section id="districts" className="section">
-          <h2>Pick a district</h2>
-          <p className="section-intro">
-            Six districts, one plaza in the middle. Tap a card — or a marker on
-            the map below — to see what the district is and what you do there.
-          </p>
-          <div className="district-grid">
-            {DISTRICTS.map((d) => (
-              <button
-                key={d.id}
-                type="button"
-                className={`district-card${selected === d.id ? ' selected' : ''}`}
-                style={{ borderTopColor: d.accent }}
-                onClick={() => setSelected(d.id)}
-                aria-pressed={selected === d.id}
+        </div>
+      ) : null}
+      {panel ? (
+        <section className="panel-wrap" id="panel">
+          <div className="panel" role="dialog">
+            <header>
+              <strong>
+                {panel === "shop" && "OrbitX shop"}
+                {panel === "jobs" && "Jobs"}
+                {panel === "ads" && "Book a billboard"}
+                {panel === "events" && "Events"}
+                {panel === "chat" && "Chat"}
+                {panel === "phone" && "Phone"}
+                {panel === "menu" && "Menu"}
+              </strong>
+              <button type="button" onClick={close}>Close</button>
+            </header>
+            <p className="demo">Demo economy only. These credits are not real ORBITX tokens. Nothing is connected to a wallet or a blockchain.</p>
+            {panel === "shop" && (
+              <div className="list">
+                <p>Balance {snap.balance} · Burned total {snap.burned}</p>
+                {snap.shop.map((item) => {
+                  const part = gameRef.current?.runtime.quote(item.price) ?? Math.round(item.price * 0.25);
+                  const owned = snap.owned.includes(item.id);
+                  return (
+                    <article key={item.id}>
+                      <div>
+                        <b>{item.name}</b>
+                        <span>{item.price} demo ORBITX · burns {part}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => gameRef.current?.runtime.buy(item.id)}
+                      >
+                        {owned ? "Equip" : "Buy"}
+                      </button>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+            {panel === "jobs" && (
+              <div className="list">
+                <article>
+                  <div>
+                    <b>Courier</b>
+                    <span>Pick up a package at the fountain and drop it at the shop. Pays 45.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("courier"); close(); }}>Start</button>
+                </article>
+                <article>
+                  <div>
+                    <b>Taxi driver</b>
+                    <span>Drive a hover-car, pick up a rider, drop them at the cafe. Pays 70.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("taxi"); close(); }}>Start</button>
+                </article>
+                <article>
+                  <div>
+                    <b>City guide</b>
+                    <span>Visit the shop, the hall, and OrbitX HQ. Pays 60.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("guide"); close(); }}>Start</button>
+                </article>
+                <article>
+                  <div>
+                    <b>Mechanic</b>
+                    <span>Service the hover-car on the east road. Pays 55.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("mechanic"); close(); }}>Start</button>
+                </article>
+                <article>
+                  <div>
+                    <b>Photographer</b>
+                    <span>Shoot the fountain, then the ORBITX tower. Pays 40.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("photographer"); close(); }}>Start</button>
+                </article>
+                <article>
+                  <div>
+                    <b>Promoter</b>
+                    <span>Visit the hall, then the plaza ad kiosk. Pays 50.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("promoter"); close(); }}>Start</button>
+                </article>
+              </div>
+            )}
+            {panel === "ads" && (
+              <form
+                className="list"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  gameRef.current?.runtime.book(adId, adDays, adText);
+                }}
               >
-                <span className="district-name">{d.name}</span>
-                <span className="district-tagline">{d.tagline}</span>
-                <span className="district-compass">{d.compass}</span>
-              </button>
-            ))}
-          </div>
-
-          <article className="district-detail" aria-live="polite">
-            <div className="district-detail-head">
-              <h3>{district.name} <span className="gold">— {district.tagline}</span></h3>
-              <p className="district-location">
-                Map location: {district.compass} · blocks {district.coords.x}, {district.coords.z}
-              </p>
-            </div>
-            <p>{district.description}</p>
-            <h4>What you do there</h4>
-            <ul>
-              {district.whatYouDo.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </article>
-        </section>
-
-        {/* CITY MAP */}
-        <section id="map" className="section">
-          <h2>City map</h2>
-          <p className="section-intro">
-            Top-down view of OrbitX City. The gold dashed line is the taxi loop —
-            it runs through every district gate. Tap a marker to open that district.
-          </p>
-          <CityMap districts={DISTRICTS} selected={selected} onSelect={setSelected} />
-          <p className="map-caption">
-            {MAP_PROVISIONAL
-              ? 'Map layout is provisional — drawn from the plan while the world generator finishes. Exact coordinates land with the world file.'
-              : 'Map drawn from the world generator layout.'}{' '}
-            Spawn plaza at the center. North is up.
-          </p>
-        </section>
-
-        {/* JOBS BOARD */}
-        <section id="jobs" className="section">
-          <h2>Jobs board</h2>
-          <p className="section-intro">
-            The city pays in city credits. These are the city economy —{' '}
-            <strong>city credits — economy numbers coming in Part 4</strong>.
-            They are placeholders, not real money, and never will be.
-          </p>
-          <div className="jobs-grid">
-            {JOBS.map((job) => (
-              <article key={job.title} className="job-card">
-                <h3>{job.title}</h3>
-                <p className="job-payout">{job.payout}</p>
-                <p className="job-payout-note">city credits — economy numbers coming in Part 4</p>
-                <p>{job.description}</p>
-                <ul>
-                  {job.duties.map((duty) => (
-                    <li key={duty}>{duty}</li>
+                <label>
+                  Billboard
+                  <select value={adId} onChange={(event) => setAdId(event.target.value)}>
+                    {(snap.billboards.length ? snap.billboards : [{ id: "plaza-east", project: "OrbitX", text: "" }]).map((board) => (
+                      <option key={board.id} value={board.id}>
+                        {board.id} — {board.project}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Message
+                  <input value={adText} maxLength={32} onChange={(event) => setAdText(event.target.value)} />
+                </label>
+                <div className="days">
+                  {([1, 7, 30] as const).map((days) => (
+                    <button key={days} type="button" className={adDays === days ? "on" : ""} onClick={() => setAdDays(days)}>
+                      {days} day{days === 1 ? "" : "s"} · {AD_PRICE[days]}
+                    </button>
                   ))}
-                </ul>
-              </article>
-            ))}
+                </div>
+                <p>
+                  Price {price} demo ORBITX. Burned on this purchase: {burn}. Running burned total: {snap.burned}.
+                </p>
+                <button type="submit">Book it</button>
+              </form>
+            )}
+            {panel === "events" && (
+              <div className="list">
+                {snap.events.map((item) => (
+                  <article key={item.id}>
+                    <div>
+                      <b>{item.title}</b>
+                      <span>{item.when} · {item.where}</span>
+                      <span>{item.detail}</span>
+                    </div>
+                  </article>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    gameRef.current?.runtime.startEvent();
+                    close();
+                  }}
+                >
+                  Start fountain lights
+                </button>
+              </div>
+            )}
+            {panel === "chat" && (
+              <form
+                className="list"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  gameRef.current?.runtime.sendChat(chatText, snap.chatScope);
+                  setChatText("");
+                }}
+              >
+                <div className="days">
+                  <button type="button" className={snap.chatScope === "global" ? "on" : ""} onClick={() => gameRef.current?.runtime.setChatScope("global")}>
+                    Everyone
+                  </button>
+                  <button type="button" className={snap.chatScope === "near" ? "on" : ""} onClick={() => gameRef.current?.runtime.setChatScope("near")}>
+                    Nearby
+                  </button>
+                </div>
+                <div className="chat-log">
+                  {snap.chat.length === 0 ? <span>No messages yet. Open another tab to see someone else.</span> : null}
+                  {snap.chat.map((line, index) => (
+                    <p key={`${line.id}-${index}`}>
+                      <b>{line.self ? "You" : line.name}</b> {line.text}
+                    </p>
+                  ))}
+                </div>
+                <input
+                  value={chatText}
+                  placeholder="Say something"
+                  onChange={(event) => setChatText(event.target.value)}
+                  onFocus={() => gameRef.current?.runtime.setTyping(true)}
+                  onBlur={() => gameRef.current?.runtime.setTyping(false)}
+                />
+                <button type="submit">Send</button>
+              </form>
+            )}
+            {panel === "phone" && <Phone snap={snap} rt={gameRef.current?.runtime ?? null} />}
+            {panel === "menu" && (
+              <div className="list">
+                <p>{HELP} · P phone · N day/night · V push to talk · 1-4 emotes</p>
+                <p>Server: {snap.server || snap.netMode}. Quality {snap.quality}. Time {snap.time}.</p>
+                <div className="days">
+                  {(["low", "medium", "high"] as const).map((level) => (
+                    <button key={level} type="button" className={snap.quality === level ? "on" : ""} onClick={() => gameRef.current?.runtime.setQuality(level)}>
+                      {level}
+                    </button>
+                  ))}
+                  <button type="button" onClick={() => gameRef.current?.runtime.cycleTime()}>Time: {snap.time}</button>
+                </div>
+                <p>On a phone, use the stick to move, drag the right side to look, and the buttons to jump, fly, and use things.</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    close();
+                    setMenu(true);
+                    gameRef.current?.start(parseSeed(seedText || "1"), "orbit");
+                  }}
+                >
+                  Back to title
+                </button>
+              </div>
+            )}
           </div>
         </section>
-
-        {/* HOW TO PLAY */}
-        <section id="how-to-play" className="section">
-          <h2>How to play</h2>
-          <p className="section-intro">
-            OrbitX City runs on Minecraft: Java Edition {MINECRAFT_VERSION}.
-          </p>
-          <ol className="steps">
-            <li>
-              <strong>Download the world.</strong> Grab the free world zip from
-              the button below — one file, the whole city.
-            </li>
-            <li>
-              <strong>Put it in your saves folder.</strong> Unzip the file, then
-              move the unzipped world folder into your Minecraft{' '}
-              <code>saves</code> folder. On most computers that is{' '}
-              <code>.minecraft/saves</code> — open Minecraft, go to Options →
-              Resource Packs → Open Pack Folder, then go up one level to find{' '}
-              <code>saves</code>.
-            </li>
-            <li>
-              <strong>Open Minecraft: Java Edition {MINECRAFT_VERSION}.</strong>{' '}
-              Make sure you are on Java Edition — this world does not work on
-              Bedrock.
-            </li>
-            <li>
-              <strong>Select the world.</strong> On the singleplayer screen,
-              pick <strong>OrbitX City</strong> from your world list.
-            </li>
-            <li>
-              <strong>Spawn in the plaza.</strong> You arrive at the spawn
-              plaza in the center of the city. Read the map board, pick a gate,
-              and walk to any district — or follow the taxi loop around the
-              whole city.
-            </li>
-          </ol>
+      ) : null}
+      {menu && (
+        <section className="menu" id="menu">
+          <div className="card">
+            <h1>ORBITX CITY</h1>
+            <p className="tag">{webglMissing ? "This browser has no WebGL." : "Tropical downtown in the browser"}</p>
+            <label>
+              Seed
+              <input
+                id="seed"
+                value={seedText}
+                placeholder="random"
+                inputMode="text"
+                disabled={webglMissing}
+                onChange={(event) => setSeedText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") play();
+                }}
+              />
+            </label>
+            <button id="play" type="button" disabled={webglMissing || busy} onClick={play}>
+              {busy ? "BUILDING" : "PLAY"}
+            </button>
+            <p className="help">{HELP}</p>
+            <p className="help">Demo credits only. No real tokens.</p>
+          </div>
         </section>
+      )}
+    </>
+  );
+}
 
-        {/* DOWNLOAD */}
-        <section id="download" className="section download-section">
-          <h2>Download OrbitX City</h2>
-          <p className="section-intro">
-            One file, the whole city — free, forever. Minecraft: Java Edition{' '}
-            {MINECRAFT_VERSION}.
-          </p>
-          <a className="btn-primary btn-large" href={WORLD_ZIP_PATH} download>
-            Download the World (.zip)
-          </a>
-          <p className="download-note">
-            The world file is generated alongside this menu. If the download
-            does not start yet, the world is still being built — check back
-            shortly.
-          </p>
-        </section>
-      </main>
+function Minimap({ me, people }: { me: Snap["me"]; people: Snap["people"] }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    const size = canvas.width;
+    ctx.clearRect(0, 0, size, size);
+    ctx.fillStyle = "rgba(8, 12, 18, 0.72)";
+    ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = "#7ef6ff";
+    ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
+    const plot = (x: number, z: number) => [size / 2 + x * 0.55, size / 2 + z * 0.55] as const;
+    ctx.fillStyle = "#e0b33a";
+    const [mx, mz] = plot(me.x, me.z);
+    ctx.beginPath();
+    ctx.arc(mx, mz, 4, 0, Math.PI * 2);
+    ctx.fill();
+    for (const person of people) {
+      const [px, pz] = plot(person.x, person.z);
+      ctx.fillStyle = person.speaking ? "#7ef6ff" : "#f4f6fa";
+      ctx.beginPath();
+      ctx.arc(px, pz, person.speaking ? 4 : 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }, [me, people]);
+  return <canvas ref={ref} className="minimap" width={148} height={148} />;
+}
 
-      <footer className="footer">
-        <p>
-          ORBITX CITY — free, forever. The world, the city, the menu — never
-          charged. Minecraft: Java Edition {MINECRAFT_VERSION}.
-        </p>
-        <p className="footer-small">
-          OrbitX City is a fan-made Minecraft world for the OrbitX community.
-          Not affiliated with Mojang or Microsoft.
-        </p>
-      </footer>
+function Phone({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
+  const rooms = snap.lobbies.length
+    ? snap.lobbies
+    : [
+        { id: "plaza", name: "Plaza", members: [] },
+        { id: "district", name: "Project District", members: [] },
+        { id: "hall", name: "Community Hall", members: [] },
+        { id: "cafe", name: "Cafe Nova", members: [] },
+        { id: "shop", name: "OrbitX Shop", members: [] },
+      ];
+  return (
+    <div className="list phone">
+      <p>
+        {snap.name} · {snap.server || "offline profile"} · voice {snap.voiceProvider || "not joined"}
+      </p>
+      {snap.voiceError ? <p>{snap.voiceError}</p> : null}
+      {snap.profile ? (
+        <article>
+          <div>
+            <b>{snap.profile.name}</b>
+            <span>
+              {snap.profile.color} suit · {snap.profile.hat} · {snap.profile.speaking ? "speaking" : "quiet"}
+            </span>
+          </div>
+          <button type="button" onClick={() => rt?.friendAsk(snap.profile?.id || "")}>Add friend</button>
+          <button type="button" onClick={() => rt?.partyInvite(snap.profile?.id || "")}>Invite</button>
+        </article>
+      ) : null}
+      <h3>People here</h3>
+      {snap.people.length === 0 ? <span>You are the only one in view. The main world still lists you.</span> : null}
+      {snap.people.map((person) => (
+        <article key={person.id}>
+          <div>
+            <b>{person.name} {person.speaking ? "●" : ""}</b>
+            <span>{person.lobby || "in the street"}</span>
+          </div>
+          <button type="button" onClick={() => rt?.inspect(person.id)}>Profile</button>
+        </article>
+      ))}
+      <h3>Voice lobbies</h3>
+      {rooms.map((room) => (
+        <article key={room.id}>
+          <div>
+            <b>{room.name}</b>
+            <span>
+              {room.members.length ? room.members.map((member) => `${member.name}${member.speaking ? " ●" : ""}`).join(", ") : "empty"}
+            </span>
+          </div>
+          <button type="button" onClick={() => rt?.joinLobby(room.id)}>{snap.lobby === room.id ? "In room" : "Join"}</button>
+        </article>
+      ))}
+      <div className="days">
+        <button type="button" onClick={() => rt?.leaveLobby()}>Leave voice</button>
+        <button type="button" className={snap.muted ? "on" : ""} onClick={() => rt?.setMuted(!snap.muted)}>Mute</button>
+        <button type="button" className={snap.deafened ? "on" : ""} onClick={() => rt?.setDeafened(!snap.deafened)}>Deafen</button>
+        <button type="button" className={snap.pushToTalk ? "on" : ""} onClick={() => rt?.setPushToTalk(!snap.pushToTalk)}>Push to talk</button>
+        <button type="button" onClick={() => rt?.emote("wave")}>Wave</button>
+      </div>
+      <h3>Friends</h3>
+      {snap.requests.map((req) => (
+        <article key={req.id}>
+          <div><b>{req.name}</b><span>wants to be friends</span></div>
+          <button type="button" onClick={() => rt?.friendAccept(req.id)}>Accept</button>
+        </article>
+      ))}
+      {snap.friends.map((friend) => (
+        <article key={friend.id}>
+          <div><b>{friend.name}</b></div>
+          <button type="button" onClick={() => rt?.partyInvite(friend.id)}>Party</button>
+        </article>
+      ))}
+      <h3>Party</h3>
+      <span>{snap.party.length ? snap.party.map((member) => member.name).join(", ") : "No party yet."}</span>
+      <button type="button" onClick={() => rt?.partyInvite("")}>Start a party</button>
+      {snap.people[0] ? (
+        <label>
+          Volume for {snap.people[0].name}
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            defaultValue={1}
+            onChange={(event) => rt?.setVolume(snap.people[0].id, Number(event.target.value))}
+          />
+        </label>
+      ) : null}
     </div>
-  )
+  );
+}
+
+function Stick({ onChange }: { onChange: (x: number, y: number) => void }) {
+  const base = useRef<HTMLDivElement>(null);
+  const [knob, setKnob] = useState({ x: 0, y: 0 });
+  const move = (clientX: number, clientY: number) => {
+    const rect = base.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    let x = (clientX - cx) / (rect.width / 2);
+    let y = (cy - clientY) / (rect.height / 2);
+    const mag = Math.hypot(x, y);
+    if (mag > 1) {
+      x /= mag;
+      y /= mag;
+    }
+    setKnob({ x, y });
+    onChange(x, y);
+  };
+  return (
+    <div
+      className="stick"
+      ref={base}
+      onPointerDown={(event) => {
+        event.currentTarget.setPointerCapture(event.pointerId);
+        event.stopPropagation();
+        move(event.clientX, event.clientY);
+      }}
+      onPointerMove={(event) => {
+        if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+        move(event.clientX, event.clientY);
+      }}
+      onPointerUp={(event) => {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+        setKnob({ x: 0, y: 0 });
+        onChange(0, 0);
+      }}
+    >
+      <span className="knob" style={{ transform: `translate(${knob.x * 28}px, ${-knob.y * 28}px)` }} />
+    </div>
+  );
+}
+
+function LookPad({ onLook }: { onLook: (dx: number, dy: number) => void }) {
+  const last = useRef<{ x: number; y: number } | null>(null);
+  return (
+    <div
+      className="look-pad"
+      onPointerDown={(event) => {
+        if ((event.target as HTMLElement).closest("button, .stick")) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        last.current = { x: event.clientX, y: event.clientY };
+      }}
+      onPointerMove={(event) => {
+        if (!last.current) return;
+        onLook((event.clientX - last.current.x) * 0.0045, (event.clientY - last.current.y) * 0.0045);
+        last.current = { x: event.clientX, y: event.clientY };
+      }}
+      onPointerUp={() => {
+        last.current = null;
+      }}
+    />
+  );
+}
+
+function Hold({ label, onDown, onUp }: { label: string; onDown: () => void; onUp: () => void }) {
+  return (
+    <button
+      type="button"
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        onDown();
+      }}
+      onPointerUp={() => onUp()}
+      onPointerCancel={() => onUp()}
+    >
+      {label}
+    </button>
+  );
 }

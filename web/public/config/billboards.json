@@ -1,0 +1,34 @@
+[
+  {
+    "id": "plaza-east",
+    "project": "OrbitX",
+    "text": "WELCOME TO THE CITY",
+    "image": "",
+    "start": "2026-01-01",
+    "end": "2026-12-31"
+  },
+  {
+    "id": "plaza-west",
+    "project": "Cafe Nova",
+    "text": "SUNSET COFFEE",
+    "image": "",
+    "start": "2026-01-01",
+    "end": "2026-12-31"
+  },
+  {
+    "id": "hall-front",
+    "project": "Community Hall",
+    "text": "EVENTS TONIGHT",
+    "image": "",
+    "start": "2026-01-01",
+    "end": "2026-12-31"
+  },
+  {
+    "id": "district-row",
+    "project": "Project District",
+    "text": "YOUR OFFICE HERE",
+    "image": "",
+    "start": "2026-01-01",
+    "end": "2026-12-31"
+  }
+]

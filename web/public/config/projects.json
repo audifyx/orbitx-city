@@ -1,0 +1,22 @@
+[
+  {
+    "id": "orbitx-hq",
+    "name": "OrbitX HQ",
+    "line": "Community headquarters"
+  },
+  {
+    "id": "your-project",
+    "name": "Your Project Here",
+    "line": "Holders and friends meet here"
+  },
+  {
+    "id": "north-star",
+    "name": "North Star",
+    "line": "Project office"
+  },
+  {
+    "id": "lumen",
+    "name": "Lumen Labs",
+    "line": "Build nights and hangouts"
+  }
+]
