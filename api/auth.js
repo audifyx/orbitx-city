@@ -3,7 +3,7 @@
 
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 
-const OPS = new Set(["auth-signup", "auth-login", "auth-magic", "auth-magic-finish", "auth-oauth", "auth-reauth"]);
+const OPS = new Set(["auth-signup", "auth-login", "auth-magic", "auth-magic-finish", "auth-reauth"]);
 
 function authStore() {
   const slot = globalThis;
@@ -252,25 +252,6 @@ export async function handleAuthOp(op, body) {
     const user = authStore().users.get(row.id);
     if (!user) return { ok: false, status: 400, message: "That account is gone." };
     return issue(user);
-  }
-  if (op === "auth-oauth") {
-    const provider = ["google", "discord", "twitter"].includes(body.provider) ? body.provider : "";
-    if (!provider) return { ok: false, status: 400, message: "Choose Google, Discord, or X." };
-    const email = `${provider}.player@orbitx.dev`;
-    let user = mockUserByEmail(email);
-    if (!user) {
-      const label = provider === "twitter" ? "X" : provider[0].toUpperCase() + provider.slice(1);
-      user = putUser({
-        id: `acct_${provider}_${randomBytes(8).toString("hex")}`,
-        email,
-        name: `${label} player`.slice(0, 18),
-        avatar: "",
-        provider,
-        salt: "",
-        passwordHash: "",
-      });
-    }
-    return { ...issue(user), dev: true, message: "Dev login. With Supabase this redirects to the provider." };
   }
   return { ok: false, status: 400, message: "Unknown auth request." };
 }

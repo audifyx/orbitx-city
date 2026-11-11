@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { finishMagic, loadAuthConfig, requestExportCode, restoreAccount, sendMagicLink, signIn, signUp, startOAuth, type Account, type AuthConfig } from "./auth";
+import { finishMagic, loadAuthConfig, requestExportCode, restoreAccount, sendMagicLink, signIn, signUp, type Account, type AuthConfig } from "./auth";
 
 type Props = {
   onAccount: (account: Account) => void;
@@ -78,22 +78,8 @@ export function AuthPanel({ onAccount, onGuest }: Props) {
           }
         })}>Email me a link</button>
       </div>
-      <div className="auth-actions">
-        <button type="button" disabled={busy} onClick={() => run(async () => {
-          const result = await startOAuth("google");
-          if (result.account) onAccount(result.account);
-        })}>Google</button>
-        <button type="button" disabled={busy} onClick={() => run(async () => {
-          const result = await startOAuth("discord");
-          if (result.account) onAccount(result.account);
-        })}>Discord</button>
-        <button type="button" disabled={busy} onClick={() => run(async () => {
-          const result = await startOAuth("twitter");
-          if (result.account) onAccount(result.account);
-        })}>X</button>
-      </div>
       <button id="auth-guest" type="button" onClick={onGuest}>Play as guest</button>
-      <p className="help">{cfg?.mode === "supabase" ? "Supabase Auth is on. Google, Discord, and X have to be enabled in the Supabase dashboard." : "No Supabase keys in this server, so login stays on this machine until you connect a project."}</p>
+      <p className="help">{cfg?.mode === "supabase" ? "Supabase Auth is on. Email sign-in only." : "No Supabase keys in this server, so login stays on this machine until you connect a project."}</p>
       {note ? <p className="help" id="auth-note">{note}</p> : null}
     </div>
   );

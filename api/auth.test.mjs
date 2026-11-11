@@ -52,15 +52,11 @@ test("a guest city moves onto a new account", async () => {
   assert.equal(stale.status, 401);
 });
 
-test("magic link and oauth dev login issue an account token", async () => {
+test("magic link dev login issues an account token", async () => {
   const email = `magic-${Date.now()}@example.com`;
   const sent = await call("auth-magic", { email });
   assert.match(sent.data.devLink, /magic=/);
   const code = sent.data.devLink.split("magic=")[1];
   const done = await call("auth-magic-finish", { code });
   assert.equal(done.data.ok, true);
-  const oauth = await call("auth-oauth", { provider: "twitter" });
-  assert.equal(oauth.data.account.provider, "twitter");
-  const again = await call("auth-oauth", { provider: "twitter" });
-  assert.equal(again.data.account.id, oauth.data.account.id);
 });

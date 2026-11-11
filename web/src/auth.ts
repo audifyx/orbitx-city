@@ -149,22 +149,6 @@ export async function finishMagic(code: string): Promise<AuthResult> {
   return { account: keep(data) };
 }
 
-export async function startOAuth(provider: "google" | "discord" | "twitter"): Promise<AuthResult> {
-  const cfg = await loadAuthConfig();
-  if (cfg.mode === "supabase") {
-    const client = await browser();
-    if (!client) throw new Error("Supabase Auth is not configured.");
-    const { error } = await client.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: window.location.origin },
-    });
-    if (error) throw new Error(error.message);
-    return { pending: true, message: "Redirecting to the provider." };
-  }
-  const data = await mockPost("auth-oauth", { provider });
-  return { account: keep(data), message: data.message };
-}
-
 export async function requestExportCode(email: string): Promise<AuthResult> {
   const cfg = await loadAuthConfig();
   if (cfg.mode === "supabase") {
