@@ -102,6 +102,53 @@ body,
   overflow: auto;
 }
 
+/* Roster step: the menu becomes one normal scrolling page (block, top
+// aligned) instead of a centered grid with a nested scrolling card. The
+// centered grid clipped the tall roster on phones and the inner card's
+// scroll never answered a finger, so PLAY sat 800px below the fold and the
+// page felt frozen. Now the whole roster scrolls like any page, and the
+// PLAY bar is sticky at the bottom so the game is always one tap away. */
+.menu.menu-roster {
+  display: block;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.menu.menu-roster .card.menu-wide {
+  max-height: none;
+  margin: 8px auto;
+  /* overflow must be visible, not auto: an overflow:auto card becomes the
+  // playbar's sticky context and never scrolls, so the sticky bar never
+  // sticks. With visible, the bar binds to the scrolling section instead. */
+  overflow: visible;
+}
+
+.char-playbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background: #000000;
+  padding: 10px 0 12px;
+  border-top: 1px solid #2a3644;
+}
+
+.char-playbar #play {
+  width: 100%;
+  min-height: 52px;
+  font-size: 18px;
+  margin: 0;
+}
+
+.char-view-img {
+  width: 100%;
+  height: 280px;
+  object-fit: contain;
+  background: #101820;
+  border: 1px solid #9fdfff;
+  display: block;
+}
+
 .menu-home {
   position: absolute;
   inset: 0;
@@ -874,6 +921,10 @@ body.touch .touch-ui {
   }
 
   .char-view {
+    height: 220px;
+  }
+
+  .char-view-img {
     height: 220px;
   }
 

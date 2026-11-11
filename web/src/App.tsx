@@ -704,7 +704,7 @@ export default function App() {
         </section>
       ) : null}
       {menu && (
-        <section className="menu" id="menu">
+        <section className={menuStep === "roster" ? "menu menu-roster" : "menu"} id="menu">
           {menuStep === "home" ? (
             <MenuHome
               gate={gate}
