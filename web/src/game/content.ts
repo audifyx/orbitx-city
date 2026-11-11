@@ -313,6 +313,45 @@ export const DANCE_SPOT = { x: 48, z: 90 };
 export const DANCE_BEATS = 8;
 export const DANCE_BEAT_MS = 850;
 
+// Batch 2 venues — fixed locations, same as city.ts (furnishMuseum /
+// addStadium / furnishNightclub). Keep the two files in sync if a venue
+// ever moves.
+// Museum: stand points 2 units in front of each exhibit pedestal. First
+// view of each pays MUSEUM_REWARD; viewing all four pays MUSEUM_BONUS.
+export interface MuseumExhibit {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+}
+export const MUSEUM_EXHIBITS: MuseumExhibit[] = [
+  { id: "genesis", name: "Genesis Block", x: -94.8, z: 180 },
+  { id: "coin", name: "First ORBITX Coin", x: -94.8, z: 192 },
+  { id: "relic", name: "Pump.fun Relic", x: -83.2, z: 180 },
+  { id: "chart", name: "The $100K Chart", x: -83.2, z: 192 },
+];
+export const MUSEUM_REWARD = 10;
+export const MUSEUM_BONUS = 20;
+// Nightclub: the dance floor is the checkerboard at the room center.
+export const CLUB_DANCE_SPOT = { x: 182, z: 198 };
+// Casino: one lever pull costs CASINO_COST City Sol; the payout table
+// mirrors the fountain wish (0 / 5 / 10 / 25). CASINO_TABLE is the
+// roulette table at the room center, where the lever burst plays.
+export const CASINO_COST = 5;
+export const CASINO_TABLE = { x: -19.5, z: -180 };
+// Hotel: a night costs HOTEL_COST City Sol and rests the player for
+// HOTEL_REST_MIN minutes — job pay +10% while rested.
+export const HOTEL_COST = 20;
+export const HOTEL_REST_MIN = 10;
+// Stadium: the sprint runs west→east on the track (z = 217) from the
+// white start line to the gold finish line. Payout scales with speed:
+// STADIUM_BASE minus STADIUM_PER_SEC per second, floored at STADIUM_MIN.
+export const STADIUM_START = { x: 151, z: 217 };
+export const STADIUM_FINISH_X = 191;
+export const STADIUM_BASE = 45;
+export const STADIUM_PER_SEC = 2;
+export const STADIUM_MIN = 5;
+
 export interface CityContent {
   projects: ProjectInfo[];
   billboards: BillboardInfo[];

@@ -18,20 +18,34 @@ import {
 } from "three";
 import type { Anchor, Art, BoardSlot, City, Collider, Lift, Zone } from "./city";
 import {
+  CASINO_COST,
+  CASINO_TABLE,
+  CLUB_DANCE_SPOT,
   DANCE_BEAT_MS,
   DANCE_BEATS,
   DANCE_SPOT,
   DEMO_AD_PRICE,
+  HOTEL_COST,
+  HOTEL_REST_MIN,
+  MUSEUM_BONUS,
+  MUSEUM_EXHIBITS,
+  MUSEUM_REWARD,
   NPC_DEFAULT_LINES,
   NPC_DEFAULT_PATROL,
   NPC_LINES,
   PHOTO_REWARD,
   PHOTO_SPOTS,
   SHOP,
+  STADIUM_BASE,
+  STADIUM_FINISH_X,
+  STADIUM_MIN,
+  STADIUM_PER_SEC,
+  STADIUM_START,
   WISH_SPOT,
   type BillboardInfo,
   type CityContent,
   type EventInfo,
+  type MuseumExhibit,
   type PhotoSpot,
   type ShopItem,
   loadContent,
@@ -677,6 +691,50 @@ export function createRuntime(scene: Scene) {
       // Wish count still shows for this session.
     }
   }
+  // Museum exhibits viewed (first view of each pays). Same storage pattern
+  // as photos — a persisted id list, so a revisit never pays twice.
+  const MUSEUM_KEY = "orbitx-city-museum-v1";
+  let museumSeen: string[] = [];
+  try {
+    const raw = localStorage.getItem(MUSEUM_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { exhibits?: string[] };
+      museumSeen = Array.isArray(parsed.exhibits) ? parsed.exhibits : [];
+    }
+  } catch {
+    museumSeen = [];
+  }
+  function saveMuseum() {
+    try {
+      localStorage.setItem(MUSEUM_KEY, JSON.stringify({ exhibits: museumSeen }));
+    } catch {
+      // Exhibits still count for this session if storage is unavailable.
+    }
+  }
+  // Hotel rest: a night at the hotel rests the player until this epoch-ms
+  // timestamp; job pay is +10% while rested.
+  const REST_KEY = "orbitx-city-rested-v1";
+  let restedUntil = 0;
+  try {
+    restedUntil = Number(localStorage.getItem(REST_KEY)) || 0;
+  } catch {
+    restedUntil = 0;
+  }
+  function saveRest() {
+    try {
+      localStorage.setItem(REST_KEY, String(restedUntil));
+    } catch {
+      // Rest still counts for this session if storage is unavailable.
+    }
+  }
+  function isRested() {
+    return Date.now() < restedUntil;
+  }
+  // Stadium sprint state: null when no sprint is running.
+  interface Sprint {
+    startAt: number;
+  }
+  let sprint: Sprint | null = null;
   // Dance set state: null when no set is running.
   interface DanceSet {
     startAt: number;
@@ -756,6 +814,15 @@ export function createRuntime(scene: Scene) {
     if (zone.kind === "dock") return "Pier is open";
     if (zone.kind === "mall") return "Shops · food court · mezzanine";
     if (zone.kind === "office") return "OrbitX HQ — walk in";
+    if (zone.kind === "cinema") return "Now showing nightly";
+    if (zone.kind === "library") return "Read in peace";
+    if (zone.kind === "gym") return "Lift by the harbor";
+    if (zone.kind === "park") return "Pond · paths · benches";
+    if (zone.kind === "museum") return "Four exhibits · +10 City Sol each";
+    if (zone.kind === "hotel") return "Stay the night · 20 City Sol";
+    if (zone.kind === "casino") return "Slots · 5 City Sol a pull";
+    if (zone.kind === "nightclub") return "Dance sets at the DJ booth";
+    if (zone.kind === "stadium") return "Sprint the track";
     return "Gather here";
   }
 
@@ -1487,6 +1554,19 @@ export function createRuntime(scene: Scene) {
     return best;
   }
 
+  function nearestExhibit(body: Body, max: number): MuseumExhibit | null {
+    let best: MuseumExhibit | null = null;
+    let bestD = max;
+    for (const exhibit of MUSEUM_EXHIBITS) {
+      const d = Math.hypot(exhibit.x - body.x, exhibit.z - body.z);
+      if (d < bestD) {
+        best = exhibit;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
   function openTalk(index: number) {
     const npc = npcs[index];
     if (!npc) return;
@@ -1545,6 +1625,90 @@ export function createRuntime(scene: Scene) {
     publish();
   }
 
+  function viewExhibit(exhibit: MuseumExhibit) {
+    const first = !museumSeen.includes(exhibit.id);
+    const completed = first && museumSeen.length + 1 >= MUSEUM_EXHIBITS.length;
+    if (first) {
+      museumSeen.push(exhibit.id);
+      earn(wallet, MUSEUM_REWARD, `Exhibit — ${exhibit.name}`);
+      if (completed) earn(wallet, MUSEUM_BONUS, "Museum tour complete");
+    }
+    saveMuseum();
+    burst(exhibit.x, 2.2, exhibit.z);
+    say(
+      first
+        ? completed
+          ? `Exhibit ${museumSeen.length}/${MUSEUM_EXHIBITS.length} — ${exhibit.name}! +${MUSEUM_REWARD} City Sol, tour complete +${MUSEUM_BONUS}.`
+          : `Exhibit ${museumSeen.length}/${MUSEUM_EXHIBITS.length} — ${exhibit.name}! +${MUSEUM_REWARD} City Sol.`
+        : `${exhibit.name} — already viewed. (${museumSeen.length}/${MUSEUM_EXHIBITS.length} exhibits)`,
+    );
+    publish();
+  }
+
+  function pullLever() {
+    if (wallet.balance < CASINO_COST) {
+      say(`One pull costs ${CASINO_COST} City Sol — come back richer.`);
+      return;
+    }
+    wallet.balance -= CASINO_COST;
+    // Same payout table as the fountain wish (0 / 5 / 10 / 25).
+    const roll = Math.random();
+    const reward = roll < 0.4 ? 0 : roll < 0.7 ? 5 : roll < 0.9 ? 10 : 25;
+    wallet.balance += reward;
+    saveWallet(wallet);
+    burst(CASINO_TABLE.x, 2.2, CASINO_TABLE.z);
+    say(
+      reward > 0
+        ? `Slots: the reels land on ${reward} City Sol!`
+        : "Slots: no match this pull — the house keeps your coin.",
+    );
+    publish();
+  }
+
+  function stayNight() {
+    if (isRested()) {
+      const mins = Math.max(1, Math.ceil((restedUntil - Date.now()) / 60000));
+      say(`Already rested — job pay +10% for ${mins} more min.`);
+      return;
+    }
+    if (wallet.balance < HOTEL_COST) {
+      say(`A night costs ${HOTEL_COST} City Sol — come back richer.`);
+      return;
+    }
+    wallet.balance -= HOTEL_COST;
+    restedUntil = Date.now() + HOTEL_REST_MIN * 60 * 1000;
+    saveRest();
+    saveWallet(wallet);
+    say(`Checked in — rested for ${HOTEL_REST_MIN} minutes. Job pay +10% while rested.`);
+    publish();
+  }
+
+  function startSprint() {
+    if (sprint) return;
+    sprint = { startAt: performance.now() };
+    say("Sprint! Run east to the gold line — faster is worth more.");
+    publish();
+  }
+
+  function tickSprint(body: Body) {
+    if (!sprint) return;
+    // Leaving the stadium abandons the sprint — no pay for a sprint you
+    // quit, same rule as the dance floor.
+    if (zoneAt(body)?.id !== "stadium" || body.x < STADIUM_START.x - 4) {
+      sprint = null;
+      say("Left the track — sprint over.");
+      publish();
+      return;
+    }
+    if (body.x >= STADIUM_FINISH_X) {
+      const secs = (performance.now() - sprint.startAt) / 1000;
+      const amount = Math.max(STADIUM_MIN, Math.round(STADIUM_BASE - secs * STADIUM_PER_SEC));
+      sprint = null;
+      say(earn(wallet, amount, `Stadium sprint (${secs.toFixed(1)}s)`));
+      publish();
+    }
+  }
+
   function startDance() {
     if (dance) return;
     const now = performance.now();
@@ -1580,7 +1744,8 @@ export function createRuntime(scene: Scene) {
   function tickDance(body: Body) {
     if (!dance) return;
     // Walking off the floor ends the set — no pay for a set you abandon.
-    if (zoneAt(body)?.id !== "hall") {
+    // The hall and the nightclub both host sets.
+    if (zoneAt(body)?.id !== "hall" && zoneAt(body)?.id !== "nightclub") {
       dance = null;
       world.emote = "";
       world.emoteUntil = 0;
@@ -1618,8 +1783,8 @@ export function createRuntime(scene: Scene) {
       return;
     }
     // A running dance set eats E as a beat hit — the player is on the floor,
-    // not opening doors, until the set ends or they leave the hall.
-    if (dance && zoneAt(body)?.id === "hall") {
+    // not opening doors, until the set ends or they leave the hall or club.
+    if (dance && (zoneAt(body)?.id === "hall" || zoneAt(body)?.id === "nightclub")) {
       registerBeat();
       return;
     }
@@ -1636,6 +1801,11 @@ export function createRuntime(scene: Scene) {
         hqIndex = zone.slot;
         panel = "hq";
       } else if (zone.kind === "hall" || zone.kind === "market" || zone.kind === "dock") panel = "home";
+      else if (zone.kind === "casino") pullLever();
+      else if (zone.kind === "hotel") stayNight();
+      else if (zone.kind === "nightclub") startDance();
+      else if (zone.kind === "stadium") startSprint();
+      else if (zone.kind === "museum") say("OrbitX Museum — four exhibits, +10 City Sol for each first view.");
       else say(zoneTitle(zone));
       publish();
       return;
@@ -1651,7 +1821,7 @@ export function createRuntime(scene: Scene) {
         openLift(anchor);
         return;
       }
-      if (anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park") {
+      if (anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel") {
         stepInside(anchor, body);
         publish();
         return;
@@ -1684,11 +1854,17 @@ export function createRuntime(scene: Scene) {
       openTalk(npcIndex);
       return;
     }
-    // Photo spots, then the fountain wish, then the dance floor — each with
-    // a real state change (collection, balance, or pay).
+    // Photo spots, then museum exhibits, then the fountain wish, then the
+    // dance floor — each with a real state change (collection, balance,
+    // or pay).
     const photo = nearestPhotoSpot(body, 2.5);
     if (photo) {
       takePhoto(photo);
+      return;
+    }
+    const exhibit = nearestExhibit(body, 2.5);
+    if (exhibit) {
+      viewExhibit(exhibit);
       return;
     }
     if (Math.hypot(body.x - WISH_SPOT.x, body.z - WISH_SPOT.z) < WISH_SPOT.radius) {
@@ -1696,6 +1872,10 @@ export function createRuntime(scene: Scene) {
       return;
     }
     if (zone?.id === "hall" && Math.hypot(body.x - DANCE_SPOT.x, body.z - DANCE_SPOT.z) < 2.5) {
+      startDance();
+      return;
+    }
+    if (zone?.id === "nightclub" && Math.hypot(body.x - CLUB_DANCE_SPOT.x, body.z - CLUB_DANCE_SPOT.z) < 2.5) {
       startDance();
       return;
     }
@@ -2207,14 +2387,20 @@ export function createRuntime(scene: Scene) {
 
   async function pay(id: string) {
     const amounts: Record<string, number> = { courier: 45, taxi: 90, guide: 60, mechanic: 55, photographer: 40, promoter: 50, dock: 65, dj: 55, banker: 50, barista: 45, vendor: 55, security: 75, mail: 70, lifeguard: 65, cleaner: 55, coinhunt: 40, fishing: 45 };
+    // A hotel rest pays +10% on top of the job (min 1 City Sol) — the
+    // same bonus whether the pay comes from the local wallet or the server.
+    const base = amounts[id] ?? 0;
+    const restedBonus = isRested() && base > 0 ? Math.max(1, Math.round(base * 0.1)) : 0;
     if (!world.online) {
-      say(earn(wallet, amounts[id], jobTitle(id)));
+      say(earn(wallet, amounts[id] + restedBonus, jobTitle(id) + (restedBonus ? " · rested +10%" : "")));
       return true;
     }
     try {
       const data = await world.earn(id);
       applyMe();
-      say(String(data.message || "Paid."));
+      let msg = String(data.message || "Paid.");
+      if (restedBonus) msg += " " + earn(wallet, restedBonus, "Rested bonus (+10% job pay)");
+      say(msg);
       return true;
     } catch (err) {
       say(err instanceof Error ? err.message : "The city held the pay.");
@@ -2255,6 +2441,7 @@ export function createRuntime(scene: Scene) {
       tickGames(body);
       tickTour(body);
       tickDance(body);
+      tickSprint(body);
     }
     // NPC patrol: walk the loop of waypoints around the home spot, pausing
     // at each stop; face the player while talking.
@@ -2461,7 +2648,7 @@ export function createRuntime(scene: Scene) {
       else if (driving && nearGate(body, 0, 8)) prompt = "Press E — hover time trial";
       else if (driving) prompt = "Press E to get out";
       else if (zone && nearService(body, zone)) {
-        prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zoneTitle(zone);
+        prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zoneTitle(zone);
       } else if (nearestAnchor(body, 3.3)) {
         // A close door / lift / board beats the race gate, same as
         // interact(): the mall door sits 5.6 units from the street-race
@@ -2469,9 +2656,10 @@ export function createRuntime(scene: Scene) {
         // "street race" at the door instead of "Walk in".
         const anchor = nearestAnchor(body, 3.3)!;
         const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
-        const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park";
+        const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel";
         prompt = walkIn ? `Walk in — ${title}` : `Press E — ${title}`;
       } else if (nearGate(body, 0, 8)) prompt = "Press E — street race";
+      else if (sprint) prompt = `Sprint! Reach the gold line — ${((performance.now() - sprint.startAt) / 1000).toFixed(1)}s`;
       else if (dance) prompt = `Dance! Press E on the beat — ${dance.hits}/${DANCE_BEATS} hits, beat ${Math.min(dance.beat + 1, DANCE_BEATS)} of ${DANCE_BEATS}`;
       else if (nearestNpc(body, 3) >= 0) {
         const npc = npcs[nearestNpc(body, 3)];
@@ -2479,8 +2667,12 @@ export function createRuntime(scene: Scene) {
       } else if (nearestPhotoSpot(body, 2.5)) {
         const spot = nearestPhotoSpot(body, 2.5)!;
         prompt = `Press E — take a photo (${spot.name})`;
+      } else if (nearestExhibit(body, 2.5)) {
+        const exhibit = nearestExhibit(body, 2.5)!;
+        prompt = museumSeen.includes(exhibit.id) ? `Viewed — ${exhibit.name}` : `Press E — view exhibit (${exhibit.name}, +${MUSEUM_REWARD} City Sol)`;
       } else if (Math.hypot(body.x - WISH_SPOT.x, body.z - WISH_SPOT.z) < WISH_SPOT.radius) prompt = `Press E — make a wish (${WISH_SPOT.cost} City Sol)`;
       else if (zone?.id === "hall" && Math.hypot(body.x - DANCE_SPOT.x, body.z - DANCE_SPOT.z) < 2.5) prompt = "Press E — dance floor";
+      else if (zone?.id === "nightclub" && Math.hypot(body.x - CLUB_DANCE_SPOT.x, body.z - CLUB_DANCE_SPOT.z) < 2.5) prompt = "Press E — dance floor";
       else {
         // The anchor was already checked above (it beats the gate); here
         // only the car fallback and the zone title remain. Nothing in

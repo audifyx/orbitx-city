@@ -117,7 +117,7 @@ export interface RailPoint {
 export interface Anchor {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "lift" | "cinema" | "library" | "gym" | "park";
+  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "lift" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel";
   x: number;
   y: number;
   z: number;
@@ -172,7 +172,7 @@ export interface CarSpawn {
 export interface Zone {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "cinema" | "library" | "gym" | "park";
+  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel";
   slot: number;
   minX: number;
   maxX: number;
@@ -1670,7 +1670,15 @@ function addVenue(
                     ? { roof: "hip", roofMat: 1, storefront: true, awning: false, cornice: true }
                     : kind === "gym"
                       ? { roof: "flat", roofMat: 0, storefront: true, awning: true, cornice: true }
-                      : { roof: "flat", roofMat: 0, storefront: false, awning: false, cornice: true };
+                      : kind === "museum"
+                        ? { roof: "hip", roofMat: 1, storefront: true, awning: false, cornice: true }
+                        : kind === "hotel"
+                          ? { roof: "gable", roofMat: 2, storefront: true, awning: true, cornice: true }
+                          : kind === "casino"
+                            ? { roof: "flat", roofMat: 0, storefront: true, awning: false, cornice: true }
+                            : kind === "nightclub"
+                              ? { roof: "flat", roofMat: 0, storefront: true, awning: true, cornice: true }
+                              : { roof: "flat", roofMat: 0, storefront: false, awning: false, cornice: true };
   shellOpen(
     boxes,
     cols,
@@ -1711,6 +1719,10 @@ function addVenue(
   if (kind === "cinema") return furnishCinema(boxes, cols, x0, z0, w, d, door);
   if (kind === "library") return furnishLibrary(boxes, cols, x0, z0, w, d, door);
   if (kind === "gym") return furnishGym(boxes, cols, x0, z0, w, d, door);
+  if (kind === "museum") return furnishMuseum(boxes, cols, x0, z0, w, d, door);
+  if (kind === "hotel") return furnishHotel(boxes, cols, x0, z0, w, d, door);
+  if (kind === "casino") return furnishCasino(boxes, cols, x0, z0, w, d, door);
+  if (kind === "nightclub") return furnishNightclub(boxes, cols, x0, z0, w, d, door);
   return furnishSpot(boxes, cols, x0, z0, w, d, door, kind);
 }
 
@@ -2054,6 +2066,252 @@ function furnishGym(boxes: Box[], cols: Collider[], x0: number, z0: number, w: n
   };
 }
 
+// ---- batch 2 venues: museum, hotel, casino, nightclub ----
+
+// Museum: four exhibit pedestals (two per side wall), a timeline case down
+// the middle, and a ticket desk by the door. Exhibit stand points live in
+// content.ts (MUSEUM_EXHIBITS) — the pedestals here are 2 units behind
+// those spots, so keep the two in sync if the museum ever moves.
+function furnishMuseum(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  const artifacts: Mat[] = ["gold", "cyan", "red", "white"];
+  const pedestals: Array<[number, number]> = [
+    [x0 + 2.2, z0 + 4],
+    [x0 + 2.2, z0 + d - 4],
+    [x0 + w - 2.2, z0 + 4],
+    [x0 + w - 2.2, z0 + d - 4],
+  ];
+  for (let i = 0; i < pedestals.length; i++) {
+    const [px, pz] = pedestals[i];
+    put(boxes, px, 0.5, pz, 1.1, 1.0, 1.1, "stone");
+    cols.push(col(px, 0.5, pz, 1.1, 1.0, 1.1));
+    put(boxes, px, 1.25, pz, 0.55, 0.5, 0.55, artifacts[i]);
+    // Gold plaque on the room side of the plinth.
+    const faceX = px + (px < cx ? 0.58 : -0.58);
+    put(boxes, faceX, 0.75, pz, 0.08, 0.35, 0.6, "gold");
+  }
+  // Timeline case down the middle — clear of every exhibit stand point.
+  put(boxes, cx, 0.5, cz, 5, 0.9, 1.4, "wood");
+  cols.push(col(cx, 0.5, cz, 5, 0.9, 1.4));
+  put(boxes, cx, 1.0, cz, 5.2, 0.1, 1.6, "gold");
+  // Ticket desk centered on the north wall — NOT a door corner: both east
+  // corners hold exhibit pedestals, and a desk there would swallow one.
+  // Service point 2.5 in front of the desk, clear of every exhibit spot.
+  put(boxes, cx, 0.55, z0 + 2.5, 3.4, 1.05, 1.2, "wood");
+  cols.push(col(cx, 0.55, z0 + 2.5, 3.4, 1.05, 1.2));
+  put(boxes, cx, 1.15, z0 + 2.5, 3.6, 0.12, 1.35, "stone");
+  roomSign("museum", cx - 6, 2.2, z0 + 1.35, 0, 4.2, 1.7, ["ORBITX MUSEUM", "Four exhibits · +10 City Sol each"], "First view of each exhibit pays");
+  const serviceX = cx;
+  const serviceZ = z0 + 5;
+  return {
+    id: "museum",
+    name: "OrbitX Museum",
+    kind: "museum",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX,
+    serviceZ,
+    signX: cx - 6,
+    signY: 2.35,
+    signZ: z0 + 1.35,
+    signRot: 0,
+  };
+}
+
+// Hotel: front desk along the wall opposite the door, lobby armchairs,
+// gold-framed room doors on the north wall, luggage cart by the door.
+function furnishHotel(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  const desk = opposite(door, x0, z0, w, d, 2.4);
+  const alongX = door === "n" || door === "s";
+  // Front desk: a long wood counter on the wall opposite the door, gold
+  // top trim, gold service bell.
+  put(boxes, desk.x, 0.55, desk.z, alongX ? 6.4 : 1.2, 1.05, alongX ? 1.2 : 6.4, "wood");
+  cols.push(col(desk.x, 0.55, desk.z, alongX ? 6.4 : 1.2, 1.05, alongX ? 1.2 : 6.4));
+  put(boxes, desk.x, 1.15, desk.z, alongX ? 6.6 : 1.35, 0.12, alongX ? 1.35 : 6.6, "gold");
+  put(boxes, desk.x, 1.3, desk.z, 0.3, 0.2, 0.3, "gold");
+  // Lobby armchairs + a small table, clear of the desk service point.
+  for (const az of [cz - 4, cz + 4]) {
+    put(boxes, cx + 3, 0.45, az, 1.1, 0.45, 1.1, "red");
+    put(boxes, cx + 3, 0.9, az + (az < cz ? -0.5 : 0.5), 1.1, 0.9, 0.25, "red");
+    cols.push(col(cx + 3, 0.6, az, 1.3, 1.2, 1.3));
+  }
+  put(boxes, cx + 3, 0.4, cz, 1.0, 0.7, 1.0, "wood");
+  cols.push(col(cx + 3, 0.4, cz, 1.0, 0.7, 1.0));
+  // Gold-framed room doors on the north wall (decorative, flush — no
+  // collider, so nobody gets stuck on a door that never opens).
+  for (const dx of [cx - 4, cx, cx + 4]) {
+    put(boxes, dx, 1.1, z0 + 1.3, 1.6, 2.2, 0.12, "gold");
+    put(boxes, dx, 1.1, z0 + 1.32, 1.3, 1.9, 0.08, "black");
+  }
+  // Luggage cart by the door.
+  const cart = door === "e" ? { x: x0 + w - 3.2, z: z0 + d - 3.2 } : door === "w" ? { x: x0 + 3.2, z: z0 + 3.2 } : door === "n" ? { x: x0 + w - 3.2, z: z0 + 3.2 } : { x: x0 + 3.2, z: z0 + d - 3.2 };
+  put(boxes, cart.x, 0.4, cart.z, 1.2, 0.8, 0.8, "black");
+  cols.push(col(cart.x, 0.4, cart.z, 1.2, 0.8, 0.8));
+  put(boxes, cart.x, 0.85, cart.z, 1.3, 0.1, 0.9, "gold");
+  roomSign("hotel", cx - 6, 2.2, z0 + d - 1.35, Math.PI, 4.2, 1.7, ["ORBITX HOTEL", "Stay the night · 20 City Sol"], "Rested: job pay +10% for 10 minutes");
+  const serviceX = desk.x + (door === "e" ? 2.5 : door === "w" ? -2.5 : 0);
+  const serviceZ = desk.z + (door === "n" ? 2.5 : door === "s" ? -2.5 : 0);
+  return {
+    id: "hotel",
+    name: "OrbitX Hotel",
+    kind: "hotel",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX,
+    serviceZ,
+    signX: cx - 6,
+    signY: 2.35,
+    signZ: z0 + d - 1.35,
+    signRot: Math.PI,
+  };
+}
+
+// Casino: slot machines along three walls, a gold roulette table in the
+// middle, red carpet from the door. E at the table pulls the lever.
+function furnishCasino(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "black");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  const alongX = door === "n" || door === "s";
+  // Red carpet runner from the door to the roulette table.
+  if (alongX) put(boxes, cx, 0.145, cz, 2.4, 0.05, d - 6, "red");
+  else put(boxes, cx, 0.145, cz, w - 6, 0.05, 2.4, "red");
+  // Slot machine builder: black cabinet, gold top, colored face on the
+  // room side. `face` is the axis the machine faces into the room.
+  const machine = (mx: number, mz: number, face: "n" | "s" | "e" | "w", mat: Mat) => {
+    const wide = face === "n" || face === "s";
+    put(boxes, mx, 0.8, mz, wide ? 1.3 : 0.8, 1.6, wide ? 0.8 : 1.3, "black");
+    cols.push(col(mx, 0.8, mz, wide ? 1.3 : 0.8, 1.6, wide ? 0.8 : 1.3));
+    put(boxes, mx, 1.65, mz, wide ? 1.35 : 0.85, 0.15, wide ? 0.85 : 1.35, "gold");
+    const fx = mx + (face === "e" ? 0.42 : face === "w" ? -0.42 : 0);
+    const fz = mz + (face === "s" ? 0.42 : face === "n" ? -0.42 : 0);
+    put(boxes, fx, 0.95, fz, wide ? 0.9 : 0.1, 0.7, wide ? 0.1 : 0.9, mat);
+  };
+  // Three machines on the wall opposite the door, two on each side wall.
+  const opp = opposite(door, x0, z0, w, d, 1.5);
+  const faceInto = door === "n" ? "n" : door === "s" ? "s" : door === "e" ? "e" : "w";
+  const mats: Mat[] = ["red", "cyan", "warm", "red", "gold", "cyan", "warm"];
+  if (alongX) {
+    machine(cx - 4.5, opp.z, faceInto, mats[0]);
+    machine(cx, opp.z, faceInto, mats[1]);
+    machine(cx + 4.5, opp.z, faceInto, mats[2]);
+    machine(x0 + 1.5, cz - 4, "e", mats[3]);
+    machine(x0 + 1.5, cz + 4, "e", mats[4]);
+    machine(x0 + w - 1.5, cz - 4, "w", mats[5]);
+    machine(x0 + w - 1.5, cz + 4, "w", mats[6]);
+  } else {
+    machine(opp.x, cz - 4.5, faceInto, mats[0]);
+    machine(opp.x, cz, faceInto, mats[1]);
+    machine(opp.x, cz + 4.5, faceInto, mats[2]);
+    machine(cx - 4, z0 + 1.5, "s", mats[3]);
+    machine(cx + 4, z0 + 1.5, "s", mats[4]);
+    machine(cx - 4, z0 + d - 1.5, "n", mats[5]);
+    machine(cx + 4, z0 + d - 1.5, "n", mats[6]);
+  }
+  // Roulette table: gold rim, black wheel, white ball.
+  disc(boxes, cx, 0.55, cz, 2.2, 0.5, "gold");
+  disc(boxes, cx, 0.62, cz, 1.6, 0.4, "black");
+  put(boxes, cx, 0.85, cz, 0.3, 0.2, 0.3, "white");
+  cols.push(col(cx, 0.55, cz, 4.4, 1.1, 4.4));
+  roomSign("casino", x0 + w - 1.35, 2.2, cz, -Math.PI / 2, 4.2, 1.7, ["NEON CASINO", "Slots · 5 City Sol a pull"], "E at the table pulls the lever");
+  // Service point in front of the table, on the door side.
+  const serviceX = cx + (door === "e" ? 3.4 : door === "w" ? -3.4 : 0);
+  const serviceZ = cz + (door === "s" ? 3.4 : door === "n" ? -3.4 : 0);
+  return {
+    id: "casino",
+    name: "Neon Casino",
+    kind: "casino",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX,
+    serviceZ,
+    signX: x0 + w - 1.35,
+    signY: 2.35,
+    signZ: cz,
+    signRot: -Math.PI / 2,
+  };
+}
+
+// Nightclub: checkerboard dance floor in the middle, DJ booth + speaker
+// stacks on the wall opposite the door, bar along a side wall, neon strips.
+function furnishNightclub(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "black");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  // Dance floor: 4x4 checkerboard tiles, 1.5 each.
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 4; j++) {
+      put(boxes, cx - 2.25 + i * 1.5, 0.12, cz - 2.25 + j * 1.5, 1.5, 0.06, 1.5, (i + j) % 2 === 0 ? "white" : "black");
+    }
+  }
+  // DJ booth on the wall opposite the door + speaker stacks flanking it.
+  const booth = opposite(door, x0, z0, w, d, 1.5);
+  const alongX = door === "n" || door === "s";
+  put(boxes, booth.x, 0.6, booth.z, alongX ? 4.2 : 1.0, 1.2, alongX ? 1.0 : 4.2, "black");
+  cols.push(col(booth.x, 0.6, booth.z, alongX ? 4.2 : 1.0, 1.2, alongX ? 1.0 : 4.2));
+  put(boxes, booth.x, 1.25, booth.z, alongX ? 4.2 : 1.0, 0.12, alongX ? 1.0 : 4.2, "cyan");
+  for (const off of [-3.2, 3.2]) {
+    const sx = alongX ? booth.x + off : booth.x;
+    const sz = alongX ? booth.z : booth.z + off;
+    put(boxes, sx, 1.3, sz, 1.0, 2.6, 1.0, "black");
+    cols.push(col(sx, 1.3, sz, 1.0, 2.6, 1.0));
+    put(boxes, sx, 1.9, sz, 1.05, 0.5, 1.05, "gold");
+  }
+  // Bar along a side wall: wood counter + gold stools.
+  const barX = door === "n" || door === "s" ? x0 + w - 1.5 : cx + 5;
+  const barZ = door === "n" || door === "s" ? cz : z0 + d - 1.5;
+  const barAlongX = door === "n" || door === "s";
+  put(boxes, barX, 0.55, barZ, barAlongX ? 1.2 : 6.4, 1.05, barAlongX ? 6.4 : 1.2, "wood");
+  cols.push(col(barX, 0.55, barZ, barAlongX ? 1.2 : 6.4, 1.05, barAlongX ? 6.4 : 1.2));
+  for (const off of [-2, 0, 2]) {
+    const stx = barAlongX ? barX - 1.2 : barX + off;
+    const stz = barAlongX ? barZ + off : barZ - 1.2;
+    put(boxes, stx, 0.3, stz, 0.5, 0.6, 0.5, "gold");
+  }
+  // Neon strips above the booth and above the bar (never over a sign —
+  // the west wall carries the club sign, so its strip lives east).
+  put(boxes, booth.x, 2.8, booth.z + (door === "n" ? 0.14 : door === "s" ? -0.14 : 0), alongX ? 8 : 0.15, 0.18, alongX ? 0.15 : 8, "cyanhot");
+  put(boxes, x0 + w - 1.3, 2.8, cz, 0.15, 0.18, 8, "cyanhot");
+  roomSign("club", x0 + 1.35, 2.2, cz + 5, Math.PI / 2, 4.2, 1.7, ["CLUB ORBIT", "Dance sets · DJ booth at the back"], "E at the booth starts a set");
+  // Service point in front of the DJ booth.
+  const serviceX = booth.x + (door === "e" ? -2.5 : door === "w" ? 2.5 : 0);
+  const serviceZ = booth.z + (door === "n" ? -2.5 : door === "s" ? 2.5 : 0);
+  return {
+    id: "nightclub",
+    name: "Club Orbit",
+    kind: "nightclub",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX,
+    serviceZ,
+    signX: x0 + 1.35,
+    signY: 2.35,
+    signZ: cz + 5,
+    signRot: Math.PI / 2,
+  };
+}
+
 // Sunset Park: an open waterfront green space — pond with a stone rim,
 // crossing stone paths, benches, trees, lamps, flower beds, gold gate
 // bollards. No walls or roof: the zone is the lawn itself.
@@ -2113,6 +2371,66 @@ function addSunsetPark(boxes: Box[], cols: Collider[], x0: number, z0: number, w
     minZ: z0 + 1.15,
     maxZ: z0 + d - 1.15,
     serviceX: cx,
+    serviceZ: cz,
+    signX: cx,
+    signY: 2.4,
+    signZ: z0 - 0.2,
+    signRot: Math.PI,
+  };
+}
+
+// OrbitX Stadium: an open-air arena — stone sprint track down the middle
+// (white start line, gold finish line), tiered stone stands along both
+// long sides, floodlights at the corners, gold gate sign at the north
+// entrance. No walls or roof: the zone is the field itself, like the park.
+// The sprint runs west→east on the track; its start/finish live in
+// content.ts (STADIUM_START / STADIUM_FINISH_X) — keep them in sync.
+function addStadium(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number): Zone {
+  const cx = x0 + w / 2;
+  const cz = z0 + d / 2;
+  put(boxes, cx, 0.08, cz, w - 1, 0.14, d - 1, "grass");
+  // Sprint track: a stone lane down the middle, white start line at the
+  // west end, gold finish line at the east end.
+  put(boxes, cx, 0.17, cz, w - 4, 0.05, 4, "stone");
+  put(boxes, x0 + 3, 0.22, cz, 0.6, 0.06, 4, "white");
+  put(boxes, x0 + w - 3, 0.22, cz, 0.6, 0.06, 4, "gold");
+  // Tiered stands along both long sides: three stone steps rising away
+  // from the track. The steps are colliders — the crowd sits, players run.
+  for (const side of [-1, 1]) {
+    for (let tier = 0; tier < 3; tier++) {
+      const tz = cz + side * (4.5 + tier * 1.6);
+      const th = 0.55 * (tier + 1);
+      put(boxes, cx, th / 2, tz, w - 6, th, 1.6, "stone");
+      cols.push(col(cx, th / 2, tz, w - 6, th, 1.6));
+    }
+    // Gold trim on the top tier.
+    put(boxes, cx, 0.55 * 3 + 0.06, cz + side * (4.5 + 2 * 1.6), w - 6, 0.12, 1.6, "gold");
+  }
+  // Floodlights at the four corners: tall black poles, warm heads.
+  for (const [fx, fz] of [[x0 + 2, z0 + 2], [x0 + w - 2, z0 + 2], [x0 + 2, z0 + d - 2], [x0 + w - 2, z0 + d - 2]] as Array<[number, number]>) {
+    put(boxes, fx, 3.5, fz, 0.4, 7, 0.4, "black");
+    cols.push(col(fx, 3.5, fz, 0.4, 7, 0.4));
+    put(boxes, fx, 7.2, fz, 1.2, 0.5, 1.2, "warm");
+  }
+  // Gold gate bollards flanking the north entrance + posts under the sign.
+  for (const bx of [cx - 3, cx + 3]) {
+    put(boxes, bx, 0.35, z0 - 1, 0.5, 0.7, 0.5, "gold");
+    cols.push(col(bx, 0.35, z0 - 1, 0.5, 0.7, 0.5));
+  }
+  for (const px of [cx - 1.8, cx + 1.8]) {
+    put(boxes, px, 0.85, z0 - 0.2, 0.16, 1.7, 0.16, "black");
+  }
+  return {
+    id: "stadium",
+    name: "OrbitX Stadium",
+    kind: "stadium",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    // Service point = the start line: E there starts the sprint.
+    serviceX: x0 + 3,
     serviceZ: cz,
     signX: cx,
     signY: 2.4,
@@ -2949,12 +3267,26 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     addVenue(boxes, cols, -99, -171, 20, 20, 9, "e", "cinema"),
     addVenue(boxes, cols, -99, 153, 20, 20, 8, "e", "library"),
     addVenue(boxes, cols, 60, 206, 26, 22, 8, "n", "gym"),
+    // Batch 2: the remaining free lots — museum + hotel in the west strip
+    // (museum south of the library, hotel in the 123..153 gap; both dodge
+    // the strip trees, canopies brush the roof edges only), casino on the
+    // north strip between the lamp lines, nightclub on the waterfront
+    // east of the promenade, stadium on the open grass east of the park.
+    addVenue(boxes, cols, -99, 176, 20, 20, 8, "e", "museum"),
+    addVenue(boxes, cols, -98, 126, 20, 20, 8, "e", "hotel"),
+    addVenue(boxes, cols, -28, -190, 17, 20, 8, "s", "casino"),
+    addVenue(boxes, cols, 172, 188, 20, 20, 8, "n", "nightclub"),
   ];
   zones.push(addSunsetPark(boxes, cols, 94, 204, 54, 26));
+  zones.push(addStadium(boxes, cols, 148, 204, 46, 26));
   // Stone promenade linking the z=180 road to the gym + park, so the
   // waterfront venues are reachable on foot, not across bare grass.
   put(boxes, 103, 0.1, 201, 94, 0.06, 4, "stone");
   put(boxes, 73, 0.1, 192.5, 6, 0.06, 15, "stone");
+  // Promenade extension to the stadium door + a stone path from the z=180
+  // road to the nightclub door.
+  put(boxes, 171, 0.1, 201, 46, 0.06, 4, "stone");
+  put(boxes, 182, 0.1, 184, 6, 0.06, 8, "stone");
   addHarbor(boxes, cols);
   zones.push(addVenue(boxes, cols, -8, 212, 16, 14, 7, "n", "dock"));
 
@@ -2988,6 +3320,11 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     doorAnchor("library", "OrbitX Library", "library", -99, 153, 20, 20, "e"),
     doorAnchor("gym", "Harbor Gym", "gym", 60, 206, 26, 22, "n"),
     doorAnchor("park", "Sunset Park", "park", 94, 204, 54, 26, "n"),
+    doorAnchor("museum", "OrbitX Museum", "museum", -99, 176, 20, 20, "e"),
+    doorAnchor("hotel", "OrbitX Hotel", "hotel", -98, 126, 20, 20, "e"),
+    doorAnchor("casino", "Neon Casino", "casino", -28, -190, 17, 20, "s"),
+    doorAnchor("nightclub", "Club Orbit", "nightclub", 172, 188, 20, 20, "n"),
+    doorAnchor("stadium", "OrbitX Stadium", "stadium", 148, 204, 46, 26, "n"),
   ];
   projectZs.forEach((z0, index) => {
     anchors.push({
