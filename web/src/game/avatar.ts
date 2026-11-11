@@ -4,8 +4,10 @@ export interface Look {
   id: string;
   displayName: string;
   tagline: string;
-  colors: { outfit: string; accent: string; skin: string; hair: string };
-  accessories: { hair: string; hat: string; extra: string };
+  /** Signature look line, from the research sheet (web/public/config/character-looks.md). */
+  look?: string;
+  colors: { outfit: string; accent: string; skin: string; hair: string; eyes?: string };
+  accessories: { hair: string; hat: string; extra: string; beard?: boolean };
 }
 
 const FALLBACK: Look[] = [
@@ -13,6 +15,7 @@ const FALLBACK: Look[] = [
     id: "tjr",
     displayName: "TJR",
     tagline: "Charts loud, jacket louder.",
+    look: "Short black curls · maroon shirt",
     colors: { outfit: "#ff3355", accent: "#141414", skin: "#f0c2a0", hair: "#1a1a1a" },
     accessories: { hair: "spiky", hat: "none", extra: "headset" },
   },
@@ -65,16 +68,19 @@ function asLook(raw: unknown): Look | null {
     id: row.id,
     displayName: String(row.displayName),
     tagline: typeof row.tagline === "string" ? row.tagline : "",
+    look: typeof row.look === "string" ? row.look : "",
     colors: {
       outfit: typeof colors.outfit === "string" ? colors.outfit : "#f4f6fa",
       accent: typeof colors.accent === "string" ? colors.accent : "#111111",
       skin: typeof colors.skin === "string" ? colors.skin : "#f0c2a0",
       hair: typeof colors.hair === "string" ? colors.hair : "#1a1a1a",
+      eyes: typeof colors.eyes === "string" ? colors.eyes : undefined,
     },
     accessories: {
       hair: typeof accessories.hair === "string" ? accessories.hair : "buzz",
       hat: typeof accessories.hat === "string" ? accessories.hat : "none",
       extra: typeof accessories.extra === "string" ? accessories.extra : "none",
+      beard: accessories.beard === true,
     },
   };
 }
@@ -121,8 +127,13 @@ export function dressPerson(
   add(group, outfit, 0, 0.9, 0, 0.66, 0.78, 0.4);
   add(group, accent, 0, 1.05, 0.16, 0.28, 0.42, 0.08);
   add(group, skin, 0, 1.58, 0, 0.4, 0.4, 0.4);
-  add(group, "#1a1a1a", -0.08, 1.64, 0.2, 0.07, 0.06, 0.04);
-  add(group, "#1a1a1a", 0.08, 1.64, 0.2, 0.07, 0.06, 0.04);
+  const eyes = look.colors.eyes ?? "#1a1a1a";
+  add(group, eyes, -0.08, 1.64, 0.2, 0.07, 0.06, 0.04);
+  add(group, eyes, 0.08, 1.64, 0.2, 0.07, 0.06, 0.04);
+  if (look.accessories.beard) {
+    add(group, hair, 0, 1.42, 0.2, 0.26, 0.14, 0.08);
+    add(group, hair, 0, 1.5, 0.2, 0.2, 0.05, 0.05);
+  }
   const style = look.accessories.hair;
   if (style === "spiky") {
     add(group, hair, 0, 1.9, 0, 0.12, 0.28, 0.12);
@@ -138,6 +149,10 @@ export function dressPerson(
     add(group, hair, 0, 1.82, 0, 0.5, 0.22, 0.46);
     add(group, hair, -0.18, 1.7, 0.08, 0.16, 0.16, 0.16);
     add(group, hair, 0.18, 1.7, 0.08, 0.16, 0.16, 0.16);
+  } else if (style === "side") {
+    // Short hair swept to one side (Hsaka).
+    add(group, hair, 0.04, 1.84, 0, 0.4, 0.12, 0.42);
+    add(group, hair, -0.16, 1.76, 0.1, 0.16, 0.1, 0.2);
   } else if (style === "buzz") {
     add(group, hair, 0, 1.8, 0, 0.42, 0.1, 0.42);
   }
@@ -163,6 +178,23 @@ export function dressPerson(
     add(group, "#e0b33a", -0.16, 2.08, 0, 0.1, 0.18, 0.1);
     add(group, "#e0b33a", 0, 2.12, 0, 0.1, 0.22, 0.1);
     add(group, "#e0b33a", 0.16, 2.08, 0, 0.1, 0.18, 0.1);
+  } else if (hat === "bullcap") {
+    // Poor Goat: red cap + big curved grey horns.
+    add(group, accent, 0, 1.86, 0, 0.46, 0.14, 0.46);
+    add(group, accent, 0, 1.8, 0.24, 0.36, 0.06, 0.18);
+    add(group, "#9aa3ad", -0.18, 1.98, 0, 0.08, 0.3, 0.08, 0.35);
+    add(group, "#9aa3ad", 0.18, 1.98, 0, 0.08, 0.3, 0.08, -0.35);
+  } else if (hat === "chips") {
+    // Gainzy: a stack of poker chips balanced on top.
+    add(group, "#f4f6fa", 0, 1.83, 0, 0.34, 0.1, 0.34);
+    add(group, "#16181f", 0, 1.9, 0, 0.34, 0.07, 0.34);
+    add(group, "#c1272d", 0, 1.97, 0, 0.34, 0.07, 0.34);
+    add(group, "#f4f6fa", 0, 2.04, 0, 0.3, 0.06, 0.3);
+  } else if (hat === "plume") {
+    // Kaleo: Roman helmet with a crest.
+    add(group, "#d8a04a", 0, 1.86, 0, 0.46, 0.18, 0.46);
+    add(group, outfit, 0, 2.02, 0, 0.1, 0.24, 0.42);
+    add(group, "#d8a04a", 0, 1.78, 0.24, 0.4, 0.06, 0.06);
   }
   const extra = look.accessories.extra;
   if (extra === "glasses") {
@@ -185,6 +217,12 @@ export function dressPerson(
     add(group, "#111", 0.12, 1.5, 0.36, 0.1, 0.1, 0.1);
   } else if (extra === "mask") {
     add(group, "#101216", 0, 1.52, 0.18, 0.28, 0.16, 0.06);
+  } else if (extra === "visor") {
+    // Threadguy: rainbow visor shades, from his pixel-ape avatar.
+    const stripes = ["#ff3b30", "#ff9500", "#34c759", "#0a84ff", "#af52de"];
+    stripes.forEach((color, i) => {
+      add(group, color, -0.16 + i * 0.08, 1.6, 0.2, 0.08, 0.1, 0.06);
+    });
   }
 }
 

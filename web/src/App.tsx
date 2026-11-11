@@ -4,8 +4,8 @@ import type { AdOrder, PanelName, Runtime, Snap } from "./game/runtime";
 import { adUsdPrice } from "./game/content";
 import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
-import { Roster } from "./Roster";
-import { AuthPanel } from "./AuthPanel";
+import { CharacterSelect } from "./Roster";
+import { MenuHome } from "./MenuHome";
 import { signOutAccount, type Account } from "./auth";
 import { DecorBar, EmoteWheel, FeaturePanel, PhoneExtra, RaceBanner, SpectateBar, featureTitle } from "./Features";
 import { EMPTY_LEADERS, EMPTY_RACE } from "./game/life";
@@ -171,6 +171,8 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
   const [menu, setMenu] = useState(() => shotMode() === null);
+  // Title flow: "home" is the new landing screen, "roster" the character select.
+  const [menuStep, setMenuStep] = useState<"home" | "roster">("home");
   const [busy, setBusy] = useState(false);
   const [seedText, setSeedText] = useState(() => new URLSearchParams(window.location.search).get("seed") ?? "");
   const [seed, setSeed] = useState(() => parseSeed(new URLSearchParams(window.location.search).get("seed") ?? "1"));
@@ -644,6 +646,7 @@ export default function App() {
                 setWho(null);
                 setGate("login");
                 setMenu(true);
+                setMenuStep("home");
                 gameRef.current?.start(parseSeed(seedText || "1"), "orbit");
               });
             }} />}
@@ -666,6 +669,7 @@ export default function App() {
                   onClick={() => {
                     close();
                     setMenu(true);
+                    setMenuStep("home");
                     gameRef.current?.start(parseSeed(seedText || "1"), "orbit");
                   }}
                 >
@@ -701,46 +705,36 @@ export default function App() {
       ) : null}
       {menu && (
         <section className="menu" id="menu">
-          <div className="card wide">
-            <h1>ORBITX CITY</h1>
-            {gate === "login" ? (
-              <AuthPanel
-                onAccount={(account) => {
-                  setWho(account);
-                  setGate("city");
-                }}
-                onGuest={() => {
-                  setWho(null);
-                  setGate("city");
-                }}
+          {menuStep === "home" ? (
+            <MenuHome
+              gate={gate}
+              who={who}
+              onChoose={() => setMenuStep("roster")}
+              onAccount={(account) => {
+                setWho(account);
+                setGate("city");
+              }}
+              onGuest={() => {
+                setWho(null);
+                setGate("city");
+              }}
+              onBackToLogin={() => {
+                setGate("login");
+                setWho(null);
+              }}
+            />
+          ) : (
+            <div className="card menu-wide">
+              <CharacterSelect
+                seedText={seedText}
+                setSeedText={setSeedText}
+                webglMissing={webglMissing}
+                busy={busy}
+                onPlay={play}
+                onBack={() => setMenuStep("home")}
               />
-            ) : (
-              <>
-            <p className="tag">{who ? `Signed in as ${who.name}` : "Playing as a guest. Sign up later and this city comes with you."}</p>
-            <Roster />
-            <label>
-              Seed
-              <input
-                id="seed"
-                value={seedText}
-                placeholder="random"
-                inputMode="text"
-                disabled={webglMissing}
-                onChange={(event) => setSeedText(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") play();
-                }}
-              />
-            </label>
-            <button id="play" type="button" disabled={webglMissing || busy} onClick={play}>
-              {busy ? "BUILDING" : "PLAY"}
-            </button>
-            <p className="help">{HELP}</p>
-            <p className="help">Demo credits only. No real tokens.</p>
-            <button type="button" onClick={() => { setGate("login"); setWho(null); }}>Back to sign in</button>
-              </>
-            )}
-          </div>
+            </div>
+          )}
         </section>
       )}
     </>
