@@ -282,7 +282,7 @@ export function createGame(
     for (let i = 0; i < list.length; i++) {
       const c = list[i];
       if (c.maxY < 0.5) continue;
-      if (x > c.minX - 1.15 && x < c.maxX + 1.15 && z > c.minZ - 0.8 && z < c.maxZ + 0.8) return true;
+      if (x > c.minX - 1.7 && x < c.maxX + 1.7 && z > c.minZ - 1.25 && z < c.maxZ + 1.25) return true;
     }
     return false;
   }

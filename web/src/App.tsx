@@ -39,7 +39,19 @@ function shotMode(): PlayMode | null {
   const params = new URLSearchParams(window.location.search);
   const shot = params.get("shot");
   if (shot === "air") return "air";
-  if (shot === "spawn" || shot === "drive" || shot === "shop" || shot === "district" || shot === "billboard" || shot === "players" || shot === "meet" || params.has("autostart")) {
+  if (
+    shot === "spawn" ||
+    shot === "drive" ||
+    shot === "shop" ||
+    shot === "district" ||
+    shot === "billboard" ||
+    shot === "players" ||
+    shot === "meet" ||
+    shot === "inside" ||
+    shot === "cafe" ||
+    shot === "hall" ||
+    params.has("autostart")
+  ) {
     return "play";
   }
   return null;

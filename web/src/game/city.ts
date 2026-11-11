@@ -18,7 +18,13 @@ export type Mat =
   | "stone"
   | "lane"
   | "hill"
-  | "track";
+  | "track"
+  | "wood"
+  | "warm"
+  | "cream"
+  | "red"
+  | "gold"
+  | "ceil";
 
 export interface Box {
   x: number;
@@ -80,6 +86,23 @@ export interface CarSpawn {
   yaw: number;
 }
 
+export interface Zone {
+  id: string;
+  name: string;
+  kind: "shop" | "cafe" | "hall" | "project";
+  slot: number;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  serviceX: number;
+  serviceZ: number;
+  signX: number;
+  signY: number;
+  signZ: number;
+  signRot: number;
+}
+
 export interface City {
   boxes: Box[];
   colliders: Collider[];
@@ -91,6 +114,7 @@ export interface City {
   anchors: Anchor[];
   boards: BoardSlot[];
   cars: CarSpawn[];
+  zones: Zone[];
 }
 
 const CENTERS = [-108, -72, -36, 0, 36, 72, 108];
@@ -145,12 +169,16 @@ function emitX(
   z: number,
   w: number,
   h: number,
-  matAt: (u: number, ly: number) => Mat,
+  matAt: (u: number, ly: number) => Mat | "air",
 ) {
   for (let ly = 0; ly < h; ly++) {
     let u = 0;
     while (u < w) {
       const mat = matAt(u, ly);
+      if (mat === "air") {
+        u++;
+        continue;
+      }
       let u2 = u + 1;
       while (u2 < w && matAt(u2, ly) === mat) u2++;
       const len = u2 - u;
@@ -167,12 +195,16 @@ function emitZ(
   z0: number,
   d: number,
   h: number,
-  matAt: (u: number, ly: number) => Mat,
+  matAt: (u: number, ly: number) => Mat | "air",
 ) {
   for (let ly = 0; ly < h; ly++) {
     let u = 0;
     while (u < d) {
       const mat = matAt(u, ly);
+      if (mat === "air") {
+        u++;
+        continue;
+      }
       let u2 = u + 1;
       while (u2 < d && matAt(u2, ly) === mat) u2++;
       const len = u2 - u;
@@ -212,26 +244,148 @@ function shell(
   return y0 + h + 1;
 }
 
-function officeSample(style: number, door: boolean, len: number) {
-  return (u: number, ly: number) => {
-    const mid = Math.abs(u - (len - 1) / 2) < 1.5;
-    if (ly <= 1 && door && mid) return "cyan" as Mat;
-    if (ly <= 1) return "gray" as Mat;
-    if (u === 0 || u === len - 1) return "white" as Mat;
+function facadeSample(style: number, len: number) {
+  return (u: number, ly: number): Mat => {
+    const edge = u === 0 || u === len - 1;
+    if (ly <= 3) {
+      if (ly === 0) return "stone";
+      if (ly === 3) return "white";
+      if (u % 4 === 0) return "white";
+      if (ly === 2) return "cyan";
+      return "black";
+    }
+    if (edge) return ly % 6 === 0 ? "cyan" : "white";
     if (style === 1) {
-      if (u % 5 === 0) return "white" as Mat;
-      if (ly % 4 === 1 || ly % 4 === 2) return "cyan" as Mat;
-      return "black" as Mat;
+      if (u % 4 === 0) return "white";
+      if (ly % 3 === 1) return "cyan";
+      return "black";
     }
     if (style === 2) {
-      if (ly % 3 !== 2) return "cyan" as Mat;
-      if (ly % 3 === 2) return "white" as Mat;
-      return "black" as Mat;
+      if (ly % 2 === 0) return "cyan";
+      return "white";
     }
-    if (ly % 5 === 4) return "white" as Mat;
-    if (ly % 5 === 2) return "cyan" as Mat;
-    return "black" as Mat;
+    if (style === 3) {
+      if (ly % 3 === 2) return "stone";
+      if (u % 2 === 0) return "cyan";
+      return "white";
+    }
+    if (ly % 4 === 0) return "white";
+    if (ly % 4 === 2) return "cyan";
+    return "black";
   };
+}
+
+function wallBox(cols: Collider[], x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) {
+  if (x1 - x0 < 0.05 || y1 - y0 < 0.05 || z1 - z0 < 0.05) return;
+  cols.push({ minX: x0, maxX: x1, minY: y0, maxY: y1, minZ: z0, maxZ: z1 });
+}
+
+function addWallCols(cols: Collider[], x0: number, y0: number, z0: number, w: number, h: number, d: number, door: Face) {
+  const top = y0 + h;
+  const gap = 4;
+  const faces: Face[] = ["n", "s", "e", "w"];
+  for (const face of faces) {
+    const alongX = face === "n" || face === "s";
+    const zA = face === "s" ? z0 + d - 1 : z0;
+    const zB = face === "n" || face === "s" ? zA + 1 : z0 + d;
+    const xA = face === "e" ? x0 + w - 1 : x0;
+    const xB = face === "n" || face === "s" ? x0 + w : xA + 1;
+    if (face !== door) {
+      wallBox(cols, xA, y0, face === "w" || face === "e" ? z0 : zA, xB, top, face === "w" || face === "e" ? z0 + d : zB);
+      continue;
+    }
+    const span = alongX ? w : d - 2;
+    const origin = alongX ? x0 : z0 + 1;
+    const gap0 = origin + (span - gap) / 2;
+    const gap1 = gap0 + gap;
+    const lintel = y0 + 3;
+    if (alongX) {
+      wallBox(cols, x0, y0, zA, gap0, top, zB);
+      wallBox(cols, gap1, y0, zA, x0 + w, top, zB);
+      wallBox(cols, gap0, lintel, zA, gap1, top, zB);
+    } else {
+      wallBox(cols, xA, y0, z0, xB, top, gap0);
+      wallBox(cols, xA, y0, gap1, xB, top, z0 + d);
+      wallBox(cols, xA, lintel, gap0, xB, top, gap1);
+    }
+  }
+}
+
+function shellOpen(
+  boxes: Box[],
+  cols: Collider[],
+  x0: number,
+  y0: number,
+  z0: number,
+  w: number,
+  h: number,
+  d: number,
+  sample: (u: number, ly: number, face: Face, len: number) => Mat | "air",
+  roof: Mat,
+  door: Face,
+) {
+  emitX(boxes, x0, y0, z0, w, h, (u, ly) => sample(u, ly, "n", w));
+  emitX(boxes, x0, y0, z0 + d - 1, w, h, (u, ly) => sample(u, ly, "s", w));
+  if (d > 2) {
+    emitZ(boxes, x0, y0, z0 + 1, d - 2, h, (u, ly) => sample(u, ly, "w", d - 2));
+    emitZ(boxes, x0 + w - 1, y0, z0 + 1, d - 2, h, (u, ly) => sample(u, ly, "e", d - 2));
+  }
+  put(boxes, x0 + w / 2, y0 + h + 0.5, z0 + d / 2, w, 1, d, roof);
+  addWallCols(cols, x0, y0, z0, w, h, d, door);
+  cols.push({
+    minX: x0,
+    maxX: x0 + w,
+    minY: y0 + h,
+    maxY: y0 + h + 1,
+    minZ: z0,
+    maxZ: z0 + d,
+  });
+}
+
+function hole(face: Face, door: Face, u: number, ly: number, len: number): boolean {
+  if (face !== door || ly >= 3) return false;
+  const start = (len - 4) / 2;
+  return u >= start && u < start + 4;
+}
+
+function addAwning(boxes: Box[], x0: number, z0: number, w: number, d: number, face: Face) {
+  const y = 3.35;
+  if (face === "n") put(boxes, x0 + w / 2, y, z0 - 0.75, Math.max(4, w * 0.7), 0.14, 1.35, "white");
+  if (face === "s") put(boxes, x0 + w / 2, y, z0 + d + 0.75, Math.max(4, w * 0.7), 0.14, 1.35, "white");
+  if (face === "w") put(boxes, x0 - 0.75, y, z0 + d / 2, 1.35, 0.14, Math.max(4, d * 0.7), "white");
+  if (face === "e") put(boxes, x0 + w + 0.75, y, z0 + d / 2, 1.35, 0.14, Math.max(4, d * 0.7), "white");
+}
+
+function addBalcony(boxes: Box[], x0: number, y: number, z0: number, w: number, d: number, face: Face) {
+  if (face === "n") put(boxes, x0 + w / 2, y, z0 - 0.55, w * 0.72, 0.16, 1.1, "stone");
+  if (face === "s") put(boxes, x0 + w / 2, y, z0 + d + 0.55, w * 0.72, 0.16, 1.1, "stone");
+  if (face === "w") put(boxes, x0 - 0.55, y, z0 + d / 2, 1.1, 0.16, d * 0.72, "stone");
+  if (face === "e") put(boxes, x0 + w + 0.55, y, z0 + d / 2, 1.1, 0.16, d * 0.72, "stone");
+}
+
+function addCrown(boxes: Box[], cols: Collider[], x: number, y: number, z: number, w: number, d: number) {
+  const cw = Math.max(4, w * 0.42);
+  const cd = Math.max(4, d * 0.42);
+  put(boxes, x, y + 1.3, z, cw, 2.4, cd, "white");
+  put(boxes, x, y + 2.7, z, cw * 0.5, 0.45, cd * 0.5, "cyan");
+  put(boxes, x, y + 5.4, z, 0.4, 4.6, 0.4, "gray");
+  put(boxes, x, y + 7.9, z, 0.75, 0.75, 0.75, "cyanhot");
+  cols.push(col(x, y + 1.3, z, cw, 2.4, cd));
+  cols.push(col(x, y + 5.4, z, 0.4, 4.6, 0.4));
+}
+
+function addTowerPorch(boxes: Box[], cols: Collider[]) {
+  const zFace = SOUTH;
+  put(boxes, 0, 0.2, zFace + 1.7, 18, 0.32, 3.4, "stone");
+  put(boxes, 0, 0.48, zFace + 2.7, 12, 0.24, 1.5, "plaza");
+  for (const x of [-8, -4, 4, 8]) {
+    put(boxes, x, 2.7, zFace + 2.4, 0.75, 5.2, 0.75, "white");
+    put(boxes, x, 4.6, zFace + 2.4, 0.28, 1.4, 0.28, "cyan");
+    cols.push(col(x, 2.7, zFace + 2.4, 0.75, 5.2, 0.75));
+  }
+  put(boxes, 0, 5.5, zFace + 2.3, 18.5, 0.38, 4.4, "black");
+  put(boxes, 0, 5.82, zFace + 2.3, 18.8, 0.16, 0.35, "cyanhot");
+  cols.push(col(0, 5.5, zFace + 2.3, 18.5, 0.38, 4.4));
 }
 
 function towerSample(len: number) {
@@ -374,6 +528,7 @@ function addTower(boxes: Box[], cols: Collider[]) {
     const sample = towerSample(tier.w);
     y = shell(boxes, cols, x0, y, z0, tier.w, tier.h, tier.d, (u, ly) => sample(u, ly), "black");
   }
+  addTowerPorch(boxes, cols);
   addSign(boxes, cols, y);
   return y;
 }
@@ -463,7 +618,7 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng) {
       let height = minH + Math.floor(rng() * (maxH - minH + 1));
       if (dist < 62 && rng() > 0.72) height += 8;
       height = Math.min(height, 54);
-      const style = Math.floor(rng() * 3);
+      const style = Math.floor(rng() * 4);
       const face = frontFace(cx, cz);
       let y = 0;
       let bx = x0;
@@ -474,7 +629,6 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng) {
       while (y < height && guard < 8) {
         guard++;
         const slice = Math.min(8, height - y);
-        const door = y === 0;
         y = shell(
           boxes,
           cols,
@@ -486,7 +640,7 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng) {
           bd,
           (u, ly, f) => {
             const len = f === "n" || f === "s" ? bw : bd;
-            return officeSample(style, door && f === face, len)(u, ly);
+            return facadeSample(style, len)(u, ly);
           },
           "black",
         );
@@ -508,6 +662,9 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng) {
         put(boxes, gx0 + gw / 2, roofY + 0.7, gz0 + gd - 0.4, gw, 0.7, 0.7, "hedge");
         if (gw > 6) addTree(boxes, cols, gx0 + 2, gz0 + Math.max(3, gd / 2), roofY + 0.3);
       }
+      addAwning(boxes, bx, bz, bw, bd, face);
+      if (height > 18) addBalcony(boxes, bx, Math.min(12, roofY - 4), bz, bw, bd, face);
+      if (height > 22) addCrown(boxes, cols, bx + bw / 2, roofY, bz + bd / 2, bw, bd);
       if (height > 22 && dist > 40 && dist < 96 && rng() > 0.55) {
         addBillboard(boxes, x0, 8, z0, w, d, face, Math.floor(rng() * 6));
       }
@@ -709,6 +866,232 @@ function reservedPlot(x0: number, x1: number, z0: number, z1: number) {
   return spots.some(([a, b, c, d]) => x0 >= a - 0.2 && x1 <= b + 0.2 && z0 >= c - 0.2 && z1 <= d + 0.2);
 }
 
+function roomCenter(x0: number, z0: number, w: number, d: number) {
+  return { cx: x0 + w / 2, cz: z0 + d / 2 };
+}
+
+function opposite(door: Face, x0: number, z0: number, w: number, d: number, inset: number) {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  if (door === "w") return { x: x0 + w - inset, z: cz, rot: -Math.PI / 2 };
+  if (door === "e") return { x: x0 + inset, z: cz, rot: Math.PI / 2 };
+  if (door === "n") return { x: cx, z: z0 + d - inset, rot: Math.PI };
+  return { x: cx, z: z0 + inset, rot: 0 };
+}
+
+function cladWalls(boxes: Box[], x0: number, z0: number, w: number, d: number, door: Face) {
+  const y = 1.85;
+  const h = 3.15;
+  const t = 0.16;
+  const inset = 1.18;
+  if (door !== "n") put(boxes, x0 + w / 2, y, z0 + inset, w - 2.5, h, t, "cream");
+  if (door !== "s") put(boxes, x0 + w / 2, y, z0 + d - inset, w - 2.5, h, t, "cream");
+  if (door !== "w") put(boxes, x0 + inset, y, z0 + d / 2, t, h, d - 2.5, "cream");
+  if (door !== "e") put(boxes, x0 + w - inset, y, z0 + d / 2, t, h, d - 2.5, "cream");
+}
+
+function addCeiling(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number) {
+  put(boxes, x0 + w / 2, 3.62, z0 + d / 2, w - 2.15, 0.14, d - 2.15, "ceil");
+  cols.push({
+    minX: x0 + 1,
+    maxX: x0 + w - 1,
+    minY: 3.5,
+    maxY: 3.75,
+    minZ: z0 + 1,
+    maxZ: z0 + d - 1,
+  });
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  for (const [dx, dz] of [
+    [-4.2, -3.2],
+    [4.2, -3.2],
+    [-4.2, 3.2],
+    [4.2, 3.2],
+    [0, 0],
+  ] as Array<[number, number]>) {
+    put(boxes, cx + dx, 3.2, cz + dz, 0.12, 0.55, 0.12, "gray");
+    put(boxes, cx + dx, 2.85, cz + dz, 0.55, 0.16, 0.55, "warm");
+  }
+}
+
+function furnishShop(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "cream");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  const back = opposite(door, x0, z0, w, d, 2.4);
+  const counterAlongX = door === "n" || door === "s";
+  put(boxes, back.x, 0.55, back.z, counterAlongX ? 7.2 : 1.15, 1.05, counterAlongX ? 1.15 : 7.2, "wood");
+  cols.push(col(back.x, 0.55, back.z, counterAlongX ? 7.2 : 1.15, 1.05, counterAlongX ? 1.15 : 7.2));
+  put(boxes, back.x, 1.15, back.z, counterAlongX ? 7.4 : 1.25, 0.12, counterAlongX ? 1.25 : 7.4, "stone");
+  put(boxes, back.x, 1.55, back.z, 0.35, 0.55, 0.35, "gold");
+  const shelfZ = [z0 + 2.3, z0 + d - 2.3];
+  for (const z of shelfZ) {
+    put(boxes, cx, 0.85, z, w - 8, 1.5, 0.7, "wood");
+    cols.push(col(cx, 0.85, z, w - 8, 1.5, 0.7));
+    put(boxes, cx, 1.62, z, w - 8, 0.1, 0.78, "stone");
+    put(boxes, cx - 2.4, 1.9, z, 0.7, 0.4, 0.45, "cyan");
+    put(boxes, cx, 1.9, z, 0.55, 0.45, 0.45, "gold");
+    put(boxes, cx + 2.4, 1.85, z, 0.45, 0.55, 0.4, "white");
+    put(boxes, cx + 4, 1.85, z, 0.4, 0.35, 0.4, "red");
+  }
+  for (const side of [-1, 1]) {
+    const z = cz + side * 4.2;
+    put(boxes, cx - 1.5, 0.45, z, 1.6, 0.85, 1.1, "stone");
+    cols.push(col(cx - 1.5, 0.45, z, 1.6, 0.85, 1.1));
+    put(boxes, cx - 1.5, 1.05, z, 0.45, 0.7, 0.45, "white");
+    put(boxes, cx - 0.9, 1.45, z, 0.35, 0.2, 0.35, "gold");
+  }
+  const mat = opposite(door, x0, z0, w, d, 4.2);
+  put(boxes, mat.x, 0.06, mat.z, counterAlongX ? 3.2 : 2.2, 0.04, counterAlongX ? 2.2 : 3.2, "gold");
+  const service = opposite(door, x0, z0, w, d, 4.1);
+  return {
+    id: "shop",
+    name: "OrbitX Shop",
+    kind: "shop",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX: service.x,
+    serviceZ: service.z,
+    signX: back.x + (door === "w" ? -0.55 : door === "e" ? 0.55 : 0),
+    signY: 2.35,
+    signZ: back.z + (door === "n" ? -0.55 : door === "s" ? 0.55 : 0),
+    signRot: back.rot,
+  };
+}
+
+function furnishCafe(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  const back = opposite(door, x0, z0, w, d, 2.3);
+  const alongX = door === "n" || door === "s";
+  put(boxes, back.x, 0.6, back.z, alongX ? 8 : 1.05, 1.15, alongX ? 1.05 : 8, "black");
+  cols.push(col(back.x, 0.6, back.z, alongX ? 8 : 1.05, 1.15, alongX ? 1.05 : 8));
+  put(boxes, back.x, 1.25, back.z, alongX ? 8.2 : 1.2, 0.14, alongX ? 1.2 : 8.2, "stone");
+  put(boxes, back.x, 1.7, back.z, 0.7, 0.55, 0.45, "warm");
+  const seats: Array<[number, number]> = [
+    [cx - 3.2, cz - 3.4],
+    [cx + 3.2, cz - 3.4],
+    [cx - 3.2, cz + 3.4],
+    [cx + 3.2, cz + 3.4],
+  ];
+  for (const [x, z] of seats) {
+    put(boxes, x, 0.72, z, 1.35, 0.1, 1.35, "wood");
+    put(boxes, x, 0.38, z, 0.22, 0.6, 0.22, "black");
+    cols.push(col(x, 0.55, z, 1.35, 0.9, 1.35));
+    for (const [dx, dz] of [[0.85, 0], [-0.85, 0], [0, 0.85], [0, -0.85]] as Array<[number, number]>) {
+      put(boxes, x + dx, 0.42, z + dz, 0.38, 0.42, 0.38, "red");
+    }
+  }
+  const service = opposite(door, x0, z0, w, d, 4);
+  return {
+    id: "cafe",
+    name: "Cafe Nova",
+    kind: "cafe",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX: service.x,
+    serviceZ: service.z,
+    signX: back.x + (door === "w" ? -0.5 : door === "e" ? 0.5 : 0),
+    signY: 2.3,
+    signZ: back.z + (door === "n" ? -0.5 : door === "s" ? 0.5 : 0),
+    signRot: back.rot,
+  };
+}
+
+function furnishHall(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "stone");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  const stage = opposite(door, x0, z0, w, d, 4.2);
+  const alongX = door === "n" || door === "s";
+  put(boxes, stage.x, 0.28, stage.z, alongX ? 10 : 6.5, 0.5, alongX ? 6.5 : 10, "wood");
+  cols.push(col(stage.x, 0.28, stage.z, alongX ? 10 : 6.5, 0.5, alongX ? 6.5 : 10));
+  put(boxes, stage.x, 0.85, stage.z, 0.7, 0.7, 0.7, "black");
+  cols.push(col(stage.x, 0.85, stage.z, 0.7, 0.7, 0.7));
+  put(boxes, stage.x, 1.4, stage.z, 0.28, 0.55, 0.28, "gold");
+  for (const row of [-1.2, 1.6]) {
+    for (const side of [-1, 1]) {
+      const x = alongX ? cx + side * 3.2 : stage.x + (door === "w" ? -1 : 1) * (6 + row);
+      const z = alongX ? stage.z + (door === "n" ? -1 : 1) * (6 + row) : cz + side * 3.2;
+      put(boxes, x, 0.38, z, alongX ? 2.6 : 0.7, 0.45, alongX ? 0.7 : 2.6, "red");
+      cols.push(col(x, 0.38, z, alongX ? 2.6 : 0.7, 0.45, alongX ? 0.7 : 2.6));
+    }
+  }
+  put(boxes, stage.x, 2.5, stage.z, alongX ? 6 : 0.2, 1.5, alongX ? 0.2 : 6, "cyan");
+  return {
+    id: "hall",
+    name: "Community Hall",
+    kind: "hall",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX: stage.x + (door === "w" ? -6 : door === "e" ? 6 : 0),
+    serviceZ: stage.z + (door === "n" ? -6 : door === "s" ? 6 : 0),
+    signX: stage.x + (door === "w" ? -0.4 : door === "e" ? 0.4 : 0),
+    signY: 2.45,
+    signZ: stage.z + (door === "n" ? -0.4 : door === "s" ? 0.4 : 0),
+    signRot: stage.rot,
+  };
+}
+
+function furnishOffice(
+  boxes: Box[],
+  cols: Collider[],
+  x0: number,
+  z0: number,
+  w: number,
+  d: number,
+  door: Face,
+  index: number,
+): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  const accent: Mat = index % 2 === 0 ? "cyan" : "gold";
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "plaza");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  const back = opposite(door, x0, z0, w, d, 1.7);
+  put(boxes, back.x, 1.7, back.z, door === "w" || door === "e" ? 0.2 : 5.5, 2.2, door === "w" || door === "e" ? 5.5 : 0.2, accent);
+  put(boxes, cx, 0.72, cz, 3.2, 0.12, 1.6, "wood");
+  put(boxes, cx, 0.38, cz, 0.28, 0.6, 0.28, "black");
+  cols.push(col(cx, 0.5, cz, 3.2, 0.85, 1.6));
+  for (const side of [-1, 1]) {
+    put(boxes, cx + side * 2.1, 0.4, cz, 0.45, 0.45, 0.45, "black");
+    cols.push(col(cx + side * 2.1, 0.4, cz, 0.45, 0.45, 0.45));
+  }
+  const desk = { x: cx, z: cz + 4.2 };
+  put(boxes, desk.x, 0.55, desk.z, 2.4, 1.05, 0.8, "stone");
+  cols.push(col(desk.x, 0.55, desk.z, 2.4, 1.05, 0.8));
+  put(boxes, desk.x, 1.2, desk.z, 0.45, 0.28, 0.35, "cyan");
+  put(boxes, cx, 0.4, z0 + 2.4, 3.2, 0.45, 0.8, "red");
+  cols.push(col(cx, 0.4, z0 + 2.4, 3.2, 0.45, 0.8));
+  return {
+    id: `project-${index}`,
+    name: "Project office",
+    kind: "project",
+    slot: index,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX: desk.x,
+    serviceZ: desk.z - 1.4,
+    signX: back.x + (door === "e" ? 0.45 : door === "w" ? -0.45 : 0),
+    signY: 2.35,
+    signZ: back.z,
+    signRot: back.rot,
+  };
+}
+
 function addVenue(
   boxes: Box[],
   cols: Collider[],
@@ -718,11 +1101,28 @@ function addVenue(
   d: number,
   h: number,
   door: Face,
+  kind: Zone["kind"],
+  index = 0,
 ) {
-  shell(boxes, cols, x0, 0, z0, w, h, d, (u, ly, face) => {
-    const len = face === "n" || face === "s" ? w : d;
-    return officeSample(1, face === door && ly <= 2, len)(u, ly);
-  }, "black");
+  const style = kind === "cafe" ? 2 : kind === "hall" ? 3 : kind === "shop" ? 0 : 1;
+  shellOpen(
+    boxes,
+    cols,
+    x0,
+    0,
+    z0,
+    w,
+    h,
+    d,
+    (u, ly, face, len) => (hole(face, door, u, ly, len) ? "air" : facadeSample(style, len)(u, ly)),
+    "black",
+    door,
+  );
+  addAwning(boxes, x0, z0, w, d, door);
+  if (kind === "shop") return furnishShop(boxes, cols, x0, z0, w, d, door);
+  if (kind === "cafe") return furnishCafe(boxes, cols, x0, z0, w, d, door);
+  if (kind === "hall") return furnishHall(boxes, cols, x0, z0, w, d, door);
+  return furnishOffice(boxes, cols, x0, z0, w, d, door, index);
 }
 
 function addPark(boxes: Box[], cols: Collider[], x0: number, z0: number, x1: number, z1: number) {
@@ -741,15 +1141,17 @@ function addKiosk(boxes: Box[], cols: Collider[], x: number, z: number, top: Mat
   cols.push(col(x, 0.9, z, 1.5, 1.6, 1.5));
 }
 
-function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; boards: BoardSlot[] } {
-  addVenue(boxes, cols, 7, 43, 22, 22, 14, "w");
-  addVenue(boxes, cols, -29, 43, 22, 22, 12, "e");
-  addVenue(boxes, cols, 43, 7, 22, 22, 16, "w");
+function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; boards: BoardSlot[]; zones: Zone[] } {
+  const zones = [
+    addVenue(boxes, cols, 7, 43, 22, 22, 16, "w", "shop"),
+    addVenue(boxes, cols, -29, 43, 22, 22, 14, "e", "cafe"),
+    addVenue(boxes, cols, 43, 7, 22, 22, 18, "w", "hall"),
+  ];
 
   const projectZs = [-65, -29, 43, 79];
   projectZs.forEach((z0, index) => {
-    const h = [20, 28, 16, 24][index];
-    addVenue(boxes, cols, -101, z0, 22, 22, h, "e");
+    const h = [22, 30, 18, 26][index];
+    zones.push(addVenue(boxes, cols, -101, z0, 22, 22, h, "e", "project", index));
   });
   addPark(boxes, cols, -101, -101, -79, -79);
   addPark(boxes, cols, -101, 7, -79, 29);
@@ -785,7 +1187,7 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     { id: "hall-front", x: 42.35, y: 7.4, z: 18, rotY: -Math.PI / 2 },
     { id: "district-row", x: -78.35, y: 8.2, z: -54, rotY: Math.PI / 2 },
   ];
-  return { anchors, boards };
+  return { anchors, boards, zones };
 }
 
 function blocked(cols: Collider[], x: number, z: number) {
@@ -830,11 +1232,16 @@ export function buildCity(seed: number): City {
     fountain: FOUNTAIN,
     anchors: fixed.anchors,
     boards: fixed.boards,
+    zones: fixed.zones,
     cars: [
       { id: "north", x: 0, z: 46, yaw: 0 },
-      { id: "south", x: 0, z: 84, yaw: 0 },
+      { id: "south", x: 0, z: 84, yaw: Math.PI },
       { id: "east", x: 36, z: 50, yaw: 0 },
       { id: "west", x: -36, z: 50, yaw: Math.PI },
+      { id: "east-ave", x: 72, z: 18, yaw: 0 },
+      { id: "west-ave", x: -72, z: -18, yaw: Math.PI },
+      { id: "north-ave", x: 18, z: 72, yaw: Math.PI / 2 },
+      { id: "south-ave", x: -18, z: -72, yaw: -Math.PI / 2 },
     ],
   };
 }

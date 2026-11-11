@@ -11,7 +11,7 @@ import {
   type PerspectiveCamera,
   type Scene,
 } from "three";
-import type { Anchor, BoardSlot, City, Collider } from "./city";
+import type { Anchor, BoardSlot, City, Collider, Zone } from "./city";
 import {
   AD_PRICE,
   SHOP,
@@ -78,15 +78,6 @@ interface Spark {
   vy: number;
   vz: number;
   life: number;
-}
-
-interface Room {
-  id: string;
-  name: string;
-  group: Group;
-  cols: Collider[];
-  exit: { x: number; y: number; z: number };
-  banner: CanvasTexture;
 }
 
 const COLORS: Record<string, number> = {
@@ -207,27 +198,69 @@ function addHat(group: Group, box: BoxGeometry, hat: string) {
   group.add(node);
 }
 
-function makeCar(skin: string) {
+function makeCar(skin: string, style: number) {
   const group = new Group();
+  group.rotation.order = "YXZ";
   const box = new BoxGeometry(1, 1, 1);
-  const paint = new MeshLambertMaterial({ color: COLORS[skin] ?? COLORS.black, emissive: 0x101218, emissiveIntensity: 0.4 });
-  const hull = new Mesh(box, paint);
-  hull.scale.set(2.4, 0.55, 1.15);
-  hull.position.y = 0.55;
-  const cabin = new Mesh(box, MATERIALS.cyan);
-  cabin.scale.set(1.15, 0.42, 0.95);
-  cabin.position.set(-0.05, 0.95, 0);
-  const nose = new Mesh(box, MATERIALS.cyanhot);
-  nose.scale.set(0.12, 0.16, 0.7);
-  nose.position.set(1.22, 0.5, 0);
-  group.add(hull, cabin, nose);
-  group.userData.paint = paint;
+  const paints: MeshLambertMaterial[] = [];
+  const paint = () => {
+    const material = new MeshLambertMaterial({
+      color: COLORS[skin] ?? COLORS.black,
+      emissive: 0x12141c,
+      emissiveIntensity: 0.28,
+    });
+    paints.push(material);
+    return material;
+  };
+  const add = (material: MeshLambertMaterial, x: number, y: number, z: number, sx: number, sy: number, sz: number) => {
+    const mesh = new Mesh(box, material);
+    mesh.position.set(x, y, z);
+    mesh.scale.set(sx, sy, sz);
+    group.add(mesh);
+  };
+  const body = paint();
+  if (style === 1) {
+    add(body, 0.15, 0.42, 0, 3.7, 0.32, 1.72);
+    add(body, -0.25, 0.68, 0, 1.55, 0.28, 1.42);
+    add(MATERIALS.cyan, -0.05, 0.74, 0, 1.05, 0.18, 1.2);
+    add(body, -1.55, 0.86, 0, 0.12, 0.28, 1.55);
+  } else if (style === 2) {
+    add(body, 0.05, 0.62, 0, 3.35, 0.62, 1.62);
+    add(body, -0.2, 1.15, 0, 2.15, 0.52, 1.5);
+    add(MATERIALS.cyan, 0.2, 1.18, 0, 1.35, 0.32, 1.32);
+    add(GOLD, -0.15, 1.52, 0, 0.55, 0.16, 0.7);
+  } else {
+    add(body, 0.1, 0.5, 0, 3.45, 0.42, 1.62);
+    add(body, -0.2, 0.88, 0, 1.65, 0.36, 1.42);
+    add(MATERIALS.cyan, 0.02, 0.92, 0, 1.15, 0.22, 1.22);
+  }
+  add(body, 1.62, 0.4, 0, 0.62, 0.26, 1.28);
+  add(MATERIALS.cyanhot, 1.92, 0.42, 0.46, 0.1, 0.14, 0.32);
+  add(MATERIALS.cyanhot, 1.92, 0.42, -0.46, 0.1, 0.14, 0.32);
+  const lamp = new MeshLambertMaterial({ color: 0xff4b5c, emissive: 0xaa1830, emissiveIntensity: 0.8 });
+  add(lamp, -1.72, 0.46, 0.52, 0.1, 0.16, 0.34);
+  add(lamp, -1.72, 0.46, -0.52, 0.1, 0.16, 0.34);
+  add(MATERIALS.cyan, 0.05, 0.58, 0.84, 2.5, 0.08, 0.08);
+  add(MATERIALS.cyan, 0.05, 0.58, -0.84, 2.5, 0.08, 0.08);
+  for (const [x, z] of [
+    [1.15, 0.72],
+    [1.15, -0.72],
+    [-1.15, 0.72],
+    [-1.15, -0.72],
+  ] as Array<[number, number]>) {
+    add(MATERIALS.black, x, 0.18, z, 0.62, 0.2, 0.46);
+    add(MATERIALS.cyan, x, 0.06, z, 0.4, 0.08, 0.3);
+  }
+  add(MATERIALS.cyan, 0.1, 0.05, 0, 2.3, 0.05, 0.28);
+  group.userData.paints = paints;
   return group;
 }
 
 function retint(group: Group, skin: string) {
-  const paint = group.userData.paint as MeshLambertMaterial | undefined;
-  if (paint) paint.color.setHex(COLORS[skin] ?? COLORS.black);
+  const paints = group.userData.paints as MeshLambertMaterial[] | undefined;
+  if (!paints) return;
+  const color = COLORS[skin] ?? COLORS.black;
+  for (const material of paints) material.color.setHex(color);
 }
 
 export function wantsTouch() {
@@ -254,8 +287,8 @@ export function createRuntime(scene: Scene) {
   let cityCols: Collider[] = [];
   let activeCols: Collider[] = [];
   let anchors: Anchor[] = [];
-  let indoors = "";
-  let saved = { x: 0, y: 0, z: 0, yaw: 0 };
+  let zones: Zone[] = [];
+  let insideName = "";
   let driving = false;
   let carIndex = -1;
   let carSpeed = 0;
@@ -284,9 +317,8 @@ export function createRuntime(scene: Scene) {
   const touch = wantsTouch();
   const chat: ChatLine[] = [];
   const remotes = new Map<string, Remote>();
-  const rooms = new Map<string, Room>();
   const boards = new Map<string, { mesh: Mesh; base: BillboardInfo; texture: CanvasTexture }>();
-  const cars: { id: string; group: Group; x: number; z: number; yaw: number }[] = [];
+  const cars: { id: string; group: Group; x: number; z: number; yaw: number; lean: number }[] = [];
   let beacon: Mesh | null = null;
   let packageMesh: Mesh | null = null;
   let rider: Group | null = null;
@@ -357,59 +389,29 @@ export function createRuntime(scene: Scene) {
     return content.projects[slot]?.name ?? "Your Project Here";
   }
 
-  function buildRoom(id: string, name: string, line: string, ox: number, oy: number, oz: number, wide: boolean) {
-    const w = wide ? 16 : 12;
-    const d = wide ? 12 : 9;
-    const h = 4;
-    const group = new Group();
-    const floor = new Mesh(box, MATERIALS.plaza);
-    floor.scale.set(w, 0.2, d);
-    floor.position.set(ox, oy - 0.1, oz);
-    const ceil = new Mesh(box, MATERIALS.black);
-    ceil.scale.set(w, 0.2, d);
-    ceil.position.set(ox, oy + h, oz);
-    const wallMat = MATERIALS.white;
-    const x0 = ox - w / 2;
-    const x1 = ox + w / 2;
-    const z0 = oz - d / 2;
-    const z1 = oz + d / 2;
-    const west = new Mesh(box, wallMat);
-    west.scale.set(0.3, h, d);
-    west.position.set(x0, oy + h / 2, oz);
-    const east = new Mesh(box, MATERIALS.black);
-    east.scale.set(0.3, h, d);
-    east.position.set(x1, oy + h / 2, oz);
-    const north = new Mesh(box, MATERIALS.black);
-    north.scale.set(w, h, 0.3);
-    north.position.set(ox, oy + h / 2, z0);
-    const southL = new Mesh(box, wallMat);
-    southL.scale.set(w / 2 - 1.1, h, 0.3);
-    southL.position.set(ox - w / 4 - 0.55, oy + h / 2, z1);
-    const southR = new Mesh(box, wallMat);
-    southR.scale.set(w / 2 - 1.1, h, 0.3);
-    southR.position.set(ox + w / 4 + 0.55, oy + h / 2, z1);
-    const lintel = new Mesh(box, MATERIALS.cyan);
-    lintel.scale.set(2.4, 0.8, 0.32);
-    lintel.position.set(ox, oy + h - 0.5, z1);
-    const counter = new Mesh(box, MATERIALS.stone);
-    counter.scale.set(wide ? 4 : 2.4, 1, 0.8);
-    counter.position.set(ox, oy + 0.5, oz - 1.2);
-    const bannerTex = paint([name, line], "Demo space");
-    const banner = new Mesh(new PlaneGeometry(wide ? 6 : 4, 2), new MeshLambertMaterial({ map: bannerTex, side: DoubleSide }));
-    banner.position.set(ox, oy + 2.4, z0 + 0.4);
-    group.add(floor, ceil, west, east, north, southL, southR, lintel, counter, banner);
-    root.add(group);
-    const cols: Collider[] = [
-      { minX: x0, maxX: x1, minY: oy - 1, maxY: oy, minZ: z0, maxZ: z1 },
-      { minX: x0, maxX: x1, minY: oy + h - 0.2, maxY: oy + h + 1, minZ: z0, maxZ: z1 },
-      { minX: x0 - 0.2, maxX: x0 + 0.4, minY: oy, maxY: oy + h, minZ: z0, maxZ: z1 },
-      { minX: x1 - 0.4, maxX: x1 + 0.2, minY: oy, maxY: oy + h, minZ: z0, maxZ: z1 },
-      { minX: x0, maxX: x1, minY: oy, maxY: oy + h, minZ: z0 - 0.2, maxZ: z0 + 0.45 },
-      { minX: x0, maxX: ox - 1.15, minY: oy, maxY: oy + h, minZ: z1 - 0.4, maxZ: z1 + 0.2 },
-      { minX: ox + 1.15, maxX: x1, minY: oy, maxY: oy + h, minZ: z1 - 0.4, maxZ: z1 + 0.2 },
-      { minX: ox - 2, maxX: ox + 2, minY: oy, maxY: oy + 1.05, minZ: oz - 1.7, maxZ: oz - 0.7 },
-    ];
-    rooms.set(id, { id, name, group, cols, exit: { x: ox, y: oy, z: z1 - 1.1 }, banner: bannerTex });
+  function zoneTitle(zone: Zone) {
+    if (zone.kind !== "project") return zone.name;
+    const project = content.projects[zone.slot];
+    return project?.name ?? zone.name;
+  }
+
+  function zoneLine(zone: Zone) {
+    if (zone.kind === "project") return content.projects[zone.slot]?.line ?? "Community office";
+    if (zone.kind === "shop") return "Demo credits only";
+    if (zone.kind === "cafe") return "Coffee and a seat";
+    return "Gather here";
+  }
+
+  function mountSign(zone: Zone) {
+    const sub = zone.kind === "shop" ? "Use the counter" : zone.kind === "cafe" ? "Pull up a seat" : zone.kind === "hall" ? "Stage is open" : "Community office";
+    const texture = paint([zoneTitle(zone), zoneLine(zone)], sub);
+    const mesh = new Mesh(
+      new PlaneGeometry(zone.kind === "hall" ? 5.4 : 4.2, 1.7),
+      new MeshLambertMaterial({ map: texture, side: DoubleSide, emissive: 0x062028, emissiveIntensity: 0.35 }),
+    );
+    mesh.position.set(zone.signX, zone.signY, zone.signZ);
+    mesh.rotation.y = zone.signRot;
+    root.add(mesh);
   }
 
   function clearRoot() {
@@ -417,7 +419,6 @@ export function createRuntime(scene: Scene) {
     root = new Group();
     scene.add(root);
     boards.clear();
-    rooms.clear();
     cars.length = 0;
     remotes.clear();
     beacon = null;
@@ -433,7 +434,7 @@ export function createRuntime(scene: Scene) {
     driving = false;
     carIndex = -1;
     carSpeed = 0;
-    indoors = "";
+    insideName = "";
     job = "";
     phase = 0;
     riderOn = false;
@@ -446,6 +447,7 @@ export function createRuntime(scene: Scene) {
     cityCols = next.colliders;
     activeCols = cityCols;
     anchors = next.anchors;
+    zones = next.zones;
     for (const anchor of anchors) {
       const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
       const tag = makeLabel(title);
@@ -453,12 +455,13 @@ export function createRuntime(scene: Scene) {
       root.add(tag);
     }
     for (const slot of next.boards) mountBoard(slot);
+    const parked = ["black", "white", "cyan", "gold"];
     next.cars.forEach((spawn, index) => {
-      const group = makeCar(index === 0 ? wallet.car : "black");
-      group.position.set(spawn.x, 0.15, spawn.z);
-      group.rotation.y = spawn.yaw;
+      const group = makeCar(index === 0 ? wallet.car : parked[index % parked.length], index % 3);
+      group.position.set(spawn.x, 0.12, spawn.z);
+      group.rotation.y = Math.PI / 2 - spawn.yaw;
       root.add(group);
-      cars.push({ id: spawn.id, group, x: spawn.x, z: spawn.z, yaw: spawn.yaw });
+      cars.push({ id: spawn.id, group, x: spawn.x, z: spawn.z, yaw: spawn.yaw, lean: 0 });
     });
     beacon = new Mesh(box, MATERIALS.cyanhot);
     beacon.scale.set(0.35, 1.4, 0.35);
@@ -478,17 +481,11 @@ export function createRuntime(scene: Scene) {
     selfTag.name = "tag";
     localBody.add(selfTag);
     root.add(localBody);
-    buildRoom("shop", "OrbitX Shop", "Demo credits only", 0, -50, 0, false);
-    buildRoom("cafe", "Cafe Nova", "Sit a while", 30, -50, 0, false);
-    buildRoom("hall", "Community Hall", "Meet here", 60, -50, 0, true);
-    content.projects.slice(0, 4).forEach((project, index) => {
-      buildRoom(`project-${index}`, project.name, project.line, 100 + index * 36, -50, 0, true);
-    });
     while (content.projects.length < 4) {
       const index = content.projects.length;
-      buildRoom(`project-${index}`, "Your Project Here", "Add it in projects.json", 100 + index * 36, -50, 0, true);
       content.projects.push({ id: `empty-${index}`, name: "Your Project Here", line: "Add it in projects.json" });
     }
+    for (const zone of zones) mountSign(zone);
     for (let i = 0; i < 40; i++) {
       const mesh = new Mesh(box, i % 2 ? GOLD : MATERIALS.cyanhot);
       mesh.visible = false;
@@ -524,7 +521,7 @@ export function createRuntime(scene: Scene) {
       touch,
       driving,
       flying: flyFlag,
-      indoors,
+      indoors: insideName,
       prompt,
       balance: wallet.balance,
       burned: wallet.burned,
@@ -587,29 +584,26 @@ export function createRuntime(scene: Scene) {
     return best;
   }
 
-  function enterRoom(id: string, body: Body) {
-    const room = rooms.get(id);
-    if (!room) return;
-    saved = { x: body.x, y: body.y, z: body.z, yaw: body.yaw };
-    indoors = id;
-    activeCols = room.cols;
-    body.x = room.exit.x;
-    body.y = room.exit.y;
-    body.z = room.exit.z - 1.6;
-    body.yaw = 0;
-    body.vy = 0;
-    body.flying = false;
-    say(room.name);
+  function zoneAt(body: Body) {
+    if (body.y > 3.2) return null;
+    for (const zone of zones) {
+      if (body.x > zone.minX && body.x < zone.maxX && body.z > zone.minZ && body.z < zone.maxZ) return zone;
+    }
+    return null;
   }
 
-  function leaveRoom(body: Body) {
-    indoors = "";
-    activeCols = cityCols;
-    body.x = saved.x;
-    body.y = saved.y;
-    body.z = saved.z;
-    body.yaw = saved.yaw;
+  function nearService(body: Body, zone: Zone) {
+    return Math.hypot(body.x - zone.serviceX, body.z - zone.serviceZ) < 2.6;
+  }
+
+  function stepInside(anchor: Anchor, body: Body) {
+    body.x = anchor.x + Math.sin(anchor.yaw) * 3.5;
+    body.z = anchor.z - Math.cos(anchor.yaw) * 3.5;
+    body.y = 0;
     body.vy = 0;
+    body.flying = false;
+    body.yaw = anchor.yaw;
+    say(anchor.kind === "project" ? projectName(anchor.slot) : anchor.name);
   }
 
   let lastBody: Body | null = null;
@@ -622,17 +616,14 @@ export function createRuntime(scene: Scene) {
       exitCar(body);
       return;
     }
-    if (indoors) {
-      const room = rooms.get(indoors);
-      if (room && Math.hypot(body.x - room.exit.x, body.z - room.exit.z) < 2.2) {
-        leaveRoom(body);
-        return;
-      }
-      if (indoors === "shop") panel = "shop";
+    const zone = zoneAt(body);
+    if (zone && nearService(body, zone)) {
+      if (zone.kind === "shop") panel = "shop";
+      else say(zoneTitle(zone));
       publish();
       return;
     }
-    const car = nearestCar(body, 3.4);
+    const car = nearestCar(body, 3.6);
     if (car >= 0) {
       enterCar(body, car);
       return;
@@ -640,7 +631,8 @@ export function createRuntime(scene: Scene) {
     const anchor = nearestAnchor(body, 3.3);
     if (!anchor) return;
     if (anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project") {
-      enterRoom(anchor.id, body);
+      stepInside(anchor, body);
+      publish();
       return;
     }
     if (anchor.kind === "jobs") panel = "jobs";
@@ -679,8 +671,8 @@ export function createRuntime(scene: Scene) {
     const car = cars[carIndex];
     driving = false;
     if (car) {
-      body.x = car.x + Math.cos(car.yaw) * 2.2;
-      body.z = car.z + Math.sin(car.yaw) * 2.2;
+      body.x = car.x + Math.cos(car.yaw) * 2.6;
+      body.z = car.z + Math.sin(car.yaw) * 2.6;
       body.y = 0;
     }
     carIndex = -1;
@@ -714,9 +706,12 @@ export function createRuntime(scene: Scene) {
       car.x = nx;
       car.z = nz;
     } else carSpeed *= -0.25;
-    const bob = Math.sin(clock * 4) * 0.06;
-    car.group.position.set(car.x, 0.15 + bob, car.z);
-    car.group.rotation.y = car.yaw;
+    const steer = s * moving;
+    car.lean += (steer * 0.28 - car.lean) * Math.min(1, dt * 8);
+    const bob = Math.sin(clock * 5) * 0.05;
+    car.group.position.set(car.x, 0.12 + bob, car.z);
+    car.group.rotation.y = Math.PI / 2 - car.yaw;
+    car.group.rotation.z = -car.lean;
     body.x = car.x;
     body.y = 0.2;
     body.z = car.z;
@@ -726,7 +721,7 @@ export function createRuntime(scene: Scene) {
 
   function carBlocks(x: number, y: number, z: number) {
     if (driving || y > 2.2) return false;
-    return cars.some((car, index) => index !== carIndex && Math.abs(x - car.x) < 1.5 && Math.abs(z - car.z) < 1.5);
+    return cars.some((car, index) => index !== carIndex && Math.abs(x - car.x) < 2.1 && Math.abs(z - car.z) < 2.1);
   }
 
   function consumeLook(body: Body) {
@@ -753,7 +748,7 @@ export function createRuntime(scene: Scene) {
   }
 
   function tickJobs(body: Body) {
-    if (!playing || indoors) {
+    if (!playing) {
       if (beacon) beacon.visible = false;
       return;
     }
@@ -871,14 +866,19 @@ export function createRuntime(scene: Scene) {
     }
     prompt = "";
     if (playing && !paused && !opts.orbit) {
+      const zone = zoneAt(body);
+      insideName = zone?.id ?? "";
       if (driving) prompt = "Use to get out of the hover-car";
-      else if (indoors) {
-        const room = rooms.get(indoors);
-        prompt = room && Math.hypot(body.x - room.exit.x, body.z - room.exit.z) < 2.2 ? "Use to leave" : indoors === "shop" ? "Use to open the shop" : room?.name ?? "";
-      } else if (nearestCar(body, 3.4) >= 0) prompt = "Use to drive this hover-car";
+      else if (zone && nearService(body, zone)) prompt = zone.kind === "shop" ? "Use to open the shop" : zoneTitle(zone);
+      else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : zoneTitle(zone);
+      else if (nearestCar(body, 3.6) >= 0) prompt = "Use to drive this hover-car";
       else {
         const anchor = nearestAnchor(body, 3.3);
-        if (anchor) prompt = `Use — ${anchor.kind === "project" ? projectName(anchor.slot) : anchor.name}`;
+        if (anchor) {
+          const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
+          const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project";
+          prompt = walkIn ? `Walk in — ${title}` : `Use — ${title}`;
+        }
       }
     }
     let tookCamera = false;
@@ -891,9 +891,9 @@ export function createRuntime(scene: Scene) {
       const car = cars[carIndex];
       if (car) {
         const yaw = car.yaw + chaseYaw;
-        const dist = 8;
-        camera.position.set(car.x - Math.sin(yaw) * dist, 2.6 + chasePitch * 4, car.z + Math.cos(yaw) * dist);
-        camera.lookAt(car.x, 1.1, car.z);
+        const dist = 6.4;
+        camera.position.set(car.x - Math.sin(yaw) * dist, 2.35 + chasePitch * 3.2, car.z + Math.cos(yaw) * dist);
+        camera.lookAt(car.x, 0.7, car.z);
         tookCamera = true;
       }
     }
@@ -944,8 +944,31 @@ export function createRuntime(scene: Scene) {
         body.x = 0;
         body.z = 52;
       }
+    } else if (shot === "inside") {
+      body.x = 14;
+      body.y = 0;
+      body.z = 54;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.02;
+    } else if (shot === "cafe") {
+      body.x = -14;
+      body.y = 0;
+      body.z = 54;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0.02;
+    } else if (shot === "hall") {
+      body.x = 50;
+      body.y = 0;
+      body.z = 18;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.04;
     } else if (shot === "shop") {
       panel = "shop";
+      body.x = 16;
+      body.y = 0;
+      body.z = 54;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0;
       if (!wallet.owned.includes("color-gold")) {
         const result = spend(wallet, 40, "color-gold");
         if (result.ok) wallet.color = "gold";
@@ -1042,7 +1065,7 @@ export function createRuntime(scene: Scene) {
     stickActive: () => Math.hypot(stickX, stickY) > 0.15,
     jumpHeld: () => holdJump,
     downHeld: () => holdDown,
-    indoors: () => indoors,
+    indoors: () => "",
     moveAxes,
     drive,
     after,
@@ -1062,7 +1085,7 @@ export function createRuntime(scene: Scene) {
     },
     toggleFly(body?: Body) {
       const who = body ?? lastBody;
-      if (!who || driving || indoors) return;
+      if (!who || driving) return;
       who.flying = !who.flying;
       who.vy = 0;
     },

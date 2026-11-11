@@ -12,7 +12,7 @@ What you can do:
 
 - **Drive.** Hover-cars sit on the roads. Stand next to one and press Use (E) to get in or out. WASD, or the stick, drives. The camera follows behind the car.
 - **Work.** Jobs (J) offers a courier run, a taxi fare, and a short city guide route. The objective stays on the HUD. Finishing one pays demo credits.
-- **Visit.** OrbitX Shop, Cafe Nova, and the Community Hall have doors. Project District, on the west side, is a row of offices. Walk up to a sign and press Use to go inside. Press Use again at the door to leave.
+- **Visit.** OrbitX Shop, Cafe Nova, and the Community Hall are real ground floors. Project District, on the west side, is a row of offices. Walk through the door, or press Use at the sign to step inside. The shop counter, cafe bar, hall stage, and office desks are in the rooms. Press Use at the shop counter to buy.
 - **Shop.** The shop sells suits, hover-car colors, and hats. Each price shows how much of it is burned.
 - **Advertise.** Ads (G), or the billboard desk on the main road, books plaza-east, plaza-west, hall-front, or district-row for 1, 7, or 30 days. The board changes right away on this computer.
 - **People.** Other players in another tab of the same browser show up as blocky people with names, and the chat box reaches them. Add `?server=ws://host:port` to use a relay instead. The relay just forwards JSON: `{ "t": "state", "state": { "id", "name", "x", "y", "z", "yaw", "color", "hat", "car", "skin" } }`, `{ "t": "chat", "id", "name", "text" }`, and `{ "t": "bye", "id" }`. No accounts and no secrets. Without that address, play stays inside one browser.

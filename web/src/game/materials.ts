@@ -97,11 +97,30 @@ export const MATERIALS: Record<Mat, MeshLambertMaterial> = {
   lane: styledMaterial({ color: 0xf7f7f2, polygonOffset: true }),
   hill: styledMaterial({ color: 0x6a3b2c, grid: 0.25 }),
   track: styledMaterial({ color: 0x1c212b, grid: 0.2 }),
+  wood: styledMaterial({ color: 0x8a5a32, grid: 0.55 }),
+  warm: styledMaterial({
+    color: 0xffc27a,
+    emissive: 0xff7a1a,
+    emissiveIntensity: 0.85,
+  }),
+  cream: styledMaterial({ color: 0xf4f0e6, grid: 0.3 }),
+  red: styledMaterial({
+    color: 0xff4b5c,
+    emissive: 0xaa1830,
+    emissiveIntensity: 0.7,
+  }),
+  gold: styledMaterial({
+    color: 0xe0b33a,
+    emissive: 0x8a5a10,
+    emissiveIntensity: 0.35,
+  }),
+  ceil: styledMaterial({
+    color: 0xd5cfc3,
+    emissive: 0x8a8074,
+    emissiveIntensity: 0.72,
+    grid: 0.2,
+  }),
 };
 MATERIALS.water.depthWrite = false;
 
-export const GOLD = styledMaterial({
-  color: 0xe0b33a,
-  emissive: 0x8a5a10,
-  emissiveIntensity: 0.35,
-});
+export const GOLD = MATERIALS.gold;
