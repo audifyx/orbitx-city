@@ -494,6 +494,58 @@ export function createRuntime(scene: Scene) {
   let noticeUntil = 0;
   let job = "";
   let phase = 0;
+  // Dwell jobs (lifeguard scan, cleaner sweep): seconds held at the target.
+  let dwell = 0;
+  // One-line prompt while holding still / waiting on a game, shown by the
+  // prompt chain in after(). Set fresh every frame by tickJobs/tickGames.
+  let holdPrompt = "";
+  // Mail route, resolved when the job starts: depot, then homes, then an
+  // office. Homes come from the live anchors, so the route follows the
+  // seed layout instead of hard-coding house positions.
+  let mailStops: Array<{ x: number; z: number; label: string }> = [];
+  // Lifeguard: three posts along the harbor pier, south to north.
+  const LIFEGUARD_POSTS = [
+    { x: 0, z: 206, label: "Scan the water at the south post" },
+    { x: 0, z: 222, label: "Scan the water at the middle post" },
+    { x: 0, z: 238, label: "Scan the water at the end of the pier" },
+  ] as const;
+  // Cleaner: five litter spots around the plaza, clear of trees/benches.
+  const LITTER_SPOTS = [
+    { x: 14, z: -16 },
+    { x: -14, z: -16 },
+    { x: 20, z: 0 },
+    { x: -20, z: 0 },
+    { x: 0, z: -22 },
+  ] as const;
+  const LITTER_DONE = 5;
+  // Mini-games. A game and a job never run together: starting one while
+  // the other is active is refused, so the server-side job slot
+  // (job-start/earn) is never clobbered mid-job.
+  let miniGame: "" | "coinhunt" | "fishing" = "";
+  const COIN_SPOTS = [
+    { x: 0, z: -20 },
+    { x: 20, z: -8 },
+    { x: -20, z: -8 },
+    { x: 16, z: 20 },
+    { x: -16, z: 20 },
+    { x: 0, z: 26 },
+  ] as const;
+  const COIN_TOTAL = 6;
+  const COIN_TIME_MS = 90000;
+  let coinTaken: boolean[] = [];
+  let coinEndsAt = 0;
+  let coinMeshes: Mesh[] = [];
+  let litterMeshes: Mesh[] = [];
+  const FISH_CATCHES = 3;
+  const FISH_MISSES = 3;
+  const FISH_TIME_MS = 120000;
+  let fishState: "off" | "waiting" | "bite" = "off";
+  let fishBiteAt = 0;
+  let fishBiteUntil = 0;
+  let fishCatches = 0;
+  let fishMisses = 0;
+  let fishEndsAt = 0;
+  let fishBobber: Mesh | null = null;
   let chatScope: "global" | "near" = "global";
   let timeName: "sunset" | "night" | "day" = "sunset";
   let profileId = "";
@@ -870,6 +922,11 @@ export function createRuntime(scene: Scene) {
     insideName = "";
     job = "";
     phase = 0;
+    dwell = 0;
+    mailStops = [];
+    miniGame = "";
+    coinTaken = [];
+    fishState = "off";
     riderOn = false;
     eventLeft = 0;
     burstLeft = 0;
@@ -920,6 +977,24 @@ export function createRuntime(scene: Scene) {
     rider = makePerson("cyan", "cap");
     rider.visible = false;
     root.add(rider);
+    coinMeshes = COIN_SPOTS.map(() => {
+      const mesh = new Mesh(box, GOLD);
+      mesh.scale.set(0.35, 0.35, 0.1);
+      mesh.visible = false;
+      root.add(mesh);
+      return mesh;
+    });
+    litterMeshes = LITTER_SPOTS.map(() => {
+      const mesh = new Mesh(box, MATERIALS.black);
+      mesh.scale.set(0.55, 0.12, 0.55);
+      mesh.visible = false;
+      root.add(mesh);
+      return mesh;
+    });
+    fishBobber = new Mesh(box, MATERIALS.cyanhot);
+    fishBobber.scale.set(0.3, 0.3, 0.3);
+    fishBobber.visible = false;
+    root.add(fishBobber);
     localBody = makePerson(wallet.color, wallet.hat);
     paintPerson(localBody, true);
     localBody.visible = false;
@@ -1122,6 +1197,9 @@ export function createRuntime(scene: Scene) {
     if (id === "barista") return "Barista";
     if (id === "vendor") return "Market vendor";
     if (id === "security") return "Security";
+    if (id === "mail") return "Mail carrier";
+    if (id === "lifeguard") return "Lifeguard";
+    if (id === "cleaner") return "Street cleaner";
     return "City guide";
   }
 
@@ -1142,6 +1220,15 @@ export function createRuntime(scene: Scene) {
   }
 
   function objectiveText() {
+    if (miniGame === "coinhunt") {
+      const left = Math.max(0, Math.ceil((coinEndsAt - Date.now()) / 1000));
+      const got = coinTaken.filter(Boolean).length;
+      return `Coin hunt — ${got} of ${COIN_TOTAL} coins · ${left}s left`;
+    }
+    if (miniGame === "fishing") {
+      if (fishState === "bite") return "Fishing — BITE! Press E to strike";
+      return `Fishing — ${fishCatches} of ${FISH_CATCHES} catches · ${fishMisses} miss${fishMisses === 1 ? "" : "es"}`;
+    }
     if (job === "courier" && phase === 0) return "Pick up the glowing package in front of the fountain";
     if (job === "courier") return "Drop the package at OrbitX Shop";
     if (job === "taxi") {
@@ -1165,6 +1252,15 @@ export function createRuntime(scene: Scene) {
     if (job === "security" && phase === 0) return "Patrol the fountain";
     if (job === "security" && phase === 1) return "Patrol the Community Hall";
     if (job === "security") return "Patrol OrbitX HQ in the Project District";
+    if (job === "mail") {
+      resolveMailStops();
+      return mailStops[phase]?.label ?? "Deliver the mail";
+    }
+    if (job === "lifeguard") return LIFEGUARD_POSTS[Math.min(phase, 2)].label;
+    if (job === "cleaner") {
+      const left = LITTER_DONE - phase;
+      return left > 1 ? `Sweep the plaza — ${left} litter spots left` : "Sweep the plaza — one litter spot left";
+    }
     const stop = tourStops[world.online ? world.mission : tourStep];
     if (stop) return stop.text;
     return "City tour complete — pick up a job";
@@ -1318,6 +1414,16 @@ export function createRuntime(scene: Scene) {
       publish();
       return;
     }
+    // Fishing: E on the pier casts, and E during a bite strikes. A game
+    // in progress answers E before the race gate or a car does.
+    if (miniGame === "fishing") {
+      fishPress();
+      return;
+    }
+    if (!job && !miniGame && onPier(body)) {
+      startFishing();
+      return;
+    }
     if (raceNext < 0 && nearGate(body, 0, 8)) {
       void startRace("street");
       return;
@@ -1448,7 +1554,28 @@ export function createRuntime(scene: Scene) {
     return anchors.find((item) => item.id === "project-0");
   }
 
-  function tickJobs(body: Body) {
+  // Mail route: depot (Jobs board), then the first two homes on the map,
+  // then a project office. Falls back to project offices if the seed
+  // built fewer than two homes. Resolved lazily so shots that set the job
+  // directly get the same route as startJob.
+  function resolveMailStops() {
+    if (mailStops.length) return;
+    const stops: Array<{ x: number; z: number; label: string }> = [];
+    const depot = anchors.find((item) => item.id === "jobs");
+    stops.push({ x: depot?.x ?? 10, z: depot?.z ?? 17.6, label: "Collect the mailbag at the Jobs board" });
+    const homes = anchors.filter((item) => item.id.startsWith("home-")).slice(0, 2);
+    for (const home of homes) {
+      stops.push({ x: home.x, z: home.z, label: `Deliver the mail to ${home.name}` });
+    }
+    const office = anchors.find((item) => item.id === "project-1") ?? anchors.find((item) => item.id === "project-0");
+    if (office) stops.push({ x: office.x, z: office.z, label: `Deliver the mail to ${projectName(office.slot)}` });
+    else stops.push({ x: stops[0].x, z: stops[0].z, label: "Return the mailbag to the Jobs board" });
+    while (stops.length < 4) stops.push({ x: stops[0].x, z: stops[0].z, label: "Return the mailbag to the Jobs board" });
+    mailStops = stops;
+  }
+
+  function tickJobs(body: Body, dt: number) {
+    holdPrompt = "";
     if (!playing) {
       if (beacon) beacon.visible = false;
       return;
@@ -1475,6 +1602,12 @@ export function createRuntime(scene: Scene) {
     if (job === "dock") target = anchors.find((item) => item.id === "dock") ?? { x: 0, z: 148 };
     if (job === "dj") target = anchors.find((item) => item.id === "hall") ?? null;
     if (job === "banker") target = anchors.find((item) => item.id === "bank") ?? null;
+    if (job === "mail") {
+      resolveMailStops();
+      target = mailStops[Math.min(phase, mailStops.length - 1)] ?? null;
+    }
+    if (job === "lifeguard") target = LIFEGUARD_POSTS[Math.min(phase, 2)];
+    if (job === "cleaner") target = LITTER_SPOTS[Math.min(phase, LITTER_SPOTS.length - 1)];
     if (beacon) {
       beacon.visible = !!target && !driving;
       if (target) {
@@ -1494,11 +1627,40 @@ export function createRuntime(scene: Scene) {
         rider.position.set(pickup.x, 0, pickup.z);
       }
     }
+    // Litter is only on the ground while the cleaner job runs; swept spots
+    // stay gone until the next shift.
+    for (let i = 0; i < litterMeshes.length; i++) {
+      litterMeshes[i].visible = job === "cleaner" && i >= phase;
+    }
     if (!target || paused) return;
     const reachDist = job === "courier" && phase === 0 ? 5.2 : job === "courier" ? 6 : driving ? 4.2 : 2.8;
     let reach = Math.hypot(body.x - target.x, body.z - target.z) < reachDist;
     if (job === "courier" && phase === 1 && atShop(body)) reach = true;
+    // Dwell jobs: leaving the spot resets the hold. Standing still inside
+    // the radius counts up; the prompt shows the seconds left.
+    const dwellJob = job === "lifeguard" || job === "cleaner";
+    if (dwellJob && !reach) dwell = 0;
     if (!reach) return;
+    if (dwellJob) {
+      dwell += dt;
+      const need = job === "lifeguard" ? 3 : 2.5;
+      const left = Math.max(0, need - dwell);
+      holdPrompt = job === "lifeguard"
+        ? `Scanning the water… hold still (${Math.ceil(left)}s)`
+        : `Sweeping… hold still (${Math.ceil(left)}s)`;
+      if (dwell < need) return;
+      dwell = 0;
+      if (job === "lifeguard") {
+        phase += 1;
+        if (phase >= 3) void finishJob("lifeguard");
+        else say("Post scanned. Next post up the pier.");
+      } else {
+        phase += 1;
+        if (phase >= LITTER_DONE) void finishJob("cleaner");
+        else say(`Spot swept. ${LITTER_DONE - phase} to go.`);
+      }
+      return;
+    }
     if (job === "courier" && phase === 0) {
       phase = 1;
       say("Package picked up. Take it to OrbitX Shop.");
@@ -1537,9 +1699,199 @@ export function createRuntime(scene: Scene) {
       phase += 1;
       if (phase >= 2) void finishJob("promoter");
       else say("Hall visited. Head to the ad kiosk.");
+    } else if (job === "mail") {
+      phase += 1;
+      resolveMailStops();
+      if (phase >= mailStops.length) void finishJob("mail");
+      else say(phase === 1 ? "Mailbag collected. First delivery is a home." : "Delivered. Next stop.");
     } else if (job === "dock" || job === "dj" || job === "banker") {
       void finishJob(job);
     }
+  }
+
+  // ---- Mini-games: coin hunt + fishing. Both pay City Sol through the
+  // same earn op as jobs (server JOBS map holds coinhunt/fishing), and both
+  // have a real fail state: the clock running out, or too many misses. ----
+  function onPier(body: Body) {
+    return Math.abs(body.x) < 4 && body.z > 198 && body.z < 246;
+  }
+
+  function startCoinHunt() {
+    if (job) {
+      say("Finish your job first — one gig at a time.");
+      return;
+    }
+    if (miniGame) return;
+    miniGame = "coinhunt";
+    coinTaken = COIN_SPOTS.map(() => false);
+    coinEndsAt = Date.now() + COIN_TIME_MS;
+    panel = "";
+    void world.jobStart("coinhunt").catch((err: unknown) => say(err instanceof Error ? err.message : "The city held the hunt."));
+    say("Coin hunt — 6 gold coins around the plaza, 90 seconds. Follow the beacon.");
+    publish();
+  }
+
+  function startFishing(at?: Body) {
+    if (job) {
+      say("Finish your job first — one gig at a time.");
+      return;
+    }
+    if (miniGame) return;
+    const body = at ?? lastBody;
+    if (!body || !onPier(body)) {
+      say("Stand on the harbor pier to fish, then press E to cast.");
+      return;
+    }
+    miniGame = "fishing";
+    fishState = "waiting";
+    fishCatches = 0;
+    fishMisses = 0;
+    fishEndsAt = Date.now() + FISH_TIME_MS;
+    fishBiteAt = Date.now() + 3000 + Math.random() * 5000;
+    panel = "";
+    void world.jobStart("fishing").catch((err: unknown) => say(err instanceof Error ? err.message : "The city held the line."));
+    say("Line cast. Wait for a bite — press E the moment it hits.");
+    publish();
+  }
+
+  function recast() {
+    fishState = "waiting";
+    fishBiteAt = Date.now() + 3000 + Math.random() * 5000;
+  }
+
+  function endFishing(win: boolean, reason: string) {
+    fishState = "off";
+    if (fishBobber) fishBobber.visible = false;
+    if (!win) {
+      miniGame = "";
+      say(reason);
+      publish();
+      return;
+    }
+    void finishGame("fishing");
+  }
+
+  async function finishGame(id: string) {
+    if (performance.now() < payAfter || !miniGame) return;
+    payAfter = performance.now() + 1500;
+    miniGame = "";
+    if (fishBobber) fishBobber.visible = false;
+    for (const mesh of coinMeshes) mesh.visible = false;
+    const ok = await pay(id);
+    if (!ok) say("The city held the prize — try the game again.");
+    publish();
+  }
+
+  // One E press while fishing: too early scares the fish, on time lands it.
+  function fishPress() {
+    if (miniGame !== "fishing") return;
+    if (fishState === "waiting") {
+      fishMisses += 1;
+      if (fishMisses >= FISH_MISSES) {
+        endFishing(false, "Too soon, three times — the fish stopped biting. No pay.");
+      } else {
+        say(`Too soon — you scared it off. ${FISH_MISSES - fishMisses} miss${FISH_MISSES - fishMisses === 1 ? "" : "es"} left.`);
+        recast();
+      }
+      publish();
+      return;
+    }
+    if (fishState === "bite") {
+      fishCatches += 1;
+      burst(0, 1, 228);
+      if (fishCatches >= FISH_CATCHES) {
+        say(`Third catch! The haul pays ${world.online ? "through the city" : "45 City Sol"}.`);
+        endFishing(true, "");
+      } else {
+        say(`Caught one! ${fishCatches} of ${FISH_CATCHES}. Cast again.`);
+        recast();
+      }
+      publish();
+    }
+  }
+
+  function tickGames(body: Body) {
+    if (miniGame === "coinhunt") {
+      let nearest: { x: number; z: number } | null = null;
+      let nearestD = Infinity;
+      for (let i = 0; i < COIN_SPOTS.length; i++) {
+        const spot = COIN_SPOTS[i];
+        const mesh = coinMeshes[i];
+        if (!mesh) continue;
+        mesh.visible = !coinTaken[i];
+        mesh.position.set(spot.x, 0.9 + Math.sin(clock * 2 + i) * 0.15, spot.z);
+        mesh.rotation.y = clock * 1.5;
+        if (coinTaken[i]) continue;
+        const d = Math.hypot(body.x - spot.x, body.z - spot.z);
+        if (d < nearestD) {
+          nearestD = d;
+          nearest = spot;
+        }
+        if (d < 2.8 && !paused) {
+          coinTaken[i] = true;
+          mesh.visible = false;
+          burst(spot.x, 1, spot.z);
+          const got = coinTaken.filter(Boolean).length;
+          if (got >= COIN_TOTAL) {
+            say("Last coin! The hunt pays.");
+            void finishGame("coinhunt");
+            return;
+          }
+          say(`Coin ${got} of ${COIN_TOTAL}.`);
+          publish();
+        }
+      }
+      if (Date.now() > coinEndsAt) {
+        for (const mesh of coinMeshes) mesh.visible = false;
+        miniGame = "";
+        say("Time up — the coins vanished. No pay this time.");
+        publish();
+        return;
+      }
+      if (beacon && nearest && !paused) {
+        beacon.visible = true;
+        beacon.position.set(nearest.x, 1.2 + Math.sin(clock * 3) * 0.2, nearest.z);
+        beacon.rotation.y = clock;
+      }
+      return;
+    }
+    if (miniGame === "fishing") {
+      const now = Date.now();
+      if (fishBobber) {
+        fishBobber.visible = true;
+        fishBobber.position.set(5, 0.35 + Math.sin(clock * 2) * 0.08, 228);
+      }
+      if (now > fishEndsAt) {
+        endFishing(false, "The fish stopped biting — two minutes, no haul. No pay.");
+        return;
+      }
+      if (fishState === "waiting" && now >= fishBiteAt) {
+        fishState = "bite";
+        fishBiteUntil = now + 1600;
+        holdPrompt = "BITE! Press E to strike";
+        say("Bite! Strike now!");
+        publish();
+        return;
+      }
+      if (fishState === "bite") {
+        holdPrompt = "BITE! Press E to strike";
+        if (now > fishBiteUntil) {
+          fishMisses += 1;
+          if (fishMisses >= FISH_MISSES) {
+            endFishing(false, "Three bites missed — the fish won. No pay.");
+          } else {
+            say(`It got away. ${FISH_MISSES - fishMisses} miss${FISH_MISSES - fishMisses === 1 ? "" : "es"} left.`);
+            recast();
+          }
+          publish();
+        }
+        return;
+      }
+      holdPrompt = "Waiting for a bite…";
+      return;
+    }
+    // No game running: leave holdPrompt alone — tickJobs may have set a
+    // dwell prompt (scan/sweep) for the active job.
   }
 
   function atShop(body: Body) {
@@ -1583,7 +1935,7 @@ export function createRuntime(scene: Scene) {
   let tourStep = 0;
 
   async function pay(id: string) {
-    const amounts: Record<string, number> = { courier: 45, taxi: 90, guide: 60, mechanic: 55, photographer: 40, promoter: 50, dock: 65, dj: 55, banker: 50, barista: 45, vendor: 55, security: 75 };
+    const amounts: Record<string, number> = { courier: 45, taxi: 90, guide: 60, mechanic: 55, photographer: 40, promoter: 50, dock: 65, dj: 55, banker: 50, barista: 45, vendor: 55, security: 75, mail: 70, lifeguard: 65, cleaner: 55, coinhunt: 40, fishing: 45 };
     if (!world.online) {
       say(earn(wallet, amounts[id], jobTitle(id)));
       return true;
@@ -1628,7 +1980,8 @@ export function createRuntime(scene: Scene) {
     flyFlag = body.flying;
     consumeLook(body);
     if (!opts.orbit) {
-      tickJobs(body);
+      tickJobs(body, dt);
+      tickGames(body);
       tickTour(body);
     }
     for (const npc of npcs) {
@@ -1806,6 +2159,7 @@ export function createRuntime(scene: Scene) {
       const lot = currentLot();
       if (Date.now() < raceHoldUntil) prompt = "Countdown — hold still";
       else if (raceNext >= 0) prompt = `Next gate ${raceNext + 1} of ${GATES.length}`;
+      else if (holdPrompt) prompt = holdPrompt;
       else if (decorating && lot) prompt = "Decorate — place, rotate, or remove. X closes it.";
       else if (driving && nearGate(body, 0, 8)) prompt = "Press E — hover time trial";
       else if (driving) prompt = "Press E to get out";
@@ -2102,6 +2456,56 @@ export function createRuntime(scene: Scene) {
         lastBody.y = 0;
         lastBody.z = 54;
       }, 4600);
+    } else if (shot === "mail") {
+      job = "mail";
+      phase = 0;
+      resolveMailStops();
+      void world.jobStart("mail");
+      body.x = 10;
+      body.y = 0;
+      body.z = 17.6;
+      body.yaw = Math.PI;
+      body.pitch = 0.05;
+    } else if (shot === "lifeguard") {
+      job = "lifeguard";
+      phase = 0;
+      void world.jobStart("lifeguard");
+      body.x = 0;
+      body.y = 0;
+      body.z = 206;
+      body.yaw = 0;
+      body.pitch = 0.05;
+    } else if (shot === "cleaner") {
+      job = "cleaner";
+      phase = 0;
+      void world.jobStart("cleaner");
+      body.x = 14;
+      body.y = 0;
+      body.z = -16;
+      body.yaw = 0;
+      body.pitch = 0.1;
+    } else if (shot === "coinhunt") {
+      startCoinHunt();
+      body.x = 0;
+      body.y = 0;
+      body.z = -17;
+      body.yaw = Math.PI;
+      body.pitch = 0.08;
+    } else if (shot === "fishing") {
+      body.x = 0;
+      body.y = 0;
+      body.z = 222;
+      body.yaw = 0;
+      body.pitch = 0.1;
+      startFishing(body);
+      // Hold a bite open for the screenshot instead of the 1.6s window.
+      window.setTimeout(() => {
+        if (miniGame !== "fishing") return;
+        fishState = "bite";
+        fishBiteUntil = Date.now() + 30000;
+        say("Bite! Strike now!");
+        publish();
+      }, 4000);
     } else if (shot === "car") {
       body.x = 4.2;
       body.y = 0;
@@ -2667,8 +3071,15 @@ export function createRuntime(scene: Scene) {
       lookOn = on;
     },
     startJob(id: string) {
+      if (miniGame) {
+        say("Finish your game first — one gig at a time.");
+        return;
+      }
       job = id;
       phase = 0;
+      dwell = 0;
+      mailStops = [];
+      if (id === "mail") resolveMailStops();
       riderOn = false;
       void world.jobStart(id);
       say(`${jobTitle(id)} started.`);
@@ -2897,6 +3308,12 @@ export function createRuntime(scene: Scene) {
     },
     startRace(kind: "street" | "hover") {
       void startRace(kind);
+    },
+    startCoinHunt() {
+      startCoinHunt();
+    },
+    startFishing() {
+      startFishing();
     },
     leaveRace() {
       raceNext = -1;

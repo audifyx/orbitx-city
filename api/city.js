@@ -56,6 +56,14 @@ const JOBS = {
   barista: 45,
   vendor: 55,
   security: 75,
+  mail: 70,
+  lifeguard: 65,
+  cleaner: 55,
+  // Mini-games pay through the same earn op (job-start then earn, same
+  // JOB_MS floor): the client only ever starts one of these while no job
+  // is active, so they never clobber a job in progress.
+  coinhunt: 40,
+  fishing: 45,
 };
 
 // Payouts scale with the player's job streak: +5% per completed job, up

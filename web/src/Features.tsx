@@ -259,6 +259,14 @@ function Arcade({ rt }: { rt: Runtime | null }) {
       >
         {light === "go" ? "GO — tap" : light === "wait" ? "Wait…" : "Arm the light"}
       </button>
+      <h3>City games</h3>
+      <p>Free to play, pay City Sol on a win. Finish any running job first — one gig at a time.</p>
+      <h3>Coin hunt</h3>
+      <p>6 gold coins hidden around the plaza. Find them all in 90 seconds — pays 40 City Sol. The beacon points at the nearest coin.</p>
+      <button type="button" onClick={() => rt?.startCoinHunt()}>Start coin hunt</button>
+      <h3>Fishing</h3>
+      <p>Stand on the harbor pier and press E to cast. 3 catches pays 45 City Sol. Press E too soon, or miss a bite, and the fish count it — 3 misses and the haul is gone.</p>
+      <button type="button" onClick={() => rt?.startFishing()}>Cast a line</button>
     </div>
   );
 }
