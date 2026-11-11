@@ -2,10 +2,14 @@ import { createHmac, randomBytes } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 import { createClient } from "@supabase/supabase-js";
 import { Redis } from "@upstash/redis";
+import { ensureDaily, handleLive, noteEarn } from "./live.js";
+import { adBuy, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus } from "./ads.js";
+import { authMode, checkReauth, handleAuthOp, looksLikeAccountToken, supabasePublic, verifyAccessToken } from "./auth.js";
+import { chainShopEnabled, confirmSend, ensureWallet, exportWallet, networkName, quoteSend, walletView } from "./wallet.js";
 
 const START_BALANCE = 250;
 const BURN_RATE = 0.25;
-const PRESENCE_MS = 8000;
+const PRESENCE_MS = 25000;
 const JOB_MS = 4000;
 
 const CATALOG = {
@@ -24,9 +28,24 @@ const CATALOG = {
   "color-black": { price: 25, kind: "color", value: "black" },
 };
 
+const LOOKS = new Set([
+  "tjr",
+  "ansem",
+  "poor-goat",
+  "cupsy",
+  "cobie",
+  "hsaka",
+  "gainzy",
+  "zachxbt",
+  "threadguy",
+  "murad",
+  "frank",
+  "kaleo",
+]);
+
 const JOBS = {
   courier: 45,
-  taxi: 70,
+  taxi: 90,
   guide: 60,
   mechanic: 55,
   photographer: 40,
@@ -34,7 +53,19 @@ const JOBS = {
   dock: 65,
   dj: 55,
   banker: 50,
+  barista: 45,
+  vendor: 55,
+  security: 75,
 };
+
+// Payouts scale with the player's job streak: +5% per completed job, up
+// to +50% (streak 10). The client shows the scaled pay in the Jobs panel.
+function scaledPay(id, streak) {
+  const base = JOBS[id];
+  if (!base) return 0;
+  const mult = 1 + 0.05 * Math.min(Math.max(0, Number(streak || 0)), 10);
+  return Math.round(base * mult);
+}
 
 const MISSIONS = [
   { id: "plaza", pay: 15 },
@@ -44,8 +75,6 @@ const MISSIONS = [
   { id: "tower", pay: 30 },
   { id: "dock", pay: 80 },
 ];
-
-const AD_PRICE = { 1: 25, 7: 80, 30: 200 };
 
 const LOBBIES = [
   { id: "plaza", name: "Plaza" },
@@ -101,9 +130,11 @@ function db() {
 }
 
 function supabaseEnv() {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-  const anon = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+  // Vercel's Supabase Marketplace integration injects the same values under
+  // STORAGE_* names; the SUPABASE_* names are the documented ones. Read both.
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.STORAGE_SUPABASE_URL || process.env.NEXT_PUBLIC_STORAGE_SUPABASE_URL || "";
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.STORAGE_SUPABASE_SERVICE_ROLE_KEY || process.env.STORAGE_SUPABASE_SECRET_KEY || "";
+  const anon = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.STORAGE_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_STORAGE_SUPABASE_ANON_KEY || "";
   return url && key ? { url, key, anon } : null;
 }
 
@@ -114,6 +145,7 @@ function sb() {
   if (!slot.__orbitxSb) {
     slot.__orbitxSb = createClient(env.url, env.key, { auth: { persistSession: false, autoRefreshToken: false } });
   }
+  slot.__orbitxSbClient = slot.__orbitxSb;
   return slot.__orbitxSb;
 }
 
@@ -148,7 +180,35 @@ async function ensureSchema() {
     friends TEXT NOT NULL,
     inbox TEXT NOT NULL,
     job TEXT NOT NULL,
-    party TEXT NOT NULL
+    party TEXT NOT NULL,
+    look TEXT NOT NULL DEFAULT 'tjr'
+  )`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS look TEXT NOT NULL DEFAULT 'tjr'`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS job_streak INTEGER NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS business TEXT NOT NULL DEFAULT '{}'`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS rent TEXT NOT NULL DEFAULT '{}'`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS earned INTEGER NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS best_race INTEGER NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS best_hover INTEGER NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS daily TEXT NOT NULL DEFAULT '{}'`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS wallet TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS holder BOOLEAN NOT NULL DEFAULT FALSE`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS avatar TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS auth_user TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT ''`;
+  await sql`CREATE TABLE IF NOT EXISTS properties (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    owner_name TEXT NOT NULL,
+    furniture TEXT NOT NULL
+  )`;
+  await sql`ALTER TABLE properties ADD COLUMN IF NOT EXISTS brand TEXT NOT NULL DEFAULT '{}'`;
+  await sql`CREATE TABLE IF NOT EXISTS announcements (
+    id TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    author TEXT NOT NULL
   )`;
   await sql`CREATE TABLE IF NOT EXISTS bookings (
     id TEXT PRIMARY KEY,
@@ -182,9 +242,24 @@ function freshPlayer(id, name) {
     friends: [],
     inbox: [],
     job: null,
+    jobStreak: 0,
+    business: null,
+    rent: {},
     party: "",
     mission: 0,
     missionAt: 0,
+    look: "tjr",
+    earned: 0,
+    bestRace: 0,
+    bestHover: 0,
+    daily: null,
+    wallet: "",
+    holder: false,
+    email: "",
+    avatar: "",
+    provider: "",
+    authUser: "",
+    address: "",
   };
 }
 
@@ -202,13 +277,48 @@ function publicPlayer(player) {
     inbox: player.inbox,
     party: player.party,
     mission: player.mission || 0,
+    look: player.look || "tjr",
+    earned: player.earned || 0,
+    jobStreak: Number(player.jobStreak || 0),
+    business: player.business || null,
+    rent: player.rent || {},
+    bestRace: player.bestRace || 0,
+    bestHover: player.bestHover || 0,
+    holder: !!player.holder,
+    wallet: player.wallet || "",
+    daily: ensureDaily(player),
+    email: player.email || "",
+    avatar: player.avatar || "",
+    provider: player.provider || "",
+    account: Boolean(player.authUser),
+    address: player.address || "",
   };
 }
 
 async function savePlayer(player) {
   const client = sb();
   if (client) {
-    const { error } = await client.from("players").upsert(rowFromPlayer(player));
+    let { error } = await client.from("players").upsert(rowFromPlayer(player));
+    if (error && /look|earned|best_race|best_hover|daily|wallet|holder|email|avatar|provider|auth_user|address|job_streak|business|rent/i.test(error.message || "")) {
+      const row = rowFromPlayer(player);
+      delete row.look;
+      delete row.earned;
+      delete row.best_race;
+      delete row.best_hover;
+      delete row.daily;
+      delete row.wallet;
+      delete row.holder;
+      delete row.email;
+      delete row.avatar;
+      delete row.provider;
+      delete row.auth_user;
+      delete row.address;
+      delete row.job_streak;
+      delete row.business;
+      delete row.rent;
+      const retry = await client.from("players").upsert(row);
+      error = retry.error;
+    }
     if (!error) return;
     noteSupabase(error.message);
   }
@@ -219,8 +329,11 @@ async function savePlayer(player) {
     const friends = JSON.stringify(player.friends);
     const inbox = JSON.stringify(player.inbox);
     const job = JSON.stringify(player.job);
-    await sql`INSERT INTO players (id, token, name, balance, burned, owned, color, hat, car, friends, inbox, job, party)
-      VALUES (${player.id}, ${player.token}, ${player.name}, ${player.balance}, ${player.burned}, ${owned}, ${player.color}, ${player.hat}, ${player.car}, ${friends}, ${inbox}, ${job}, ${player.party})
+    const daily = JSON.stringify(player.daily || {});
+    const business = JSON.stringify(player.business || null);
+    const rent = JSON.stringify(player.rent || {});
+    await sql`INSERT INTO players (id, token, name, balance, burned, owned, color, hat, car, friends, inbox, job, job_streak, business, rent, party, look, earned, best_race, best_hover, daily, wallet, holder, email, avatar, provider, auth_user, address)
+      VALUES (${player.id}, ${player.token}, ${player.name}, ${player.balance}, ${player.burned}, ${owned}, ${player.color}, ${player.hat}, ${player.car}, ${friends}, ${inbox}, ${job}, ${Number(player.jobStreak || 0)}, ${business}, ${rent}, ${player.party}, ${player.look || "tjr"}, ${player.earned || 0}, ${player.bestRace || 0}, ${player.bestHover || 0}, ${daily}, ${player.wallet || ""}, ${!!player.holder}, ${player.email || ""}, ${player.avatar || ""}, ${player.provider || ""}, ${player.authUser || ""}, ${player.address || ""})
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         balance = EXCLUDED.balance,
@@ -232,7 +345,22 @@ async function savePlayer(player) {
         friends = EXCLUDED.friends,
         inbox = EXCLUDED.inbox,
         job = EXCLUDED.job,
-        party = EXCLUDED.party`;
+        job_streak = EXCLUDED.job_streak,
+        business = EXCLUDED.business,
+        rent = EXCLUDED.rent,
+        party = EXCLUDED.party,
+        look = EXCLUDED.look,
+        earned = EXCLUDED.earned,
+        best_race = EXCLUDED.best_race,
+        best_hover = EXCLUDED.best_hover,
+        daily = EXCLUDED.daily,
+        wallet = EXCLUDED.wallet,
+        holder = EXCLUDED.holder,
+        email = EXCLUDED.email,
+        avatar = EXCLUDED.avatar,
+        provider = EXCLUDED.provider,
+        auth_user = EXCLUDED.auth_user,
+        address = EXCLUDED.address`;
     return;
   }
   const cache = redis();
@@ -255,9 +383,24 @@ function parsePlayer(row) {
     friends: typeof row.friends === "string" ? JSON.parse(row.friends || "[]") : row.friends || [],
     inbox: typeof row.inbox === "string" ? JSON.parse(row.inbox || "[]") : row.inbox || [],
     job: typeof row.job === "string" ? JSON.parse(row.job || "null") : row.job,
+    jobStreak: Number(row.job_streak ?? row.jobStreak ?? 0),
+    business: typeof row.business === "string" ? JSON.parse(row.business || "null") : row.business || null,
+    rent: typeof row.rent === "string" ? JSON.parse(row.rent || "{}") : row.rent || {},
     party: row.party || "",
     mission: Number(row.mission || 0),
     missionAt: Number(row.mission_at || row.missionAt || 0),
+    look: row.look || "tjr",
+    earned: Number(row.earned || 0),
+    bestRace: Number(row.best_race || row.bestRace || 0),
+    bestHover: Number(row.best_hover || row.bestHover || 0),
+    daily: typeof row.daily === "string" ? JSON.parse(row.daily || "null") : row.daily || null,
+    wallet: row.wallet || "",
+    holder: row.holder === true || row.holder === "true" || row.holder === "t",
+    email: row.email || "",
+    avatar: row.avatar || "",
+    provider: row.provider || "",
+    authUser: row.auth_user || row.authUser || "",
+    address: row.address || "",
   };
 }
 
@@ -275,9 +418,24 @@ function rowFromPlayer(player) {
     friends: player.friends,
     inbox: player.inbox,
     job: player.job,
+    job_streak: Number(player.jobStreak || 0),
+    business: player.business || null,
+    rent: player.rent || {},
     party: player.party || "",
     mission: player.mission || 0,
     mission_at: player.missionAt || 0,
+    look: player.look || "tjr",
+    earned: player.earned || 0,
+    best_race: player.bestRace || 0,
+    best_hover: player.bestHover || 0,
+    daily: player.daily || {},
+    wallet: player.wallet || "",
+    holder: !!player.holder,
+    email: player.email || "",
+    avatar: player.avatar || "",
+    provider: player.provider || "",
+    auth_user: player.authUser || "",
+    address: player.address || "",
   };
 }
 
@@ -343,6 +501,10 @@ async function readWorld() {
   const client = sb();
   if (client) {
     const since = new Date(Date.now() - PRESENCE_MS).toISOString();
+    // Prune rows nobody will ever read again (players who closed the tab).
+    // Best-effort and probabilistic — one prune per ~20 reads keeps the
+    // table clean without doubling every sync's Supabase traffic.
+    if (Math.random() < 0.05) await client.from("presence").delete().lt("seen", since);
     const { data, error } = await client.from("presence").select("state, seen").gt("seen", since);
     if (!error && data) return data.map((row) => (typeof row.state === "string" ? JSON.parse(row.state) : row.state));
     if (error) noteSupabase(error.message);
@@ -450,25 +612,30 @@ async function saveBooking(info) {
   memory().bookings.set(info.id, info);
 }
 
+function liveBookings(rows) {
+  const today = new Date().toISOString().slice(0, 10);
+  return (rows || []).filter((row) => !row.end || row.end >= today);
+}
+
 async function readBookings() {
   const client = sb();
   if (client) {
-    const { data, error } = await client.from("bookings").select("id, project, text, start, end, burned");
+    const { data, error } = await client.from("bookings").select("id, project, text, start, end, burned, owner_id").gte("end", new Date().toISOString().slice(0, 10));
     if (!error && data) return data;
     if (error) noteSupabase(error.message);
   }
   const sql = db();
   if (sql) {
     await ensureSchema();
-    const rows = await sql`SELECT id, project, text, start, until AS end, burned FROM bookings`;
+    const rows = await sql`SELECT id, project, text, start, until AS end, burned, owner_id FROM bookings WHERE until >= ${new Date().toISOString().slice(0, 10)}`;
     return rows;
   }
   const cache = redis();
   if (cache) {
     const all = (await cache.hgetall("orbitx:bookings")) || {};
-    return Object.values(all).map((row) => (typeof row === "string" ? JSON.parse(row) : row));
+    return liveBookings(Object.values(all).map((row) => (typeof row === "string" ? JSON.parse(row) : row)));
   }
-  return [...memory().bookings.values()];
+  return liveBookings([...memory().bookings.values()]);
 }
 
 async function addEvent(info) {
@@ -580,7 +747,7 @@ async function spendItem(player, itemId) {
     await savePlayer(player);
     return { ok: true, message: "Already yours. Equipped.", me: publicPlayer(player) };
   }
-  if (player.balance < item.price) return { ok: false, message: "Not enough demo ORBITX." };
+  if (player.balance < item.price) return { ok: false, message: "Not enough City Sol." };
   const burned = burnOf(item.price);
   player.balance -= item.price;
   player.burned += burned;
@@ -591,7 +758,7 @@ async function spendItem(player, itemId) {
   await savePlayer(player);
   return {
     ok: true,
-    message: `Spent ${item.price} demo ORBITX. Burned ${burned}. Burned total ${player.burned}.`,
+    message: `Spent ${item.price} City Sol. Burned ${burned}. Burned total ${player.burned}.`,
     me: publicPlayer(player),
   };
 }
@@ -604,12 +771,120 @@ export async function GET() {
     database: Boolean(databaseUrl()),
     redis: Boolean(redisEnv()),
     livekit: Boolean(process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET),
-    note: "Demo credits only. No real tokens or wallets.",
+    note: "Demo credits are separate from the in-app Solana wallet. The shop does not spend on-chain tokens.",
+    mint: Boolean(process.env.ORBITX_MINT),
+    auth: publicAuth(),
+    network: networkName(),
+    shopOnChain: chainShopEnabled(),
     supabase: Boolean(supabaseEnv()),
     supabaseError: globalThis.__orbitxSbError || "",
     realtime: publicRealtime(),
   });
 }
+
+function publicAuth() {
+  const pub = supabasePublic();
+  if (pub?.anon) return { mode: "supabase", url: pub.url, anon: pub.anon };
+  return { mode: "mock", url: "", anon: "" };
+}
+
+function isFresh(player) {
+  return player.balance === START_BALANCE
+    && !player.burned
+    && (!player.owned || player.owned.length === 0)
+    && !player.earned
+    && !player.mission;
+}
+
+async function deletePlayer(id) {
+  const store = memory();
+  const player = store.players.get(id);
+  if (player) store.tokens.delete(player.token);
+  store.players.delete(id);
+  const client = sb();
+  if (client) {
+    const { error } = await client.from("players").delete().eq("id", id);
+    if (error) noteSupabase(error.message);
+  }
+  const sql = db();
+  if (sql) {
+    try {
+      await sql`DELETE FROM players WHERE id = ${id}`;
+    } catch {
+      // The guest row is already gone from memory.
+    }
+  }
+}
+
+async function adoptGuest(account, guest) {
+  account.balance = guest.balance;
+  account.burned = guest.burned;
+  account.owned = guest.owned || [];
+  account.color = guest.color;
+  account.hat = guest.hat;
+  account.car = guest.car;
+  account.friends = guest.friends || [];
+  account.inbox = guest.inbox || [];
+  account.job = guest.job;
+  account.jobStreak = guest.jobStreak || 0;
+  account.business = guest.business || null;
+  account.rent = guest.rent || {};
+  account.party = guest.party || "";
+  account.mission = guest.mission || 0;
+  account.missionAt = guest.missionAt || 0;
+  account.look = guest.look || account.look;
+  account.earned = guest.earned || 0;
+  account.bestRace = guest.bestRace || 0;
+  account.bestHover = guest.bestHover || 0;
+  account.daily = guest.daily;
+  account.name = guest.name || account.name;
+  const store = memory();
+  if (store.lots) {
+    for (const lot of store.lots.values()) {
+      if (lot.ownerId === guest.id) {
+        lot.ownerId = account.id;
+        lot.ownerName = account.name;
+      }
+    }
+  }
+  const client = sb();
+  if (client) {
+    const moved = await client.from("properties").update({ owner_id: account.id, owner_name: account.name }).eq("owner_id", guest.id);
+    if (moved.error) noteSupabase(moved.error.message);
+    const books = await client.from("bookings").update({ owner_id: account.id }).eq("owner_id", guest.id);
+    if (books.error && !/owner_id/i.test(books.error.message || "")) noteSupabase(books.error.message);
+  }
+  await deletePlayer(guest.id);
+}
+
+async function openAccount(account, body) {
+  let player = await playerById(account.id);
+  let upgraded = false;
+  if (!player) {
+    player = freshPlayer(account.id, account.name || "Player");
+    player.authUser = account.id;
+  }
+  player.email = account.email || player.email;
+  player.avatar = account.avatar || player.avatar;
+  player.provider = account.provider || player.provider;
+  player.authUser = account.id;
+  const guestToken = String(body.guestToken || "");
+  if (guestToken && isFresh(player)) {
+    const guest = await playerByToken(guestToken);
+    if (guest && guest.id !== player.id && !guest.authUser) {
+      await adoptGuest(player, guest);
+      upgraded = true;
+    }
+  }
+  const chain = await ensureWallet(player.authUser);
+  if (chain?.publicKey) player.address = chain.publicKey;
+  const view = chain ? await walletView(player.authUser) : null;
+  if (view) player.holder = !!view.holder;
+  await savePlayer(player);
+  return { player, upgraded, chain: view };
+}
+
+const HEARTBEAT = new Set(["sync", "digest", "me", "board"]);
 
 export async function POST(request) {
   let body = {};
@@ -619,11 +894,34 @@ export async function POST(request) {
     return json({ ok: false, message: "Send JSON." }, 400);
   }
   const op = String(body.op || "");
+  if (op.startsWith("auth-")) {
+    const result = await handleAuthOp(op, body);
+    if (!result) return json({ ok: false, message: "Unknown auth request." }, 400);
+    const status = result.status || 200;
+    const payload = { ...result };
+    delete payload.status;
+    return json(payload, status);
+  }
+  const token = bearer(request);
+  const account = looksLikeAccountToken(token) ? await verifyAccessToken(token, !HEARTBEAT.has(op)) : null;
   if (op === "session") {
+    if (looksLikeAccountToken(token)) {
+      if (!account) return json({ ok: false, message: "That login expired. Sign in again." }, 401);
+      const opened = await openAccount(account, body);
+      return json({
+        ok: true,
+        token: opened.player.token,
+        me: publicPlayer(opened.player),
+        storage: storageName(),
+        upgraded: opened.upgraded,
+        chain: opened.chain,
+        auth: authMode(),
+      });
+    }
     const wanted = String(body.id || "").slice(0, 64);
     const known = String(body.token || "");
     let player = wanted ? await playerById(wanted) : null;
-    if (player && player.token !== known) player = null;
+    if (player && (player.token !== known || player.authUser)) player = null;
     if (!player) {
       player = freshPlayer(wanted || randomBytes(12).toString("hex"), body.name);
       await savePlayer(player);
@@ -631,11 +929,47 @@ export async function POST(request) {
       player.name = String(body.name).slice(0, 18);
       await savePlayer(player);
     }
-    return json({ ok: true, token: player.token, me: publicPlayer(player), storage: storageName() });
+    return json({ ok: true, token: player.token, me: publicPlayer(player), storage: storageName(), auth: authMode() });
   }
 
-  const player = await playerByToken(bearer(request));
+  let player = null;
+  if (looksLikeAccountToken(token)) {
+    if (!account) return json({ ok: false, message: "That login expired. Sign in again." }, 401);
+    player = await playerById(account.id);
+  } else {
+    player = await playerByToken(token);
+    if (player?.authUser) return json({ ok: false, message: "Sign in with your account." }, 401);
+  }
   if (!player) return json({ ok: false, message: "Sign in first." }, 401);
+
+  if (op === "wallet-view") {
+    if (!player.authUser) return json({ ok: false, message: "Create an account to open the in-app wallet. Guests keep City Sol only." }, 400);
+    const view = await walletView(player.authUser);
+    player.holder = !!view.holder;
+    if (view.address) player.address = view.address;
+    await savePlayer(player);
+    return json({ ...view, me: publicPlayer(player) });
+  }
+  if (op === "wallet-quote") {
+    if (!player.authUser) return json({ ok: false, message: "Create an account before sending from the in-app wallet." }, 400);
+    const quote = quoteSend(body);
+    return json(quote, quote.status || 200);
+  }
+  if (op === "wallet-confirm") {
+    if (!player.authUser) return json({ ok: false, message: "Create an account before sending from the in-app wallet." }, 400);
+    const sent = await confirmSend(player.authUser, body);
+    return json(sent, sent.status || 200);
+  }
+  if (op === "wallet-export") {
+    if (!player.authUser) return json({ ok: false, message: "Create an account before exporting a key." }, 400);
+    if (String(body.confirm || "") !== "EXPORT") return json({ ok: false, message: "Export needs the warning confirmed." }, 400);
+    const allowed = await checkReauth(account, body);
+    const exported = await exportWallet(player.authUser, allowed);
+    return json(exported, exported.status || 200);
+  }
+  if (op === "wallet-link") {
+    return json({ ok: false, message: "External wallet connect is not used. Each account has an in-app wallet." }, 410);
+  }
 
   if (op === "me") return json({ ok: true, me: publicPlayer(player) });
 
@@ -654,7 +988,7 @@ export async function POST(request) {
 
   if (op === "earn") {
     const id = String(body.job || "");
-    const pay = JOBS[id];
+    const pay = scaledPay(id, player.jobStreak);
     if (!pay) return json({ ok: false, message: "Unknown job." }, 400);
     if (!player.job || player.job.id !== id) return json({ ok: false, message: "Start that job first." }, 400);
     if (Date.now() - Number(player.job.started) < JOB_MS) {
@@ -662,42 +996,33 @@ export async function POST(request) {
     }
     player.balance += pay;
     player.job = null;
+    player.jobStreak = Number(player.jobStreak || 0) + 1;
+    const bonus = noteEarn(player, id, pay);
     await savePlayer(player);
-    return json({ ok: true, message: `${id} paid ${pay} demo ORBITX.`, me: publicPlayer(player) });
+    const extra = bonus ? ` Quest paid ${bonus} City Sol.` : "";
+    return json({ ok: true, message: `${id} paid ${pay} City Sol. Job streak ${player.jobStreak}.${extra}`, me: publicPlayer(player) });
   }
 
-  if (op === "book") {
-    const days = Number(body.days);
-    const price = AD_PRICE[days];
-    const id = String(body.id || "").slice(0, 40);
-    if (!price || !id) return json({ ok: false, message: "Pick a billboard and 1, 7, or 30 days." }, 400);
-    if (player.balance < price) return json({ ok: false, message: "Not enough demo ORBITX." }, 400);
-    const burned = burnOf(price);
-    player.balance -= price;
-    player.burned += burned;
-    await savePlayer(player);
-    const start = new Date();
-    const end = new Date(start.getTime() + days * 86400000);
-    const info = {
-      id,
-      project: String(body.project || player.name).slice(0, 32),
-      text: String(body.text || "NEW CAMPAIGN").slice(0, 32),
-      start: start.toISOString().slice(0, 10),
-      end: end.toISOString().slice(0, 10),
-      burned,
-    };
-    await saveBooking(info);
-    return json({
-      ok: true,
-      message: `Spent ${price} demo ORBITX. Burned ${burned}. Billboard ${id} is up.`,
-      me: publicPlayer(player),
-      booking: info,
-    });
-  }
+  // Real billboards: pay SOL from the in-app wallet, Jupiter swaps
+  // SOL -> ORBITX, and the received ORBITX is burned. 100% buy + burn.
+  const adCtx = { sb, note: noteSupabase, readBookings, saveBooking, savePlayer };
+  const adReply = async (result) => {
+    const { status, ...payload } = result;
+    if (result.ok) payload.me = publicPlayer(player);
+    return json(payload, status || 200);
+  };
+  if (op === "ad-quote") return adReply(await adQuote(adCtx, player, body));
+  if (op === "ad-status") return adReply(await adStatus(adCtx, player, body));
+  if (op === "ad-retry-burn") return adReply(await adRetryBurn(adCtx, player, body));
+  if (op === "ad-remove") return adReply(await adRemove(adCtx, player, body));
+  if (op === "ad-orders") return adReply(await adOrdersFor(adCtx, player));
+  if (op === "book") return adReply(await adBuy(adCtx, player, body));
 
   if (op === "profile") {
     const name = String(body.name || player.name).trim().slice(0, 18);
     if (name) player.name = name;
+    const look = String(body.look || "");
+    if (LOOKS.has(look)) player.look = look;
     await savePlayer(player);
     return json({ ok: true, me: publicPlayer(player) });
   }
@@ -790,9 +1115,7 @@ export async function POST(request) {
       data: body.data || null,
       at: Date.now(),
     };
-    const cache = redis();
-    if (cache) await cache.lpush("orbitx:signals", JSON.stringify(signal));
-    else memory().signals.push(signal);
+    await pushSignal(signal);
     const mine = await takeSignals(player.id);
     return json({ ok: true, signals: mine });
   }
@@ -849,9 +1172,34 @@ export async function POST(request) {
     await savePlayer(player);
     return json({
       ok: true,
-      message: `Tour stop ${step + 1} paid ${reward} demo ORBITX.`,
+      message: `Tour stop ${step + 1} paid ${reward} City Sol.`,
       me: publicPlayer(player),
     });
+  }
+
+  const live = await handleLive(
+    {
+      memory,
+      sb,
+      sql: db(),
+      note: noteSupabase,
+      savePlayer,
+      addEvent,
+      burnOf,
+    },
+    player,
+    op,
+    body,
+  );
+  if (live) {
+    const status = live.status || 200;
+    const payload = { ...live };
+    delete payload.status;
+    if (payload.includeMe) {
+      payload.me = publicPlayer(player);
+      delete payload.includeMe;
+    }
+    return json(payload, status);
   }
 
   return json({ ok: false, message: "Unknown request." }, 400);
@@ -896,6 +1244,7 @@ function sanitizeState(player, raw) {
     skin: player.car,
     speaking: Boolean(raw.speaking),
     emote: String(raw.emote || "").slice(0, 16),
+    holder: !!player.holder,
     lobby: String(raw.lobby || "").slice(0, 40),
     seen: Date.now(),
   };
@@ -921,7 +1270,60 @@ function ensureGhost() {
   });
 }
 
+async function pushSignal(signal) {
+  // Signals must survive across Vercel serverless instances, so Supabase
+  // is the store. Redis stays as the fallback when it is configured;
+  // per-instance memory is only the local-dev last resort.
+  const client = sb();
+  if (client) {
+    const { error } = await client.from("voice_signals").insert({
+      from_id: signal.from,
+      to_id: signal.to,
+      room: signal.room,
+      data: signal.data,
+    });
+    if (!error) {
+      await client
+        .from("voice_signals")
+        .delete()
+        .lt("created_at", new Date(Date.now() - 15000).toISOString());
+      return;
+    }
+    noteSupabase(error.message);
+  }
+  const cache = redis();
+  if (cache) {
+    await cache.lpush("orbitx:signals", JSON.stringify(signal));
+    return;
+  }
+  memory().signals.push(signal);
+}
+
 async function takeSignals(id) {
+  const client = sb();
+  if (client) {
+    const since = new Date(Date.now() - 15000).toISOString();
+    const { data, error } = await client
+      .from("voice_signals")
+      .select("id, from_id, to_id, room, data, created_at")
+      .eq("to_id", id)
+      .gt("created_at", since)
+      .order("created_at", { ascending: true });
+    if (!error && data) {
+      if (data.length) {
+        const ids = data.map((row) => row.id);
+        await client.from("voice_signals").delete().in("id", ids);
+      }
+      return data.map((row) => ({
+        from: row.from_id,
+        to: row.to_id,
+        room: row.room,
+        data: row.data,
+        at: new Date(row.created_at).getTime(),
+      }));
+    }
+    if (error) noteSupabase(error.message);
+  }
   const cache = redis();
   if (cache) {
     const rows = (await cache.lrange("orbitx:signals", 0, 200)) || [];

@@ -8,6 +8,7 @@ type PeerLink = {
 const peers = new Map<string, PeerLink>();
 let localStream: MediaStream | null = null;
 let room = "";
+let meshTimer = 0;
 let provider: "livekit" | "mesh" | "" = "";
 let liveRoom: { disconnect: () => void; localParticipant: { setMicrophoneEnabled: (on: boolean) => Promise<unknown> } } | null = null;
 let analyser: AnalyserNode | null = null;
@@ -27,6 +28,8 @@ export function voiceState() {
 export async function joinVoice(nextRoom: string) {
   room = nextRoom;
   world.lobby = nextRoom;
+  // Send the lobby change on the next flush — don't wait for a frame.
+  world.pushLobby();
   world.voiceError = "";
   try {
     const ticket = await world.voiceToken(nextRoom);
@@ -34,15 +37,30 @@ export async function joinVoice(nextRoom: string) {
     provider = world.provider === "livekit" ? "livekit" : "mesh";
     await ensureMic();
     if (provider === "livekit") await joinLiveKit(String(ticket.url || ""), String(ticket.token || ""));
+    // meshStep must not wait on animation frames: on a slow or backgrounded
+    // tab frames can stall for seconds, and a call would never start.
+    // The 1s timer only reads world state, so it is safe to run on its own.
+    if (provider === "mesh" && !meshTimer) {
+      meshTimer = window.setInterval(() => voiceTick(), 1000);
+    }
   } catch (err) {
     world.voiceError = err instanceof Error ? err.message : "Voice needs a microphone.";
     world.provider = "off";
+    provider = "";
+    disarmMeshTimer();
   }
+}
+
+function disarmMeshTimer() {
+  if (meshTimer) window.clearInterval(meshTimer);
+  meshTimer = 0;
 }
 
 export function leaveVoice() {
   world.lobby = "";
+  world.pushLobby();
   room = "";
+  disarmMeshTimer();
   liveRoom?.disconnect();
   liveRoom = null;
   for (const link of peers.values()) hangup(link);
@@ -133,6 +151,18 @@ async function joinLiveKit(url: string, token: string) {
 }
 
 const pending = new Set<string>();
+const pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
+
+function flushCandidates(id: string) {
+  const link = peers.get(id);
+  const queued = pendingCandidates.get(id) ?? [];
+  pendingCandidates.delete(id);
+  if (!link) return;
+  for (const candidate of queued) {
+    // A stale candidate must never break the peer.
+    link.pc.addIceCandidate(candidate).catch(() => {});
+  }
+}
 
 async function meshStep() {
   const members = world.people.filter((person) => person.lobby === room && person.id !== world.id);
@@ -148,11 +178,17 @@ async function meshStep() {
 
 async function callPeer(id: string) {
   pending.add(id);
-  const pc = makePeer(id);
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  await world.voiceSignal(id, room, { kind: "offer", sdp: pc.localDescription });
-  pending.delete(id);
+  try {
+    const pc = makePeer(id);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await world.voiceSignal(id, room, { kind: "offer", sdp: pc.localDescription });
+  } catch {
+    // The next meshStep retries the call.
+    peers.delete(id);
+  } finally {
+    pending.delete(id);
+  }
 }
 
 function makePeer(id: string) {
@@ -175,16 +211,41 @@ function makePeer(id: string) {
 async function onSignal(from: string, data: { kind: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit }) {
   let link = peers.get(from);
   if (!link && data.kind === "offer") {
-    const pc = makePeer(from);
-    await pc.setRemoteDescription(data.sdp as RTCSessionDescriptionInit);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await world.voiceSignal(from, room, { kind: "answer", sdp: pc.localDescription });
+    let pc: RTCPeerConnection | null = null;
+    try {
+      pc = makePeer(from);
+      await pc.setRemoteDescription(data.sdp as RTCSessionDescriptionInit);
+      flushCandidates(from);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await world.voiceSignal(from, room, { kind: "answer", sdp: pc.localDescription });
+    } catch {
+      // A bad offer must not kill the mesh loop; the caller retries.
+      pc?.close();
+      peers.delete(from);
+      pendingCandidates.delete(from);
+    }
     return;
   }
   if (!link) return;
-  if (data.kind === "answer" && data.sdp) await link.pc.setRemoteDescription(data.sdp);
-  if (data.kind === "ice" && data.candidate) await link.pc.addIceCandidate(data.candidate);
+  try {
+    if (data.kind === "answer" && data.sdp) {
+      await link.pc.setRemoteDescription(data.sdp);
+      flushCandidates(from);
+    }
+    if (data.kind === "ice" && data.candidate) {
+      if (link.pc.remoteDescription) {
+        await link.pc.addIceCandidate(data.candidate);
+      } else {
+        // ICE usually arrives before the SDP on a slow link; hold it.
+        const queued = pendingCandidates.get(from) ?? [];
+        queued.push(data.candidate);
+        pendingCandidates.set(from, queued);
+      }
+    }
+  } catch {
+    // One bad signal must not break the peer.
+  }
 }
 
 function hangup(link: PeerLink) {

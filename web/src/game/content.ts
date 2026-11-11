@@ -2,6 +2,9 @@ export interface ProjectInfo {
   id: string;
   name: string;
   line: string;
+  site?: string;
+  holders?: string;
+  price?: string;
 }
 
 export interface BillboardInfo {
@@ -48,13 +51,28 @@ export const SHOP: ShopItem[] = [
 ];
 
 export const AD_DAYS = [1, 7, 30] as const;
-export const AD_PRICE: Record<number, number> = { 1: 25, 7: 80, 30: 200 };
+// Real billboard pricing, in USD — the user set it: 10 cents a day, for
+// now. Week and month scale 5x/15x; plaza boards pay double. The buyer
+// pays SOL; Jupiter swaps it to ORBITX and ALL of the received ORBITX is
+// burned (100% buy + burn, no fee, no cut). The server is the authority —
+// these numbers are only the client's preview; the quote comes from the
+// API (the SOL amount is computed from the live SOL price at quote time).
+export const AD_USD_PRICE: Record<number, number> = { 1: 0.1, 7: 0.5, 30: 1.5 };
+export const AD_PLAZA_BOARDS = new Set(["plaza-east", "plaza-west"]);
+export const AD_PLAZA_MULT = 2;
+export function adUsdPrice(board: string, days: number): number {
+  const base = AD_USD_PRICE[days] ?? 0;
+  return AD_PLAZA_BOARDS.has(board) ? base * AD_PLAZA_MULT : base;
+}
+// Play-money prices for the offline (this-device-only) demo booking.
+// Online bookings always go through the real SOL flow above.
+export const DEMO_AD_PRICE: Record<number, number> = { 1: 25, 7: 80, 30: 200 };
 
 export const DEFAULT_PROJECTS: ProjectInfo[] = [
-  { id: "orbitx-hq", name: "OrbitX HQ", line: "Community headquarters" },
-  { id: "your-project", name: "Your Project Here", line: "Holders and friends meet here" },
-  { id: "north-star", name: "North Star", line: "Project office" },
-  { id: "lumen", name: "Lumen Labs", line: "Build nights and hangouts" },
+  { id: "orbitx-hq", name: "OrbitX HQ", line: "Community headquarters", site: "https://github.com/audifyx/orbitx-city", holders: "—", price: "Set ORBITX_MINT for a live price" },
+  { id: "your-project", name: "Your Project Here", line: "Holders and friends meet here", site: "", holders: "—", price: "Placeholder" },
+  { id: "north-star", name: "North Star", line: "Project office", site: "", holders: "—", price: "Placeholder" },
+  { id: "lumen", name: "Lumen Labs", line: "Build nights and hangouts", site: "", holders: "—", price: "Placeholder" },
 ];
 
 export const DEFAULT_BILLBOARDS: BillboardInfo[] = [

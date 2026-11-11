@@ -1,0 +1,86 @@
+[
+  {
+    "id": "tjr",
+    "displayName": "TJR",
+    "tagline": "Charts loud, jacket louder.",
+    "colors": { "outfit": "#ff3355", "accent": "#141414", "skin": "#f0c2a0", "hair": "#1a1a1a" },
+    "accessories": { "hair": "spiky", "hat": "none", "extra": "headset" }
+  },
+  {
+    "id": "ansem",
+    "displayName": "Ansem",
+    "tagline": "Hood up. Chain on. Still early.",
+    "colors": { "outfit": "#1b1e27", "accent": "#7ef6ff", "skin": "#e7b48c", "hair": "#2a211c" },
+    "accessories": { "hair": "buzz", "hat": "hood", "extra": "shades" }
+  },
+  {
+    "id": "poor-goat",
+    "displayName": "Poor Goat",
+    "tagline": "Horns up. Floor is not.",
+    "colors": { "outfit": "#67e35a", "accent": "#f4f4f4", "skin": "#f7f7f2", "hair": "#f7f7f2" },
+    "accessories": { "hair": "bald", "hat": "horns", "extra": "none" }
+  },
+  {
+    "id": "cupsy",
+    "displayName": "Cupsy",
+    "tagline": "Pink fit, full cup.",
+    "colors": { "outfit": "#ff7eb6", "accent": "#fff4fb", "skin": "#f3c3b0", "hair": "#f2d27a" },
+    "accessories": { "hair": "long", "hat": "none", "extra": "cup" }
+  },
+  {
+    "id": "cobie",
+    "displayName": "Cobie",
+    "tagline": "Navy coat, dry read.",
+    "colors": { "outfit": "#243056", "accent": "#d7deea", "skin": "#efc2a4", "hair": "#3a2a22" },
+    "accessories": { "hair": "buzz", "hat": "none", "extra": "glasses" }
+  },
+  {
+    "id": "hsaka",
+    "displayName": "Hsaka",
+    "tagline": "Quiet bids. Dark shades.",
+    "colors": { "outfit": "#4c5563", "accent": "#111318", "skin": "#e8b892", "hair": "#111111" },
+    "accessories": { "hair": "buzz", "hat": "beanie", "extra": "shades" }
+  },
+  {
+    "id": "gainzy",
+    "displayName": "Gainzy",
+    "tagline": "Green candle, louder mohawk.",
+    "colors": { "outfit": "#39ff88", "accent": "#102216", "skin": "#f0c09a", "hair": "#111111" },
+    "accessories": { "hair": "mohawk", "hat": "none", "extra": "chain" }
+  },
+  {
+    "id": "zachxbt",
+    "displayName": "ZachXBT",
+    "tagline": "Hood on. Notes ready.",
+    "colors": { "outfit": "#121418", "accent": "#7ef6ff", "skin": "#d9a882", "hair": "#1a1a1a" },
+    "accessories": { "hair": "bald", "hat": "hood", "extra": "mask" }
+  },
+  {
+    "id": "threadguy",
+    "displayName": "Threadguy",
+    "tagline": "Mic hot. Timeline open.",
+    "colors": { "outfit": "#ff8a3d", "accent": "#1a120c", "skin": "#f1c6a6", "hair": "#6b3a22" },
+    "accessories": { "hair": "curly", "hat": "cap", "extra": "mic" }
+  },
+  {
+    "id": "murad",
+    "displayName": "Murad",
+    "tagline": "Gold trim, long thesis.",
+    "colors": { "outfit": "#e0b33a", "accent": "#1a1408", "skin": "#e7b48a", "hair": "#2c2118" },
+    "accessories": { "hair": "buzz", "hat": "beanie", "extra": "chain" }
+  },
+  {
+    "id": "frank",
+    "displayName": "Frank",
+    "tagline": "Purple builder energy.",
+    "colors": { "outfit": "#7a4dff", "accent": "#f4f0ff", "skin": "#f0c2a0", "hair": "#1c1c1c" },
+    "accessories": { "hair": "spiky", "hat": "cap", "extra": "shades" }
+  },
+  {
+    "id": "kaleo",
+    "displayName": "Kaleo",
+    "tagline": "Cyan charts, headset on.",
+    "colors": { "outfit": "#19d8ff", "accent": "#062028", "skin": "#efc2a4", "hair": "#161616" },
+    "accessories": { "hair": "spiky", "hat": "none", "extra": "headset" }
+  }
+]

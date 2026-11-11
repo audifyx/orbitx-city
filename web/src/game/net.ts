@@ -12,6 +12,8 @@ export interface NetState {
   speaking?: boolean;
   emote?: string;
   lobby?: string;
+  look?: string;
+  holder?: boolean;
 }
 
 export interface ChatLine {

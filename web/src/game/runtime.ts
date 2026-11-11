@@ -3,6 +3,7 @@ import {
   CanvasTexture,
   CylinderGeometry,
   DoubleSide,
+  FrontSide,
   Group,
   Mesh,
   MeshLambertMaterial,
@@ -15,9 +16,9 @@ import {
   type PerspectiveCamera,
   type Scene,
 } from "three";
-import type { Anchor, BoardSlot, City, Collider, Zone } from "./city";
+import type { Anchor, Art, BoardSlot, City, Collider, Lift, Zone } from "./city";
 import {
-  AD_PRICE,
+  DEMO_AD_PRICE,
   SHOP,
   type BillboardInfo,
   type CityContent,
@@ -27,8 +28,22 @@ import {
 } from "./content";
 import { burnAmount, earn, loadWallet, saveWallet, spend } from "./economy";
 import { createNet, type ChatLine, type NetAdapter, type NetState } from "./net";
+import { dressPerson, loadLooks, lookById, lookName, looksReady } from "./avatar";
 import { GOLD, MATERIALS } from "./materials";
+import { readAccount } from "../auth";
 import { world } from "./world";
+import {
+  EMOTES,
+  FURNITURE,
+  GATES,
+  type DailyCard,
+  type Leaders,
+  type LotCard,
+  type MarketCard,
+  type NoteCard,
+  type RaceCard,
+} from "./life";
+import { createLifeView } from "./lifeview";
 import {
   joinVoice,
   leaveVoice,
@@ -51,17 +66,35 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift";
 
 export interface PersonCard {
   id: string;
   name: string;
+  look: string;
   color: string;
   hat: string;
   speaking: boolean;
   lobby: string;
   x: number;
   z: number;
+}
+
+export interface AdOrder {
+  id: string;
+  board: string;
+  days: number;
+  project: string;
+  text: string;
+  status: string;
+  priceSol: number;
+  orbitxAmount: string;
+  swapSignature: string;
+  burnSignature: string;
+  swapUrl: string;
+  burnUrl: string;
+  error: string;
+  expiresAt: string;
 }
 
 export interface Snap {
@@ -90,6 +123,7 @@ export interface Snap {
   shop: ShopItem[];
   eventLabel: string;
   panel: PanelName | "";
+  lift: { name: string; floors: number[]; stops: string[]; current: number } | null;
   mission: number;
   board: { name: string; burned: number }[];
   districts: { id: string; name: string; x: number; z: number }[];
@@ -110,6 +144,45 @@ export interface Snap {
   profile: PersonCard | null;
   server: string;
   chatScope: "global" | "near";
+  lookId: string;
+  lookName: string;
+  cam: string;
+  camLabel: string;
+  lookHint: string;
+  lots: LotCard[];
+  leaders: Leaders;
+  daily: DailyCard | null;
+  race: RaceCard;
+  notes: NoteCard[];
+  market: MarketCard | null;
+  mintSet: boolean;
+  walletKey: string;
+  walletNote: string;
+  holder: boolean;
+  account: boolean;
+  email: string;
+  avatar: string;
+  chainAddress: string;
+  chainSol: number | null;
+  chainOrbitx: number | null;
+  chainNetwork: string;
+  chainHistory: { id: string; status: string; amount: string; destination: string; signature: string }[];
+  chainQr: string;
+  meId: string;
+  jobStreak: number;
+  business: { kind: string; started: number; lastCollect: number } | null;
+  spectator: boolean;
+  hideHud: boolean;
+  hideNames: boolean;
+  hideChat: boolean;
+  orbit: boolean;
+  clean: boolean;
+  wheel: boolean;
+  wheelIndex: number;
+  decorate: boolean;
+  decorKind: string;
+  hqIndex: number;
+  banner: string;
 }
 
 interface Remote {
@@ -132,6 +205,8 @@ const COLORS: Record<string, number> = {
   cyan: 0x7eefff,
   sunset: 0xff7a3c,
   black: 0x16181f,
+  red: 0xd43a2e,
+  silver: 0xc9ced6,
 };
 
 const BOOK_KEY = "orbitx-demo-ads-v1";
@@ -185,9 +260,9 @@ function labelTexture(text: string) {
   return texture;
 }
 
-function makeLabel(text: string) {
+function makeLabel(text: string, person = false) {
   const sprite = new Sprite(new SpriteMaterial({ map: labelTexture(text), transparent: true, depthWrite: false }));
-  sprite.scale.set(4.8, 1.2, 1);
+  sprite.scale.set(person ? 1.05 : 4.8, person ? 0.26 : 1.2, 1);
   sprite.renderOrder = 3;
   return sprite;
 }
@@ -275,24 +350,49 @@ function makeCar(skin: string, style: number) {
     group.add(mesh);
   };
   const body = paint();
+  // Brighter glass canopy (not flat cyan) + dark grille + silver bumpers.
+  const glass = new MeshStandardMaterial({
+    color: 0xbfe6ff,
+    emissive: 0x3d7fa8,
+    emissiveIntensity: 0.55,
+    roughness: 0.12,
+    metalness: 0.35,
+    transparent: true,
+    opacity: 0.85,
+  });
+  const grille = new MeshStandardMaterial({ color: 0x111318, roughness: 0.5, metalness: 0.5 });
+  const chrome = new MeshStandardMaterial({ color: 0xc9ced6, roughness: 0.25, metalness: 0.8 });
   if (style === 1) {
+    // Low coupe: stepped hood lid, spoiler blade on the trunk.
     add(body, 0.15, 0.42, 0, 3.7, 0.32, 1.72);
+    add(body, 0.3, 0.56, 0, 1.1, 0.1, 1.5);
     add(body, -0.25, 0.68, 0, 1.55, 0.28, 1.42);
-    add(MATERIALS.cyan, -0.05, 0.74, 0, 1.05, 0.18, 1.2);
+    add(glass, -0.05, 0.74, 0, 1.05, 0.18, 1.2);
     add(body, -1.55, 0.86, 0, 0.12, 0.28, 1.55);
+    add(body, -1.78, 1.02, 0, 0.5, 0.07, 1.5);
   } else if (style === 2) {
+    // Tall wagon: roof rails.
     add(body, 0.05, 0.62, 0, 3.35, 0.62, 1.62);
     add(body, -0.2, 1.15, 0, 2.15, 0.52, 1.5);
-    add(MATERIALS.cyan, 0.2, 1.18, 0, 1.35, 0.32, 1.32);
+    add(glass, 0.2, 1.18, 0, 1.35, 0.32, 1.32);
     add(GOLD, -0.15, 1.52, 0, 0.55, 0.16, 0.7);
+    add(chrome, -0.2, 1.46, 0.62, 2.0, 0.06, 0.08);
+    add(chrome, -0.2, 1.46, -0.62, 2.0, 0.06, 0.08);
   } else {
     add(body, 0.1, 0.5, 0, 3.45, 0.42, 1.62);
+    add(body, 0.3, 0.64, 0, 1.0, 0.1, 1.45);
     add(body, -0.2, 0.88, 0, 1.65, 0.36, 1.42);
-    add(MATERIALS.cyan, 0.02, 0.92, 0, 1.15, 0.22, 1.22);
+    add(glass, 0.02, 0.92, 0, 1.15, 0.22, 1.22);
   }
+  // Stepped hood lid + dark grille + silver bumpers.
   add(body, 1.62, 0.4, 0, 0.62, 0.26, 1.28);
-  add(MATERIALS.cyanhot, 1.92, 0.42, 0.46, 0.1, 0.14, 0.32);
-  add(MATERIALS.cyanhot, 1.92, 0.42, -0.46, 0.1, 0.14, 0.32);
+  add(grille, 1.94, 0.42, 0, 0.08, 0.18, 0.9);
+  add(chrome, 1.96, 0.3, 0, 0.06, 0.1, 1.3);
+  add(chrome, -1.96, 0.34, 0, 0.06, 0.1, 1.3);
+  // White headlight lenses (red taillights stay).
+  const headlamp = new MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff6d8, emissiveIntensity: 1.4, roughness: 0.2 });
+  add(headlamp, 1.92, 0.46, 0.52, 0.1, 0.14, 0.34);
+  add(headlamp, 1.92, 0.46, -0.52, 0.1, 0.14, 0.34);
   const lamp = new MeshStandardMaterial({ color: 0xff4b5c, emissive: 0xaa1830, emissiveIntensity: 0.8, roughness: 0.3 });
   add(lamp, -1.72, 0.46, 0.52, 0.1, 0.16, 0.34);
   add(lamp, -1.72, 0.46, -0.52, 0.1, 0.16, 0.34);
@@ -311,6 +411,11 @@ function makeCar(skin: string, style: number) {
     mesh.position.set(x, 0.28, z);
     mesh.name = "wheel";
     group.add(mesh);
+    // Silver hubcap.
+    const hub = new Mesh(new CylinderGeometry(0.13, 0.13, 0.24, 10), chrome);
+    hub.rotation.x = Math.PI / 2;
+    hub.position.set(x, 0.28, z);
+    group.add(hub);
     const glow = new Mesh(box, MATERIALS.cyan);
     glow.position.set(x, 0.08, z);
     glow.scale.set(0.34, 0.06, 0.22);
@@ -353,6 +458,21 @@ export function createRuntime(scene: Scene) {
   let activeCols: Collider[] = [];
   let anchors: Anchor[] = [];
   let zones: Zone[] = [];
+  let lifts: Lift[] = [];
+  let liftPanel: { name: string; floors: number[]; stops: string[]; current: number } | null = null;
+  let liftRide: { liftId: string; from: number; to: number; t: number; dur: number; body: Body } | null = null;
+  let liftOpen: { liftId: string; floor: number } | null = null;
+  interface LiftCab {
+    group: Group;
+    door: Mesh;
+    doorPos: number;
+    doorTarget: number;
+    baseX: number;
+    baseZ: number;
+    slideX: number;
+    slideZ: number;
+  }
+  const liftCabs = new Map<string, LiftCab>();
   let insideName = "";
   let driving = false;
   let carIndex = -1;
@@ -383,7 +503,38 @@ export function createRuntime(scene: Scene) {
   let eventLeft = 0;
   let burstLeft = 0;
   let panel: PanelName | "" = "";
-  let showBody = false;
+  const CAMS = ["shoulder", "far", "selfie", "first"] as const;
+  type CamMode = (typeof CAMS)[number];
+  function storedCam(): CamMode {
+    const asked = new URLSearchParams(location.search).get("cam");
+    if (asked === "first" || asked === "shoulder" || asked === "far" || asked === "selfie") return asked;
+    const saved = localStorage.getItem("orbitx-cam");
+    if (saved === "first" || saved === "shoulder" || saved === "far" || saved === "selfie") return saved;
+    return "shoulder";
+  }
+  let camMode: CamMode = storedCam();
+  let camZoom = Math.min(1.85, Math.max(0.55, Number(localStorage.getItem("orbitx-zoom")) || 1));
+  let lookOn = false;
+  let lookId = localStorage.getItem("orbitx-look") || "tjr";
+  let payAfter = 0;
+  let life: ReturnType<typeof createLifeView> | null = null;
+  let spectator = false;
+  let hideHud = false;
+  let hideNames = false;
+  let hideChat = false;
+  let orbitOn = false;
+  let clean = false;
+  let wheelOpen = false;
+  let wheelIndex = 0;
+  let decorating = false;
+  let decorKind: (typeof FURNITURE)[number] = "couch";
+  let decorRot = 0;
+  let raceHoldUntil = 0;
+  let raceNext = -1;
+  let hitting = false;
+  let visitedHq = false;
+  let droveQuest = false;
+  let hqIndex = 0;
   const touch = wantsTouch();
   const chat: ChatLine[] = [];
   const remotes = new Map<string, Remote>();
@@ -396,6 +547,17 @@ export function createRuntime(scene: Scene) {
   let localBody: Group | null = null;
   let root = new Group();
   scene.add(root);
+  const handMat = new MeshStandardMaterial({ color: 0xf0c2a0, roughness: 0.6 });
+  const hands = new Group();
+  const handGeo = new BoxGeometry(1, 1, 1);
+  const handL = new Mesh(handGeo, handMat);
+  handL.scale.set(0.12, 0.1, 0.22);
+  handL.position.set(-0.18, -0.24, -0.42);
+  const handR = handL.clone();
+  handR.position.x = 0.18;
+  hands.add(handL, handR);
+  hands.visible = false;
+  scene.add(hands);
   const sparks: Spark[] = [];
   const npcs: { group: Group; x: number; z: number; phase: number }[] = [];
   let tourLock = false;
@@ -464,12 +626,14 @@ export function createRuntime(scene: Scene) {
     if (zone.kind === "arcade") return "One cabinet is free";
     if (zone.kind === "market") return "Stalls and neon";
     if (zone.kind === "dock") return "Pier is open";
+    if (zone.kind === "mall") return "Shops · food court · mezzanine";
+    if (zone.kind === "office") return "OrbitX HQ — walk in";
     return "Gather here";
   }
 
   function mountSign(zone: Zone) {
     const sub =
-      zone.kind === "shop" ? "Use the counter" : zone.kind === "cafe" ? "Pull up a seat" : zone.kind === "hall" ? "Stage is open" : zone.kind === "bank" ? "Savings window" : zone.kind === "garage" ? "Cars on the avenue" : zone.kind === "dock" ? "Clock in here" : "Walk in";
+      zone.id.startsWith("home-") ? "Welcome home" : zone.kind === "shop" ? "Use the counter" : zone.kind === "cafe" ? "Pull up a seat" : zone.kind === "hall" ? "Stage is open" : zone.kind === "bank" ? "Savings window" : zone.kind === "garage" ? "Cars on the avenue" : zone.kind === "dock" ? "Clock in here" : "Walk in";
     const texture = paint([zoneTitle(zone), zoneLine(zone)], sub);
     const mesh = new Mesh(
       new PlaneGeometry(zone.kind === "hall" ? 5.4 : 4.2, 1.7),
@@ -478,6 +642,155 @@ export function createRuntime(scene: Scene) {
     mesh.position.set(zone.signX, zone.signY, zone.signZ);
     mesh.rotation.y = zone.signRot;
     root.add(mesh);
+  }
+
+  // Wall art (paintings, room signs, the gold ORBITX logo wall): canvas planes
+  // registered by the city builder, mounted next to the zone signs.
+  function mountArt(item: Art) {
+    const texture = paint(item.lines, item.sub);
+    const mesh = new Mesh(
+      new PlaneGeometry(item.w, item.h),
+      new MeshLambertMaterial({ map: texture, side: DoubleSide, emissive: 0x062028, emissiveIntensity: 0.35 }),
+    );
+    mesh.position.set(item.x, item.y, item.z);
+    mesh.rotation.y = item.rotY;
+    root.add(mesh);
+  }
+
+  // The colliders the engine walks on: the city's full set minus the one lift
+  // door blocker that is currently open (so the rider can step out of the cab).
+  function refreshActiveCols() {
+    if (!liftOpen) {
+      activeCols = cityCols;
+      return;
+    }
+    const tag = `lift-door:${liftOpen.liftId}:${liftOpen.floor}`;
+    activeCols = cityCols.filter((c) => c.tag !== tag);
+  }
+
+  // One glass cab per lift: gold platform, glass walls, a sliding gold door
+  // on the landing face. The cab group rides the shaft; its y is the floor.
+  function buildLiftCabs() {
+    liftCabs.clear();
+    for (const lift of lifts) {
+      const group = new Group();
+      const glassMat = new MeshLambertMaterial({ color: 0x66d9e8, transparent: true, opacity: 0.35, side: DoubleSide });
+      const platform = new Mesh(box, GOLD);
+      platform.scale.set(lift.w - 0.6, 0.15, lift.d - 0.6);
+      platform.position.y = 0.08;
+      group.add(platform);
+      const roof = new Mesh(box, glassMat);
+      roof.scale.set(lift.w - 0.4, 0.1, lift.d - 0.4);
+      roof.position.y = 2.85;
+      group.add(roof);
+      const hw = lift.w / 2;
+      const hd = lift.d / 2;
+      const wall = (x: number, z: number, sx: number, sz: number) => {
+        const m = new Mesh(box, glassMat);
+        m.scale.set(sx, 2.8, sz);
+        m.position.set(x, 1.42, z);
+        group.add(m);
+      };
+      const header = (x: number, z: number, sx: number, sz: number) => {
+        const m = new Mesh(box, glassMat);
+        m.scale.set(sx, 0.2, sz);
+        m.position.set(x, 2.7, z);
+        group.add(m);
+      };
+      const doorW = 2.4;
+      const side = (lift.w - doorW) / 2;
+      // The landing face gets two glass columns flanking the door opening
+      // plus a header above it; the other three faces are full glass walls.
+      if (lift.landing === "w") {
+        wall(hw, 0, 0.12, lift.d);
+        wall(0, -hd, lift.w, 0.12);
+        wall(0, hd, lift.w, 0.12);
+        wall(-hw, -hd + side / 2, 0.12, side);
+        wall(-hw, hd - side / 2, 0.12, side);
+        header(-hw, 0, 0.12, doorW);
+      } else if (lift.landing === "e") {
+        wall(-hw, 0, 0.12, lift.d);
+        wall(0, -hd, lift.w, 0.12);
+        wall(0, hd, lift.w, 0.12);
+        wall(hw, -hd + side / 2, 0.12, side);
+        wall(hw, hd - side / 2, 0.12, side);
+        header(hw, 0, 0.12, doorW);
+      } else if (lift.landing === "n") {
+        wall(-hw, 0, 0.12, lift.d);
+        wall(hw, 0, 0.12, lift.d);
+        wall(0, hd, lift.w, 0.12);
+        wall(-hw + side / 2, -hd, side, 0.12);
+        wall(hw - side / 2, -hd, side, 0.12);
+        header(0, -hd, doorW, 0.12);
+      } else {
+        wall(-hw, 0, 0.12, lift.d);
+        wall(hw, 0, 0.12, lift.d);
+        wall(0, -hd, lift.w, 0.12);
+        wall(-hw + side / 2, hd, side, 0.12);
+        wall(hw - side / 2, hd, side, 0.12);
+        header(0, hd, doorW, 0.12);
+      }
+      const door = new Mesh(box, GOLD);
+      door.scale.set(lift.landing === "w" || lift.landing === "e" ? 0.12 : doorW, 2.6, lift.landing === "w" || lift.landing === "e" ? doorW : 0.12);
+      const baseX = lift.landing === "w" ? -hw : lift.landing === "e" ? hw : 0;
+      const baseZ = lift.landing === "n" ? -hd : lift.landing === "s" ? hd : 0;
+      door.position.set(baseX, 1.3, baseZ);
+      group.add(door);
+      group.position.set(lift.x, lift.floors[0], lift.z);
+      root.add(group);
+      liftCabs.set(lift.id, {
+        group,
+        door,
+        doorPos: 0,
+        doorTarget: 0,
+        baseX,
+        baseZ,
+        slideX: lift.landing === "w" || lift.landing === "e" ? 0 : doorW,
+        slideZ: lift.landing === "w" || lift.landing === "e" ? doorW : 0,
+      });
+    }
+  }
+
+  // E at a lift call button: step into the cab, close the door, pick a floor.
+  function openLift(anchor: Anchor) {
+    const lift = lifts.find((item) => item.id === anchor.liftId);
+    if (!lift || !lastBody) return;
+    const current = Math.max(0, lift.floors.indexOf(anchor.liftFloor ?? lift.floors[0]));
+    liftPanel = { name: lift.name, floors: lift.floors, stops: lift.stops, current };
+    const cab = liftCabs.get(lift.id);
+    if (cab) {
+      cab.group.position.set(lift.x, lift.floors[current], lift.z);
+      cab.doorTarget = 0;
+    }
+    lastBody.x = lift.x;
+    lastBody.z = lift.z;
+    lastBody.y = lift.floors[current];
+    lastBody.vy = 0;
+    panel = "lift";
+    publish();
+  }
+
+  // Pick a floor from the lift panel: close the panel, ride the cab.
+  function rideLift(index: number) {
+    if (!liftPanel) return;
+    const lift = lifts.find((item) => item.name === liftPanel!.name);
+    if (!lift || !lastBody) return;
+    const to = lift.floors[index];
+    const from = lift.floors[liftPanel.current];
+    panel = "";
+    liftPanel = null;
+    if (to === from || to === undefined) {
+      publish();
+      return;
+    }
+    const body = lastBody;
+    body.x = lift.x;
+    body.z = lift.z;
+    body.y = from;
+    body.vy = 0;
+    body.flying = true;
+    liftRide = { liftId: lift.id, from, to, t: 0, dur: Math.abs(to - from) * 0.35 + 0.9, body };
+    publish();
   }
 
   function clearRoot() {
@@ -492,6 +805,11 @@ export function createRuntime(scene: Scene) {
     rider = null;
     localBody = null;
     sparks.length = 0;
+    liftCabs.clear();
+    liftRide = null;
+    liftOpen = null;
+    liftPanel = null;
+    refreshActiveCols();
   }
 
   function applyMe() {
@@ -508,6 +826,7 @@ export function createRuntime(scene: Scene) {
   }
 
   function upsertRemote(state: NetState) {
+    if (!state?.id || state.id === world.id || state.id === net.id) return;
     const found = remotes.get(state.id);
     if (found) {
       found.state = state;
@@ -516,7 +835,7 @@ export function createRuntime(scene: Scene) {
     }
     const group = new Group();
     group.add(makePerson(state.color, state.hat));
-    const tag = makeLabel(state.name);
+    const tag = makeLabel(state.name, true);
     tag.position.y = 2.35;
     tag.name = "tag";
     group.add(tag);
@@ -525,8 +844,24 @@ export function createRuntime(scene: Scene) {
   }
 
   async function begin(next: City, isPlay: boolean) {
-    await world.start(wallet.name);
+    await loadLooks();
+    world.stop();
+    if (isPlay) await world.start(readAccount()?.name || wallet.name);
     if (world.online) applyMe();
+    const params = new URLSearchParams(location.search);
+    lookId = params.get("look") || localStorage.getItem("orbitx-look") || world.me?.look || "tjr";
+    if (!lookById(lookId).id) lookId = "tjr";
+    lookId = lookById(lookId).id;
+    localStorage.setItem("orbitx-look", lookId);
+    camMode = storedCam();
+    if (world.online && world.me?.look !== lookId) {
+      try {
+        await world.rename(wallet.name, lookId);
+        applyMe();
+      } catch {
+        // The look still applies on this device if the profile write fails.
+      }
+    }
     const token = ++bootGen;
     playing = isPlay;
     driving = false;
@@ -536,20 +871,20 @@ export function createRuntime(scene: Scene) {
     job = "";
     phase = 0;
     riderOn = false;
-    showBody = false;
     eventLeft = 0;
     burstLeft = 0;
     content = await loadContent();
     if (token !== bootGen) return;
     clearRoot();
     cityCols = next.colliders;
-    activeCols = cityCols;
+    refreshActiveCols();
     anchors = next.anchors;
     zones = next.zones;
+    lifts = next.lifts;
     npcs.length = 0;
     next.citizens.forEach((citizen, index) => {
       const group = makePerson(citizen.color, index % 2 ? "cap" : "none");
-      const tag = makeLabel(citizen.name);
+      const tag = makeLabel(citizen.name, true);
       tag.position.y = 2.35;
       group.add(tag);
       group.position.set(citizen.x, 0, citizen.z);
@@ -560,11 +895,13 @@ export function createRuntime(scene: Scene) {
     for (const anchor of anchors) {
       const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
       const tag = makeLabel(title);
-      tag.position.set(anchor.x, 2.7, anchor.z);
+      tag.position.set(anchor.x, anchor.y + 2.7, anchor.z);
       root.add(tag);
     }
     for (const slot of next.boards) mountBoard(slot);
-    const parked = ["black", "white", "cyan", "gold"];
+    for (const item of next.art) mountArt(item);
+    buildLiftCabs();
+    const parked = ["black", "white", "cyan", "gold", "red", "silver"];
     next.cars.forEach((spawn, index) => {
       const group = makeCar(index === 0 ? wallet.car : parked[index % parked.length], index % 3);
       group.position.set(spawn.x, 0.12, spawn.z);
@@ -584,8 +921,9 @@ export function createRuntime(scene: Scene) {
     rider.visible = false;
     root.add(rider);
     localBody = makePerson(wallet.color, wallet.hat);
+    paintPerson(localBody, true);
     localBody.visible = false;
-    const selfTag = makeLabel(wallet.name);
+    const selfTag = makeLabel(wallet.name, true);
     selfTag.position.y = 2.35;
     selfTag.name = "tag";
     localBody.add(selfTag);
@@ -594,7 +932,11 @@ export function createRuntime(scene: Scene) {
       const index = content.projects.length;
       content.projects.push({ id: `empty-${index}`, name: "Your Project Here", line: "Add it in projects.json" });
     }
-    for (const zone of zones) mountSign(zone);
+    for (const zone of zones) {
+      if (zone.kind === "project") continue;
+      mountSign(zone);
+    }
+    life = createLifeView(root, zones, anchors);
     for (let i = 0; i < 40; i++) {
       const mesh = new Mesh(box, i % 2 ? GOLD : MATERIALS.cyanhot);
       mesh.visible = false;
@@ -614,13 +956,25 @@ export function createRuntime(scene: Scene) {
       end: "2026-12-31",
     };
     const texture = paint([faceFor(base).project, faceFor(base).text], `${base.start} → ${base.end}`);
-    const mesh = new Mesh(
-      new PlaneGeometry(6.4, 3.4),
-      new MeshLambertMaterial({ map: texture, emissive: 0x062028, emissiveIntensity: 0.6, side: DoubleSide }),
-    );
+    // Two single-sided planes back to back: a DoubleSide plane shows the
+    // texture mirrored from behind, so roadside boards read reversed from
+    // one side of the street. Both faces read correctly now.
+    const material = new MeshLambertMaterial({
+      map: texture,
+      emissive: 0x062028,
+      emissiveIntensity: 0.6,
+      side: FrontSide,
+    });
+    const mesh = new Mesh(new PlaneGeometry(6.4, 3.4), material);
     mesh.position.set(slot.x, slot.y, slot.z);
     mesh.rotation.y = slot.rotY;
     root.add(mesh);
+    const nx = Math.sin(slot.rotY);
+    const nz = Math.cos(slot.rotY);
+    const back = new Mesh(new PlaneGeometry(6.4, 3.4), material);
+    back.position.set(slot.x + nx * 0.06, slot.y, slot.z + nz * 0.06);
+    back.rotation.y = slot.rotY + Math.PI;
+    root.add(back);
     boards.set(slot.id, { mesh, base, texture });
   }
 
@@ -658,9 +1012,11 @@ export function createRuntime(scene: Scene) {
       shop: SHOP,
       eventLabel: eventLeft > 0 ? `Fountain lights in ${Math.ceil(eventLeft)}` : burstLeft > 0 ? "Fountain lights" : "",
       panel,
+      lift: liftPanel,
       people: [...remotes.values()].map((remote) => ({
         id: remote.state.id,
         name: remote.state.name,
+        look: lookName(remote.state.look),
         color: remote.state.color,
         hat: remote.state.hat,
         speaking: !!remote.state.speaking,
@@ -684,9 +1040,54 @@ export function createRuntime(scene: Scene) {
       profile: profileCard(),
       server: world.server,
       chatScope,
+      lookId,
+      lookName: lookById(lookId).displayName,
+      cam: camMode,
+      camLabel: camTitle(),
+      lookHint: playing && !touch && !lookOn && !paused && !panel && !spectator && !new URLSearchParams(location.search).get("shot")
+        ? "Click or drag to look"
+        : "",
       mission: world.online ? world.mission : tourStep,
       board: world.board,
       districts: anchors.map((anchor) => ({ id: anchor.id, name: anchor.name, x: anchor.x, z: anchor.z })),
+      lots: world.lots,
+      leaders: world.leaders,
+      daily: world.daily,
+      race: world.raceInfo,
+      notes: world.notes,
+      market: world.market,
+      mintSet: world.mintSet,
+      walletKey: world.me?.wallet || "",
+      walletNote: world.walletNote,
+      holder: !!world.me?.holder,
+      account: !!world.me?.account,
+      email: world.me?.email || "",
+      avatar: world.me?.avatar || "",
+      chainAddress: world.chain?.address || world.me?.address || "",
+      chainSol: world.chain?.sol ?? null,
+      chainOrbitx: world.chain?.orbitx ?? null,
+      chainNetwork: world.chain?.network || "",
+      chainHistory: world.chain?.history || [],
+      chainQr: world.chain?.qr || "",
+      meId: world.id,
+      jobStreak: world.me?.jobStreak ?? 0,
+      business: world.me?.business ?? null,
+      spectator,
+      hideHud,
+      hideNames,
+      hideChat,
+      orbit: orbitOn,
+      clean,
+      wheel: wheelOpen,
+      wheelIndex,
+      decorate: decorating,
+      decorKind,
+      hqIndex,
+      banner: raceHoldUntil > Date.now()
+        ? `Race starts in ${Math.ceil((raceHoldUntil - Date.now()) / 1000)}`
+        : raceNext >= 0
+          ? `Gate ${raceNext + 1} of ${GATES.length}`
+          : "",
     };
     panel = "";
     for (const listener of listeners) listener(snap);
@@ -699,6 +1100,7 @@ export function createRuntime(scene: Scene) {
     return {
       id: remote.state.id,
       name: remote.state.name,
+      look: lookName(remote.state.look),
       color: remote.state.color,
       hat: remote.state.hat,
       speaking: !!remote.state.speaking,
@@ -717,14 +1119,36 @@ export function createRuntime(scene: Scene) {
     if (id === "dock") return "Dock hand";
     if (id === "dj") return "DJ";
     if (id === "banker") return "Bank teller";
+    if (id === "barista") return "Barista";
+    if (id === "vendor") return "Market vendor";
+    if (id === "security") return "Security";
     return "City guide";
   }
 
+  // Taxi loop: three fares, each a pickup + a drop. The rider waits at a
+  // different curb each fare, and the drop moves around the city.
+  const TAXI_PICKUPS = [
+    { x: 0, z: 80 },
+    { x: 0, z: -80 },
+    { x: 72, z: 0 },
+  ] as const;
+  const TAXI_DROPS = ["cafe", "hall", "bank"] as const;
+
+  function taxiDropName(fare: number) {
+    const drop = TAXI_DROPS[Math.min(fare - 1, 2)];
+    if (drop === "hall") return "the Community Hall";
+    if (drop === "bank") return "OrbitX Bank";
+    return "Cafe Nova";
+  }
+
   function objectiveText() {
-    if (job === "courier" && phase === 0) return "Pick up the package by the fountain";
+    if (job === "courier" && phase === 0) return "Pick up the glowing package in front of the fountain";
     if (job === "courier") return "Drop the package at OrbitX Shop";
-    if (job === "taxi" && phase === 0) return "Pick up the rider on the main road (in a car)";
-    if (job === "taxi") return "Drop the rider at Cafe Nova";
+    if (job === "taxi") {
+      const fare = Math.floor(phase / 2) + 1;
+      if (phase % 2 === 0) return `Fare ${fare} of 3 — pick up the rider (in a car)`;
+      return `Fare ${fare} of 3 — drop the rider at ${taxiDropName(fare)}`;
+    }
     if (job === "guide" && phase === 0) return "Visit the OrbitX Shop door";
     if (job === "guide" && phase === 1) return "Visit the Community Hall door";
     if (job === "guide") return "Visit OrbitX HQ in the Project District";
@@ -736,6 +1160,11 @@ export function createRuntime(scene: Scene) {
     if (job === "dock") return "Clock in at the harbor office";
     if (job === "dj") return "Play the Community Hall";
     if (job === "banker") return "Open the window at OrbitX Bank";
+    if (job === "barista") return "Serve the shift at Cafe Nova";
+    if (job === "vendor") return "Open the stall at the Night Market";
+    if (job === "security" && phase === 0) return "Patrol the fountain";
+    if (job === "security" && phase === 1) return "Patrol the Community Hall";
+    if (job === "security") return "Patrol OrbitX HQ in the Project District";
     const stop = tourStops[world.online ? world.mission : tourStep];
     if (stop) return stop.text;
     return "City tour complete — pick up a job";
@@ -761,9 +1190,15 @@ export function createRuntime(scene: Scene) {
   }
 
   function zoneAt(body: Body) {
-    if (body.y > 3.2) return null;
     for (const zone of zones) {
-      if (body.x > zone.minX && body.x < zone.maxX && body.z > zone.minZ && body.z < zone.maxZ) return zone;
+      if (body.x > zone.minX && body.x < zone.maxX && body.z > zone.minZ && body.z < zone.maxZ) {
+        if (zone.minY !== undefined) {
+          if (body.y < zone.minY || body.y > (zone.maxY ?? 99)) continue;
+        } else if (body.y > 3.2) {
+          continue;
+        }
+        return zone;
+      }
     }
     return null;
   }
@@ -784,37 +1219,116 @@ export function createRuntime(scene: Scene) {
 
   let lastBody: Body | null = null;
 
+  function applyEmote(group: Group, emote: string, baseYaw: number) {
+    group.rotation.x = 0;
+    group.rotation.z = 0;
+    group.rotation.y = baseYaw;
+    if (emote === "wave") group.rotation.z = Math.sin(clock * 8) * 0.35;
+    else if (emote === "dance") group.rotation.y = baseYaw + Math.sin(clock * 6) * 0.6;
+    else if (emote === "cheer") group.rotation.x = -0.25 + Math.sin(clock * 10) * 0.15;
+    else if (emote === "sit") group.rotation.x = 0.7;
+    else if (emote === "spin") group.rotation.y = clock * 4;
+    else if (emote === "bow") group.rotation.x = 0.9;
+    else if (emote === "clap") group.rotation.z = Math.sin(clock * 14) * 0.22;
+    else if (emote === "robot") group.rotation.y = baseYaw + (Math.sin(clock * 3) > 0 ? 0.5 : -0.5);
+    if (emote === "dance") return Math.abs(Math.sin(clock * 8)) * 0.3;
+    if (emote === "sit") return -0.4;
+    if (emote === "cheer") return Math.abs(Math.sin(clock * 10)) * 0.12;
+    return 0;
+  }
+
+  function nearGate(body: Body, index: number, radius: number) {
+    const gate = GATES[index];
+    if (!gate) return false;
+    return Math.hypot(body.x - gate.x, body.z - gate.z) < radius;
+  }
+
+  function currentLot() {
+    return world.lots.find((lot) => lot.zone === insideName) || null;
+  }
+
+  async function startRace(kind: "street" | "hover") {
+    if (!world.online) {
+      say("The race needs the city server.");
+      return;
+    }
+    if (kind === "hover" && !driving) {
+      say("Get in a hover-car for the time trial.");
+      return;
+    }
+    try {
+      const data = await world.raceGo(kind);
+      raceHoldUntil = Number(world.raceInfo.startedAt || Date.now() + 5000);
+      raceNext = world.raceInfo.next;
+      say(String(data.message || "Race armed."));
+      publish();
+    } catch (err) {
+      say(err instanceof Error ? err.message : "The race did not start.");
+    }
+  }
+
   function interact(body?: Body) {
     const who = body ?? lastBody;
     if (!who || !playing || paused || typing) return;
     body = who;
     if (driving) {
+      if (raceNext < 0 && nearGate(body, 0, 8)) {
+        void startRace("hover");
+        return;
+      }
       exitCar(body);
       return;
     }
+    // Order matters: a door / zone service point / lift call wins over a car
+    // parked nearby. The car used to be checked first, so pressing E at the
+    // shop door (with a car parked within 7 units) teleported the player
+    // back into the car instead of walking in. The car is the fallback —
+    // only when nothing nearer answers E.
     const zone = zoneAt(body);
     if (zone && nearService(body, zone)) {
       if (zone.kind === "shop") panel = "shop";
+      else if (zone.kind === "arcade") panel = "arcade";
+      else if (zone.kind === "project") {
+        hqIndex = zone.slot;
+        panel = "hq";
+      } else if (zone.kind === "hall" || zone.kind === "market" || zone.kind === "dock") panel = "home";
       else say(zoneTitle(zone));
       publish();
       return;
     }
-    const car = nearestCar(body, 3.6);
+    // A close door / lift / board beats the race gate: the mall door sits
+    // 5.6 units from the street-race start gate, inside its 8-unit radius,
+    // so pressing E at the door used to start the race instead of walking
+    // in. A player at the gate itself is 5.6 units from the door — outside
+    // the 3.3-unit anchor radius — so the gate still fires there.
+    const anchor = nearestAnchor(body, 3.3);
+    if (anchor) {
+      if (anchor.kind === "lift") {
+        openLift(anchor);
+        return;
+      }
+      if (anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office") {
+        stepInside(anchor, body);
+        publish();
+        return;
+      }
+      if (anchor.kind === "jobs") panel = "jobs";
+      if (anchor.kind === "ads") panel = "ads";
+      if (anchor.kind === "events") panel = "events";
+      publish();
+      return;
+    }
+    if (raceNext < 0 && nearGate(body, 0, 8)) {
+      void startRace("street");
+      return;
+    }
+    // No door, zone, or board answered: a car within 7 units is the last
+    // resort, re-checked at press time (never from a stale prompt).
+    const car = nearestCar(body, 7);
     if (car >= 0) {
       enterCar(body, car);
       return;
     }
-    const anchor = nearestAnchor(body, 3.3);
-    if (!anchor) return;
-    if (anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock") {
-      stepInside(anchor, body);
-      publish();
-      return;
-    }
-    if (anchor.kind === "jobs") panel = "jobs";
-    if (anchor.kind === "ads") panel = "ads";
-    if (anchor.kind === "events") panel = "events";
-    publish();
   }
 
   function nearestCar(body: Body, max: number) {
@@ -840,7 +1354,11 @@ export function createRuntime(scene: Scene) {
     body.vy = 0;
     const car = cars[index];
     retint(car.group, wallet.car);
-    say("Driving. Use to get out.");
+    say("Press E to get out.");
+    if (!droveQuest && world.online) {
+      droveQuest = true;
+      void world.questPing("drive").then(() => applyMe()).catch(() => {});
+    }
   }
 
   function exitCar(body: Body) {
@@ -865,6 +1383,10 @@ export function createRuntime(scene: Scene) {
   }
 
   function drive(dt: number, body: Body, keys: Set<string>, blocked: (x: number, z: number) => boolean) {
+    if (Date.now() < raceHoldUntil) {
+      carSpeed = 0;
+      return;
+    }
     const { f, s } = moveAxes(keys);
     const ctrl = keys.has("ControlLeft") || keys.has("ControlRight");
     const max = ctrl ? 22 : 12;
@@ -900,7 +1422,7 @@ export function createRuntime(scene: Scene) {
 
   function carBlocks(x: number, y: number, z: number) {
     if (driving || y > 2.2) return false;
-    return cars.some((car, index) => index !== carIndex && Math.abs(x - car.x) < 2.1 && Math.abs(z - car.z) < 2.1);
+    return cars.some((car, index) => index !== carIndex && Math.abs(x - car.x) < 1.55 && Math.abs(z - car.z) < 1.55);
   }
 
   function consumeLook(body: Body) {
@@ -932,10 +1454,20 @@ export function createRuntime(scene: Scene) {
       return;
     }
     let target: { x: number; z: number } | null = null;
-    if (job === "courier" && phase === 0) target = { x: 4, z: 20 };
+    if (job === "courier" && phase === 0) target = { x: 0, z: 24 };
     if (job === "courier" && phase === 1) target = anchors.find((item) => item.id === "shop") ?? null;
-    if (job === "taxi" && phase === 0) target = { x: 0, z: 80 };
-    if (job === "taxi" && phase === 1) target = anchors.find((item) => item.id === "cafe") ?? null;
+    if (job === "taxi") {
+      const fare = Math.min(Math.floor(phase / 2), 2);
+      if (phase % 2 === 0) target = TAXI_PICKUPS[fare];
+      else target = anchors.find((item) => item.id === TAXI_DROPS[fare]) ?? null;
+    }
+    if (job === "barista") target = anchors.find((item) => item.id === "cafe") ?? null;
+    if (job === "vendor") target = anchors.find((item) => item.id === "market") ?? null;
+    if (job === "security") {
+      if (phase === 0) target = { x: 0, z: 12 };
+      else if (phase === 1) target = anchors.find((item) => item.id === "hall") ?? null;
+      else target = anchors.find((item) => item.id === "project-0") ?? null;
+    }
     if (job === "guide") target = guidePoint() ?? null;
     if (job === "mechanic") target = { x: 36, z: 50 };
     if (job === "photographer") target = phase === 0 ? { x: 0, z: 12 } : { x: 0, z: -6 };
@@ -951,57 +1483,70 @@ export function createRuntime(scene: Scene) {
       }
     }
     if (packageMesh) {
-      packageMesh.visible = job === "courier" && phase === 0;
-      if (packageMesh.visible && target) packageMesh.position.set(target.x, 0.7, target.z);
+      packageMesh.visible = job === "courier";
+      if (job === "courier" && phase === 0 && target) packageMesh.position.set(target.x, 0.7, target.z);
+      if (job === "courier" && phase === 1) packageMesh.position.set(body.x, body.y + 1.15, body.z + 0.35);
     }
     if (rider) {
       rider.visible = job === "taxi" && !riderOn;
-      if (rider.visible) rider.position.set(0, 0, 80);
+      if (rider.visible) {
+        const pickup = TAXI_PICKUPS[Math.min(Math.floor(phase / 2), 2)];
+        rider.position.set(pickup.x, 0, pickup.z);
+      }
     }
     if (!target || paused) return;
-    const reach = Math.hypot(body.x - target.x, body.z - target.z) < (driving ? 4.2 : 2.4);
+    const reachDist = job === "courier" && phase === 0 ? 5.2 : job === "courier" ? 6 : driving ? 4.2 : 2.8;
+    let reach = Math.hypot(body.x - target.x, body.z - target.z) < reachDist;
+    if (job === "courier" && phase === 1 && atShop(body)) reach = true;
     if (!reach) return;
     if (job === "courier" && phase === 0) {
       phase = 1;
-      say("Package picked up.");
+      say("Package picked up. Take it to OrbitX Shop.");
     } else if (job === "courier" && phase === 1) {
-      job = "";
-      void pay("courier");
-    } else if (job === "taxi" && phase === 0 && driving) {
-      phase = 1;
-      riderOn = true;
-      say("Rider aboard.");
-    } else if (job === "taxi" && phase === 1 && driving) {
-      job = "";
-      riderOn = false;
-      void pay("taxi");
+      void finishJob("courier");
+    } else if (job === "taxi" && driving) {
+      if (phase % 2 === 0) {
+        phase += 1;
+        riderOn = true;
+        say("Rider aboard.");
+      } else if (phase >= 5) {
+        riderOn = false;
+        void finishJob("taxi");
+      } else {
+        phase += 1;
+        riderOn = false;
+        say(`Fare ${Math.floor(phase / 2) + 1} of 3 — next rider is waiting.`);
+      }
     } else if (job === "guide") {
       phase += 1;
-      if (phase >= 3) {
-        const done = job;
-        job = "";
-        void pay(done);
-      } else say("Checkpoint reached.");
+      if (phase >= 3) void finishJob("guide");
+      else say("Checkpoint reached.");
+    } else if (job === "barista" || job === "vendor") {
+      void finishJob(job);
+    } else if (job === "security") {
+      phase += 1;
+      if (phase >= 3) void finishJob("security");
+      else say("Checkpoint reached.");
     } else if (job === "mechanic") {
-      job = "";
-      void pay("mechanic");
+      void finishJob("mechanic");
     } else if (job === "photographer") {
       phase += 1;
-      if (phase >= 2) {
-        job = "";
-        void pay("photographer");
-      } else say("Fountain shot. Now the tower.");
+      if (phase >= 2) void finishJob("photographer");
+      else say("Fountain shot. Now the tower.");
     } else if (job === "promoter") {
       phase += 1;
-      if (phase >= 2) {
-        job = "";
-        void pay("promoter");
-      } else say("Hall visited. Head to the ad kiosk.");
+      if (phase >= 2) void finishJob("promoter");
+      else say("Hall visited. Head to the ad kiosk.");
     } else if (job === "dock" || job === "dj" || job === "banker") {
-      const done = job;
-      job = "";
-      void pay(done);
+      void finishJob(job);
     }
+  }
+
+  function atShop(body: Body) {
+    const zone = zoneAt(body);
+    if (zone?.kind === "shop") return true;
+    const door = anchors.find((item) => item.id === "shop");
+    return !!door && Math.hypot(body.x - door.x, body.z - door.z) < 6;
   }
 
   const tourStops = [
@@ -1038,18 +1583,29 @@ export function createRuntime(scene: Scene) {
   let tourStep = 0;
 
   async function pay(id: string) {
-    const amounts: Record<string, number> = { courier: 45, taxi: 70, guide: 60, mechanic: 55, photographer: 40, promoter: 50, dock: 65, dj: 55, banker: 50 };
+    const amounts: Record<string, number> = { courier: 45, taxi: 90, guide: 60, mechanic: 55, photographer: 40, promoter: 50, dock: 65, dj: 55, banker: 50, barista: 45, vendor: 55, security: 75 };
     if (!world.online) {
       say(earn(wallet, amounts[id], jobTitle(id)));
-      return;
+      return true;
     }
     try {
       const data = await world.earn(id);
       applyMe();
       say(String(data.message || "Paid."));
+      return true;
     } catch (err) {
       say(err instanceof Error ? err.message : "The city held the pay.");
+      return false;
     }
+  }
+
+  async function finishJob(id: string) {
+    if (performance.now() < payAfter || job !== id) return;
+    payAfter = performance.now() + 1500;
+    const ok = await pay(id);
+    if (!ok || job !== id) return;
+    job = "";
+    phase = 0;
   }
 
   function burst(x: number, y: number, z: number) {
@@ -1103,20 +1659,80 @@ export function createRuntime(scene: Scene) {
       spark.mesh.scale.setScalar(s);
       if (spark.life <= 0) spark.mesh.visible = false;
     }
+    // Elevator doors slide toward their target every frame.
+    for (const cab of liftCabs.values()) {
+      cab.doorPos += (cab.doorTarget - cab.doorPos) * Math.min(1, dt * 6);
+      cab.door.position.set(cab.baseX + cab.slideX * cab.doorPos, 1.3, cab.baseZ + cab.slideZ * cab.doorPos);
+    }
+    // Elevator ride: ease the cab + rider between floors, then open the door
+    // (which also opens the shaft's door blocker for that floor so the rider
+    // can step out). The blocker closes again once the rider walks away.
+    if (liftRide) {
+      const ride = liftRide;
+      ride.t += dt;
+      const k = Math.min(1, ride.t / ride.dur);
+      const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+      const y = ride.from + (ride.to - ride.from) * e;
+      const lift = lifts.find((item) => item.id === ride.liftId);
+      if (lift) {
+        ride.body.x = lift.x;
+        ride.body.z = lift.z;
+      }
+      ride.body.y = y;
+      ride.body.vy = 0;
+      const cab = liftCabs.get(ride.liftId);
+      if (cab) {
+        cab.group.position.y = y;
+        cab.doorTarget = 0;
+      }
+      if (k >= 1) {
+        // Deposit the rider at the destination floor's landing anchor —
+        // outside the shaft, on solid floor. Without this the rider is left
+        // standing in the open shaft (the cab platform is a mesh, not a
+        // collider) and falls through it back to the lobby.
+        ride.body.y = ride.to;
+        if (lift) {
+          const floorIndex = lift.floors.indexOf(ride.to);
+          const landing = anchors.find((a) => a.kind === "lift" && a.liftId === lift.id && a.liftFloor === floorIndex);
+          if (landing) {
+            ride.body.x = landing.x;
+            ride.body.z = landing.z;
+            ride.body.y = landing.y;
+          }
+          liftOpen = { liftId: lift.id, floor: floorIndex };
+          refreshActiveCols();
+          say(`${lift.stops[floorIndex] ?? "Floor"} — ${lift.name}`);
+        }
+        ride.body.vy = 0;
+        ride.body.flying = false;
+        liftRide = null;
+        if (cab) cab.doorTarget = 1;
+      }
+    } else if (liftOpen) {
+      const lift = lifts.find((item) => item.id === liftOpen!.liftId);
+      if (lift && Math.hypot(body.x - lift.x, body.z - lift.z) > 3) {
+        liftOpen = null;
+        refreshActiveCols();
+        const cab = liftCabs.get(lift.id);
+        if (cab) cab.doorTarget = 0;
+      }
+    }
     const now = performance.now();
     for (const [id, remote] of remotes) {
-      if (now - remote.seen > 10000) {
+      if (now - remote.seen > 8000) {
         root.remove(remote.group);
         remotes.delete(id);
         continue;
       }
       const person = remote.group.children[0] as Group;
-      retintPerson(person, remote.state.color, remote.state.hat);
+      paintPerson(person, false, remote.state.look || "tjr", remote.state.color, remote.state.hat);
       const blend = Math.min(1, dt * 8);
       remote.group.position.x += (remote.state.x - remote.group.position.x) * blend;
       remote.group.position.y += (remote.state.y - remote.group.position.y) * blend;
       remote.group.position.z += (remote.state.z - remote.group.position.z) * blend;
       remote.group.rotation.y = remote.state.yaw;
+      const remoteTag = remote.group.getObjectByName("tag");
+      if (remoteTag) remoteTag.visible = !hideNames;
       const ring = person.getObjectByName("ring");
       if (ring) ring.visible = !!remote.state.speaking;
       let ride = remote.group.getObjectByName("ride");
@@ -1131,49 +1747,101 @@ export function createRuntime(scene: Scene) {
       } else {
         if (ride) ride.visible = false;
         person.visible = true;
-        if (remote.state.emote) person.rotation.y = Math.sin(clock * 6) * 0.4;
+        const lift = applyEmote(person, remote.state.emote || "", Math.PI - 2 * remote.state.yaw);
+        person.position.y = lift;
       }
     }
+    const emoteNow = Date.now() < world.emoteUntil ? world.emote : "";
     if (localBody) {
-      localBody.visible = showBody && !driving;
-      localBody.position.set(body.x, body.y, body.z);
-      localBody.rotation.y = body.yaw;
-      retintPerson(localBody, wallet.color, wallet.hat);
+      localBody.visible = camMode !== "first" && !driving && !spectator;
+      const lift = applyEmote(localBody, emoteNow, Math.PI - body.yaw);
+      localBody.position.set(body.x, body.y + lift, body.z);
+      paintPerson(localBody, true);
       const ring = localBody.getObjectByName("ring");
       if (ring) ring.visible = world.speaking;
+      const selfTag = localBody.getObjectByName("tag");
+      if (selfTag) selfTag.visible = !hideNames && !spectator;
     }
     prompt = "";
-    if (playing && !paused && !opts.orbit) {
+    if (playing && !paused && !opts.orbit && !spectator) {
       const zone = zoneAt(body);
       insideName = zone?.id ?? "";
-      if (driving) prompt = "Use to get out of the hover-car";
-      else if (zone && nearService(body, zone)) prompt = zone.kind === "shop" ? "Use to open the shop" : zoneTitle(zone);
-      else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : zoneTitle(zone);
-      else if (nearestCar(body, 3.6) >= 0) prompt = "Use to drive this hover-car";
-      else {
-        const anchor = nearestAnchor(body, 3.3);
-        if (anchor) {
-          const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
-          const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock";
-          prompt = walkIn ? `Walk in — ${title}` : `Use — ${title}`;
+      if (zone?.id === "project-0" && world.mintSet && !world.me?.holder && !driving) {
+        const limit = zone.minX + 5;
+        if (body.x < limit) {
+          body.x = limit + 0.2;
+          say("Holders only. Connect a wallet that holds $ORBITX.");
         }
       }
-    }
-    let tookCamera = false;
-    if (showBody && !driving) {
-      const back = 7;
-      camera.position.set(body.x - Math.sin(body.yaw) * back, body.y + 3.4, body.z + Math.cos(body.yaw) * back);
-      camera.lookAt(body.x, body.y + 1.3, body.z);
-      tookCamera = true;
-    } else if (driving) {
-      const car = cars[carIndex];
-      if (car) {
-        const yaw = car.yaw + chaseYaw;
-        const dist = 6.4;
-        camera.position.set(car.x - Math.sin(yaw) * dist, 2.35 + chasePitch * 3.2, car.z + Math.cos(yaw) * dist);
-        camera.lookAt(car.x, 0.7, car.z);
-        tookCamera = true;
+      if (zone?.kind === "project" && !visitedHq && world.online) {
+        visitedHq = true;
+        void world.questPing("visit").then(() => applyMe()).catch(() => {});
       }
+      if (world.raceInfo.next !== raceNext && world.raceInfo.startedAt) {
+        raceNext = world.raceInfo.next;
+        raceHoldUntil = world.raceInfo.startedAt;
+      }
+      if (raceNext >= 0 && Date.now() >= raceHoldUntil && !hitting) {
+        const gate = GATES[raceNext];
+        const px = driving ? (cars[carIndex]?.x ?? body.x) : body.x;
+        const pz = driving ? (cars[carIndex]?.z ?? body.z) : body.z;
+        if (gate && Math.hypot(px - gate.x, pz - gate.z) < 8) {
+          hitting = true;
+          void world
+            .raceHit(px, pz, driving)
+            .then((data) => {
+              applyMe();
+              raceNext = world.raceInfo.next;
+              say(String(data.message || "Gate"));
+            })
+            .catch((err: unknown) => {
+              const message = err instanceof Error ? err.message : "";
+              if (message && !/too fast|countdown|not the next/i.test(message)) say(message);
+            })
+            .finally(() => {
+              hitting = false;
+            });
+        }
+      }
+      const lot = currentLot();
+      if (Date.now() < raceHoldUntil) prompt = "Countdown — hold still";
+      else if (raceNext >= 0) prompt = `Next gate ${raceNext + 1} of ${GATES.length}`;
+      else if (decorating && lot) prompt = "Decorate — place, rotate, or remove. X closes it.";
+      else if (driving && nearGate(body, 0, 8)) prompt = "Press E — hover time trial";
+      else if (driving) prompt = "Press E to get out";
+      else if (zone && nearService(body, zone)) {
+        prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zoneTitle(zone);
+      } else if (nearestAnchor(body, 3.3)) {
+        // A close door / lift / board beats the race gate, same as
+        // interact(): the mall door sits 5.6 units from the street-race
+        // start gate, inside its 8-unit radius, so the prompt used to say
+        // "street race" at the door instead of "Walk in".
+        const anchor = nearestAnchor(body, 3.3)!;
+        const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
+        const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office";
+        prompt = walkIn ? `Walk in — ${title}` : `Press E — ${title}`;
+      } else if (nearGate(body, 0, 8)) prompt = "Press E — street race";
+      else {
+        // The anchor was already checked above (it beats the gate); here
+        // only the car fallback and the zone title remain. Nothing in
+        // range: clear the prompt (leaving it untouched kept "Press E to
+        // drive" on screen 30-40 m after the player walked away).
+        if (nearestCar(body, 7) >= 0) prompt = "Press E to drive";
+        else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : lot?.ownerId === world.id ? `${lot.name} — press X to decorate` : zoneTitle(zone);
+        else prompt = "";
+      }
+    }
+    life?.sync({
+      lots: world.lots,
+      leaders: world.leaders,
+      projects: content.projects,
+      notes: world.notes,
+      market: world.market,
+      raceNext,
+    });
+    let tookCamera = false;
+    if (!opts.orbit && (playing || localBody)) {
+      tookCamera = placeCamera(camera, body);
     }
     if (playing && !opts.orbit) {
       const pose = {
@@ -1185,25 +1853,20 @@ export function createRuntime(scene: Scene) {
         yaw: driving ? (cars[carIndex]?.yaw ?? body.yaw) : body.yaw,
         color: wallet.color,
         hat: wallet.hat,
+        look: lookId,
         car: driving,
         skin: wallet.car,
         speaking: world.speaking,
         emote: Date.now() < world.emoteUntil ? world.emote : "",
         lobby: world.lobby,
+        holder: !!world.me?.holder,
       };
       if (world.online) {
         world.push(pose);
         voiceTick();
-        const live = new Set<string>();
         for (const person of world.people) {
-          if (person.id === world.id) continue;
-          live.add(person.id);
+          if (!person?.id || person.id === world.id || person.id === net.id) continue;
           upsertRemote(person);
-        }
-        for (const [id, remote] of remotes) {
-          if (live.has(id)) continue;
-          root.remove(remote.group);
-          remotes.delete(id);
         }
         const stamp = JSON.stringify(world.bookings);
         if (stamp !== bookStamp) {
@@ -1223,13 +1886,125 @@ export function createRuntime(scene: Scene) {
   }
 
   const dressed = new WeakMap<Group, string>();
-  function retintPerson(group: Group, color: string, hat: string) {
-    const key = `${color}:${hat}`;
+  function paintPerson(group: Group, trust: boolean, id = lookId, color = wallet.color, hat = wallet.hat) {
+    const key = `${id}|${color}|${hat}|${trust ? wallet.owned.join(",") : ""}|${looksReady()}`;
     if (dressed.get(group) === key) return;
     dressed.set(group, key);
-    const cloth = group.children[0];
-    if (cloth instanceof Mesh && cloth.material instanceof MeshLambertMaterial) cloth.material.color.setHex(COLORS[color] ?? COLORS.white);
-    addHat(group, box, hat);
+    dressPerson(group, lookById(id), { color, hat, owned: trust ? wallet.owned : [], trustOwned: trust });
+  }
+
+  function camTitle() {
+    if (driving && camMode === "first") return "Cockpit";
+    if (camMode === "first") return "First person";
+    if (camMode === "far") return "Far camera";
+    if (camMode === "selfie") return "Selfie";
+    return "Over the shoulder";
+  }
+
+  function cameraBlocked(x: number, y: number, z: number) {
+    for (const c of activeCols) {
+      if (x > c.minX && x < c.maxX && y > c.minY && y < c.maxY && z > c.minZ && z < c.maxZ) return true;
+    }
+    return false;
+  }
+
+  function pullCamera(from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }) {
+    const steps = 18;
+    let safe = { x: from.x, y: from.y, z: from.z };
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const p = {
+        x: from.x + (to.x - from.x) * t,
+        y: from.y + (to.y - from.y) * t,
+        z: from.z + (to.z - from.z) * t,
+      };
+      if (cameraBlocked(p.x, p.y, p.z)) return safe;
+      safe = p;
+    }
+    return safe;
+  }
+
+  function placeCamera(camera: PerspectiveCamera, body: Body) {
+    if (spectator) {
+      hands.visible = false;
+      if (orbitOn) {
+        const t = clock * 0.12;
+        camera.position.set(Math.cos(t) * 26, 10, 12 + Math.sin(t) * 26);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(0, 2, 12);
+        return true;
+      }
+      camera.position.set(body.x, body.y + 1.62, body.z);
+      camera.up.set(0, 1, 0);
+      const cp = Math.cos(body.pitch);
+      const sp = Math.sin(body.pitch);
+      camera.lookAt(body.x + Math.sin(body.yaw) * cp, body.y + 1.62 + sp, body.z - Math.cos(body.yaw) * cp);
+      return true;
+    }
+    const focusY = body.y + 1.35;
+    hands.visible = false;
+    if (!driving && camMode === "first") {
+      camera.position.set(body.x, body.y + 1.62, body.z);
+      camera.up.set(0, 1, 0);
+      const cp = Math.cos(body.pitch);
+      const sp = Math.sin(body.pitch);
+      camera.lookAt(body.x + Math.sin(body.yaw) * cp, body.y + 1.62 + sp, body.z - Math.cos(body.yaw) * cp);
+      handMat.color.set(lookById(lookId).colors.skin);
+      hands.visible = true;
+      hands.position.copy(camera.position);
+      hands.quaternion.copy(camera.quaternion);
+      return true;
+    }
+    if (driving) {
+      const car = cars[carIndex];
+      if (!car) return false;
+      const yaw = car.yaw;
+      const fx = Math.sin(yaw);
+      const fz = -Math.cos(yaw);
+      if (camMode === "first") {
+        camera.position.set(car.x - fx * 0.2, 1.15, car.z - fz * 0.2);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(car.x + fx * 12, 1.15 - chasePitch * 2.2, car.z + fz * 12);
+        return true;
+      }
+      const dist = (camMode === "selfie" ? 5.2 : camMode === "far" ? 11 : 7.2) * camZoom;
+      const side = camMode === "shoulder" ? 1.3 : 0;
+      const sign = camMode === "selfie" ? 1 : -1;
+      const lookYaw = yaw + chaseYaw;
+      const desired = {
+        x: car.x + Math.sin(lookYaw) * dist * sign + Math.cos(lookYaw) * side,
+        y: camMode === "selfie" ? 2.2 : 3.6 + chasePitch * 1.6,
+        z: car.z - Math.cos(lookYaw) * dist * sign + Math.sin(lookYaw) * side,
+      };
+      const pulled = pullCamera({ x: car.x, y: 1.3, z: car.z }, desired);
+      camera.position.set(pulled.x, Math.max(1.4, pulled.y), pulled.z);
+      camera.up.set(0, 1, 0);
+      camera.lookAt(car.x, 0.9, car.z);
+      return true;
+    }
+    const dist = (camMode === "selfie" ? 2.6 : camMode === "far" ? 9.2 : 4.8) * camZoom;
+    const side = camMode === "shoulder" ? 0.85 : 0;
+    const pitch = Math.max(-0.45, Math.min(0.7, body.pitch));
+    const fx = Math.sin(body.yaw);
+    const fz = -Math.cos(body.yaw);
+    const rx = Math.cos(body.yaw);
+    const rz = Math.sin(body.yaw);
+    const sign = camMode === "selfie" ? 1 : -1;
+    const desired = {
+      x: body.x + fx * dist * sign * Math.cos(pitch) + rx * side,
+      // Drag up = look up: a higher pitch must DROP the camera (so it looks
+      // up at the player), not raise it. The old "+" raised the camera on a
+      // drag-up and swung the view down to the ground — inverted in the
+      // default shoulder cam (first-person and the driving chase cam already
+      // had the correct sign).
+      y: body.y + (camMode === "selfie" ? 1.75 : 1.7) - (camMode === "selfie" ? 0 : Math.sin(pitch) * dist * 0.45),
+      z: body.z + fz * dist * sign * Math.cos(pitch) + rz * side,
+    };
+    const pulled = pullCamera({ x: body.x, y: focusY, z: body.z }, desired);
+    camera.position.set(pulled.x, Math.max(body.y + 0.4, pulled.y), pulled.z);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(body.x, camMode === "selfie" ? body.y + 1.5 : focusY, body.z);
+    return true;
   }
 
   function applyShot(shot: string | null, body: Body) {
@@ -1260,7 +2035,7 @@ export function createRuntime(scene: Scene) {
     } else if (shot === "hall") {
       body.x = 50;
       body.y = 0;
-      body.z = 18;
+      body.z = 90;
       body.yaw = Math.PI / 2;
       body.pitch = 0.04;
     } else if (shot === "shop") {
@@ -1282,14 +2057,26 @@ export function createRuntime(scene: Scene) {
       body.yaw = -0.95;
       body.pitch = 0.22;
     } else if (shot === "billboard") {
-      book("plaza-east", 7, "OrbitX", "BOUGHT WITH A BURN");
+      // Screenshot rig: a local demo booking only — never a real buy.
+      const start = new Date();
+      const end = new Date(start.getTime() + 7 * 86400000);
+      const demo = bookings();
+      demo["plaza-east"] = {
+        id: "plaza-east",
+        project: "OrbitX",
+        text: "BOUGHT WITH A BURN",
+        image: "",
+        start: start.toISOString().slice(0, 10),
+        end: end.toISOString().slice(0, 10),
+      };
+      localStorage.setItem(BOOK_KEY, JSON.stringify(demo));
+      redrawBoard("plaza-east");
       body.x = -2;
       body.y = 0;
       body.z = 50;
       body.yaw = Math.PI / 2.4;
       body.pitch = 0.52;
     } else if (shot === "players") {
-      showBody = true;
       body.x = 4;
       body.y = 0;
       body.z = 20;
@@ -1301,29 +2088,409 @@ export function createRuntime(scene: Scene) {
       body.z = 20;
       body.yaw = Math.PI / 2;
       body.pitch = 0;
+    } else if (shot === "courier") {
+      job = "courier";
+      phase = 0;
+      void world.jobStart("courier");
+      body.x = 0;
+      body.y = 0;
+      body.z = 24;
+      body.yaw = 0;
+      window.setTimeout(() => {
+        if (job !== "courier" || !lastBody) return;
+        lastBody.x = 16;
+        lastBody.y = 0;
+        lastBody.z = 54;
+      }, 4600);
+    } else if (shot === "car") {
+      body.x = 4.2;
+      body.y = 0;
+      body.z = 46;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0.05;
+    } else if (shot === "sign-back") {
+      body.flying = true;
+      body.x = 0;
+      body.y = 42;
+      body.z = -52;
+      body.yaw = Math.PI;
+      body.pitch = 0.42;
+    } else if (shot === "property" || shot === "sale" || shot === "decorate") {
+      void showProperty(shot, body);
+    } else if (shot === "hq" || shot === "hq-edit") {
+      const zone = zones.find((item) => item.id === "project-0");
+      if (zone) {
+        body.x = (zone.minX + zone.maxX) / 2;
+        body.y = 0;
+        body.z = (zone.minZ + zone.maxZ) / 2;
+        body.yaw = Math.atan2(zone.signX - body.x, -(zone.signZ - body.z));
+        body.pitch = 0.05;
+        hqIndex = 0;
+      }
+      if (shot === "hq-edit") {
+        panel = "hq";
+        void world.buyLot("hq-0").then(() => {
+          applyMe();
+          publish();
+        }).catch(() => publish());
+      }
+    } else if (shot === "board" || shot === "leaders") {
+      body.flying = false;
+      body.x = 0;
+      body.y = 0;
+      body.z = 19.2;
+      body.yaw = Math.PI;
+      body.pitch = 0.2;
+      camMode = "first";
+      if (shot === "leaders") panel = "leaders";
+    } else if (shot === "board-s") {
+      // Plaza board from the south (spawn) side — the back face. Same board,
+      // opposite side: the text must read correctly here too.
+      body.flying = false;
+      body.x = 0;
+      body.y = 0;
+      body.z = 38;
+      body.yaw = 0;
+      body.pitch = 0.15;
+      camMode = "first";
+    } else if (shot === "road") {
+      // Street-level road view: the crosswalk at (0, 61.5) ahead, the road
+      // running north to the plaza. Checks asphalt tone + stripe size.
+      body.flying = false;
+      body.x = 0;
+      body.y = 0;
+      body.z = 56;
+      body.yaw = 0;
+      body.pitch = 0.08;
+      camMode = "first";
+    } else if (shot === "garage") {
+      // E-priority probe: the garage door anchor (77.6, 54) is 5.6 units
+      // from the garage-row car (72, 54), inside the car's 7-unit entry
+      // radius. Pressing E here must walk into the garage, not enter the car.
+      body.flying = false;
+      body.x = 77.6;
+      body.y = 0;
+      body.z = 54;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.05;
+    } else if (shot === "race" || shot === "race-run") {
+      body.x = 36;
+      body.y = 0;
+      body.z = -14;
+      body.yaw = Math.PI;
+      body.pitch = 0.1;
+      if (shot === "race-run") {
+        void (async () => {
+          await world.raceLeave().catch(() => {});
+          await startRace("street");
+          await new Promise((resolve) => setTimeout(resolve, 6000));
+          for (const gate of GATES) {
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            try {
+              const data = await world.raceHit(gate.x, gate.z, false);
+              say(String(data.message || "Gate"));
+            } catch (err) {
+              say(err instanceof Error ? err.message : "Missed a gate");
+            }
+          }
+          publish();
+        })();
+      } else {
+        void startRace("street");
+      }
+    } else if (shot === "hover") {
+      const car = cars[2] || cars[0];
+      if (car) {
+        car.x = 36;
+        car.z = -14;
+        car.yaw = Math.PI;
+        car.group.position.set(36, 0.12, -14);
+        body.x = 36;
+        body.z = -14;
+        enterCar(body, cars.indexOf(car));
+      }
+      void world.raceLeave().then(() => startRace("hover")).catch(() => startRace("hover"));
+    } else if (shot === "arcade") {
+      const zone = zones.find((item) => item.id === "arcade");
+      if (zone) {
+        body.x = zone.serviceX;
+        body.y = 0;
+        body.z = zone.serviceZ + 1.2;
+        body.yaw = Math.atan2(zone.serviceX - body.x, -(zone.serviceZ - body.z));
+      }
+      panel = "arcade";
+    } else if (shot === "daily" || shot === "wallet") {
+      void world.refresh().then(() => {
+        panel = shot === "daily" ? "daily" : "wallet";
+        if (shot === "wallet" && !world.me?.account) {
+          world.walletNote = "Sign in to open the in-app wallet. This shot is still a guest.";
+        }
+        publish();
+      });
+    } else if (shot === "emote") {
+      void world.raceLeave().catch(() => {});
+      raceNext = -1;
+      raceHoldUntil = 0;
+      body.x = 14;
+      body.y = 0;
+      body.z = 12;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0;
+      camMode = "selfie";
+      wheelOpen = true;
+      wheelIndex = 1;
+      world.emote = "dance";
+      world.emoteUntil = Date.now() + 20000;
+    } else if (shot === "spectate" || shot === "spectate-ui") {
+      void world.raceLeave().catch(() => {});
+      raceNext = -1;
+      raceHoldUntil = 0;
+      spectator = true;
+      orbitOn = true;
+      body.flying = true;
+      clean = shot === "spectate";
+      hideHud = shot === "spectate";
+      hideNames = true;
+      hideChat = true;
+    } else if (shot === "mall") {
+      body.x = 50;
+      body.y = 0;
+      body.z = 0;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.05;
+    } else if (shot === "mall2") {
+      body.x = 72;
+      body.y = 5; // mall mezzanine floor — on the ring (z 20), NOT over
+      body.z = 20; // the atrium void (x 63..81, z -9..9), which drops the
+      body.yaw = 0; // player to the ground floor.
+      body.pitch = 0.12;
+    } else if (shot === "mallk") {
+      // Mall directory kiosk by the west door, facing east into the mall.
+      body.x = 56;
+      body.y = 0;
+      body.z = 0;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.05;
+    } else if (shot === "malln") {
+      // Mall ground-floor north strip seating, facing north from the atrium.
+      body.x = 72;
+      body.y = 0;
+      body.z = 6;
+      body.yaw = Math.PI;
+      body.pitch = 0.08;
+    } else if (shot === "office") {
+      body.x = -84;
+      body.y = 0;
+      body.z = 2;
+      body.yaw = 1.5; // face east at the reception desk (-72, 3.4)
+      body.pitch = 0.05;
+    } else if (shot === "office2") {
+      body.x = -70; // Floor 3: stand by the desk rows, face west at them.
+      body.y = 12;
+      body.z = -2;
+      body.yaw = -1.1;
+      body.pitch = 0.05;
+    } else if (shot === "roof") {
+      body.x = -80;
+      body.y = 20;
+      body.z = 0;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.15;
+    } else if (shot === "home") {
+      const zone = zones.find((item) => item.id.startsWith("home-"));
+      if (zone) {
+        body.x = (zone.minX + zone.maxX) / 2;
+        body.y = 0;
+        body.z = (zone.minZ + zone.maxZ) / 2;
+        body.yaw = Math.atan2(zone.serviceX - body.x, -(zone.serviceZ - body.z));
+        body.pitch = 0.05;
+      }
+    } else if (shot === "yard") {
+      const anchor = anchors.find((item) => item.id.startsWith("home-"));
+      if (anchor) {
+        body.x = anchor.x - Math.sin(anchor.yaw) * 5;
+        body.y = 0;
+        body.z = anchor.z + Math.cos(anchor.yaw) * 5;
+        body.yaw = anchor.yaw;
+        body.pitch = 0.08;
+      }
+    } else if (shot === "street") {
+      // Residential street: 9 units back from the first home's door, on the
+      // road (the road is only 10 wide — 16 would land inside the next lot),
+      // so the house plus its neighbours fill the frame.
+      const anchor = anchors.find((item) => item.id.startsWith("home-"));
+      if (anchor) {
+        body.x = anchor.x - Math.sin(anchor.yaw) * 9;
+        body.y = 0;
+        body.z = anchor.z + Math.cos(anchor.yaw) * 9;
+        body.yaw = anchor.yaw;
+        body.pitch = 0.1;
+      }
+    } else if (shot === "stores") {
+      // The avenue looking north into downtown: storefronts on both sides,
+      // towers behind. Shop (east) and cafe (west) flank the road.
+      body.flying = false;
+      body.x = 0;
+      body.y = 0;
+      body.z = 88;
+      body.yaw = 0;
+      body.pitch = 0.1;
+      camMode = "first";
+    } else if (shot === "malldoor") {
+      // Outside the mall's west door, 1.5 units from the door anchor
+      // (41.6, 0) — inside the 3.3-unit E range. Pressing E must walk in.
+      body.flying = false;
+      body.x = 40.1;
+      body.y = 0;
+      body.z = 0;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.05;
+    } else if (shot === "officedoor") {
+      // Outside the HQ's east door, 1.5 units from the door anchor
+      // (-41.6, 0). Pressing E must walk in.
+      body.flying = false;
+      body.x = -40.1;
+      body.y = 0;
+      body.z = 0;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0.05;
+    } else if (shot === "homedoor") {
+      // Outside home-0's east door, 1.5 units from the door anchor
+      // (-149.6, -53.5). Pressing E must walk in.
+      body.flying = false;
+      body.x = -148.1;
+      body.y = 0;
+      body.z = -53.5;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0.05;
+    } else if (shot === "homefront") {
+      // Home-0 from the far edge of the road, camera pitched up so the
+      // whole house — wall to roof apex — is in frame.
+      body.flying = false;
+      body.x = -135.5;
+      body.y = 0;
+      body.z = -53.5;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0.25;
+    } else if (shot === "streetup") {
+      // Same spot as "street", pitched up like "homefront" — a control
+      // for the red mass seen in the homefront frame.
+      body.flying = false;
+      body.x = -140.6;
+      body.y = 0;
+      body.z = -53.5;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0.25;
+    } else if (shot === "homediag") {
+      // Home-0 from the road to the south-west, diagonal 3/4 view so the
+      // hip roof reads in 3D instead of edge-on.
+      body.flying = false;
+      body.x = -140;
+      body.y = 0;
+      body.z = -75;
+      body.yaw = -2.34;
+      body.pitch = 0.15;
+    } else if (shot === "liftcall") {
+      // Stand at the HQ lift call button in the lobby, facing the shaft.
+      body.x = -93.5;
+      body.y = 0;
+      body.z = -25;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0;
+    } else if (shot === "lift") {
+      // Stand inside the HQ lift at the lobby, door open, facing the landing.
+      const lift = lifts.find((item) => item.id === "hq-lift");
+      if (lift) {
+        body.x = lift.x;
+        body.y = lift.floors[0];
+        body.z = lift.z;
+        body.yaw = Math.PI / 2;
+        body.pitch = 0;
+        liftOpen = { liftId: lift.id, floor: 0 };
+        refreshActiveCols();
+        const cab = liftCabs.get(lift.id);
+        if (cab) cab.doorTarget = 1;
+      }
     }
     publish();
   }
 
+  async function showProperty(shot: string, body: Body) {
+    if (world.online && shot !== "sale") {
+      try {
+        const data = await world.buyLot("loft");
+        applyMe();
+        say(String(data.message || "Bought."));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "";
+        if (!/already own/i.test(message)) say(message);
+      }
+    }
+    if (shot === "decorate") {
+      const zone = zones.find((item) => item.id === "hall");
+      if (zone) {
+        body.x = zone.minX + 2.4;
+        body.y = 0;
+        body.z = (zone.minZ + zone.maxZ) / 2;
+        body.yaw = Math.PI / 2;
+        const pieces = [
+          { id: "couch", kind: "couch", x: body.x + 2.2, z: body.z - 1.1, rot: 0.2 },
+          { id: "table", kind: "table", x: body.x + 2.4, z: body.z + 1.2, rot: 1 },
+          { id: "plant", kind: "plant", x: body.x + 3.6, z: body.z + 0.2, rot: 0 },
+          { id: "lamp", kind: "lamp", x: body.x + 1.2, z: body.z + 1.8, rot: 0 },
+        ];
+        try {
+          await world.saveFurniture("loft", pieces);
+        } catch {
+          // The room still shows whatever the server already stored.
+        }
+      }
+      decorating = true;
+      decorKind = "couch";
+    } else if (shot === "sale") {
+      body.x = -18;
+      body.y = 0;
+      body.z = 70;
+      body.yaw = Math.PI;
+      body.pitch = 0.28;
+      camMode = "far";
+    } else {
+      body.x = 31.5;
+      body.y = 0;
+      body.z = 15;
+      body.yaw = Math.atan2(41.6 - 31.5, -(18 - 15));
+      body.pitch = 0.22;
+      camMode = "far";
+    }
+    publish();
+  }
+
+  // Real billboard flow (online): the buy sends the swap and returns at
+  // once; the order is polled until it is live. The App panel owns the
+  // polling. The offline branch below is the this-device-only demo booking.
   async function book(id: string, days: number, project = wallet.name, text = "NEW CAMPAIGN") {
     if (world.online) {
       try {
-        const data = await world.book(id, days, project, text);
-        applyMe();
-        const message = String(data.message || "Booked.");
+        const data = await world.book(id, days, project, text, crypto.randomUUID());
+        if (!data.ok) {
+          const message = String(data.message || "Booking refused.");
+          say(message);
+          return { ok: false as const, message };
+        }
+        const message = String(data.message || "Swap sent.");
         say(message);
-        return message;
+        return { ok: true as const, message, order: data.order as AdOrder | undefined };
       } catch (err) {
         const message = err instanceof Error ? err.message : "The city refused the booking.";
         say(message);
-        return message;
+        return { ok: false as const, message };
       }
     }
-    const price = AD_PRICE[days] ?? 25;
+    const price = DEMO_AD_PRICE[days] ?? 25;
     const result = spend(wallet, price, `ad-${id}-${Date.now()}`);
     if (!result.ok) {
       say(result.message);
-      return result.message;
+      return { ok: false as const, message: result.message };
     }
     const start = new Date();
     const end = new Date(start.getTime() + days * 86400000);
@@ -1341,7 +2508,52 @@ export function createRuntime(scene: Scene) {
     redrawBoard(id);
     const message = `${result.message} Billboard ${id} is up for ${days} day${days === 1 ? "" : "s"}.`;
     say(message);
-    return message;
+    return { ok: true as const, message };
+  }
+
+  async function quoteAd(id: string, days: number) {
+    if (!world.online) return { ok: false as const, message: "Sign in to price a real billboard. Guests use City Sol only." };
+    try {
+      return await world.adQuote(id, days);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "The quote failed." };
+    }
+  }
+
+  async function adStatus(orderId: string) {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      return await world.adStatus(orderId);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Status check failed." };
+    }
+  }
+
+  async function adRetryBurn(orderId: string) {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      return await world.adRetryBurn(orderId);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Burn retry failed." };
+    }
+  }
+
+  async function adRemove(board: string) {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      return await world.adRemove(board);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Removal failed." };
+    }
+  }
+
+  async function adOrders() {
+    if (!world.online) return { ok: false as const, message: "Offline.", orders: [] as AdOrder[] };
+    try {
+      return await world.adOrders();
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Could not load your ads.", orders: [] as AdOrder[] };
+    }
   }
 
   async function buy(id: string) {
@@ -1397,6 +2609,7 @@ export function createRuntime(scene: Scene) {
     drive,
     after,
     interact,
+    rideLift,
     consumeLook,
     setStick(x: number, y: number) {
       stickX = x;
@@ -1433,6 +2646,25 @@ export function createRuntime(scene: Scene) {
     buy,
     book(id: string, days: number, text: string) {
       return book(id, days, wallet.name || "Demo project", text || "NEW CAMPAIGN");
+    },
+    quoteAd,
+    adStatus,
+    adRetryBurn,
+    adRemove,
+    adOrders,
+    cycleCamera() {
+      const index = CAMS.indexOf(camMode);
+      camMode = CAMS[(index + 1) % CAMS.length];
+      localStorage.setItem("orbitx-cam", camMode);
+      say(camTitle());
+    },
+    zoomCamera(factor: number) {
+      if (camMode === "first") return;
+      camZoom = Math.min(1.85, Math.max(0.55, camZoom * factor));
+      localStorage.setItem("orbitx-zoom", String(Math.round(camZoom * 100) / 100));
+    },
+    setLooking(on: boolean) {
+      lookOn = on;
     },
     startJob(id: string) {
       job = id;
@@ -1475,7 +2707,7 @@ export function createRuntime(scene: Scene) {
     },
     emote(name: string) {
       world.emote = name;
-      world.emoteUntil = Date.now() + 1800;
+      world.emoteUntil = Date.now() + 3200;
     },
     joinLobby(id: string) {
       void joinVoice(id);
@@ -1550,6 +2782,210 @@ export function createRuntime(scene: Scene) {
     },
     applyShot,
     quote: (price: number) => burnAmount(price),
+    frozen: () => Date.now() < raceHoldUntil,
+    decorating: () => decorating,
+    wheeling: () => wheelOpen,
+    setWheel(open: boolean) {
+      wheelOpen = open;
+      if (open) wheelIndex = 0;
+      publish();
+    },
+    aimWheel(dx: number, dy: number) {
+      if (!wheelOpen) return;
+      if (dx * dx + dy * dy < 36) return;
+      const angle = Math.atan2(dy, dx);
+      const slice = (angle + Math.PI / 2) / (Math.PI * 2);
+      wheelIndex = Math.floor((((slice % 1) + 1) % 1) * EMOTES.length) % EMOTES.length;
+      publish();
+    },
+    commitWheel() {
+      if (!wheelOpen) return;
+      wheelOpen = false;
+      const name = EMOTES[wheelIndex] || "wave";
+      world.emote = name;
+      world.emoteUntil = Date.now() + 3200;
+      publish();
+    },
+    toggleDecor() {
+      const lot = currentLot();
+      if (!decorating && (!lot || lot.ownerId !== world.id)) {
+        decorating = false;
+        say(lot ? "Only the owner can decorate." : "Step inside a place you own, then press X.");
+        publish();
+        return;
+      }
+      decorating = !decorating;
+      publish();
+    },
+    pickFurniture(kind: string) {
+      if ((FURNITURE as readonly string[]).includes(kind)) decorKind = kind as (typeof FURNITURE)[number];
+      publish();
+    },
+    spinDecor(dir: number) {
+      decorRot += dir * 0.45;
+    },
+    placeFurniture() {
+      const lot = currentLot();
+      if (!lot || lot.ownerId !== world.id || !lastBody) {
+        say("Stand inside your place to drop furniture.");
+        return;
+      }
+      const zone = zones.find((item) => item.id === lot.zone);
+      if (!zone) return;
+      const x = Math.min(zone.maxX - 1.3, Math.max(zone.minX + 1.3, lastBody.x + Math.sin(lastBody.yaw) * 1.5));
+      const z = Math.min(zone.maxZ - 1.3, Math.max(zone.minZ + 1.3, lastBody.z - Math.cos(lastBody.yaw) * 1.5));
+      const furniture = [...lot.furniture, { id: `f${Date.now().toString(36)}`, kind: decorKind, x, z, rot: decorRot }];
+      void world.saveFurniture(lot.id, furniture).then(() => say(`Placed a ${decorKind}.`)).catch((err) => say(err.message));
+    },
+    removeFurniture() {
+      const lot = currentLot();
+      if (!lot || lot.ownerId !== world.id || !lastBody) return;
+      let best = -1;
+      let bestD = 2.4;
+      lot.furniture.forEach((piece, index) => {
+        const d = Math.hypot(piece.x - (lastBody?.x || 0), piece.z - (lastBody?.z || 0));
+        if (d < bestD) {
+          best = index;
+          bestD = d;
+        }
+      });
+      if (best < 0) {
+        say("Stand next to a piece to remove it.");
+        return;
+      }
+      const furniture = lot.furniture.filter((_, index) => index !== best);
+      void world.saveFurniture(lot.id, furniture).then(() => say("Removed.")).catch((err) => say(err.message));
+    },
+    buyLot(id: string) {
+      void world.buyLot(id).then((data) => {
+        applyMe();
+        say(String(data.message || "Bought."));
+      }).catch((err) => say(err.message));
+    },
+    claimDaily() {
+      void world.claimDaily().then((data) => {
+        applyMe();
+        say(String(data.message || "Claimed."));
+      }).catch((err) => say(err.message));
+    },
+    setAnnouncement(index: number, text: string) {
+      void world.setAnnouncement(`hq-${index}`, text).then((data) => say(String(data.message || "Saved."))).catch((err) => say(err.message));
+    },
+    setBrand(index: number, name: string, line: string, site: string) {
+      void world.setBrand(`hq-${index}`, name, line, site).then((data) => say(String(data.message || "Branded."))).catch((err) => say(err.message));
+    },
+    hostEvent(index: number, title: string, when: string, detail: string) {
+      void world.hostEvent(`hq-${index}`, title, when, detail).then((data) => say(String(data.message || "Event posted."))).catch((err) => say(err.message));
+    },
+    buyBusiness(kind: string) {
+      void world.buyBusiness(kind).then((data) => {
+        applyMe();
+        say(String(data.message || "Business open."));
+      }).catch((err) => say(err.message));
+    },
+    collectBusiness() {
+      void world.collectBusiness().then((data) => {
+        applyMe();
+        say(String(data.message || "Collected."));
+      }).catch((err) => say(err.message));
+    },
+    payRent(lot: string) {
+      void world.payRent(lot).then((data) => {
+        applyMe();
+        say(String(data.message || "Paid."));
+      }).catch((err) => say(err.message));
+    },
+    startRace(kind: "street" | "hover") {
+      void startRace(kind);
+    },
+    leaveRace() {
+      raceNext = -1;
+      raceHoldUntil = 0;
+      void world.raceLeave().then((data) => say(String(data.message || "Left."))).catch((err) => say(err.message));
+    },
+    arcadeDeal() {
+      return world.arcadePlay().then((data) => {
+        applyMe();
+        say(String(data.message || "Dealt."));
+        return { shown: Number(data.shown || 0), token: String(data.token || "") };
+      }).catch((err) => {
+        say(err.message);
+        return null;
+      });
+    },
+    arcadeGuess(guess: "high" | "low", token: string) {
+      void world.arcadePlay({ guess, token }).then((data) => {
+        applyMe();
+        say(String(data.message || "Resolved."));
+      }).catch((err) => say(err.message));
+    },
+    arcadeArm() {
+      return world.arcadeArm().then((data) => {
+        applyMe();
+        say(String(data.message || "Armed."));
+        return { goAt: Number(data.goAt || 0), token: String(data.token || "") };
+      }).catch((err) => {
+        say(err.message);
+        return null;
+      });
+    },
+    arcadeHit(token: string) {
+      void world.arcadeHit(token).then((data) => {
+        applyMe();
+        say(String(data.message || "Hit."));
+      }).catch((err) => say(err.message));
+    },
+    refreshWallet() {
+      void world.walletView().then(() => {
+        applyMe();
+        publish();
+      }).catch((err) => say(err instanceof Error ? err.message : "Wallet unavailable."));
+    },
+    quoteSend(destination: string, amount: string) {
+      return world.walletQuote(destination, amount);
+    },
+    confirmSend(destination: string, amount: string, idempotencyKey: string) {
+      return world.walletConfirm(destination, amount, idempotencyKey).then((data) => {
+        applyMe();
+        say(String(data.message || "Sent."));
+        publish();
+        return data;
+      });
+    },
+    exportKey(proof: { password?: string; otp?: string }) {
+      return world.walletExport(proof);
+    },
+    toggleSpectator() {
+      spectator = !spectator;
+      if (spectator) {
+        if (driving && lastBody) exitCar(lastBody);
+        if (lastBody) {
+          lastBody.flying = true;
+          if (lastBody.y < 2) lastBody.y = 6;
+        }
+      } else if (lastBody) {
+        lastBody.flying = false;
+        lastBody.y = 0;
+        orbitOn = false;
+        hideHud = false;
+        clean = false;
+      }
+      publish();
+    },
+    toggleOrbit() {
+      orbitOn = !orbitOn;
+      if (orbitOn) spectator = true;
+      publish();
+    },
+    toggleHud() {
+      hideHud = !hideHud;
+      publish();
+    },
+    toggleNames() {
+      hideNames = !hideNames;
+      hideChat = hideNames;
+      publish();
+    },
     destroy() {
       world.stop();
       net.close();

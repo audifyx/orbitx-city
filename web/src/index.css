@@ -36,6 +36,80 @@ body,
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
 }
 
+.card.wide {
+  width: min(760px, calc(100% - 20px));
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+}
+
+.menu {
+  overflow: auto;
+}
+
+.roster {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 14px;
+  text-align: left;
+  margin: 8px 0 4px;
+}
+
+.roster-view {
+  width: 200px;
+  height: 250px;
+  background: #101820;
+  border: 1px solid #9fdfff;
+}
+
+.roster h2 {
+  margin: 8px 0 0;
+  letter-spacing: 0.08em;
+}
+
+.tagline {
+  margin: 4px 0 10px;
+  color: #d7f4ff;
+}
+
+.roster-nav,
+.roster-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.roster-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.roster button {
+  margin: 0;
+  min-height: 44px;
+  padding: 8px 6px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.roster button.on {
+  outline: 2px solid #7ef6ff;
+}
+
+.look-hint {
+  position: fixed;
+  z-index: 4;
+  left: 50%;
+  bottom: 16%;
+  transform: translateX(-50%);
+  margin: 0;
+  background: rgba(0, 0, 0, 0.78);
+  color: #ffffff;
+  border: 2px solid #e0b33a;
+  padding: 10px 16px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
 h1 {
   margin: 0;
   font-size: 42px;
@@ -178,8 +252,8 @@ body {
 }
 
 .minimap {
-  width: 148px;
-  height: 148px;
+  width: 168px;
+  height: 168px;
   margin-top: 6px;
   border: 1px solid #7ef6ff;
 }
@@ -240,12 +314,14 @@ body {
 
 .panel {
   width: min(520px, 100%);
-  max-height: min(78dvh, 720px);
-  overflow: auto;
+  min-height: 0;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: #000000;
   color: #ffffff;
   border: 2px solid #e0b33a;
-  padding: 14px;
+  padding: 14px 14px 32px;
   touch-action: pan-y;
 }
 
@@ -410,8 +486,21 @@ body.touch .touch-ui {
   }
 
   .panel {
-    max-height: 74dvh;
-    padding: 12px;
+    max-height: calc(100dvh - 16px);
+    padding: 12px 12px 28px;
+  }
+
+  .roster {
+    grid-template-columns: 1fr;
+  }
+
+  .roster-view {
+    width: 100%;
+    height: 220px;
+  }
+
+  .pad-buttons {
+    grid-template-columns: repeat(3, minmax(58px, 68px));
   }
 }
 
@@ -451,4 +540,116 @@ body.touch .touch-ui {
   .actions button {
     padding: 6px 8px;
   }
+}
+
+.race-banner {
+  position: fixed;
+  z-index: 6;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 10px 18px;
+  border: 2px solid #7ef6ff;
+  background: rgba(4, 10, 16, 0.82);
+  color: #fff;
+  font-size: 28px;
+  letter-spacing: 0.04em;
+}
+
+.wheel {
+  position: fixed;
+  z-index: 7;
+  left: 50%;
+  top: 70%;
+  width: 0;
+  height: 0;
+}
+
+.wheel button,
+.wheel span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  min-width: 72px;
+}
+
+.wheel span {
+  color: #e0b33a;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.decor-bar,
+.spectate-bar {
+  position: fixed;
+  z-index: 6;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  max-width: min(720px, 96vw);
+}
+
+.play-money {
+  border: 1px solid #e0b33a;
+  padding: 8px 10px;
+  color: #ffe7a3;
+}
+
+.auth {
+  text-align: left;
+  display: grid;
+  gap: 8px;
+}
+
+.auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.who i,
+.who img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid #7ef6ff;
+  display: grid;
+  place-items: center;
+  font-style: normal;
+  color: #e0b33a;
+  background: #101820;
+  object-fit: cover;
+}
+
+.sheet {
+  border: 1px solid #7ef6ff;
+  padding: 10px;
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+  text-align: left;
+}
+
+.addr {
+  word-break: break-all;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.qr svg {
+  width: 148px;
+  height: 148px;
+  background: #fff;
 }

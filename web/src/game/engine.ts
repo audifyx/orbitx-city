@@ -23,7 +23,7 @@ import {
 import { buildCity, type City, type Mat, type RailPoint, type ShipPath } from "./city";
 import { MATERIALS } from "./materials";
 import { createRuntime, wantsTouch, type Body, type Runtime } from "./runtime";
-import { mountPretty, type QualityName } from "./pretty";
+import { mountPretty, setPrettyNight, type QualityName } from "./pretty";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
@@ -62,7 +62,14 @@ function makeShip(body: Material, glass: Material, hot: Material) {
   const nose = new Mesh(box, hot);
   nose.scale.set(0.35, 0.28, 0.7);
   nose.position.set(2.15, 0.1, 0);
-  g.add(hull, cabin, wingL, wingR, engine, nose);
+  // Gold pinstripes along the hull sides.
+  const stripeL = new Mesh(box, hot);
+  stripeL.scale.set(4.0, 0.1, 0.06);
+  stripeL.position.set(0, 0.28, 0.88);
+  const stripeR = new Mesh(box, hot);
+  stripeR.scale.set(4.0, 0.1, 0.06);
+  stripeR.position.set(0, 0.28, -0.88);
+  g.add(hull, cabin, wingL, wingR, engine, nose, stripeL, stripeR);
   return g;
 }
 
@@ -122,7 +129,7 @@ export function createGame(
   renderer.shadowMap.type = PCFSoftShadowMap;
 
   const scene = new Scene();
-  const baseFog = new Fog(0xf09158, touch ? 100 : 170, touch ? 300 : 460);
+  const baseFog = new Fog(0xf09158, touch ? 100 : 170, touch ? 420 : 620);
   scene.fog = baseFog;
   const runtime = createRuntime(scene);
 
@@ -134,11 +141,11 @@ export function createGame(
   sun.castShadow = quality !== "low";
   sun.shadow.mapSize.set(quality === "high" ? 2048 : 1024, quality === "high" ? 2048 : 1024);
   sun.shadow.camera.near = 10;
-  sun.shadow.camera.far = 280;
-  sun.shadow.camera.left = -90;
-  sun.shadow.camera.right = 90;
-  sun.shadow.camera.top = 90;
-  sun.shadow.camera.bottom = -90;
+  sun.shadow.camera.far = 420;
+  sun.shadow.camera.left = -150;
+  sun.shadow.camera.right = 150;
+  sun.shadow.camera.top = 150;
+  sun.shadow.camera.bottom = -150;
   const fill = new DirectionalLight(0x93a4ff, 0.32);
   fill.position.set(-60, 28, -40);
   const ambient = new AmbientLight(0xffb080, 0.16);
@@ -432,7 +439,7 @@ export function createGame(
     }
     shipPaths = city.ships;
     for (let i = 0; i < shipPaths.length; i++) {
-      const ship = makeShip(MATERIALS.black, MATERIALS.cyan, MATERIALS.cyanhot);
+      const ship = makeShip(MATERIALS.white, MATERIALS.cyan, MATERIALS.gold);
       ship.scale.setScalar(1.7);
       ships.push(ship);
       scene.add(ship);
@@ -466,7 +473,9 @@ export function createGame(
     if (event.code === "KeyE" && !event.repeat) runtime.interact(player);
     if (event.code === "KeyB" && !event.repeat) runtime.request("shop");
     if (event.code === "KeyJ" && !event.repeat) runtime.request("jobs");
-    if (event.code === "KeyC" && !event.repeat) runtime.request("chat");
+    if (event.code === "KeyC" && !event.repeat) runtime.cycleCamera();
+    if (event.code === "KeyT" && !event.repeat) runtime.request("chat");
+    if (playing && (event.code.startsWith("Arrow") || event.code === "Space")) event.preventDefault();
     if (event.code === "KeyG" && !event.repeat) runtime.request("ads");
     if (event.code === "KeyH" && !event.repeat) runtime.request("events");
     if (event.code === "KeyM" && !event.repeat) runtime.request("menu");
@@ -477,29 +486,102 @@ export function createGame(
     if (event.code === "Digit2") runtime.emote("dance");
     if (event.code === "Digit3") runtime.emote("cheer");
     if (event.code === "Digit4") runtime.emote("sit");
+    if (event.code === "Digit5") runtime.emote("spin");
+    if (event.code === "Digit6") runtime.emote("bow");
+    if (event.code === "Digit7") runtime.emote("clap");
+    if (event.code === "Digit8") runtime.emote("robot");
+    if (event.code === "KeyZ" && !event.repeat) {
+      wheelX = 0;
+      wheelY = 0;
+      runtime.setWheel(true);
+    }
+    if (event.code === "KeyX" && !event.repeat) runtime.toggleDecor();
+    if (event.code === "KeyO" && !event.repeat) runtime.toggleSpectator();
+    if (event.code === "KeyU" && !event.repeat) runtime.toggleHud();
+    if (event.code === "KeyI" && !event.repeat) runtime.toggleNames();
+    if (event.code === "KeyL" && !event.repeat) runtime.toggleOrbit();
     if (event.code === "Escape") runtime.request("close");
     if (event.code === "Space") event.preventDefault();
   }
   function onKeyUp(event: KeyboardEvent) {
     keys.delete(event.code);
     if (event.code === "KeyV") runtime.setTalking(false);
+    if (event.code === "KeyZ") runtime.commitWheel();
   }
+  let wheelX = 0;
+  let wheelY = 0;
   function onMouseMove(event: MouseEvent) {
+    if (runtime.wheeling()) {
+      if (document.pointerLockElement === canvas) {
+        wheelX += event.movementX;
+        wheelY += event.movementY;
+        runtime.aimWheel(wheelX, wheelY);
+      } else {
+        runtime.aimWheel(event.clientX - window.innerWidth / 2, event.clientY - window.innerHeight / 2);
+      }
+    }
     if (touch || document.pointerLockElement !== canvas) return;
-    const dx = event.movementX * 0.0022;
-    const dy = event.movementY * 0.0022;
-    if (runtime.driving()) runtime.addLook(dx, dy);
-    else {
-      player.yaw += dx;
-      player.pitch -= dy;
-      const limit = Math.PI / 2 - 0.02;
-      if (player.pitch > limit) player.pitch = limit;
-      if (player.pitch < -limit) player.pitch = -limit;
+    runtime.addLook(event.movementX * 0.0022, event.movementY * 0.0022);
+  }
+  let dragging = false;
+  let dragX = 0;
+  let dragY = 0;
+  let pinchDist = 0;
+  function lookLocked() {
+    return document.pointerLockElement === canvas;
+  }
+  function onPointerDown(event: PointerEvent) {
+    if (touch || event.button !== 0 || !playing || runtime.paused() || runtime.typing()) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("button, a, input, textarea, .panel, .menu")) return;
+    dragging = true;
+    dragX = event.clientX;
+    dragY = event.clientY;
+    runtime.setLooking(true);
+    if (!lookLocked()) {
+      try {
+        canvas.requestPointerLock();
+      } catch {
+        // Drag look still works when the browser refuses the lock.
+      }
     }
   }
-  function onClick() {
-    if (touch || !playing || runtime.paused() || runtime.typing()) return;
-    if (document.pointerLockElement !== canvas) canvas.requestPointerLock();
+  function onPointerMove(event: PointerEvent) {
+    if (!dragging || lookLocked()) return;
+    const dx = event.clientX - dragX;
+    const dy = event.clientY - dragY;
+    dragX = event.clientX;
+    dragY = event.clientY;
+    runtime.addLook(dx * 0.005, dy * 0.005);
+  }
+  function onPointerUp() {
+    dragging = false;
+    runtime.setLooking(lookLocked());
+  }
+  function onLockChange() {
+    runtime.setLooking(lookLocked() || dragging);
+  }
+  function onWheel(event: WheelEvent) {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest(".panel, .menu, .chat-log, input, textarea")) return;
+    if (!playing || runtime.paused()) return;
+    runtime.zoomCamera(event.deltaY > 0 ? 1.08 : 0.92);
+  }
+  function onPinchMove(event: TouchEvent) {
+    if (event.touches.length !== 2) {
+      pinchDist = 0;
+      return;
+    }
+    const dx = event.touches[0].clientX - event.touches[1].clientX;
+    const dy = event.touches[0].clientY - event.touches[1].clientY;
+    const dist = Math.hypot(dx, dy) || 1;
+    if (pinchDist) runtime.zoomCamera(pinchDist / dist);
+    pinchDist = dist;
+  }
+  function onBlur() {
+    keys.clear();
+    dragging = false;
+    runtime.setLooking(false);
   }
   function blockScroll(event: TouchEvent) {
     const target = event.target as HTMLElement | null;
@@ -518,7 +600,62 @@ export function createGame(
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   window.addEventListener("mousemove", onMouseMove);
-  canvas.addEventListener("click", onClick);
+  canvas.addEventListener("pointerdown", onPointerDown);
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+  document.addEventListener("pointerlockchange", onLockChange);
+  document.addEventListener("pointerlockerror", onLockChange);
+  window.addEventListener("wheel", onWheel, { passive: true });
+  function onTouchEnd() {
+    pinchDist = 0;
+  }
+  // One-finger drag to look on touch: pointer drag is gated off for touch
+  // devices, and pinch only zooms — without this, dragging on a phone does
+  // nothing at all. Same pitch direction as mouse drag (drag up = look up).
+  let lookTouch: number | null = null;
+  let lookTouchX = 0;
+  let lookTouchY = 0;
+  function onTouchStart(event: TouchEvent) {
+    if (event.touches.length !== 1) return;
+    if (!playing || runtime.paused() || runtime.typing()) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("button, a, input, textarea, .panel, .menu")) return;
+    const t = event.touches[0];
+    lookTouch = t.identifier;
+    lookTouchX = t.clientX;
+    lookTouchY = t.clientY;
+    runtime.setLooking(true);
+  }
+  function onTouchMove(event: TouchEvent) {
+    if (lookTouch === null) return;
+    for (let i = 0; i < event.touches.length; i++) {
+      const t = event.touches[i];
+      if (t.identifier !== lookTouch) continue;
+      const dx = t.clientX - lookTouchX;
+      const dy = t.clientY - lookTouchY;
+      lookTouchX = t.clientX;
+      lookTouchY = t.clientY;
+      runtime.addLook(dx * 0.006, dy * 0.006);
+    }
+  }
+  function onTouchEndLook(event: TouchEvent) {
+    if (lookTouch === null) return;
+    let alive = false;
+    for (let i = 0; i < event.touches.length; i++) {
+      if (event.touches[i].identifier === lookTouch) alive = true;
+    }
+    if (!alive) {
+      lookTouch = null;
+      runtime.setLooking(false);
+    }
+  }
+  canvas.addEventListener("touchmove", onPinchMove, { passive: true });
+  canvas.addEventListener("touchend", onTouchEnd);
+  canvas.addEventListener("touchstart", onTouchStart, { passive: true });
+  canvas.addEventListener("touchmove", onTouchMove, { passive: true });
+  canvas.addEventListener("touchend", onTouchEndLook);
+  canvas.addEventListener("touchcancel", onTouchEndLook);
+  window.addEventListener("blur", onBlur);
   window.addEventListener("resize", onResize);
   window.addEventListener("orientationchange", onResize);
   window.visualViewport?.addEventListener("resize", onResize);
@@ -534,14 +671,27 @@ export function createGame(
 
   function frame(now: number) {
     try {
-    let dt = (now - last) / 1000;
+    let real = (now - last) / 1000;
     last = now;
-    if (dt > 0.05) dt = 0.05;
+    if (!(real > 0)) real = 0;
+    if (real > 0.25) real = 0.25;
+    const dt = real;
     clock += dt;
     if (runtime.paused()) keys.clear();
-    if (playing && mode !== "orbit" && !runtime.paused() && !runtime.typing()) {
-      if (runtime.driving()) runtime.drive(dt, player, keys, carHit);
-      else tick(dt);
+    if (playing && mode !== "orbit" && !runtime.paused() && !runtime.typing() && !runtime.frozen()) {
+      const yawKeys = runtime.decorating()
+        ? (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0)
+        : (keys.has("ArrowRight") || keys.has("KeyR") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("KeyQ") ? 1 : 0);
+      if (runtime.decorating() && (keys.has("KeyQ") || keys.has("KeyR"))) runtime.spinDecor((keys.has("KeyR") ? 1 : 0) - (keys.has("KeyQ") ? 1 : 0));
+      const pitchKeys = (keys.has("ArrowDown") ? 1 : 0) - (keys.has("ArrowUp") ? 1 : 0);
+      if (yawKeys || pitchKeys) runtime.addLook(yawKeys * 1.7 * dt, pitchKeys * 1.15 * dt);
+      let left = dt;
+      while (left > 0.0001) {
+        const step = Math.min(0.05, left);
+        if (runtime.driving()) runtime.drive(step, player, keys, carHit);
+        else tick(step);
+        left -= step;
+      }
     }
 
     MATERIALS.cyanhot.emissiveIntensity = 1.35 + Math.sin(clock * 2.4) * 0.22;
@@ -581,23 +731,26 @@ export function createGame(
       sun.intensity = 0.35;
       hemi.intensity = 0.25;
       ambient.intensity = 0.08;
+      setPrettyNight(1);
     } else if (clockName === "day") {
       baseFog.color.setHex(0xb7d4ea);
       sun.intensity = 1.6;
       hemi.intensity = 0.9;
       ambient.intensity = 0.2;
+      setPrettyNight(0.15);
     } else {
       baseFog.color.setHex(0xf09158);
       sun.intensity = 1.9;
       hemi.intensity = 0.78;
       ambient.intensity = 0.16;
+      setPrettyNight(0.5);
     }
     scene.fog = runtime.indoors() ? null : baseFog;
     const tookCamera = runtime.after(dt, player, camera, { orbit: mode === "orbit", fountain });
     if (mode === "orbit") {
       const t = clock * 0.07;
-      camera.position.set(Math.sin(t) * 150, 64, Math.cos(t) * 132 + 10);
-      camera.lookAt(0, 24, -8);
+      camera.position.set(Math.sin(t) * 190, 78, Math.cos(t) * 132 + 10);
+      camera.lookAt(0, 26, 20);
     } else if (!tookCamera) {
       const cp = Math.cos(player.pitch);
       const sp = Math.sin(player.pitch);
@@ -646,9 +799,9 @@ export function createGame(
       player.onGround = true;
       if (nextMode === "air") {
         player.flying = true;
-        player.x = 86;
-        player.y = 52;
-        player.z = 108;
+        player.x = 70;
+        player.y = 72;
+        player.z = 205;
         const dx = focus.x - player.x;
         const dz = focus.z - player.z;
         const dy = focus.y - (player.y + 1.62);
@@ -684,7 +837,19 @@ export function createGame(
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("mousemove", onMouseMove);
-      canvas.removeEventListener("click", onClick);
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      document.removeEventListener("pointerlockchange", onLockChange);
+      document.removeEventListener("pointerlockerror", onLockChange);
+      window.removeEventListener("wheel", onWheel);
+      canvas.removeEventListener("touchmove", onPinchMove);
+      canvas.removeEventListener("touchend", onTouchEnd);
+      canvas.removeEventListener("touchstart", onTouchStart);
+      canvas.removeEventListener("touchmove", onTouchMove);
+      canvas.removeEventListener("touchend", onTouchEndLook);
+      canvas.removeEventListener("touchcancel", onTouchEndLook);
+      window.removeEventListener("blur", onBlur);
       window.removeEventListener("resize", onResize);
       window.removeEventListener("orientationchange", onResize);
       window.visualViewport?.removeEventListener("resize", onResize);
