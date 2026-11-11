@@ -35,6 +35,20 @@ export interface Box {
   sz: number;
   mat: Mat;
   ry: number;
+  hide?: boolean;
+}
+
+export interface Facade {
+  id: string;
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  h: number;
+  style: number;
+  door: Face | "";
+  enterable: boolean;
+  hero: boolean;
 }
 
 export interface Collider {
@@ -115,6 +129,7 @@ export interface City {
   boards: BoardSlot[];
   cars: CarSpawn[];
   zones: Zone[];
+  facades: Facade[];
 }
 
 const CENTERS = [-108, -72, -36, 0, 36, 72, 108];
@@ -125,6 +140,8 @@ const FOUNTAIN = { x: 0, z: 12 };
 const TRACK_HALF = 74;
 const TRACK_R = 18;
 const TRACK_Y = 30;
+let visualHide = false;
+const facades: Facade[] = [];
 
 const FONT: Record<string, string[]> = {
   O: ["01110", "10001", "10001", "10001", "01110"],
@@ -146,7 +163,7 @@ function put(
   mat: Mat,
   ry = 0,
 ) {
-  boxes.push({ x, y, z, sx, sy, sz, mat, ry });
+  boxes.push({ x, y, z, sx, sy, sz, mat, ry, hide: visualHide || undefined });
 }
 
 function col(x: number, y: number, z: number, sx: number, sy: number, sz: number): Collider {
@@ -226,6 +243,7 @@ function shell(
   sample: (u: number, ly: number, face: Face) => Mat,
   roof: Mat,
 ) {
+  visualHide = true;
   emitX(boxes, x0, y0, z0, w, h, (u, ly) => sample(u, ly, "n"));
   emitX(boxes, x0, y0, z0 + d - 1, w, h, (u, ly) => sample(u, ly, "s"));
   if (d > 2) {
@@ -233,6 +251,7 @@ function shell(
     emitZ(boxes, x0 + w - 1, y0, z0 + 1, d - 2, h, (u, ly) => sample(u, ly, "e"));
   }
   put(boxes, x0 + w / 2, y0 + h + 0.5, z0 + d / 2, w, 1, d, roof);
+  visualHide = false;
   cols.push({
     minX: x0,
     maxX: x0 + w,
@@ -324,6 +343,7 @@ function shellOpen(
   roof: Mat,
   door: Face,
 ) {
+  visualHide = true;
   emitX(boxes, x0, y0, z0, w, h, (u, ly) => sample(u, ly, "n", w));
   emitX(boxes, x0, y0, z0 + d - 1, w, h, (u, ly) => sample(u, ly, "s", w));
   if (d > 2) {
@@ -331,6 +351,7 @@ function shellOpen(
     emitZ(boxes, x0 + w - 1, y0, z0 + 1, d - 2, h, (u, ly) => sample(u, ly, "e", d - 2));
   }
   put(boxes, x0 + w / 2, y0 + h + 0.5, z0 + d / 2, w, 1, d, roof);
+  visualHide = false;
   addWallCols(cols, x0, y0, z0, w, h, d, door);
   cols.push({
     minX: x0,
@@ -349,21 +370,26 @@ function hole(face: Face, door: Face, u: number, ly: number, len: number): boole
 }
 
 function addAwning(boxes: Box[], x0: number, z0: number, w: number, d: number, face: Face) {
+  visualHide = true;
   const y = 3.35;
   if (face === "n") put(boxes, x0 + w / 2, y, z0 - 0.75, Math.max(4, w * 0.7), 0.14, 1.35, "white");
   if (face === "s") put(boxes, x0 + w / 2, y, z0 + d + 0.75, Math.max(4, w * 0.7), 0.14, 1.35, "white");
   if (face === "w") put(boxes, x0 - 0.75, y, z0 + d / 2, 1.35, 0.14, Math.max(4, d * 0.7), "white");
   if (face === "e") put(boxes, x0 + w + 0.75, y, z0 + d / 2, 1.35, 0.14, Math.max(4, d * 0.7), "white");
+  visualHide = false;
 }
 
 function addBalcony(boxes: Box[], x0: number, y: number, z0: number, w: number, d: number, face: Face) {
+  visualHide = true;
   if (face === "n") put(boxes, x0 + w / 2, y, z0 - 0.55, w * 0.72, 0.16, 1.1, "stone");
   if (face === "s") put(boxes, x0 + w / 2, y, z0 + d + 0.55, w * 0.72, 0.16, 1.1, "stone");
   if (face === "w") put(boxes, x0 - 0.55, y, z0 + d / 2, 1.1, 0.16, d * 0.72, "stone");
   if (face === "e") put(boxes, x0 + w + 0.55, y, z0 + d / 2, 1.1, 0.16, d * 0.72, "stone");
+  visualHide = false;
 }
 
 function addCrown(boxes: Box[], cols: Collider[], x: number, y: number, z: number, w: number, d: number) {
+  visualHide = true;
   const cw = Math.max(4, w * 0.42);
   const cd = Math.max(4, d * 0.42);
   put(boxes, x, y + 1.3, z, cw, 2.4, cd, "white");
@@ -372,9 +398,11 @@ function addCrown(boxes: Box[], cols: Collider[], x: number, y: number, z: numbe
   put(boxes, x, y + 7.9, z, 0.75, 0.75, 0.75, "cyanhot");
   cols.push(col(x, y + 1.3, z, cw, 2.4, cd));
   cols.push(col(x, y + 5.4, z, 0.4, 4.6, 0.4));
+  visualHide = false;
 }
 
 function addTowerPorch(boxes: Box[], cols: Collider[]) {
+  visualHide = true;
   const zFace = SOUTH;
   put(boxes, 0, 0.2, zFace + 1.7, 18, 0.32, 3.4, "stone");
   put(boxes, 0, 0.48, zFace + 2.7, 12, 0.24, 1.5, "plaza");
@@ -386,6 +414,7 @@ function addTowerPorch(boxes: Box[], cols: Collider[]) {
   put(boxes, 0, 5.5, zFace + 2.3, 18.5, 0.38, 4.4, "black");
   put(boxes, 0, 5.82, zFace + 2.3, 18.8, 0.16, 0.35, "cyanhot");
   cols.push(col(0, 5.5, zFace + 2.3, 18.5, 0.38, 4.4));
+  visualHide = false;
 }
 
 function towerSample(len: number) {
@@ -484,6 +513,7 @@ function frontFace(cx: number, cz: number): Face {
 }
 
 function addSign(boxes: Box[], cols: Collider[], roofY: number) {
+  visualHide = true;
   const ps = 1.48;
   const word = "ORBITX";
   const glyph = 5;
@@ -509,6 +539,7 @@ function addSign(boxes: Box[], cols: Collider[], roofY: number) {
     }
     cursor += (glyph + gap) * ps;
   }
+  visualHide = false;
 }
 
 function addTower(boxes: Box[], cols: Collider[]) {
@@ -530,6 +561,18 @@ function addTower(boxes: Box[], cols: Collider[]) {
   }
   addTowerPorch(boxes, cols);
   addSign(boxes, cols, y);
+  facades.push({
+    id: "tower",
+    x: -16,
+    z: SOUTH - 28,
+    w: 32,
+    d: 32,
+    h: y,
+    style: 0,
+    door: "n",
+    enterable: false,
+    hero: true,
+  });
   return y;
 }
 
@@ -620,6 +663,18 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng) {
       height = Math.min(height, 54);
       const style = Math.floor(rng() * 4);
       const face = frontFace(cx, cz);
+      facades.push({
+        id: `block-${x0}-${z0}`,
+        x: x0,
+        z: z0,
+        w,
+        d,
+        h: height,
+        style,
+        door: "",
+        enterable: false,
+        hero: false,
+      });
       let y = 0;
       let bx = x0;
       let bz = z0;
@@ -1119,6 +1174,18 @@ function addVenue(
     door,
   );
   addAwning(boxes, x0, z0, w, d, door);
+  facades.push({
+    id: kind === "project" ? `project-${index}` : kind,
+    x: x0,
+    z: z0,
+    w,
+    d,
+    h,
+    style,
+    door,
+    enterable: true,
+    hero: false,
+  });
   if (kind === "shop") return furnishShop(boxes, cols, x0, z0, w, d, door);
   if (kind === "cafe") return furnishCafe(boxes, cols, x0, z0, w, d, door);
   if (kind === "hall") return furnishHall(boxes, cols, x0, z0, w, d, door);
@@ -1197,6 +1264,7 @@ function blocked(cols: Collider[], x: number, z: number) {
 }
 
 export function buildCity(seed: number): City {
+  facades.length = 0;
   const rng = makeRng(seed || 1);
   const boxes: Box[] = [];
   const colliders: Collider[] = [];
@@ -1233,6 +1301,7 @@ export function buildCity(seed: number): City {
     anchors: fixed.anchors,
     boards: fixed.boards,
     zones: fixed.zones,
+    facades: facades.slice(),
     cars: [
       { id: "north", x: 0, z: 46, yaw: 0 },
       { id: "south", x: 0, z: 84, yaw: Math.PI },

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
-import type { PanelName, Snap } from "./game/runtime";
+import type { PanelName, Runtime, Snap } from "./game/runtime";
 import { AD_PRICE } from "./game/content";
 import { parseSeed } from "./game/seed";
 
@@ -33,6 +33,23 @@ const EMPTY: Snap = {
   shop: [],
   eventLabel: "",
   panel: "",
+  people: [],
+  friends: [],
+  requests: [],
+  party: [],
+  lobbies: [],
+  lobby: "",
+  muted: false,
+  deafened: false,
+  pushToTalk: false,
+  voiceProvider: "",
+  voiceError: "",
+  quality: "high",
+  time: "sunset",
+  me: { x: 0, z: 0, yaw: 0 },
+  profile: null,
+  server: "",
+  chatScope: "global",
 };
 
 function shotMode(): PlayMode | null {
@@ -154,8 +171,9 @@ export default function App() {
           {snap.eventLabel ? <span>{snap.eventLabel}</span> : null}
           {snap.notice ? <em>{snap.notice}</em> : null}
           <span className="quiet">
-            {snap.others} other player{snap.others === 1 ? "" : "s"} · {snap.netMode}
+            {snap.others + 1} in the city · {snap.netMode}
           </span>
+          <Minimap me={snap.me} people={snap.people} />
         </div>
       )}
       {!menu && snap.prompt ? <p className="prompt">{snap.prompt}</p> : null}
@@ -166,6 +184,7 @@ export default function App() {
           <button type="button" onClick={() => open("ads")}>Ads</button>
           <button type="button" onClick={() => open("events")}>Events</button>
           <button type="button" onClick={() => open("chat")}>Chat</button>
+          <button type="button" onClick={() => open("phone")}>Phone</button>
           <button type="button" onClick={() => open("menu")}>Menu</button>
         </div>
       )}
@@ -195,6 +214,7 @@ export default function App() {
                 {panel === "ads" && "Book a billboard"}
                 {panel === "events" && "Events"}
                 {panel === "chat" && "Chat"}
+                {panel === "phone" && "Phone"}
                 {panel === "menu" && "Menu"}
               </strong>
               <button type="button" onClick={close}>Close</button>
@@ -245,6 +265,27 @@ export default function App() {
                     <span>Visit the shop, the hall, and OrbitX HQ. Pays 60.</span>
                   </div>
                   <button type="button" onClick={() => { gameRef.current?.runtime.startJob("guide"); close(); }}>Start</button>
+                </article>
+                <article>
+                  <div>
+                    <b>Mechanic</b>
+                    <span>Service the hover-car on the east road. Pays 55.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("mechanic"); close(); }}>Start</button>
+                </article>
+                <article>
+                  <div>
+                    <b>Photographer</b>
+                    <span>Shoot the fountain, then the ORBITX tower. Pays 40.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("photographer"); close(); }}>Start</button>
+                </article>
+                <article>
+                  <div>
+                    <b>Promoter</b>
+                    <span>Visit the hall, then the plaza ad kiosk. Pays 50.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("promoter"); close(); }}>Start</button>
                 </article>
               </div>
             )}
@@ -310,10 +351,18 @@ export default function App() {
                 className="list"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  gameRef.current?.runtime.sendChat(chatText);
+                  gameRef.current?.runtime.sendChat(chatText, snap.chatScope);
                   setChatText("");
                 }}
               >
+                <div className="days">
+                  <button type="button" className={snap.chatScope === "global" ? "on" : ""} onClick={() => gameRef.current?.runtime.setChatScope("global")}>
+                    Everyone
+                  </button>
+                  <button type="button" className={snap.chatScope === "near" ? "on" : ""} onClick={() => gameRef.current?.runtime.setChatScope("near")}>
+                    Nearby
+                  </button>
+                </div>
                 <div className="chat-log">
                   {snap.chat.length === 0 ? <span>No messages yet. Open another tab to see someone else.</span> : null}
                   {snap.chat.map((line, index) => (
@@ -332,9 +381,19 @@ export default function App() {
                 <button type="submit">Send</button>
               </form>
             )}
+            {panel === "phone" && <Phone snap={snap} rt={gameRef.current?.runtime ?? null} />}
             {panel === "menu" && (
               <div className="list">
-                <p>{HELP}</p>
+                <p>{HELP} · P phone · N day/night · V push to talk · 1-4 emotes</p>
+                <p>Server: {snap.server || snap.netMode}. Quality {snap.quality}. Time {snap.time}.</p>
+                <div className="days">
+                  {(["low", "medium", "high"] as const).map((level) => (
+                    <button key={level} type="button" className={snap.quality === level ? "on" : ""} onClick={() => gameRef.current?.runtime.setQuality(level)}>
+                      {level}
+                    </button>
+                  ))}
+                  <button type="button" onClick={() => gameRef.current?.runtime.cycleTime()}>Time: {snap.time}</button>
+                </div>
                 <p>On a phone, use the stick to move, drag the right side to look, and the buttons to jump, fly, and use things.</p>
                 <button
                   type="button"
@@ -379,6 +438,126 @@ export default function App() {
         </section>
       )}
     </>
+  );
+}
+
+function Minimap({ me, people }: { me: Snap["me"]; people: Snap["people"] }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    const size = canvas.width;
+    ctx.clearRect(0, 0, size, size);
+    ctx.fillStyle = "rgba(8, 12, 18, 0.72)";
+    ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = "#7ef6ff";
+    ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
+    const plot = (x: number, z: number) => [size / 2 + x * 0.55, size / 2 + z * 0.55] as const;
+    ctx.fillStyle = "#e0b33a";
+    const [mx, mz] = plot(me.x, me.z);
+    ctx.beginPath();
+    ctx.arc(mx, mz, 4, 0, Math.PI * 2);
+    ctx.fill();
+    for (const person of people) {
+      const [px, pz] = plot(person.x, person.z);
+      ctx.fillStyle = person.speaking ? "#7ef6ff" : "#f4f6fa";
+      ctx.beginPath();
+      ctx.arc(px, pz, person.speaking ? 4 : 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }, [me, people]);
+  return <canvas ref={ref} className="minimap" width={148} height={148} />;
+}
+
+function Phone({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
+  const rooms = snap.lobbies.length
+    ? snap.lobbies
+    : [
+        { id: "plaza", name: "Plaza", members: [] },
+        { id: "district", name: "Project District", members: [] },
+        { id: "hall", name: "Community Hall", members: [] },
+        { id: "cafe", name: "Cafe Nova", members: [] },
+        { id: "shop", name: "OrbitX Shop", members: [] },
+      ];
+  return (
+    <div className="list phone">
+      <p>
+        {snap.name} · {snap.server || "offline profile"} · voice {snap.voiceProvider || "not joined"}
+      </p>
+      {snap.voiceError ? <p>{snap.voiceError}</p> : null}
+      {snap.profile ? (
+        <article>
+          <div>
+            <b>{snap.profile.name}</b>
+            <span>
+              {snap.profile.color} suit · {snap.profile.hat} · {snap.profile.speaking ? "speaking" : "quiet"}
+            </span>
+          </div>
+          <button type="button" onClick={() => rt?.friendAsk(snap.profile?.id || "")}>Add friend</button>
+          <button type="button" onClick={() => rt?.partyInvite(snap.profile?.id || "")}>Invite</button>
+        </article>
+      ) : null}
+      <h3>People here</h3>
+      {snap.people.length === 0 ? <span>You are the only one in view. The main world still lists you.</span> : null}
+      {snap.people.map((person) => (
+        <article key={person.id}>
+          <div>
+            <b>{person.name} {person.speaking ? "●" : ""}</b>
+            <span>{person.lobby || "in the street"}</span>
+          </div>
+          <button type="button" onClick={() => rt?.inspect(person.id)}>Profile</button>
+        </article>
+      ))}
+      <h3>Voice lobbies</h3>
+      {rooms.map((room) => (
+        <article key={room.id}>
+          <div>
+            <b>{room.name}</b>
+            <span>
+              {room.members.length ? room.members.map((member) => `${member.name}${member.speaking ? " ●" : ""}`).join(", ") : "empty"}
+            </span>
+          </div>
+          <button type="button" onClick={() => rt?.joinLobby(room.id)}>{snap.lobby === room.id ? "In room" : "Join"}</button>
+        </article>
+      ))}
+      <div className="days">
+        <button type="button" onClick={() => rt?.leaveLobby()}>Leave voice</button>
+        <button type="button" className={snap.muted ? "on" : ""} onClick={() => rt?.setMuted(!snap.muted)}>Mute</button>
+        <button type="button" className={snap.deafened ? "on" : ""} onClick={() => rt?.setDeafened(!snap.deafened)}>Deafen</button>
+        <button type="button" className={snap.pushToTalk ? "on" : ""} onClick={() => rt?.setPushToTalk(!snap.pushToTalk)}>Push to talk</button>
+        <button type="button" onClick={() => rt?.emote("wave")}>Wave</button>
+      </div>
+      <h3>Friends</h3>
+      {snap.requests.map((req) => (
+        <article key={req.id}>
+          <div><b>{req.name}</b><span>wants to be friends</span></div>
+          <button type="button" onClick={() => rt?.friendAccept(req.id)}>Accept</button>
+        </article>
+      ))}
+      {snap.friends.map((friend) => (
+        <article key={friend.id}>
+          <div><b>{friend.name}</b></div>
+          <button type="button" onClick={() => rt?.partyInvite(friend.id)}>Party</button>
+        </article>
+      ))}
+      <h3>Party</h3>
+      <span>{snap.party.length ? snap.party.map((member) => member.name).join(", ") : "No party yet."}</span>
+      <button type="button" onClick={() => rt?.partyInvite("")}>Start a party</button>
+      {snap.people[0] ? (
+        <label>
+          Volume for {snap.people[0].name}
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            defaultValue={1}
+            onChange={(event) => rt?.setVolume(snap.people[0].id, Number(event.target.value))}
+          />
+        </label>
+      ) : null}
+    </div>
   );
 }
 

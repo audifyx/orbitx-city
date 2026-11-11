@@ -177,6 +177,19 @@ body {
   font-size: 12px;
 }
 
+.minimap {
+  width: 148px;
+  height: 148px;
+  margin-top: 6px;
+  border: 1px solid #7ef6ff;
+}
+
+.phone h3 {
+  margin: 10px 0 4px;
+  color: #7ef6ff;
+  font-size: 14px;
+}
+
 .prompt {
   position: fixed;
   left: 50%;

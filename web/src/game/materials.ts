@@ -1,4 +1,4 @@
-import { MeshLambertMaterial } from "three";
+import { MeshStandardMaterial } from "three";
 import type { Mat } from "./city";
 
 function styledMaterial(opts: {
@@ -9,61 +9,24 @@ function styledMaterial(opts: {
   opacity?: number;
   grid?: number;
   polygonOffset?: boolean;
+  roughness?: number;
+  metalness?: number;
 }) {
-  const mat = new MeshLambertMaterial({
+  return new MeshStandardMaterial({
     color: opts.color,
     emissive: opts.emissive ?? 0x000000,
     emissiveIntensity: opts.emissiveIntensity ?? 1,
+    roughness: opts.roughness ?? (opts.emissive ? 0.28 : 0.78),
+    metalness: opts.metalness ?? (opts.emissive ? 0.22 : 0.04),
     transparent: opts.transparent ?? false,
     opacity: opts.opacity ?? 1,
     polygonOffset: opts.polygonOffset ?? false,
     polygonOffsetFactor: opts.polygonOffset ? -2 : 0,
     polygonOffsetUnits: opts.polygonOffset ? -4 : 0,
   });
-  const grid = opts.grid ?? 0;
-  if (grid > 0) {
-    const g = grid.toFixed(3);
-    mat.customProgramCacheKey = () => `voxel-${g}`;
-    mat.onBeforeCompile = (shader) => {
-      shader.vertexShader =
-        "varying vec3 vBlockWorld;\nvarying vec3 vBlockNormal;\n" +
-        shader.vertexShader.replace(
-          "#include <project_vertex>",
-          `#include <project_vertex>
-          vec3 blockN = objectNormal;
-          vec4 blockW = vec4(transformed, 1.0);
-          #ifdef USE_INSTANCING
-            mat3 bMat = mat3(instanceMatrix);
-            blockN /= vec3(dot(bMat[0], bMat[0]), dot(bMat[1], bMat[1]), dot(bMat[2], bMat[2]));
-            blockN = bMat * blockN;
-            blockW = instanceMatrix * blockW;
-          #endif
-          blockW = modelMatrix * blockW;
-          blockN = mat3(modelMatrix) * blockN;
-          vBlockWorld = blockW.xyz;
-          vBlockNormal = normalize(blockN);
-          `,
-        );
-      shader.fragmentShader =
-        "varying vec3 vBlockWorld;\nvarying vec3 vBlockNormal;\n" +
-        shader.fragmentShader.replace(
-          "#include <color_fragment>",
-          `#include <color_fragment>
-          vec3 bDist = min(fract(vBlockWorld), 1.0 - fract(vBlockWorld));
-          vec3 aN = abs(normalize(vBlockNormal));
-          float edgeDist = aN.x > aN.y && aN.x > aN.z ? min(bDist.y, bDist.z) : (aN.y > aN.z ? min(bDist.x, bDist.z) : min(bDist.x, bDist.y));
-          float crack = 1.0 - smoothstep(0.012, 0.085, edgeDist);
-          float n = fract(sin(dot(floor(vBlockWorld + aN * 0.5), vec3(127.1, 311.7, 74.7))) * 43758.5453);
-          diffuseColor.rgb *= mix(1.0, 0.55, crack * ${g});
-          diffuseColor.rgb *= 0.9 + 0.1 * n;
-          `,
-        );
-    };
-  }
-  return mat;
 }
 
-export const MATERIALS: Record<Mat, MeshLambertMaterial> = {
+export const MATERIALS: Record<Mat, MeshStandardMaterial> = {
   asphalt: styledMaterial({ color: 0x171a22 }),
   sidewalk: styledMaterial({ color: 0xc5c9d1, grid: 0.35 }),
   plaza: styledMaterial({ color: 0xe4e7ee, grid: 0.45 }),

@@ -1,13 +1,17 @@
 import {
   BoxGeometry,
   CanvasTexture,
+  CylinderGeometry,
   DoubleSide,
   Group,
   Mesh,
   MeshLambertMaterial,
+  MeshStandardMaterial,
   PlaneGeometry,
   Sprite,
   SpriteMaterial,
+  TorusGeometry,
+  type Material,
   type PerspectiveCamera,
   type Scene,
 } from "three";
@@ -24,6 +28,17 @@ import {
 import { burnAmount, earn, loadWallet, saveWallet, spend } from "./economy";
 import { createNet, type ChatLine, type NetAdapter, type NetState } from "./net";
 import { GOLD, MATERIALS } from "./materials";
+import { world } from "./world";
+import {
+  joinVoice,
+  leaveVoice,
+  setDeafened as deafenMic,
+  setMuted as muteMic,
+  setPushToTalk as armTalk,
+  setTalking as holdTalk,
+  setVolume as volumeFor,
+  voiceTick,
+} from "./voice";
 
 export interface Body {
   x: number;
@@ -36,7 +51,18 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone";
+
+export interface PersonCard {
+  id: string;
+  name: string;
+  color: string;
+  hat: string;
+  speaking: boolean;
+  lobby: string;
+  x: number;
+  z: number;
+}
 
 export interface Snap {
   playing: boolean;
@@ -64,6 +90,23 @@ export interface Snap {
   shop: ShopItem[];
   eventLabel: string;
   panel: PanelName | "";
+  people: PersonCard[];
+  friends: { id: string; name: string }[];
+  requests: { id: string; name: string }[];
+  party: { id: string; name: string }[];
+  lobbies: { id: string; name: string; members: { id: string; name: string; speaking: boolean }[] }[];
+  lobby: string;
+  muted: boolean;
+  deafened: boolean;
+  pushToTalk: boolean;
+  voiceProvider: string;
+  voiceError: string;
+  quality: string;
+  time: string;
+  me: { x: number; z: number; yaw: number };
+  profile: PersonCard | null;
+  server: string;
+  chatScope: "global" | "near";
 }
 
 interface Remote {
@@ -159,7 +202,15 @@ function makePerson(color: string, hat: string) {
   const legs = new Mesh(box, MATERIALS.black);
   legs.scale.set(0.58, 0.45, 0.36);
   legs.position.y = 0.28;
-  group.add(body, head, legs);
+  const ring = new Mesh(
+    new TorusGeometry(0.62, 0.045, 8, 24),
+    new MeshStandardMaterial({ color: 0x7ef6ff, emissive: 0x19d8ff, emissiveIntensity: 1.3 }),
+  );
+  ring.name = "ring";
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.05;
+  ring.visible = false;
+  group.add(body, head, legs, ring);
   addHat(group, box, hat);
   return group;
 }
@@ -202,17 +253,19 @@ function makeCar(skin: string, style: number) {
   const group = new Group();
   group.rotation.order = "YXZ";
   const box = new BoxGeometry(1, 1, 1);
-  const paints: MeshLambertMaterial[] = [];
+  const paints: MeshStandardMaterial[] = [];
   const paint = () => {
-    const material = new MeshLambertMaterial({
+    const material = new MeshStandardMaterial({
       color: COLORS[skin] ?? COLORS.black,
       emissive: 0x12141c,
       emissiveIntensity: 0.28,
+      roughness: 0.35,
+      metalness: 0.45,
     });
     paints.push(material);
     return material;
   };
-  const add = (material: MeshLambertMaterial, x: number, y: number, z: number, sx: number, sy: number, sz: number) => {
+  const add = (material: Material, x: number, y: number, z: number, sx: number, sy: number, sz: number) => {
     const mesh = new Mesh(box, material);
     mesh.position.set(x, y, z);
     mesh.scale.set(sx, sy, sz);
@@ -237,19 +290,28 @@ function makeCar(skin: string, style: number) {
   add(body, 1.62, 0.4, 0, 0.62, 0.26, 1.28);
   add(MATERIALS.cyanhot, 1.92, 0.42, 0.46, 0.1, 0.14, 0.32);
   add(MATERIALS.cyanhot, 1.92, 0.42, -0.46, 0.1, 0.14, 0.32);
-  const lamp = new MeshLambertMaterial({ color: 0xff4b5c, emissive: 0xaa1830, emissiveIntensity: 0.8 });
+  const lamp = new MeshStandardMaterial({ color: 0xff4b5c, emissive: 0xaa1830, emissiveIntensity: 0.8, roughness: 0.3 });
   add(lamp, -1.72, 0.46, 0.52, 0.1, 0.16, 0.34);
   add(lamp, -1.72, 0.46, -0.52, 0.1, 0.16, 0.34);
   add(MATERIALS.cyan, 0.05, 0.58, 0.84, 2.5, 0.08, 0.08);
   add(MATERIALS.cyan, 0.05, 0.58, -0.84, 2.5, 0.08, 0.08);
+  const wheel = new CylinderGeometry(0.28, 0.28, 0.22, 12);
+  const wheelMat = new MeshStandardMaterial({ color: 0x111318, roughness: 0.6, metalness: 0.4 });
   for (const [x, z] of [
-    [1.15, 0.72],
-    [1.15, -0.72],
-    [-1.15, 0.72],
-    [-1.15, -0.72],
+    [1.15, 0.78],
+    [1.15, -0.78],
+    [-1.15, 0.78],
+    [-1.15, -0.78],
   ] as Array<[number, number]>) {
-    add(MATERIALS.black, x, 0.18, z, 0.62, 0.2, 0.46);
-    add(MATERIALS.cyan, x, 0.06, z, 0.4, 0.08, 0.3);
+    const mesh = new Mesh(wheel, wheelMat);
+    mesh.rotation.x = Math.PI / 2;
+    mesh.position.set(x, 0.28, z);
+    mesh.name = "wheel";
+    group.add(mesh);
+    const glow = new Mesh(box, MATERIALS.cyan);
+    glow.position.set(x, 0.08, z);
+    glow.scale.set(0.34, 0.06, 0.22);
+    group.add(glow);
   }
   add(MATERIALS.cyan, 0.1, 0.05, 0, 2.3, 0.05, 0.28);
   group.userData.paints = paints;
@@ -257,7 +319,7 @@ function makeCar(skin: string, style: number) {
 }
 
 function retint(group: Group, skin: string) {
-  const paints = group.userData.paints as MeshLambertMaterial[] | undefined;
+  const paints = group.userData.paints as MeshStandardMaterial[] | undefined;
   if (!paints) return;
   const color = COLORS[skin] ?? COLORS.black;
   for (const material of paints) material.color.setHex(color);
@@ -307,8 +369,13 @@ export function createRuntime(scene: Scene) {
   let prompt = "";
   let notice = "";
   let noticeUntil = 0;
-  let job: "courier" | "taxi" | "guide" | "" = "";
+  let job: "courier" | "taxi" | "guide" | "mechanic" | "photographer" | "promoter" | "" = "";
   let phase = 0;
+  let chatScope: "global" | "near" = "global";
+  let timeName: "sunset" | "night" | "day" = "sunset";
+  let profileId = "";
+  const quality = () => localStorage.getItem("orbitx-quality") || (touch ? "low" : "high");
+  let bookStamp = "";
   let clock = 0;
   let eventLeft = 0;
   let burstLeft = 0;
@@ -331,20 +398,7 @@ export function createRuntime(scene: Scene) {
 
   const net: NetAdapter = createNet(
     (state) => {
-      const found = remotes.get(state.id);
-      if (found) {
-        found.state = state;
-        found.seen = performance.now();
-        return;
-      }
-      const group = new Group();
-      group.add(makePerson(state.color, state.hat));
-      const tag = makeLabel(state.name);
-      tag.position.y = 2.35;
-      tag.name = "tag";
-      group.add(tag);
-      root.add(group);
-      remotes.set(state.id, { state, seen: performance.now(), group });
+      upsertRemote(state);
       publish();
     },
     (line) => {
@@ -369,9 +423,10 @@ export function createRuntime(scene: Scene) {
     }
   }
 
-  function faceFor(info: BillboardInfo) {
-    const booked = bookings()[info.id];
-    return booked ?? info;
+  function faceFor(info: BillboardInfo): BillboardInfo {
+    const shared = world.bookings.find((item) => item.id === info.id);
+    if (shared) return { ...info, project: shared.project, text: shared.text, start: shared.start, end: shared.end };
+    return bookings()[info.id] ?? info;
   }
 
   function redrawBoard(id: string) {
@@ -428,7 +483,39 @@ export function createRuntime(scene: Scene) {
     sparks.length = 0;
   }
 
+  function applyMe() {
+    const me = world.me;
+    if (!me) return;
+    wallet.balance = me.balance;
+    wallet.burned = me.burned;
+    wallet.owned = [...me.owned];
+    wallet.color = me.color;
+    wallet.hat = me.hat;
+    wallet.car = me.car;
+    wallet.name = me.name;
+    saveWallet(wallet);
+  }
+
+  function upsertRemote(state: NetState) {
+    const found = remotes.get(state.id);
+    if (found) {
+      found.state = state;
+      found.seen = performance.now();
+      return;
+    }
+    const group = new Group();
+    group.add(makePerson(state.color, state.hat));
+    const tag = makeLabel(state.name);
+    tag.position.y = 2.35;
+    tag.name = "tag";
+    group.add(tag);
+    root.add(group);
+    remotes.set(state.id, { state, seen: performance.now(), group });
+  }
+
   async function begin(next: City, isPlay: boolean) {
+    await world.start(wallet.name);
+    if (world.online) applyMe();
     const token = ++bootGen;
     playing = isPlay;
     driving = false;
@@ -532,25 +619,76 @@ export function createRuntime(scene: Scene) {
       jobTitle: job ? jobTitle(job) : "",
       objective: objectiveText(),
       notice: clock < noticeUntil ? notice : "",
-      chat: chat.slice(-12),
+      chat: world.online
+        ? world.chat.slice(-12).map((line) => ({
+            id: line.id,
+            name: line.name,
+            text: `${line.scope === "near" ? "(near) " : ""}${line.text}`,
+            self: line.id === world.id,
+          }))
+        : chat.slice(-12),
       others: remotes.size,
-      netMode: net.mode,
+      netMode: world.online ? `Main world · ${world.server}` : net.mode,
       name: wallet.name,
       projects: content.projects,
       billboards: content.billboards.map((item) => faceFor(item)),
-      events: content.events,
+      events: world.online && world.events.length ? [...content.events, ...world.events] : content.events,
       shop: SHOP,
       eventLabel: eventLeft > 0 ? `Fountain lights in ${Math.ceil(eventLeft)}` : burstLeft > 0 ? "Fountain lights" : "",
       panel,
+      people: [...remotes.values()].map((remote) => ({
+        id: remote.state.id,
+        name: remote.state.name,
+        color: remote.state.color,
+        hat: remote.state.hat,
+        speaking: !!remote.state.speaking,
+        lobby: remote.state.lobby || "",
+        x: remote.state.x,
+        z: remote.state.z,
+      })),
+      friends: world.me?.friends ?? [],
+      requests: world.me?.inbox ?? [],
+      party: world.party?.members ?? [],
+      lobbies: world.lobbies,
+      lobby: world.lobby,
+      muted: world.muted,
+      deafened: world.deafened,
+      pushToTalk: world.pushToTalk,
+      voiceProvider: world.provider,
+      voiceError: world.voiceError,
+      quality: quality(),
+      time: timeName,
+      me: { x: lastBody?.x ?? 0, z: lastBody?.z ?? 0, yaw: lastBody?.yaw ?? 0 },
+      profile: profileCard(),
+      server: world.server,
+      chatScope,
     };
     panel = "";
     for (const listener of listeners) listener(snap);
     window.__ORBITX_SNAP = snap;
   }
 
+  function profileCard(): PersonCard | null {
+    const remote = profileId ? remotes.get(profileId) : undefined;
+    if (!remote) return null;
+    return {
+      id: remote.state.id,
+      name: remote.state.name,
+      color: remote.state.color,
+      hat: remote.state.hat,
+      speaking: !!remote.state.speaking,
+      lobby: remote.state.lobby || "",
+      x: remote.state.x,
+      z: remote.state.z,
+    };
+  }
+
   function jobTitle(id: string) {
     if (id === "courier") return "Courier";
     if (id === "taxi") return "Taxi";
+    if (id === "mechanic") return "Mechanic";
+    if (id === "photographer") return "Photographer";
+    if (id === "promoter") return "Promoter";
     return "City guide";
   }
 
@@ -562,6 +700,11 @@ export function createRuntime(scene: Scene) {
     if (job === "guide" && phase === 0) return "Visit the OrbitX Shop door";
     if (job === "guide" && phase === 1) return "Visit the Community Hall door";
     if (job === "guide") return "Visit OrbitX HQ in the Project District";
+    if (job === "mechanic") return "Service the hover-car on the east road";
+    if (job === "photographer" && phase === 0) return "Photograph the fountain";
+    if (job === "photographer") return "Photograph the ORBITX tower";
+    if (job === "promoter" && phase === 0) return "Stop by the Community Hall";
+    if (job === "promoter") return "Stand at the plaza ad kiosk";
     return "No job yet — open Jobs";
   }
 
@@ -711,6 +854,9 @@ export function createRuntime(scene: Scene) {
     const bob = Math.sin(clock * 5) * 0.05;
     car.group.position.set(car.x, 0.12 + bob, car.z);
     car.group.rotation.y = Math.PI / 2 - car.yaw;
+    for (const child of car.group.children) {
+      if (child.name === "wheel") child.rotation.z += carSpeed * dt * 1.4;
+    }
     car.group.rotation.z = -car.lean;
     body.x = car.x;
     body.y = 0.2;
@@ -758,6 +904,9 @@ export function createRuntime(scene: Scene) {
     if (job === "taxi" && phase === 0) target = { x: 0, z: 80 };
     if (job === "taxi" && phase === 1) target = anchors.find((item) => item.id === "cafe") ?? null;
     if (job === "guide") target = guidePoint() ?? null;
+    if (job === "mechanic") target = { x: 36, z: 50 };
+    if (job === "photographer") target = phase === 0 ? { x: 0, z: 12 } : { x: 0, z: -6 };
+    if (job === "promoter") target = phase === 0 ? (anchors.find((item) => item.id === "hall") ?? null) : { x: 8, z: 70 };
     if (beacon) {
       beacon.visible = !!target && !driving;
       if (target) {
@@ -781,7 +930,7 @@ export function createRuntime(scene: Scene) {
       say("Package picked up.");
     } else if (job === "courier" && phase === 1) {
       job = "";
-      say(earn(wallet, 45, "Courier"));
+      void pay("courier");
     } else if (job === "taxi" && phase === 0 && driving) {
       phase = 1;
       riderOn = true;
@@ -789,13 +938,44 @@ export function createRuntime(scene: Scene) {
     } else if (job === "taxi" && phase === 1 && driving) {
       job = "";
       riderOn = false;
-      say(earn(wallet, 70, "Taxi"));
+      void pay("taxi");
     } else if (job === "guide") {
       phase += 1;
       if (phase >= 3) {
+        const done = job;
         job = "";
-        say(earn(wallet, 60, "Guide"));
+        void pay(done);
       } else say("Checkpoint reached.");
+    } else if (job === "mechanic") {
+      job = "";
+      void pay("mechanic");
+    } else if (job === "photographer") {
+      phase += 1;
+      if (phase >= 2) {
+        job = "";
+        void pay("photographer");
+      } else say("Fountain shot. Now the tower.");
+    } else if (job === "promoter") {
+      phase += 1;
+      if (phase >= 2) {
+        job = "";
+        void pay("promoter");
+      } else say("Hall visited. Head to the ad kiosk.");
+    }
+  }
+
+  async function pay(id: "courier" | "taxi" | "guide" | "mechanic" | "photographer" | "promoter") {
+    const amounts = { courier: 45, taxi: 70, guide: 60, mechanic: 55, photographer: 40, promoter: 50 };
+    if (!world.online) {
+      say(earn(wallet, amounts[id], jobTitle(id)));
+      return;
+    }
+    try {
+      const data = await world.earn(id);
+      applyMe();
+      say(String(data.message || "Paid."));
+    } catch (err) {
+      say(err instanceof Error ? err.message : "The city held the pay.");
     }
   }
 
@@ -851,11 +1031,26 @@ export function createRuntime(scene: Scene) {
       }
       const person = remote.group.children[0] as Group;
       retintPerson(person, remote.state.color, remote.state.hat);
-      remote.group.position.set(remote.state.x, remote.state.y, remote.state.z);
+      const blend = Math.min(1, dt * 8);
+      remote.group.position.x += (remote.state.x - remote.group.position.x) * blend;
+      remote.group.position.y += (remote.state.y - remote.group.position.y) * blend;
+      remote.group.position.z += (remote.state.z - remote.group.position.z) * blend;
       remote.group.rotation.y = remote.state.yaw;
-      remote.group.visible = !remote.state.car;
+      const ring = person.getObjectByName("ring");
+      if (ring) ring.visible = !!remote.state.speaking;
+      let ride = remote.group.getObjectByName("ride");
       if (remote.state.car) {
-        /* parked visual is enough; a driving remote shows as a person-height gap so add a tiny car if missing */
+        if (!ride) {
+          ride = makeCar(remote.state.skin || "black", 1);
+          ride.name = "ride";
+          remote.group.add(ride);
+        }
+        ride.visible = true;
+        person.visible = false;
+      } else {
+        if (ride) ride.visible = false;
+        person.visible = true;
+        if (remote.state.emote) person.rotation.y = Math.sin(clock * 6) * 0.4;
       }
     }
     if (localBody) {
@@ -863,6 +1058,8 @@ export function createRuntime(scene: Scene) {
       localBody.position.set(body.x, body.y, body.z);
       localBody.rotation.y = body.yaw;
       retintPerson(localBody, wallet.color, wallet.hat);
+      const ring = localBody.getObjectByName("ring");
+      if (ring) ring.visible = world.speaking;
     }
     prompt = "";
     if (playing && !paused && !opts.orbit) {
@@ -897,19 +1094,42 @@ export function createRuntime(scene: Scene) {
         tookCamera = true;
       }
     }
-    if (playing && !opts.orbit && !paused) {
-      net.sendState({
-        id: net.id,
+    if (playing && !opts.orbit) {
+      const pose = {
+        id: world.id || net.id,
         name: wallet.name,
-        x: body.x,
+        x: driving ? (cars[carIndex]?.x ?? body.x) : body.x,
         y: body.y,
-        z: body.z,
-        yaw: body.yaw,
+        z: driving ? (cars[carIndex]?.z ?? body.z) : body.z,
+        yaw: driving ? (cars[carIndex]?.yaw ?? body.yaw) : body.yaw,
         color: wallet.color,
         hat: wallet.hat,
         car: driving,
         skin: wallet.car,
-      });
+        speaking: world.speaking,
+        emote: Date.now() < world.emoteUntil ? world.emote : "",
+        lobby: world.lobby,
+      };
+      if (world.online) {
+        world.push(pose);
+        voiceTick();
+        const live = new Set<string>();
+        for (const person of world.people) {
+          if (person.id === world.id) continue;
+          live.add(person.id);
+          upsertRemote(person);
+        }
+        for (const [id, remote] of remotes) {
+          if (live.has(id)) continue;
+          root.remove(remote.group);
+          remotes.delete(id);
+        }
+        const stamp = JSON.stringify(world.bookings);
+        if (stamp !== bookStamp) {
+          bookStamp = stamp;
+          for (const id of boards.keys()) redrawBoard(id);
+        }
+      } else net.sendState(pose);
     }
     if (Math.floor(clock * 5) !== Math.floor((clock - dt) * 5)) publish();
     return tookCamera;
@@ -1004,7 +1224,20 @@ export function createRuntime(scene: Scene) {
     publish();
   }
 
-  function book(id: string, days: number, project = wallet.name, text = "NEW CAMPAIGN") {
+  async function book(id: string, days: number, project = wallet.name, text = "NEW CAMPAIGN") {
+    if (world.online) {
+      try {
+        const data = await world.book(id, days, project, text);
+        applyMe();
+        const message = String(data.message || "Booked.");
+        say(message);
+        return message;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused the booking.";
+        say(message);
+        return message;
+      }
+    }
     const price = AD_PRICE[days] ?? 25;
     const result = spend(wallet, price, `ad-${id}-${Date.now()}`);
     if (!result.ok) {
@@ -1030,9 +1263,22 @@ export function createRuntime(scene: Scene) {
     return message;
   }
 
-  function buy(id: string) {
+  async function buy(id: string) {
     const item = SHOP.find((entry) => entry.id === id);
     if (!item) return "Unknown item.";
+    if (world.online) {
+      try {
+        const data = await world.spend(id);
+        applyMe();
+        equip(item);
+        say(String(data.message || "Bought."));
+        return String(data.message || "Bought.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused the purchase.";
+        say(message);
+        return message;
+      }
+    }
     if (wallet.owned.includes(id)) {
       equip(item);
       say("Equipped.");
@@ -1107,28 +1353,100 @@ export function createRuntime(scene: Scene) {
     book(id: string, days: number, text: string) {
       return book(id, days, wallet.name || "Demo project", text || "NEW CAMPAIGN");
     },
-    startJob(id: "courier" | "taxi" | "guide") {
+    startJob(id: "courier" | "taxi" | "guide" | "mechanic" | "photographer" | "promoter") {
       job = id;
       phase = 0;
       riderOn = false;
+      void world.jobStart(id);
       say(`${jobTitle(id)} started.`);
     },
     startEvent() {
       eventLeft = 8;
       say("Countdown started.");
     },
-    sendChat(text: string) {
+    sendChat(text: string, scope: "global" | "near" = chatScope) {
       const clean = text.trim().slice(0, 180);
       if (!clean) return;
-      chat.push({ id: net.id, name: wallet.name, text: clean, self: true });
-      if (chat.length > 24) chat.shift();
-      net.sendChat(wallet.name, clean);
+      chatScope = scope;
+      if (world.online) {
+        void world.say(clean, scope, lastBody?.x ?? 0, lastBody?.z ?? 0);
+      } else {
+        chat.push({ id: net.id, name: wallet.name, text: clean, self: true });
+        if (chat.length > 24) chat.shift();
+        net.sendChat(wallet.name, clean);
+      }
       publish();
     },
     setName(name: string) {
       wallet.name = name.trim().slice(0, 18) || wallet.name;
       saveWallet(wallet);
+      if (world.online) void world.rename(wallet.name).then(() => applyMe());
       publish();
+    },
+    setChatScope(scope: "global" | "near") {
+      chatScope = scope;
+      publish();
+    },
+    inspect(id: string) {
+      profileId = id;
+      panel = "phone";
+      publish();
+    },
+    emote(name: string) {
+      world.emote = name;
+      world.emoteUntil = Date.now() + 1800;
+    },
+    joinLobby(id: string) {
+      void joinVoice(id);
+      say(id ? `Voice lobby: ${id}` : "Left the voice lobby.");
+    },
+    leaveLobby() {
+      leaveVoice();
+      say("Left the voice lobby.");
+    },
+    setMuted(on: boolean) {
+      muteMic(on);
+      publish();
+    },
+    setDeafened(on: boolean) {
+      deafenMic(on);
+      publish();
+    },
+    setPushToTalk(on: boolean) {
+      armTalk(on);
+      publish();
+    },
+    setTalking(on: boolean) {
+      holdTalk(on);
+    },
+    setVolume(id: string, value: number) {
+      volumeFor(id, value);
+    },
+    friendAsk(id: string) {
+      void world.friendAsk(id).then((data) => say(String(data.message || "Request sent."))).catch((err) => say(err.message));
+    },
+    friendAccept(id: string) {
+      void world.friendAccept(id).then((data) => {
+        applyMe();
+        say(String(data.message || "Friend added."));
+      }).catch((err) => say(err.message));
+    },
+    partyInvite(id = "") {
+      void world.partyInvite(id).then(() => say(id ? "Party invite sent." : "Party started.")).catch((err) => say(err.message));
+    },
+    addEvent(title: string, where: string, when: string, detail: string) {
+      void world.addEvent(title, where, when, detail).then(() => say("Event posted."));
+    },
+    cycleTime() {
+      timeName = timeName === "sunset" ? "night" : timeName === "night" ? "day" : "sunset";
+      publish();
+    },
+    timeOfDay() {
+      return timeName;
+    },
+    setQuality(next: "low" | "medium" | "high") {
+      localStorage.setItem("orbitx-quality", next);
+      say(`Quality ${next}. Reload to apply shadows and lights.`);
     },
     request(name: PanelName | "close") {
       if (name === "close") {
@@ -1140,6 +1458,7 @@ export function createRuntime(scene: Scene) {
     applyShot,
     quote: (price: number) => burnAmount(price),
     destroy() {
+      world.stop();
       net.close();
       scene.remove(root);
       listeners.clear();

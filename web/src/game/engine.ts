@@ -4,6 +4,7 @@ import {
   BoxGeometry,
   DirectionalLight,
   Fog,
+  PCFSoftShadowMap,
   Group,
   HemisphereLight,
   InstancedMesh,
@@ -22,6 +23,11 @@ import {
 import { buildCity, type City, type Mat, type RailPoint, type ShipPath } from "./city";
 import { MATERIALS } from "./materials";
 import { createRuntime, wantsTouch, type Body, type Runtime } from "./runtime";
+import { mountPretty, type QualityName } from "./pretty";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { Vector2 } from "three";
 
 export type PlayMode = "orbit" | "play" | "air";
 
@@ -106,8 +112,14 @@ export function createGame(
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.toneMapping = ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.08;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, touch ? 1 : 1.25));
+  const qualityParam = new URLSearchParams(location.search).get("quality");
+  const savedQuality = qualityParam || localStorage.getItem("orbitx-quality");
+  const quality: QualityName =
+    savedQuality === "low" || savedQuality === "medium" || savedQuality === "high" ? savedQuality : touch ? "low" : "high";
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality === "low" ? 1 : quality === "medium" ? 1.25 : 1.5));
   renderer.setClearColor(0xf09158, 1);
+  renderer.shadowMap.enabled = quality !== "low";
+  renderer.shadowMap.type = PCFSoftShadowMap;
 
   const scene = new Scene();
   const baseFog = new Fog(0xf09158, touch ? 100 : 170, touch ? 300 : 460);
@@ -119,6 +131,14 @@ export function createGame(
   const hemi = new HemisphereLight(0xffc9a2, 0x2a221c, 0.78);
   const sun = new DirectionalLight(0xffd0a2, 1.9);
   sun.position.set(110, 42, 30);
+  sun.castShadow = quality !== "low";
+  sun.shadow.mapSize.set(quality === "high" ? 2048 : 1024, quality === "high" ? 2048 : 1024);
+  sun.shadow.camera.near = 10;
+  sun.shadow.camera.far = 280;
+  sun.shadow.camera.left = -90;
+  sun.shadow.camera.right = 90;
+  sun.shadow.camera.top = 90;
+  sun.shadow.camera.bottom = -90;
   const fill = new DirectionalLight(0x93a4ff, 0.32);
   fill.position.set(-60, 28, -40);
   const ambient = new AmbientLight(0xffb080, 0.16);
@@ -138,8 +158,11 @@ export function createGame(
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
+      uniforms: { uNight: { value: 0 }, uDay: { value: 0 } },
       fragmentShader: `
         varying vec3 vDir;
+        uniform float uNight;
+        uniform float uDay;
         void main() {
           vec3 dir = normalize(vDir);
           float h = dir.y;
@@ -166,6 +189,8 @@ export function createGame(
             vec3 cloudCol = mix(vec3(1.0, 0.58, 0.30), vec3(1.0, 0.90, 0.74), smoothstep(0.04, 0.5, h));
             col = mix(col, cloudCol, cloud * 0.55);
           }
+          col = mix(col, vec3(0.03, 0.05, 0.12), uNight);
+          col = mix(col, vec3(0.45, 0.72, 0.95), uDay * 0.65);
           gl_FragColor = vec4(col, 1.0);
         }
       `,
@@ -175,6 +200,9 @@ export function createGame(
   sky.frustumCulled = false;
   sky.scale.setScalar(420);
   scene.add(sky);
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  composer.addPass(new UnrealBloomPass(new Vector2(1024, 1024), 0.32, 0.45, 0.86));
 
   const unit = new BoxGeometry(1, 1, 1);
   const dummy = new Object3D();
@@ -346,6 +374,7 @@ export function createGame(
     staticRoot = new Group();
     const buckets = new Map<Mat, City["boxes"]>();
     for (const box of city.boxes) {
+      if (box.hide) continue;
       let list = buckets.get(box.mat);
       if (!list) {
         list = [];
@@ -354,8 +383,11 @@ export function createGame(
       list.push(box);
     }
     for (const [mat, list] of buckets) {
+      if (!list.length) continue;
       const mesh = new InstancedMesh(unit, MATERIALS[mat], list.length);
       mesh.frustumCulled = false;
+      mesh.castShadow = quality !== "low" && mat !== "lane" && mat !== "asphalt";
+      mesh.receiveShadow = quality !== "low";
       if (mat === "water") {
         mesh.renderOrder = 2;
       }
@@ -370,6 +402,7 @@ export function createGame(
       mesh.instanceMatrix.needsUpdate = true;
       staticRoot.add(mesh);
     }
+    staticRoot.add(mountPretty(city.facades, quality));
     scene.add(staticRoot);
     window.__ORBITX_BOXES = city.boxes.length;
   }
@@ -437,11 +470,19 @@ export function createGame(
     if (event.code === "KeyG" && !event.repeat) runtime.request("ads");
     if (event.code === "KeyH" && !event.repeat) runtime.request("events");
     if (event.code === "KeyM" && !event.repeat) runtime.request("menu");
+    if (event.code === "KeyP" && !event.repeat) runtime.request("phone");
+    if (event.code === "KeyN" && !event.repeat) runtime.cycleTime();
+    if (event.code === "KeyV") runtime.setTalking(true);
+    if (event.code === "Digit1") runtime.emote("wave");
+    if (event.code === "Digit2") runtime.emote("dance");
+    if (event.code === "Digit3") runtime.emote("cheer");
+    if (event.code === "Digit4") runtime.emote("sit");
     if (event.code === "Escape") runtime.request("close");
     if (event.code === "Space") event.preventDefault();
   }
   function onKeyUp(event: KeyboardEvent) {
     keys.delete(event.code);
+    if (event.code === "KeyV") runtime.setTalking(false);
   }
   function onMouseMove(event: MouseEvent) {
     if (touch || document.pointerLockElement !== canvas) return;
@@ -469,6 +510,7 @@ export function createGame(
     const width = canvas.clientWidth || window.innerWidth;
     const height = canvas.clientHeight || window.innerHeight;
     renderer.setSize(width, height, false);
+    composer.setSize(width, height);
     camera.aspect = width / Math.max(1, height);
     camera.updateProjectionMatrix();
   }
@@ -530,6 +572,26 @@ export function createGame(
     }
 
     sky.position.copy(camera.position);
+    const clockName = runtime.timeOfDay();
+    const skyMat = sky.material as ShaderMaterial;
+    skyMat.uniforms.uNight.value = clockName === "night" ? 1 : 0;
+    skyMat.uniforms.uDay.value = clockName === "day" ? 1 : 0;
+    if (clockName === "night") {
+      baseFog.color.setHex(0x0c1220);
+      sun.intensity = 0.35;
+      hemi.intensity = 0.25;
+      ambient.intensity = 0.08;
+    } else if (clockName === "day") {
+      baseFog.color.setHex(0xb7d4ea);
+      sun.intensity = 1.6;
+      hemi.intensity = 0.9;
+      ambient.intensity = 0.2;
+    } else {
+      baseFog.color.setHex(0xf09158);
+      sun.intensity = 1.9;
+      hemi.intensity = 0.78;
+      ambient.intensity = 0.16;
+    }
     scene.fog = runtime.indoors() ? null : baseFog;
     const tookCamera = runtime.after(dt, player, camera, { orbit: mode === "orbit", fountain });
     if (mode === "orbit") {
@@ -552,7 +614,8 @@ export function createGame(
       onStatus(`${label}  ${Math.round(player.x)} ${Math.round(player.y)} ${Math.round(player.z)}  seed ${seed}`);
     }
 
-    renderer.render(scene, camera);
+    if (quality === "high") composer.render();
+    else renderer.render(scene, camera);
     window.__ORBITX_READY = true;
     window.__ORBITX_DRAWS = renderer.info.render.calls;
     frames++;
@@ -607,7 +670,11 @@ export function createGame(
       }
       void runtime.begin(city, nextMode !== "orbit").then(() => {
         if (token !== boot) return;
-        runtime.applyShot(new URLSearchParams(location.search).get("shot"), player);
+        const params = new URLSearchParams(location.search);
+        runtime.applyShot(params.get("shot"), player);
+        if (params.has("phone")) runtime.request("phone");
+        const lobby = params.get("lobby");
+        if (lobby) runtime.joinLobby(lobby);
       });
     },
     dispose() {

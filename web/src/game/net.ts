@@ -9,6 +9,9 @@ export interface NetState {
   hat: string;
   car: boolean;
   skin: string;
+  speaking?: boolean;
+  emote?: string;
+  lobby?: string;
 }
 
 export interface ChatLine {
