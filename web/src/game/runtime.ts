@@ -90,6 +90,9 @@ export interface Snap {
   shop: ShopItem[];
   eventLabel: string;
   panel: PanelName | "";
+  mission: number;
+  board: { name: string; burned: number }[];
+  districts: { id: string; name: string; x: number; z: number }[];
   people: PersonCard[];
   friends: { id: string; name: string }[];
   requests: { id: string; name: string }[];
@@ -369,7 +372,7 @@ export function createRuntime(scene: Scene) {
   let prompt = "";
   let notice = "";
   let noticeUntil = 0;
-  let job: "courier" | "taxi" | "guide" | "mechanic" | "photographer" | "promoter" | "" = "";
+  let job = "";
   let phase = 0;
   let chatScope: "global" | "near" = "global";
   let timeName: "sunset" | "night" | "day" = "sunset";
@@ -394,6 +397,8 @@ export function createRuntime(scene: Scene) {
   let root = new Group();
   scene.add(root);
   const sparks: Spark[] = [];
+  const npcs: { group: Group; x: number; z: number; phase: number }[] = [];
+  let tourLock = false;
   const box = new BoxGeometry(1, 1, 1);
 
   const net: NetAdapter = createNet(
@@ -454,11 +459,17 @@ export function createRuntime(scene: Scene) {
     if (zone.kind === "project") return content.projects[zone.slot]?.line ?? "Community office";
     if (zone.kind === "shop") return "Demo credits only";
     if (zone.kind === "cafe") return "Coffee and a seat";
+    if (zone.kind === "bank") return "Demo ledger only";
+    if (zone.kind === "garage") return "Hover-cars live here";
+    if (zone.kind === "arcade") return "One cabinet is free";
+    if (zone.kind === "market") return "Stalls and neon";
+    if (zone.kind === "dock") return "Pier is open";
     return "Gather here";
   }
 
   function mountSign(zone: Zone) {
-    const sub = zone.kind === "shop" ? "Use the counter" : zone.kind === "cafe" ? "Pull up a seat" : zone.kind === "hall" ? "Stage is open" : "Community office";
+    const sub =
+      zone.kind === "shop" ? "Use the counter" : zone.kind === "cafe" ? "Pull up a seat" : zone.kind === "hall" ? "Stage is open" : zone.kind === "bank" ? "Savings window" : zone.kind === "garage" ? "Cars on the avenue" : zone.kind === "dock" ? "Clock in here" : "Walk in";
     const texture = paint([zoneTitle(zone), zoneLine(zone)], sub);
     const mesh = new Mesh(
       new PlaneGeometry(zone.kind === "hall" ? 5.4 : 4.2, 1.7),
@@ -535,6 +546,17 @@ export function createRuntime(scene: Scene) {
     activeCols = cityCols;
     anchors = next.anchors;
     zones = next.zones;
+    npcs.length = 0;
+    next.citizens.forEach((citizen, index) => {
+      const group = makePerson(citizen.color, index % 2 ? "cap" : "none");
+      const tag = makeLabel(citizen.name);
+      tag.position.y = 2.35;
+      group.add(tag);
+      group.position.set(citizen.x, 0, citizen.z);
+      root.add(group);
+      npcs.push({ group, x: citizen.x, z: citizen.z, phase: index });
+    });
+    void world.loadBoard().then(() => publish());
     for (const anchor of anchors) {
       const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
       const tag = makeLabel(title);
@@ -662,6 +684,9 @@ export function createRuntime(scene: Scene) {
       profile: profileCard(),
       server: world.server,
       chatScope,
+      mission: world.online ? world.mission : tourStep,
+      board: world.board,
+      districts: anchors.map((anchor) => ({ id: anchor.id, name: anchor.name, x: anchor.x, z: anchor.z })),
     };
     panel = "";
     for (const listener of listeners) listener(snap);
@@ -689,6 +714,9 @@ export function createRuntime(scene: Scene) {
     if (id === "mechanic") return "Mechanic";
     if (id === "photographer") return "Photographer";
     if (id === "promoter") return "Promoter";
+    if (id === "dock") return "Dock hand";
+    if (id === "dj") return "DJ";
+    if (id === "banker") return "Bank teller";
     return "City guide";
   }
 
@@ -705,7 +733,12 @@ export function createRuntime(scene: Scene) {
     if (job === "photographer") return "Photograph the ORBITX tower";
     if (job === "promoter" && phase === 0) return "Stop by the Community Hall";
     if (job === "promoter") return "Stand at the plaza ad kiosk";
-    return "No job yet — open Jobs";
+    if (job === "dock") return "Clock in at the harbor office";
+    if (job === "dj") return "Play the Community Hall";
+    if (job === "banker") return "Open the window at OrbitX Bank";
+    const stop = tourStops[world.online ? world.mission : tourStep];
+    if (stop) return stop.text;
+    return "City tour complete — pick up a job";
   }
 
   function say(text: string) {
@@ -773,7 +806,7 @@ export function createRuntime(scene: Scene) {
     }
     const anchor = nearestAnchor(body, 3.3);
     if (!anchor) return;
-    if (anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project") {
+    if (anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock") {
       stepInside(anchor, body);
       publish();
       return;
@@ -907,6 +940,9 @@ export function createRuntime(scene: Scene) {
     if (job === "mechanic") target = { x: 36, z: 50 };
     if (job === "photographer") target = phase === 0 ? { x: 0, z: 12 } : { x: 0, z: -6 };
     if (job === "promoter") target = phase === 0 ? (anchors.find((item) => item.id === "hall") ?? null) : { x: 8, z: 70 };
+    if (job === "dock") target = anchors.find((item) => item.id === "dock") ?? { x: 0, z: 148 };
+    if (job === "dj") target = anchors.find((item) => item.id === "hall") ?? null;
+    if (job === "banker") target = anchors.find((item) => item.id === "bank") ?? null;
     if (beacon) {
       beacon.visible = !!target && !driving;
       if (target) {
@@ -961,11 +997,48 @@ export function createRuntime(scene: Scene) {
         job = "";
         void pay("promoter");
       } else say("Hall visited. Head to the ad kiosk.");
+    } else if (job === "dock" || job === "dj" || job === "banker") {
+      const done = job;
+      job = "";
+      void pay(done);
     }
   }
 
-  async function pay(id: "courier" | "taxi" | "guide" | "mechanic" | "photographer" | "promoter") {
-    const amounts = { courier: 45, taxi: 70, guide: 60, mechanic: 55, photographer: 40, promoter: 50 };
+  const tourStops = [
+    { x: 0, z: 12, text: "Tour: stand by the fountain" },
+    { x: 18, z: 54, text: "Tour: step into OrbitX Shop" },
+    { x: -18, z: 54, text: "Tour: step into Cafe Nova" },
+    { x: 54, z: 18, text: "Tour: step into the Community Hall" },
+    { x: 0, z: -8, text: "Tour: stand under the ORBITX tower" },
+    { x: 0, z: 148, text: "Tour: reach the harbor office" },
+  ];
+
+  function tickTour(body: Body) {
+    const step = world.online ? world.mission : tourStep;
+    const stop = tourStops[step];
+    if (!stop || tourLock || paused) return;
+    if (Math.hypot(body.x - stop.x, body.z - stop.z) > 4) return;
+    tourLock = true;
+    if (!world.online) {
+      tourStep += 1;
+      say(earn(wallet, step === tourStops.length - 1 ? 80 : 20, "City tour"));
+      tourLock = false;
+      return;
+    }
+    void world.advanceMission(step).then((data) => {
+      applyMe();
+      say(String(data.message || "Tour stop paid."));
+    }).catch((err: unknown) => {
+      say(err instanceof Error ? err.message : "The city held that stop.");
+    }).finally(() => {
+      tourLock = false;
+    });
+  }
+
+  let tourStep = 0;
+
+  async function pay(id: string) {
+    const amounts: Record<string, number> = { courier: 45, taxi: 70, guide: 60, mechanic: 55, photographer: 40, promoter: 50, dock: 65, dj: 55, banker: 50 };
     if (!world.online) {
       say(earn(wallet, amounts[id], jobTitle(id)));
       return;
@@ -998,7 +1071,15 @@ export function createRuntime(scene: Scene) {
     lastBody = body;
     flyFlag = body.flying;
     consumeLook(body);
-    if (!opts.orbit) tickJobs(body);
+    if (!opts.orbit) {
+      tickJobs(body);
+      tickTour(body);
+    }
+    for (const npc of npcs) {
+      const sway = Math.sin(clock * 0.6 + npc.phase) * 1.4;
+      npc.group.position.set(npc.x + sway, 0, npc.z);
+      npc.group.rotation.y = clock * 0.2 + npc.phase;
+    }
     if (eventLeft > 0) {
       eventLeft -= dt;
       if (eventLeft <= 0) {
@@ -1073,7 +1154,7 @@ export function createRuntime(scene: Scene) {
         const anchor = nearestAnchor(body, 3.3);
         if (anchor) {
           const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
-          const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project";
+          const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock";
           prompt = walkIn ? `Walk in — ${title}` : `Use — ${title}`;
         }
       }
@@ -1353,7 +1434,7 @@ export function createRuntime(scene: Scene) {
     book(id: string, days: number, text: string) {
       return book(id, days, wallet.name || "Demo project", text || "NEW CAMPAIGN");
     },
-    startJob(id: "courier" | "taxi" | "guide" | "mechanic" | "photographer" | "promoter") {
+    startJob(id: string) {
       job = id;
       phase = 0;
       riderOn = false;
@@ -1436,6 +1517,18 @@ export function createRuntime(scene: Scene) {
     },
     addEvent(title: string, where: string, when: string, detail: string) {
       void world.addEvent(title, where, when, detail).then(() => say("Event posted."));
+    },
+    travel(id: string) {
+      const anchor = anchors.find((item) => item.id === id);
+      if (!anchor || !lastBody) return;
+      lastBody.x = anchor.x;
+      lastBody.y = 0;
+      lastBody.z = anchor.z;
+      lastBody.yaw = anchor.yaw;
+      lastBody.pitch = 0.08;
+      lastBody.vy = 0;
+      paused = false;
+      say(anchor.name);
     },
     cycleTime() {
       timeName = timeName === "sunset" ? "night" : timeName === "night" ? "day" : "sunset";

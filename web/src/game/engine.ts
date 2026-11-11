@@ -675,6 +675,8 @@ export function createGame(
         if (params.has("phone")) runtime.request("phone");
         const lobby = params.get("lobby");
         if (lobby) runtime.joinLobby(lobby);
+        const go = params.get("go");
+        if (go) runtime.travel(go);
       });
     },
     dispose() {

@@ -1,5 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
+import { createClient } from "@supabase/supabase-js";
 import { Redis } from "@upstash/redis";
 
 const START_BALANCE = 250;
@@ -19,6 +20,8 @@ const CATALOG = {
   "hat-cap": { price: 15, kind: "hat", value: "cap" },
   "hat-antenna": { price: 25, kind: "hat", value: "antenna" },
   "hat-crown": { price: 100, kind: "hat", value: "crown" },
+  "hat-visor": { price: 20, kind: "hat", value: "cap" },
+  "color-black": { price: 25, kind: "color", value: "black" },
 };
 
 const JOBS = {
@@ -28,7 +31,19 @@ const JOBS = {
   mechanic: 55,
   photographer: 40,
   promoter: 50,
+  dock: 65,
+  dj: 55,
+  banker: 50,
 };
+
+const MISSIONS = [
+  { id: "plaza", pay: 15 },
+  { id: "shop", pay: 20 },
+  { id: "cafe", pay: 20 },
+  { id: "hall", pay: 25 },
+  { id: "tower", pay: 30 },
+  { id: "dock", pay: 80 },
+];
 
 const AD_PRICE = { 1: 25, 7: 80, 30: 200 };
 
@@ -41,7 +56,12 @@ const LOBBIES = [
   { id: "hq-3", name: "Lumen Labs" },
   { id: "hall", name: "Community Hall" },
   { id: "cafe", name: "Cafe Nova" },
-  { id: "shop", name: "OrbitX Shop" },
+    { id: "shop", name: "OrbitX Shop" },
+    { id: "bank", name: "OrbitX Bank" },
+    { id: "garage", name: "Hover Garage" },
+    { id: "arcade", name: "Neon Arcade" },
+    { id: "market", name: "Night Market" },
+    { id: "dock", name: "Harbor" },
 ];
 
 function memory() {
@@ -78,6 +98,29 @@ function db() {
   const slot = globalThis;
   if (!slot.__orbitxSql) slot.__orbitxSql = neon(url);
   return slot.__orbitxSql;
+}
+
+function supabaseEnv() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  const anon = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+  return url && key ? { url, key, anon } : null;
+}
+
+function sb() {
+  const env = supabaseEnv();
+  if (!env) return null;
+  const slot = globalThis;
+  if (!slot.__orbitxSb) {
+    slot.__orbitxSb = createClient(env.url, env.key, { auth: { persistSession: false, autoRefreshToken: false } });
+  }
+  return slot.__orbitxSb;
+}
+
+function publicRealtime() {
+  const env = supabaseEnv();
+  if (!env?.anon) return null;
+  return { url: env.url, anon: env.anon };
 }
 
 function redis() {
@@ -140,6 +183,8 @@ function freshPlayer(id, name) {
     inbox: [],
     job: null,
     party: "",
+    mission: 0,
+    missionAt: 0,
   };
 }
 
@@ -156,10 +201,17 @@ function publicPlayer(player) {
     friends: player.friends,
     inbox: player.inbox,
     party: player.party,
+    mission: player.mission || 0,
   };
 }
 
 async function savePlayer(player) {
+  const client = sb();
+  if (client) {
+    const { error } = await client.from("players").upsert(rowFromPlayer(player));
+    if (!error) return;
+    noteSupabase(error.message);
+  }
   const sql = db();
   if (sql) {
     await ensureSchema();
@@ -204,11 +256,43 @@ function parsePlayer(row) {
     inbox: typeof row.inbox === "string" ? JSON.parse(row.inbox || "[]") : row.inbox || [],
     job: typeof row.job === "string" ? JSON.parse(row.job || "null") : row.job,
     party: row.party || "",
+    mission: Number(row.mission || 0),
+    missionAt: Number(row.mission_at || row.missionAt || 0),
   };
+}
+
+function rowFromPlayer(player) {
+  return {
+    id: player.id,
+    token: player.token,
+    name: player.name,
+    balance: player.balance,
+    burned: player.burned,
+    owned: player.owned,
+    color: player.color,
+    hat: player.hat,
+    car: player.car,
+    friends: player.friends,
+    inbox: player.inbox,
+    job: player.job,
+    party: player.party || "",
+    mission: player.mission || 0,
+    mission_at: player.missionAt || 0,
+  };
+}
+
+function noteSupabase(message) {
+  globalThis.__orbitxSbError = String(message || "Supabase query failed");
 }
 
 async function playerByToken(token) {
   if (!token) return null;
+  const client = sb();
+  if (client) {
+    const { data, error } = await client.from("players").select("*").eq("token", token).maybeSingle();
+    if (!error && data) return parsePlayer(data);
+    if (error) noteSupabase(error.message);
+  }
   const sql = db();
   if (sql) {
     await ensureSchema();
@@ -229,6 +313,12 @@ async function playerByToken(token) {
 }
 
 async function playerById(id) {
+  const client = sb();
+  if (client) {
+    const { data, error } = await client.from("players").select("*").eq("id", id).maybeSingle();
+    if (!error && data) return parsePlayer(data);
+    if (error) noteSupabase(error.message);
+  }
   const sql = db();
   if (sql) {
     await ensureSchema();
@@ -250,6 +340,13 @@ function bearer(request) {
 }
 
 async function readWorld() {
+  const client = sb();
+  if (client) {
+    const since = new Date(Date.now() - PRESENCE_MS).toISOString();
+    const { data, error } = await client.from("presence").select("state, seen").gt("seen", since);
+    if (!error && data) return data.map((row) => (typeof row.state === "string" ? JSON.parse(row.state) : row.state));
+    if (error) noteSupabase(error.message);
+  }
   const cache = redis();
   const now = Date.now();
   if (cache) {
@@ -274,6 +371,12 @@ async function readWorld() {
 }
 
 async function writePresence(state) {
+  const client = sb();
+  if (client) {
+    const { error } = await client.from("presence").upsert({ id: state.id, state, seen: new Date().toISOString() });
+    if (!error) return;
+    noteSupabase(error.message);
+  }
   const cache = redis();
   if (cache) {
     await cache.hset("orbitx:world", { [state.id]: JSON.stringify(state) });
@@ -283,6 +386,19 @@ async function writePresence(state) {
 }
 
 async function pushChat(line) {
+  const client = sb();
+  if (client) {
+    const { error } = await client.from("chat").insert({
+      player_id: line.id,
+      name: line.name,
+      text: line.text,
+      scope: line.scope,
+      x: line.x,
+      z: line.z,
+    });
+    if (!error) return;
+    noteSupabase(error.message);
+  }
   const cache = redis();
   const item = JSON.stringify(line);
   if (cache) {
@@ -295,6 +411,14 @@ async function pushChat(line) {
 }
 
 async function readChat() {
+  const client = sb();
+  if (client) {
+    const { data, error } = await client.from("chat").select("player_id, name, text, scope, x, z").order("id", { ascending: false }).limit(40);
+    if (!error && data) {
+      return data.reverse().map((row) => ({ id: row.player_id, name: row.name, text: row.text, scope: row.scope, x: row.x, z: row.z }));
+    }
+    if (error) noteSupabase(error.message);
+  }
   const cache = redis();
   if (cache) {
     const rows = (await cache.lrange("orbitx:chat", 0, 79)) || [];
@@ -304,6 +428,12 @@ async function readChat() {
 }
 
 async function saveBooking(info) {
+  const client = sb();
+  if (client) {
+    const { error } = await client.from("bookings").upsert(info);
+    if (!error) return;
+    noteSupabase(error.message);
+  }
   const sql = db();
   if (sql) {
     await ensureSchema();
@@ -321,6 +451,12 @@ async function saveBooking(info) {
 }
 
 async function readBookings() {
+  const client = sb();
+  if (client) {
+    const { data, error } = await client.from("bookings").select("id, project, text, start, end, burned");
+    if (!error && data) return data;
+    if (error) noteSupabase(error.message);
+  }
   const sql = db();
   if (sql) {
     await ensureSchema();
@@ -336,6 +472,18 @@ async function readBookings() {
 }
 
 async function addEvent(info) {
+  const client = sb();
+  if (client) {
+    const { error } = await client.from("events").upsert({
+      id: info.id,
+      title: info.title,
+      place: info.where,
+      when_at: info.when,
+      detail: info.detail,
+    });
+    if (!error) return;
+    noteSupabase(error.message);
+  }
   const sql = db();
   if (sql) {
     await ensureSchema();
@@ -353,6 +501,14 @@ async function addEvent(info) {
 }
 
 async function readEvents() {
+  const client = sb();
+  if (client) {
+    const { data, error } = await client.from("events").select("id, title, place, when_at, detail");
+    if (!error && data) {
+      return data.map((row) => ({ id: row.id, title: row.title, where: row.place, when: row.when_at, detail: row.detail }));
+    }
+    if (error) noteSupabase(error.message);
+  }
   const sql = db();
   if (sql) {
     await ensureSchema();
@@ -449,6 +605,9 @@ export async function GET() {
     redis: Boolean(redisEnv()),
     livekit: Boolean(process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET),
     note: "Demo credits only. No real tokens or wallets.",
+    supabase: Boolean(supabaseEnv()),
+    supabaseError: globalThis.__orbitxSbError || "",
+    realtime: publicRealtime(),
   });
 }
 
@@ -577,6 +736,11 @@ export async function POST(request) {
     player.party = partyId;
     if (!party.members.some((item) => item.id === player.id)) party.members.push({ id: player.id, name: player.name });
     store.parties.set(partyId, party);
+    const client = sb();
+    if (client) {
+      const { error } = await client.from("parties").upsert({ id: partyId, members: party.members });
+      if (error) noteSupabase(error.message);
+    }
     await savePlayer(player);
     return json({ ok: true, party, me: publicPlayer(player) });
   }
@@ -644,7 +808,12 @@ export async function POST(request) {
       return Math.hypot((line.x || 0) - here.x, (line.z || 0) - here.z) < 22 || line.id === player.id;
     });
     const signals = await takeSignals(player.id);
-    const party = player.party ? memory().parties.get(player.party) || null : null;
+    let party = player.party ? memory().parties.get(player.party) || null : null;
+    if (player.party && sb()) {
+      const { data, error } = await sb().from("parties").select("id, members").eq("id", player.party).maybeSingle();
+      if (data) party = data;
+      if (error) noteSupabase(error.message);
+    }
     return json({
       ok: true,
       me: publicPlayer(player),
@@ -656,13 +825,53 @@ export async function POST(request) {
       signals,
       party,
       server: storageName(),
+      realtime: publicRealtime(),
+      supabaseError: globalThis.__orbitxSbError || "",
+    });
+  }
+
+  if (op === "board") {
+    const board = await leaderboard();
+    return json({ ok: true, board });
+  }
+
+  if (op === "mission") {
+    const step = Number(body.step);
+    if (step !== player.mission) return json({ ok: false, message: "That stop is out of order." }, 400);
+    if (!MISSIONS[step]) return json({ ok: true, message: "City tour complete.", me: publicPlayer(player) });
+    if (player.missionAt && Date.now() - Number(player.missionAt) < 3000) {
+      return json({ ok: false, message: "Stay at the stop a moment." }, 400);
+    }
+    const reward = MISSIONS[step].pay;
+    player.mission += 1;
+    player.missionAt = Date.now();
+    player.balance += reward;
+    await savePlayer(player);
+    return json({
+      ok: true,
+      message: `Tour stop ${step + 1} paid ${reward} demo ORBITX.`,
+      me: publicPlayer(player),
     });
   }
 
   return json({ ok: false, message: "Unknown request." }, 400);
 }
 
+async function leaderboard() {
+  const client = sb();
+  if (client) {
+    const { data, error } = await client.from("players").select("name, burned").order("burned", { ascending: false }).limit(8);
+    if (!error && data) return data;
+    if (error) noteSupabase(error.message);
+  }
+  return [...memory().players.values()]
+    .sort((a, b) => b.burned - a.burned)
+    .slice(0, 8)
+    .map((player) => ({ name: player.name, burned: player.burned }));
+}
+
 function storageName() {
+  if (supabaseEnv() && !globalThis.__orbitxSbError) return "Supabase";
   if (databaseUrl() && redisEnv()) return "Neon + Upstash";
   if (databaseUrl()) return "Neon";
   if (redisEnv()) return "Upstash";

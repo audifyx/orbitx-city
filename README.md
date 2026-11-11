@@ -2,7 +2,7 @@
 
 ## Playable browser city
 
-Open `web/` with `npm run dev` from the repo root (or `npm run dev --prefix web`). Production is a Vercel project on this repo. See [DEPLOY.md](DEPLOY.md) for the click path and every env var.
+Open `web/` with `npm run dev` from the repo root (or `npm run dev --prefix web`). Production is a Vercel project on this repo and redeploys when the connected branch moves. See [DEPLOY.md](DEPLOY.md) for Supabase, the SQL file, and every env var.
 
 You type a seed, press PLAY, and walk the sunset downtown. Desktop uses the keyboard and mouse. A phone uses an on-screen stick, drag-to-look on the right, and buttons. The camera captures the mouse only on desktop.
 
@@ -12,7 +12,8 @@ What you can do:
 
 - **Drive.** Hover-cars sit on the roads. Stand next to one and press Use (E) to get in or out. WASD, or the stick, drives. The camera follows behind the car.
 - **Work.** Jobs (J) offers courier, taxi, city guide, mechanic, photographer, and promoter. The objective stays on the HUD. The server pays the fixed amount after the route has taken at least a few seconds.
-- **Visit.** OrbitX Shop, Cafe Nova, and the Community Hall are real ground floors. Project District, on the west side, is a row of offices. Walk through the door, or press Use at the sign to step inside. The shop counter, cafe bar, hall stage, and office desks are in the rooms. Press Use at the shop counter to buy.
+- **Visit.** OrbitX Shop, Cafe Nova, the Community Hall, OrbitX Bank, the Hover Garage, the Neon Arcade, the Night Market, and the Harbor Office are real ground floors. Project District, on the west side, is a row of offices. Walk through the door, or press Use at the sign to step inside. The phone can also send you to a door.
+- **Tour.** The objective line walks a six-stop tour from the fountain to the harbor. Each stop pays demo credits after you actually arrive. The burn board lists who has burned the most.
 - **Shop.** The shop sells suits, hover-car colors, and hats. Each price shows how much of it is burned.
 - **Advertise.** Ads (G), or the billboard desk on the main road, books plaza-east, plaza-west, hall-front, or district-row for 1, 7, or 30 days. The board changes right away on this computer.
 - **People.** Everyone who opens the deployed site joins one public world. Movement is smoothed between updates. Cars, the player count, and the player list stay in sync. Chat can go to everyone or only to people nearby. The phone (P) has profiles, friend requests, a party invite, emotes (keys 1–4), and voice lobbies. If the API is down, other tabs in the same browser still see each other.

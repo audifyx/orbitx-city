@@ -43,6 +43,8 @@ export const SHOP: ShopItem[] = [
   { id: "hat-cap", kind: "hat", name: "Cap", value: "cap", price: 15 },
   { id: "hat-antenna", kind: "hat", name: "Antenna", value: "antenna", price: 25 },
   { id: "hat-crown", kind: "hat", name: "Crown", value: "crown", price: 100 },
+  { id: "hat-visor", kind: "hat", name: "Visor", value: "cap", price: 20 },
+  { id: "color-black", kind: "color", name: "Night suit", value: "black", price: 25 },
 ];
 
 export const AD_DAYS = [1, 7, 30] as const;
@@ -111,6 +113,20 @@ export const DEFAULT_EVENTS: EventInfo[] = [
     where: "Project District",
     when: "Saturday, 2:00",
     detail: "Walk the offices. Empty floors are waiting for real projects.",
+  },
+  {
+    id: "harbor-shift",
+    title: "Harbor shift",
+    where: "Harbor pier",
+    when: "Any time",
+    detail: "Walk the pier and clock in at the harbor office.",
+  },
+  {
+    id: "night-market",
+    title: "Night market",
+    where: "Night Market",
+    when: "After sunset",
+    detail: "Stalls south of the plaza. Press N if you want the sky to go dark.",
   },
 ];
 

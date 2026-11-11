@@ -1,3 +1,5 @@
+import { connectLive } from "./live";
+
 export interface CityPerson {
   id: string;
   name: string;
@@ -56,6 +58,9 @@ class CityWorld {
   chat: WorldChat[] = [];
   bookings: { id: string; project: string; text: string; start: string; end: string }[] = [];
   events: { id: string; title: string; where: string; when: string; detail: string }[] = [];
+  board: { name: string; burned: number }[] = [];
+  mission = 0;
+  realtime = false;
   lobbies: VoiceRoom[] = [];
   party: { id: string; members: { id: string; name: string }[] } | null = null;
   lobby = "";
@@ -84,6 +89,9 @@ class CityWorld {
       this.server = String(data.storage || "City server");
       localStorage.setItem(SESSION_KEY, this.id);
       localStorage.setItem(TOKEN_KEY, this.token);
+      this.mission = Number((this.me as CityMe & { mission?: number }).mission || 0);
+      const live = data.realtime as { url?: string; anon?: string } | null;
+      if (live?.url && live.anon) void connectLive(String(live.url), String(live.anon));
       this.online = true;
       if (new URLSearchParams(location.search).has("ghost")) this.latest = { ghost: true };
     } catch {
@@ -116,6 +124,7 @@ class CityWorld {
     try {
       const data = await this.call("sync", { state: this.latest });
       this.me = (data.me as CityMe) || this.me;
+      this.mission = Number((this.me as CityMe & { mission?: number }).mission || this.mission);
       this.people = (data.people as CityPerson[]) || [];
       this.chat = (data.chat as WorldChat[]) || [];
       this.bookings = (data.bookings as CityWorld["bookings"]) || [];
@@ -188,6 +197,22 @@ class CityWorld {
 
   async voiceSignal(to: string, room: string, data: unknown) {
     return this.call("voice-signal", { to, room, data });
+  }
+
+  async loadBoard() {
+    if (!this.online) return [];
+    const data = await this.call("board", {});
+    this.board = (data.board as CityWorld["board"]) || [];
+    return this.board;
+  }
+
+  async advanceMission(step: number) {
+    const data = await this.call("mission", { step });
+    if (data.me) {
+      this.me = data.me as CityMe;
+      this.mission = Number((this.me as CityMe & { mission?: number }).mission || this.mission);
+    }
+    return data;
   }
 
   async addEvent(title: string, where: string, when: string, detail: string) {

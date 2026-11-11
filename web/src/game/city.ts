@@ -77,7 +77,7 @@ export interface RailPoint {
 export interface Anchor {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads";
+  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "arcade" | "market" | "dock";
   x: number;
   y: number;
   z: number;
@@ -103,7 +103,7 @@ export interface CarSpawn {
 export interface Zone {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project";
+  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "arcade" | "market" | "dock";
   slot: number;
   minX: number;
   maxX: number;
@@ -130,6 +130,14 @@ export interface City {
   cars: CarSpawn[];
   zones: Zone[];
   facades: Facade[];
+  citizens: Citizen[];
+}
+
+export interface Citizen {
+  name: string;
+  color: string;
+  x: number;
+  z: number;
 }
 
 const CENTERS = [-108, -72, -36, 0, 36, 72, 108];
@@ -917,6 +925,10 @@ function reservedPlot(x0: number, x1: number, z0: number, z1: number) {
     [7, 29, 43, 65],
     [-29, -7, 43, 65],
     [43, 65, 7, 29],
+    [79, 101, 7, 29],
+    [79, 101, 43, 65],
+    [43, 65, 43, 65],
+    [-29, -7, 79, 101],
   ];
   return spots.some(([a, b, c, d]) => x0 >= a - 0.2 && x1 <= b + 0.2 && z0 >= c - 0.2 && z1 <= d + 0.2);
 }
@@ -1189,7 +1201,55 @@ function addVenue(
   if (kind === "shop") return furnishShop(boxes, cols, x0, z0, w, d, door);
   if (kind === "cafe") return furnishCafe(boxes, cols, x0, z0, w, d, door);
   if (kind === "hall") return furnishHall(boxes, cols, x0, z0, w, d, door);
-  return furnishOffice(boxes, cols, x0, z0, w, d, door, index);
+  if (kind === "project") return furnishOffice(boxes, cols, x0, z0, w, d, door, index);
+  return furnishSpot(boxes, cols, x0, z0, w, d, door, kind);
+}
+
+function furnishSpot(
+  boxes: Box[],
+  cols: Collider[],
+  x0: number,
+  z0: number,
+  w: number,
+  d: number,
+  door: Face,
+  kind: Zone["kind"],
+): Zone {
+  const names: Record<string, [string, string, Mat]> = {
+    bank: ["OrbitX Bank", "Demo savings window", "stone"],
+    garage: ["Hover Garage", "Take a car from the avenue", "black"],
+    arcade: ["Neon Arcade", "One cabinet, one high score", "cyan"],
+    market: ["Night Market", "Stalls open until late", "warm"],
+    dock: ["Harbor Office", "Ships and shift work", "wood"],
+  };
+  const [name, , floor] = names[kind] ?? ["OrbitX", "Come in", "cream"];
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, floor);
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  const back = opposite(door, x0, z0, w, d, 2.4);
+  const alongX = door === "n" || door === "s";
+  put(boxes, back.x, 0.6, back.z, alongX ? 6.4 : 1.1, 1.1, alongX ? 1.1 : 6.4, kind === "arcade" ? "cyan" : "black");
+  cols.push(col(back.x, 0.6, back.z, alongX ? 6.4 : 1.1, 1.1, alongX ? 1.1 : 6.4));
+  put(boxes, cx, 0.45, cz, 2.2, 0.8, 1.2, "wood");
+  cols.push(col(cx, 0.45, cz, 2.2, 0.8, 1.2));
+  const service = opposite(door, x0, z0, w, d, 4.1);
+  return {
+    id: kind,
+    name,
+    kind,
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX: service.x,
+    serviceZ: service.z,
+    signX: back.x + (door === "w" ? -0.55 : door === "e" ? 0.55 : 0),
+    signY: 2.35,
+    signZ: back.z + (door === "n" ? -0.55 : door === "s" ? 0.55 : 0),
+    signRot: back.rot,
+  };
 }
 
 function addPark(boxes: Box[], cols: Collider[], x0: number, z0: number, x1: number, z1: number) {
@@ -1208,12 +1268,36 @@ function addKiosk(boxes: Box[], cols: Collider[], x: number, z: number, top: Mat
   cols.push(col(x, 0.9, z, 1.5, 1.6, 1.5));
 }
 
+function addHarbor(boxes: Box[], cols: Collider[]) {
+  put(boxes, -30, 0.04, 152, 40, 0.08, 48, "water");
+  put(boxes, 30, 0.04, 152, 40, 0.08, 48, "water");
+  cols.push({ minX: -50, maxX: -10, minY: 0, maxY: 1.2, minZ: 128, maxZ: 176 });
+  cols.push({ minX: 10, maxX: 50, minY: 0, maxY: 1.2, minZ: 128, maxZ: 176 });
+  put(boxes, 0, 0.12, 150, 6, 0.16, 52, "wood");
+  put(boxes, 0, 0.2, 150, 5.2, 0.08, 50, "stone");
+  for (const z of [132, 146, 160, 172]) {
+    put(boxes, -2.4, 1.3, z, 0.25, 2.2, 0.25, "black");
+    put(boxes, 2.4, 1.3, z, 0.25, 2.2, 0.25, "black");
+    put(boxes, 0, 2.35, z, 5.2, 0.12, 0.2, "cyanhot");
+    cols.push(col(-2.4, 1.3, z, 0.25, 2.2, 0.25));
+    cols.push(col(2.4, 1.3, z, 0.25, 2.2, 0.25));
+  }
+  put(boxes, -18, 0.2, 156, 10, 0.3, 3.2, "black");
+  put(boxes, 18, 0.2, 160, 12, 0.35, 3.4, "white");
+}
+
 function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; boards: BoardSlot[]; zones: Zone[] } {
   const zones = [
     addVenue(boxes, cols, 7, 43, 22, 22, 16, "w", "shop"),
     addVenue(boxes, cols, -29, 43, 22, 22, 14, "e", "cafe"),
     addVenue(boxes, cols, 43, 7, 22, 22, 18, "w", "hall"),
+    addVenue(boxes, cols, 79, 7, 22, 22, 16, "w", "bank"),
+    addVenue(boxes, cols, 79, 43, 22, 22, 14, "w", "garage"),
+    addVenue(boxes, cols, 43, 43, 22, 22, 12, "w", "arcade"),
+    addVenue(boxes, cols, -29, 79, 22, 22, 12, "n", "market"),
   ];
+  addHarbor(boxes, cols);
+  zones.push(addVenue(boxes, cols, -8, 142, 16, 14, 10, "n", "dock"));
 
   const projectZs = [-65, -29, 43, 79];
   projectZs.forEach((z0, index) => {
@@ -1234,6 +1318,11 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     { id: "jobs", name: "Jobs board", kind: "jobs", x: 10, y: 0, z: 17.6, yaw: 0, slot: 0 },
     { id: "events", name: "Events board", kind: "events", x: -10, y: 0, z: 17.6, yaw: 0, slot: 0 },
     { id: "ads", name: "Billboard desk", kind: "ads", x: 8, y: 0, z: 69.8, yaw: 0, slot: 0 },
+    { id: "bank", name: "OrbitX Bank", kind: "bank", x: 77.6, y: 0, z: 18, yaw: Math.PI / 2, slot: 0 },
+    { id: "garage", name: "Hover Garage", kind: "garage", x: 77.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
+    { id: "arcade", name: "Neon Arcade", kind: "arcade", x: 41.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
+    { id: "market", name: "Night Market", kind: "market", x: -18, y: 0, z: 77.6, yaw: Math.PI, slot: 0 },
+    { id: "dock", name: "Harbor Office", kind: "dock", x: 0, y: 0, z: 140.6, yaw: Math.PI, slot: 0 },
   ];
   projectZs.forEach((z0, index) => {
     anchors.push({
@@ -1311,6 +1400,16 @@ export function buildCity(seed: number): City {
       { id: "west-ave", x: -72, z: -18, yaw: Math.PI },
       { id: "north-ave", x: 18, z: 72, yaw: Math.PI / 2 },
       { id: "south-ave", x: -18, z: -72, yaw: -Math.PI / 2 },
+      { id: "garage-row", x: 72, z: 54, yaw: Math.PI },
+      { id: "pier", x: 0, z: 132, yaw: 0 },
+    ],
+    citizens: [
+      { name: "Rio", color: "sunset", x: 4, z: 20 },
+      { name: "Mina", color: "cyan", x: -16, z: 50 },
+      { name: "Sol", color: "gold", x: 16, z: 28 },
+      { name: "Nox", color: "black", x: 72, z: 40 },
+      { name: "Pia", color: "white", x: -18, z: 90 },
+      { name: "Harbor", color: "cyan", x: 0, z: 136 },
     ],
   };
 }

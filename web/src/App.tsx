@@ -50,6 +50,9 @@ const EMPTY: Snap = {
   profile: null,
   server: "",
   chatScope: "global",
+  mission: 0,
+  board: [],
+  districts: [],
 };
 
 function shotMode(): PlayMode | null {
@@ -287,6 +290,27 @@ export default function App() {
                   </div>
                   <button type="button" onClick={() => { gameRef.current?.runtime.startJob("promoter"); close(); }}>Start</button>
                 </article>
+                <article>
+                  <div>
+                    <b>Dock hand</b>
+                    <span>Clock in at the harbor office, down the pier. Pays 65.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("dock"); close(); }}>Start</button>
+                </article>
+                <article>
+                  <div>
+                    <b>DJ</b>
+                    <span>Play a set inside the Community Hall. Pays 55.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("dj"); close(); }}>Start</button>
+                </article>
+                <article>
+                  <div>
+                    <b>Bank teller</b>
+                    <span>Open the window at OrbitX Bank. Pays 50.</span>
+                  </div>
+                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("banker"); close(); }}>Start</button>
+                </article>
               </div>
             )}
             {panel === "ads" && (
@@ -498,6 +522,22 @@ function Phone({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           <button type="button" onClick={() => rt?.partyInvite(snap.profile?.id || "")}>Invite</button>
         </article>
       ) : null}
+      <h3>City tour</h3>
+      <span>{snap.mission >= 6 ? "Tour complete." : `Stop ${snap.mission + 1} of 6 is marked on the objective.`}</span>
+      <h3>Places</h3>
+      {snap.districts.filter((place) => ["shop", "cafe", "hall", "bank", "garage", "arcade", "market", "dock", "project-0"].includes(place.id)).map((place) => (
+        <article key={place.id}>
+          <div><b>{place.name}</b></div>
+          <button type="button" onClick={() => { rt?.travel(place.id); }}>Go</button>
+        </article>
+      ))}
+      <h3>Burn board</h3>
+      {snap.board.length === 0 ? <span>Burn some demo credits and your name can land here.</span> : null}
+      {snap.board.map((row) => (
+        <article key={row.name}>
+          <div><b>{row.name}</b><span>{row.burned} burned</span></div>
+        </article>
+      ))}
       <h3>People here</h3>
       {snap.people.length === 0 ? <span>You are the only one in view. The main world still lists you.</span> : null}
       {snap.people.map((person) => (
