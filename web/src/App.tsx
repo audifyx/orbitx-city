@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
 import type { AdOrder, PanelName, Runtime, Snap } from "./game/runtime";
-import { adSolPrice } from "./game/content";
+import { adUsdPrice } from "./game/content";
 import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
 import { Roster } from "./Roster";
@@ -178,7 +178,7 @@ export default function App() {
   const [adText, setAdText] = useState("ORBITX LIVE");
   const [adId, setAdId] = useState("plaza-east");
   const [adDays, setAdDays] = useState<1 | 7 | 30>(7);
-  const [adQuoteData, setAdQuoteData] = useState<{ priceSol: number; estOrbitxUi: string; usd: string; endsAt: string } | null>(null);
+  const [adQuoteData, setAdQuoteData] = useState<{ priceUsd: number; priceSol: number; estOrbitxUi: string; usd: string; endsAt: string } | null>(null);
   const [adOrder, setAdOrder] = useState<AdOrder | null>(null);
   const [adOrders, setAdOrders] = useState<AdOrder[]>([]);
   const [adBusy, setAdBusy] = useState(false);
@@ -480,6 +480,7 @@ export default function App() {
                         const q = await rt.quoteAd(adId, adDays);
                         if (q.ok) {
                           setAdQuoteData({
+                            priceUsd: Number((q as { priceUsd?: number }).priceUsd || 0),
                             priceSol: Number((q as { priceSol?: number }).priceSol || 0),
                             estOrbitxUi: String((q as { estOrbitxUi?: string }).estOrbitxUi || ""),
                             usd: String((q as { usd?: string }).usd || ""),
@@ -519,13 +520,13 @@ export default function App() {
                     <div className="days">
                       {([1, 7, 30] as const).map((days) => (
                         <button key={days} type="button" className={adDays === days ? "on" : ""} onClick={() => { setAdDays(days); setAdQuoteData(null); }}>
-                          {days} day{days === 1 ? "" : "s"} · {adSolPrice(adId, days)} SOL
+                          {days} day{days === 1 ? "" : "s"} · ${adUsdPrice(adId, days).toFixed(2)}
                         </button>
                       ))}
                     </div>
                     {adQuoteData ? (
                       <p>
-                        {adQuoteData.priceSol} SOL buys ~{adQuoteData.estOrbitxUi} ORBITX{adQuoteData.usd ? ` (${adQuoteData.usd})` : ""} and burns it all.
+                        ${adQuoteData.priceUsd.toFixed(2)} buys ~{adQuoteData.estOrbitxUi} ORBITX ({adQuoteData.priceSol} SOL) and burns it all.
                         100% buy + burn. No fee, no cut. Live until {adQuoteData.endsAt}.
                       </p>
                     ) : (
@@ -542,8 +543,8 @@ export default function App() {
                       <b>{adOrder.board} — {adOrder.status}</b>
                       <span>{adOrder.project} · {adOrder.text}</span>
                       {adOrder.error ? <span>{adOrder.error}</span> : null}
-                      {adOrder.swapUrl ? <span><a href={adOrder.swapUrl} target="_blank" rel="noreferrer">Swap tx</a></span> : null}
-                      {adOrder.burnUrl ? <span><a href={adOrder.burnUrl} target="_blank" rel="noreferrer">Burn tx</a></span> : null}
+                      {adOrder.swapUrl ? <span><a href={adOrder.swapUrl} target="_blank" rel="noreferrer">{adOrder.burnUrl && adOrder.burnUrl !== adOrder.swapUrl ? "Swap tx" : "Transaction"}</a></span> : null}
+                      {adOrder.burnUrl && adOrder.burnUrl !== adOrder.swapUrl ? <span><a href={adOrder.burnUrl} target="_blank" rel="noreferrer">Burn tx</a></span> : null}
                     </div>
                     {adOrder.status === "burn-pending" ? (
                       <button

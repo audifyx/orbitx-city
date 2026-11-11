@@ -1296,10 +1296,11 @@ export function createRuntime(scene: Scene) {
       publish();
       return;
     }
-    if (raceNext < 0 && nearGate(body, 0, 8)) {
-      void startRace("street");
-      return;
-    }
+    // A close door / lift / board beats the race gate: the mall door sits
+    // 5.6 units from the street-race start gate, inside its 8-unit radius,
+    // so pressing E at the door used to start the race instead of walking
+    // in. A player at the gate itself is 5.6 units from the door — outside
+    // the 3.3-unit anchor radius — so the gate still fires there.
     const anchor = nearestAnchor(body, 3.3);
     if (anchor) {
       if (anchor.kind === "lift") {
@@ -1315,6 +1316,10 @@ export function createRuntime(scene: Scene) {
       if (anchor.kind === "ads") panel = "ads";
       if (anchor.kind === "events") panel = "events";
       publish();
+      return;
+    }
+    if (raceNext < 0 && nearGate(body, 0, 8)) {
+      void startRace("street");
       return;
     }
     // No door, zone, or board answered: a car within 7 units is the last
@@ -1804,23 +1809,24 @@ export function createRuntime(scene: Scene) {
       else if (decorating && lot) prompt = "Decorate — place, rotate, or remove. X closes it.";
       else if (driving && nearGate(body, 0, 8)) prompt = "Press E — hover time trial";
       else if (driving) prompt = "Press E to get out";
-      else if (nearGate(body, 0, 8)) prompt = "Press E — street race";
       else if (zone && nearService(body, zone)) {
         prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zoneTitle(zone);
-      } else {
-        // Mirror interact()'s priority: a door / lift / board answers E
-        // before a car does, so the prompt shows the door's action — not
-        // "Press E to drive" — when the player stands at a door with a car
-        // parked nearby. The car is the fallback; the zone title is
-        // informational only. Nothing in range: clear the prompt (leaving it
-        // untouched kept "Press E to drive" on screen 30-40 m after the
-        // player walked away from the car).
-        const anchor = nearestAnchor(body, 3.3);
-        if (anchor) {
-          const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
-          const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office";
-          prompt = walkIn ? `Walk in — ${title}` : `Press E — ${title}`;
-        } else if (nearestCar(body, 7) >= 0) prompt = "Press E to drive";
+      } else if (nearestAnchor(body, 3.3)) {
+        // A close door / lift / board beats the race gate, same as
+        // interact(): the mall door sits 5.6 units from the street-race
+        // start gate, inside its 8-unit radius, so the prompt used to say
+        // "street race" at the door instead of "Walk in".
+        const anchor = nearestAnchor(body, 3.3)!;
+        const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
+        const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office";
+        prompt = walkIn ? `Walk in — ${title}` : `Press E — ${title}`;
+      } else if (nearGate(body, 0, 8)) prompt = "Press E — street race";
+      else {
+        // The anchor was already checked above (it beats the gate); here
+        // only the car fallback and the zone title remain. Nothing in
+        // range: clear the prompt (leaving it untouched kept "Press E to
+        // drive" on screen 30-40 m after the player walked away).
+        if (nearestCar(body, 7) >= 0) prompt = "Press E to drive";
         else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : lot?.ownerId === world.id ? `${lot.name} — press X to decorate` : zoneTitle(zone);
         else prompt = "";
       }

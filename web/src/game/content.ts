@@ -51,15 +51,17 @@ export const SHOP: ShopItem[] = [
 ];
 
 export const AD_DAYS = [1, 7, 30] as const;
-// Real billboard pricing, in SOL. The buyer pays SOL; Jupiter swaps it to
-// ORBITX and ALL of the received ORBITX is burned (100% buy + burn, no fee,
-// no cut). Plaza boards pay double. The server is the authority — these
-// numbers are only the client's preview; the quote comes from the API.
-export const AD_SOL_PRICE: Record<number, number> = { 1: 0.01, 7: 0.05, 30: 0.15 };
+// Real billboard pricing, in USD — the user set it: 10 cents a day, for
+// now. Week and month scale 5x/15x; plaza boards pay double. The buyer
+// pays SOL; Jupiter swaps it to ORBITX and ALL of the received ORBITX is
+// burned (100% buy + burn, no fee, no cut). The server is the authority —
+// these numbers are only the client's preview; the quote comes from the
+// API (the SOL amount is computed from the live SOL price at quote time).
+export const AD_USD_PRICE: Record<number, number> = { 1: 0.1, 7: 0.5, 30: 1.5 };
 export const AD_PLAZA_BOARDS = new Set(["plaza-east", "plaza-west"]);
 export const AD_PLAZA_MULT = 2;
-export function adSolPrice(board: string, days: number): number {
-  const base = AD_SOL_PRICE[days] ?? 0;
+export function adUsdPrice(board: string, days: number): number {
+  const base = AD_USD_PRICE[days] ?? 0;
   return AD_PLAZA_BOARDS.has(board) ? base * AD_PLAZA_MULT : base;
 }
 // Play-money prices for the offline (this-device-only) demo booking.
