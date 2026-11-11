@@ -12,13 +12,17 @@
 // treasury — nothing is held anywhere. The UI sells "100% buy + burn" and
 // never shows a fee/revenue line.
 //
-// Price is SOL-denominated (Jupiter has no ExactOut route for this token,
-// so an exact-ORBITX price cannot be quoted). The swap buys whatever
-// ORBITX the SOL gets, and the burn is built for the quote's guaranteed
-// minimum output (otherAmountThreshold) — so the burn can never exceed
-// what the swap delivered. Any dust above the threshold stays in the
-// wallet. The amount actually burned is measured from the confirmed
-// transaction's token balances, never guessed from the quote.
+// Price is USD-denominated — the user set it: 10 cents a day, for now.
+// Week and month scale by the same 5x/15x as the old SOL table. The SOL
+// amount is computed at quote and buy time from the live SOL price, so
+// the dollar price stays 10 cents even as SOL moves. Jupiter has no
+// ExactOut route for this token, so an exact-ORBITX price cannot be
+// quoted — the swap buys whatever ORBITX the SOL gets, and the burn is
+// built for the quote's guaranteed minimum output
+// (otherAmountThreshold) — so the burn can never exceed what the swap
+// delivered. Any dust above the threshold stays in the wallet. The
+// amount actually burned is measured from the confirmed transaction's
+// token balances, never guessed from the quote.
 //
 // Because Vercel functions are short-lived, the buy is a state machine the
 // client polls: ad-buy sends the single transaction and returns at once;
@@ -55,12 +59,12 @@ function envNum(name, fallback) {
   return Number.isFinite(raw) && raw > 0 ? raw : fallback;
 }
 
-// Pricing (SOL per duration, whole-board price). Plaza boards pay the premium.
-// Proposed defaults — pricing is the user's call. Tune with env vars.
-export const AD_SOL_PRICE = {
-  1: envNum("AD_PRICE_DAY_SOL", 0.01),
-  7: envNum("AD_PRICE_WEEK_SOL", 0.05),
-  30: envNum("AD_PRICE_MONTH_SOL", 0.15),
+// Pricing (USD per duration, whole-board price). Plaza boards pay the premium.
+// User-set defaults: 10 cents a day, for now. Tune with env vars.
+export const AD_USD_PRICE = {
+  1: envNum("AD_PRICE_DAY_USD", 0.1),
+  7: envNum("AD_PRICE_WEEK_USD", 0.5),
+  30: envNum("AD_PRICE_MONTH_USD", 1.5),
 };
 export const PLAZA_BOARDS = new Set(["plaza-east", "plaza-west"]);
 export const PLAZA_MULT = envNum("AD_PLAZA_MULTIPLIER", 2);
@@ -68,7 +72,39 @@ export const AD_SLIPPAGE_BPS = 100;
 export const AD_MAX_SOL_LAMPORTS = envNum("AD_MAX_SOL_LAMPORTS", 0.5 * LAMPORTS_PER_SOL);
 export const AD_DAILY_SOL_CAP_LAMPORTS = envNum("AD_DAILY_SOL_CAP_LAMPORTS", 1 * LAMPORTS_PER_SOL);
 export const AD_BUYS_PER_HOUR = 3;
-const FEE_BUFFER_LAMPORTS = 0.01 * LAMPORTS_PER_SOL;
+// Fee buffer: the composed transaction creates the ORBITX output ATA when
+// it does not exist yet (rent ~0.002 SOL) plus network fees. 0.003 SOL
+// covers both with room to spare; it is not part of the price.
+const FEE_BUFFER_LAMPORTS = 0.003 * LAMPORTS_PER_SOL;
+
+// Live SOL/USD price, for converting the USD ad price to SOL at quote
+// and buy time. Jupiter's price API is unreachable from this runtime, so
+// CoinGecko is the source. Cached 60s; a stale (<=1h) price is the
+// fallback when the fetch fails; SOL_USD pins a fixed price (tests,
+// operators). Throws when no price is available — the quote/buy fails
+// cleanly rather than charging a guessed amount.
+let solUsdCache = { price: 0, at: 0 };
+export async function solUsdPrice() {
+  const pinned = Number(process.env.SOL_USD);
+  if (Number.isFinite(pinned) && pinned > 0) return pinned;
+  const now = Date.now();
+  if (solUsdCache.price > 0 && now - solUsdCache.at < 60_000) return solUsdCache.price;
+  try {
+    const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd", { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const data = await res.json();
+      const price = Number(data?.solana?.usd);
+      if (Number.isFinite(price) && price > 0) {
+        solUsdCache = { price, at: now };
+        return price;
+      }
+    }
+  } catch {
+    // Fall through to the stale cache, then the clean failure below.
+  }
+  if (solUsdCache.price > 0 && now - solUsdCache.at < 3_600_000) return solUsdCache.price;
+  throw new Error("The SOL price could not be read. Try again in a moment.");
+}
 
 export const AD_BOARDS = ["plaza-east", "plaza-west", "hall-front", "district-row"];
 
@@ -120,11 +156,19 @@ function store() {
   return slot.__orbitxAds;
 }
 
-export function priceLamports(board, days) {
-  const base = AD_SOL_PRICE[Number(days)];
-  if (!base) return 0;
+export function priceUsd(board, days) {
+  const usd = AD_USD_PRICE[Number(days)];
+  if (!usd) return 0;
   const mult = PLAZA_BOARDS.has(board) ? PLAZA_MULT : 1;
-  return Math.round(base * mult * LAMPORTS_PER_SOL);
+  return usd * mult;
+}
+
+export async function priceLamports(board, days) {
+  const usd = AD_USD_PRICE[Number(days)];
+  if (!usd) return 0;
+  const mult = PLAZA_BOARDS.has(board) ? PLAZA_MULT : 1;
+  const solPrice = await solUsdPrice();
+  return Math.round(((usd * mult) / solPrice) * LAMPORTS_PER_SOL);
 }
 
 function todayStr(time = Date.now()) {
@@ -317,10 +361,15 @@ export async function adQuote(ctx, player, body) {
   if (!player.authUser) return fail("Create an account to book a billboard. Guests keep City Sol only.");
   const board = String(body.board || body.id || "").slice(0, 40);
   const days = Number(body.days);
-  if (!AD_BOARDS.includes(board) || !AD_SOL_PRICE[days]) {
+  if (!AD_BOARDS.includes(board) || !AD_USD_PRICE[days]) {
     return fail("Pick a billboard and 1, 7, or 30 days.");
   }
-  const price = priceLamports(board, days);
+  let price;
+  try {
+    price = await priceLamports(board, days);
+  } catch (err) {
+    return fail(err.message || "The SOL price could not be read. Nothing was bought.", 502);
+  }
   if (price > AD_MAX_SOL_LAMPORTS) {
     return fail(`That booking is over the ${AD_MAX_SOL_LAMPORTS / LAMPORTS_PER_SOL} SOL per-buy cap.`);
   }
@@ -344,6 +393,7 @@ export async function adQuote(ctx, player, body) {
     board,
     days,
     plaza: PLAZA_BOARDS.has(board),
+    priceUsd: priceUsd(board, days),
     priceSol: price / LAMPORTS_PER_SOL,
     priceLamports: price,
     estOrbitx: quote.outAmount,
@@ -567,7 +617,7 @@ export async function adBuy(ctx, player, body) {
   }
   const board = String(body.board || body.id || "").slice(0, 40);
   const days = Number(body.days);
-  if (!AD_BOARDS.includes(board) || !AD_SOL_PRICE[days]) {
+  if (!AD_BOARDS.includes(board) || !AD_USD_PRICE[days]) {
     return fail("Pick a billboard and 1, 7, or 30 days.");
   }
   const project = String(body.project || player.name || "").slice(0, 32);
@@ -579,7 +629,12 @@ export async function adBuy(ctx, player, body) {
   if (hitLimit(`adbuy:${player.authUser}`, AD_BUYS_PER_HOUR, 60 * 60 * 1000)) {
     return fail("Too many billboard buys this hour. Wait and try again.", 429);
   }
-  const price = priceLamports(board, days);
+  let price;
+  try {
+    price = await priceLamports(board, days);
+  } catch (err) {
+    return fail(err.message || "The SOL price could not be read. Nothing was bought.", 502);
+  }
   if (price > AD_MAX_SOL_LAMPORTS) {
     return fail(`That booking is over the ${AD_MAX_SOL_LAMPORTS / LAMPORTS_PER_SOL} SOL per-buy cap.`);
   }
@@ -597,7 +652,7 @@ export async function adBuy(ctx, player, body) {
     return fail(`The SOL balance was not read (${err.message || "RPC"}). Nothing was bought.`, 502);
   }
   if (balance < price + FEE_BUFFER_LAMPORTS) {
-    return fail(`Not enough SOL in the in-app wallet. This board costs ${price / LAMPORTS_PER_SOL} SOL plus a small fee buffer.`);
+    return fail(`Not enough SOL in the in-app wallet. This board costs $${priceUsd(board, days).toFixed(2)} (about ${price / LAMPORTS_PER_SOL} SOL) plus a small fee buffer.`);
   }
   let preBalances = {};
   try {
