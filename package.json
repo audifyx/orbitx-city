@@ -8,6 +8,8 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",
+    "@solana/spl-token": "^0.4.15",
+    "@solana/web3.js": "^1.99.0",
     "@supabase/supabase-js": "^2.49.4",
     "@upstash/redis": "^1.35.3",
     "qrcode": "^1.5.4"

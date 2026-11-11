@@ -1,6 +1,12 @@
 // Real billboard ads: pay SOL from the in-app wallet, Jupiter swaps
-// SOL -> ORBITX, then the received ORBITX is burned with the Token program's
-// Burn instruction (which reduces the mint's supply).
+// SOL -> ORBITX, and the received ORBITX is burned — in the SAME
+// transaction, signed ONCE. Jupiter builds the swap and the Token-2022
+// Burn instruction is appended to it (attachBurnToSwap — the OrbitX desk
+// shop's compose), so one click from the user is one signature and one
+// on-chain transaction that does both jobs. There is no second step and
+// no burn retry for the user to click: if the transaction fails to send
+// or fails on-chain, nothing was bought, and the same click retries the
+// whole buy+burn.
 //
 // 100% of the payment is buy + burn. OrbitX takes NO fee, NO cut, NO
 // treasury — nothing is held anywhere. The UI sells "100% buy + burn" and
@@ -8,20 +14,23 @@
 //
 // Price is SOL-denominated (Jupiter has no ExactOut route for this token,
 // so an exact-ORBITX price cannot be quoted). The swap buys whatever
-// ORBITX the SOL gets, and ALL of it is burned. The amount burned is
-// measured from the confirmed swap transaction, never guessed from the quote.
+// ORBITX the SOL gets, and the burn is built for the quote's guaranteed
+// minimum output (otherAmountThreshold) — so the burn can never exceed
+// what the swap delivered. Any dust above the threshold stays in the
+// wallet. The amount actually burned is measured from the confirmed
+// transaction's token balances, never guessed from the quote.
 //
 // Because Vercel functions are short-lived, the buy is a state machine the
-// client polls: ad-buy sends the swap and returns at once; ad-status
-// advances swapping -> burning -> live. If the browser closes mid-flow,
-// the order resumes on the next visit. A burn that fails after a good swap
-// is NEVER silent: the order sits at burn-pending with the swap signature
-// on record, and the user retries the burn from the Ads panel.
+// client polls: ad-buy sends the single transaction and returns at once;
+// ad-status advances swapping -> live. If the browser closes mid-flow,
+// the order resumes on the next visit. A pre-change order that is still
+// sitting at burn-pending (separate swap + burn) keeps its retry path
+// (ad-retry-burn) — the new flow never creates one.
 //
 // DEVNET ONLY until the user flips SOLANA_NETWORK. No mainnet code path is
 // enabled here — the network comes from wallet.js networkName().
 
-import { buildSwap, getQuote, signVersionedTransaction, orbitxMint } from "./jupiter.js";
+import { attachBurnToSwap, buildSwap, getQuote, signVersionedTransaction, orbitxMint } from "./jupiter.js";
 import {
   TOKEN_PROGRAM_ID,
   audit,
@@ -345,7 +354,34 @@ export async function adQuote(ctx, player, body) {
   };
 }
 
+// How much ORBITX did the single buy+burn transaction actually burn?
+// The swap moves ORBITX from the pool to the buyer (net zero across all
+// accounts) and the burn destroys it — so the net ORBITX delta across
+// every account in the confirmed transaction is negative by exactly the
+// burned amount. Returns 0n when the transaction cannot be read yet.
+async function measureBurned(signature) {
+  const mint = orbitxMint();
+  try {
+    const meta = await getTransactionMeta(signature);
+    if (!meta) return 0n;
+    let pre = 0n;
+    let post = 0n;
+    for (const row of meta.preTokenBalances || []) {
+      if (row.mint === mint) pre += BigInt(row.uiTokenAmount?.amount || "0");
+    }
+    for (const row of meta.postTokenBalances || []) {
+      if (row.mint === mint) post += BigInt(row.uiTokenAmount?.amount || "0");
+    }
+    const delta = post - pre;
+    return delta < 0n ? -delta : 0n;
+  } catch {
+    return 0n;
+  }
+}
+
 // Measure exactly how much ORBITX the swap credited to the buyer.
+// (Legacy path only — pre-change orders whose burn was a separate
+// transaction. The single-transaction flow uses measureBurned instead.)
 // Prefers the confirmed transaction's pre/post token balances; falls back
 // to the balance diff against the pre-swap snapshot stored on the order.
 async function measureCredited(order) {
@@ -434,40 +470,41 @@ async function sendBurn(ctx, order) {
 }
 
 // Advance one order one step. Safe to call repeatedly (polling).
-// swapping -> (swap confirmed) -> send burn -> burning
-// burning -> (burn confirmed) -> booking + live
-// Any burn failure lands on burn-pending with the swap signature kept,
-// so the user can retry instead of silently losing the burn.
+// swapping -> (single buy+burn tx confirmed) -> booking + live
+// burning -> (legacy separate burn confirmed) -> booking + live
+// A failed single transaction lands on swap-failed: nothing was bought,
+// so the same click retries the whole buy+burn (adBuy re-runs a
+// swap-failed order on the same idempotency key).
 export async function advanceAdOrder(ctx, order, player) {
   if (order.status === "swapping") {
     const status = await getSignatureStatus(order.swapSignature);
     if (!status) return order;
     if (status === "failed") {
       order.status = "swap-failed";
-      order.error = "The swap transaction failed on-chain. No ORBITX was bought and no booking was made.";
+      order.error = "The buy+burn transaction failed on-chain. No ORBITX was bought and no booking was made — buy again and it retries in one click.";
       await persistOrder(ctx, order);
       return order;
     }
-    const measured = await measureCredited(order);
-    if (measured.credited <= 0n) {
+    // One transaction did both jobs: measure what it actually burned.
+    // Fall back to the guaranteed burn recorded when the transaction was
+    // composed — a confirmed transaction ran its burn instruction, so the
+    // guaranteed amount is what was burned.
+    const burned = await measureBurned(order.swapSignature);
+    const guaranteed = BigInt(order.meta.burnRaw || "0");
+    const amount = burned > 0n ? burned : guaranteed;
+    if (amount <= 0n) {
       order.status = "burn-pending";
-      order.error = "The swap confirmed, but no ORBITX arrived in the wallet to burn. Open the burn retry and it will re-measure.";
+      order.error = "The transaction confirmed but no burn was measured. The burn retry will re-measure.";
       await persistOrder(ctx, order);
       return order;
     }
-    order.orbitxAmount = measured.credited.toString();
-    order.meta.tokenAccount = measured.tokenAccount;
-    try {
-      const burnSig = await sendBurn(ctx, order);
-      order.burnSignature = burnSig;
-      order.status = "burning";
-      order.error = "";
-    } catch (err) {
-      order.status = "burn-pending";
-      order.error = `The swap bought ORBITX but the burn did not send (${err.message || "burn"}). Your ORBITX is still in your wallet — retry the burn.`;
-    }
+    order.orbitxAmount = amount.toString();
+    order.burnSignature = order.swapSignature; // same transaction
+    order.status = "burning";
+    order.error = "";
     await persistOrder(ctx, order);
-    return order;
+    // Falls through to the "burning" branch below, which confirms the
+    // same signature and finalizes the booking.
   }
   if (order.status === "burning") {
     const status = await getSignatureStatus(order.burnSignature);
@@ -513,9 +550,20 @@ export async function adBuy(ctx, player, body) {
   const idem = String(body.idempotencyKey || "").slice(0, 80);
   if (!idem) return fail("Missing a confirm id. Open the billboard sheet again.", 400);
   const existing = await loadOrderByKey(ctx, idem);
+  let reuse = null;
   if (existing) {
-    if (existing.status === "swapping" || existing.status === "burning") await advanceAdOrder(ctx, existing, player);
-    return { ok: true, order: publicOrder(existing), message: "This booking was already started. No second payment was made." };
+    if (existing.status === "swapping" || existing.status === "burning") {
+      await advanceAdOrder(ctx, existing, player);
+      return { ok: true, order: publicOrder(existing), message: "This booking was already started. No second payment was made." };
+    }
+    if (existing.status === "swap-failed") {
+      // The first attempt never landed, so nothing was bought or burned.
+      // One more click re-runs the whole buy+burn on the same order and
+      // the same idempotency key.
+      reuse = existing;
+    } else {
+      return { ok: true, order: publicOrder(existing), message: "This booking was already started. No second payment was made." };
+    }
   }
   const board = String(body.board || body.id || "").slice(0, 40);
   const days = Number(body.days);
@@ -559,25 +607,43 @@ export async function adBuy(ctx, player, body) {
     preBalances = {};
   }
   const now = new Date().toISOString();
-  const order = {
-    id: `ad_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
-    userId: player.authUser,
-    playerId: player.id,
-    board,
-    days,
-    project,
-    text,
-    status: "processing",
-    solLamports: price,
-    orbitxAmount: "",
-    swapSignature: "",
-    burnSignature: "",
-    idempotencyKey: idem,
-    error: "",
-    createdAt: now,
-    expiresAt: endStr(days),
-    meta: { owner, preBalances },
-  };
+  let order;
+  if (reuse) {
+    reuse.board = board;
+    reuse.days = days;
+    reuse.project = project;
+    reuse.text = text;
+    reuse.solLamports = price;
+    reuse.status = "processing";
+    reuse.error = "";
+    reuse.swapSignature = "";
+    reuse.burnSignature = "";
+    reuse.orbitxAmount = "";
+    reuse.createdAt = now;
+    reuse.expiresAt = endStr(days);
+    reuse.meta = { ...(reuse.meta || {}), owner, preBalances };
+    order = reuse;
+  } else {
+    order = {
+      id: `ad_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+      userId: player.authUser,
+      playerId: player.id,
+      board,
+      days,
+      project,
+      text,
+      status: "processing",
+      solLamports: price,
+      orbitxAmount: "",
+      swapSignature: "",
+      burnSignature: "",
+      idempotencyKey: idem,
+      error: "",
+      createdAt: now,
+      expiresAt: endStr(days),
+      meta: { owner, preBalances },
+    };
+  }
   await persistOrder(ctx, order);
   let quote;
   try {
@@ -597,17 +663,33 @@ export async function adBuy(ctx, player, body) {
     await persistOrder(ctx, order);
     return fail(order.error, 502);
   }
+  // ONE transaction, ONE signature: append the Token-2022 burn for the
+  // quote's guaranteed minimum output to Jupiter's swap transaction.
+  // The wallet signs the composed transaction once, below.
+  let composed;
+  let burnRaw = "0";
+  try {
+    burnRaw = String(BigInt(quote.otherAmountThreshold || quote.outAmount || "0"));
+    if (BigInt(burnRaw) <= 0n) throw new Error("Jupiter quoted no ORBITX output to burn.");
+    composed = await attachBurnToSwap(swap.swapTransaction, { owner, mint: orbitxMint(), burnRaw });
+    order.meta.burnRaw = burnRaw;
+  } catch (err) {
+    order.status = "swap-failed";
+    order.error = `The buy+burn transaction could not be composed (${err.message || "compose"}). Nothing was signed.`;
+    await persistOrder(ctx, order);
+    return fail(order.error, 502);
+  }
   let signed;
   try {
     const secret = openSecret(row);
     try {
-      signed = signVersionedTransaction(swap.swapTransaction, secret, encode58);
+      signed = signVersionedTransaction(composed, secret, encode58);
     } finally {
       secret.fill(0);
     }
   } catch (err) {
     order.status = "swap-failed";
-    order.error = `The swap could not be signed (${err.message || "signing"}).`;
+    order.error = `The transaction could not be signed (${err.message || "signing"}).`;
     await persistOrder(ctx, order);
     return fail(order.error, 502);
   }
@@ -616,18 +698,20 @@ export async function adBuy(ctx, player, body) {
     swapSig = await sendSignedTx(signed.signedTx);
   } catch (err) {
     order.status = "swap-failed";
-    order.error = `The swap was not accepted (${err.message || "RPC"}).`;
+    order.error = `The transaction was not accepted (${err.message || "RPC"}).`;
     await persistOrder(ctx, order);
     return fail(order.error, 502);
   }
   order.swapSignature = swapSig || signed.signature;
+  order.burnSignature = order.swapSignature; // same transaction
+  order.orbitxAmount = burnRaw; // guaranteed burn; measured on confirm
   order.status = "swapping";
   await persistOrder(ctx, order);
-  await audit(player.authUser, "ad-swap", `${board} ${days}d swap sent (${price / LAMPORTS_PER_SOL} SOL)`);
+  await audit(player.authUser, "ad-swap", `${board} ${days}d buy+burn sent (${price / LAMPORTS_PER_SOL} SOL, one tx)`);
   return {
     ok: true,
     order: publicOrder(order),
-    message: `Swap sent for ${board}. The city is watching it confirm, then it burns the ORBITX.`,
+    message: `One transaction sent for ${board} — it buys the ORBITX and burns it in the same signature. The city is watching it confirm.`,
   };
 }
 
@@ -640,6 +724,9 @@ export async function adStatus(ctx, player, body) {
 }
 
 export async function adRetryBurn(ctx, player, body) {
+  // LEGACY: only orders created before the single-transaction change can
+  // sit at burn-pending (separate swap + burn). The new flow never creates
+  // one — a failed buy+burn retries with one click in adBuy instead.
   const order = await loadOrder(ctx, String(body.orderId || ""));
   if (!order) return fail("That booking was not found.", 404);
   if (order.userId !== player.authUser) return fail("That booking is not yours.", 403);
