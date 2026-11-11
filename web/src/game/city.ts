@@ -2697,11 +2697,13 @@ export function buildCity(seed: number): City {
     ],
     citizens: [
       { name: "Rio", color: "sunset", x: 4, z: 20 },
-      { name: "Mina", color: "cyan", x: -16, z: 50 },
-      { name: "Sol", color: "gold", x: 16, z: 28 },
+      { name: "Mina", color: "cyan", x: -18, z: 54 },
+      { name: "Sol", color: "gold", x: 12, z: 54 },
       { name: "Nox", color: "black", x: 72, z: 40 },
-      { name: "Pia", color: "white", x: -18, z: 90 },
-      { name: "Harbor", color: "cyan", x: 0, z: 206 },
+      { name: "Pia", color: "white", x: -24, z: 86 },
+      { name: "Kai", color: "cyan", x: 6, z: 204 },
+      { name: "Juno", color: "sunset", x: 37, z: 97 },
+      { name: "Theo", color: "white", x: 20, z: -2 },
     ],
   };
 }

@@ -18,11 +18,21 @@ import {
 } from "three";
 import type { Anchor, Art, BoardSlot, City, Collider, Lift, Zone } from "./city";
 import {
+  DANCE_BEAT_MS,
+  DANCE_BEATS,
+  DANCE_SPOT,
   DEMO_AD_PRICE,
+  NPC_DEFAULT_LINES,
+  NPC_DEFAULT_PATROL,
+  NPC_LINES,
+  PHOTO_REWARD,
+  PHOTO_SPOTS,
   SHOP,
+  WISH_SPOT,
   type BillboardInfo,
   type CityContent,
   type EventInfo,
+  type PhotoSpot,
   type ShopItem,
   loadContent,
 } from "./content";
@@ -66,7 +76,7 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk";
 
 export interface PersonCard {
   id: string;
@@ -183,6 +193,9 @@ export interface Snap {
   decorKind: string;
   hqIndex: number;
   banner: string;
+  talk: { name: string; role: string; line: string; index: number; total: number; jobId: string; jobName: string } | null;
+  photos: { taken: number; spots: string[] };
+  wishes: number;
 }
 
 interface Remote {
@@ -611,7 +624,70 @@ export function createRuntime(scene: Scene) {
   hands.visible = false;
   scene.add(hands);
   const sparks: Spark[] = [];
-  const npcs: { group: Group; x: number; z: number; phase: number }[] = [];
+  interface Npc {
+    group: Group;
+    name: string;
+    homeX: number;
+    homeZ: number;
+    x: number;
+    z: number;
+    yaw: number;
+    waypoints: Array<{ x: number; z: number }>;
+    wp: number;
+    waitUntil: number;
+  }
+  const npcs: Npc[] = [];
+  // Talk state: the open dialogue (null when no chat is open). Lives outside
+  // `panel` so the Talk panel can keep its lines across publishes.
+  let talk: Snap["talk"] = null;
+  let talkLines: string[] = [];
+  let talkNpc = -1;
+  // Activity collections (localStorage so they survive a reload).
+  const PHOTOS_KEY = "orbitx-city-photos-v1";
+  const WISHES_KEY = "orbitx-city-wishes-v1";
+  function loadPhotos(): { taken: number; spots: string[] } {
+    try {
+      const raw = localStorage.getItem(PHOTOS_KEY);
+      if (!raw) return { taken: 0, spots: [] };
+      const parsed = JSON.parse(raw) as { taken?: number; spots?: string[] };
+      return { taken: parsed.taken ?? 0, spots: Array.isArray(parsed.spots) ? parsed.spots : [] };
+    } catch {
+      return { taken: 0, spots: [] };
+    }
+  }
+  let photosTaken = loadPhotos().taken;
+  let photoSpots: string[] = loadPhotos().spots;
+  function savePhotos() {
+    try {
+      localStorage.setItem(PHOTOS_KEY, JSON.stringify({ taken: photosTaken, spots: photoSpots }));
+    } catch {
+      // Photos still count for this session if storage is unavailable.
+    }
+  }
+  let wishes = 0;
+  try {
+    wishes = Number(localStorage.getItem(WISHES_KEY)) || 0;
+  } catch {
+    wishes = 0;
+  }
+  function saveWishes() {
+    try {
+      localStorage.setItem(WISHES_KEY, String(wishes));
+    } catch {
+      // Wish count still shows for this session.
+    }
+  }
+  // Dance set state: null when no set is running.
+  interface DanceSet {
+    startAt: number;
+    nextBeatAt: number;
+    lastBeatAt: number;
+    endAt: number;
+    beat: number;
+    hits: number;
+    beatHit: boolean;
+  }
+  let dance: DanceSet | null = null;
   let tourLock = false;
   const box = new BoxGeometry(1, 1, 1);
 
@@ -939,6 +1015,9 @@ export function createRuntime(scene: Scene) {
     zones = next.zones;
     lifts = next.lifts;
     npcs.length = 0;
+    talk = null;
+    talkLines = [];
+    talkNpc = -1;
     next.citizens.forEach((citizen, index) => {
       const group = makePerson(citizen.color, index % 2 ? "cap" : "none");
       const tag = makeLabel(citizen.name, true);
@@ -946,8 +1025,23 @@ export function createRuntime(scene: Scene) {
       group.add(tag);
       group.position.set(citizen.x, 0, citizen.z);
       root.add(group);
-      npcs.push({ group, x: citizen.x, z: citizen.z, phase: index });
+      // Patrol loop: home plus the small offsets from content.ts, so the
+      // NPC walks the block instead of swaying in place.
+      const info = NPC_LINES[citizen.name];
+      const patrol = info?.patrol ?? NPC_DEFAULT_PATROL;
+      const waypoints = patrol.map(([dx, dz]) => ({ x: citizen.x + dx, z: citizen.z + dz }));
+      npcs.push({ group, name: citizen.name, homeX: citizen.x, homeZ: citizen.z, x: citizen.x, z: citizen.z, yaw: index, waypoints, wp: 1 % waypoints.length, waitUntil: 0 });
     });
+    // Activity markers (labels only — no new geometry): the dance floor in
+    // the hall and the three photo spots.
+    const danceTag = makeLabel("Dance floor", true);
+    danceTag.position.set(DANCE_SPOT.x, 2.6, DANCE_SPOT.z);
+    root.add(danceTag);
+    for (const spot of PHOTO_SPOTS) {
+      const tag = makeLabel("Photo spot", true);
+      tag.position.set(spot.x, 2.2, spot.z);
+      root.add(tag);
+    }
     void world.loadBoard().then(() => publish());
     for (const anchor of anchors) {
       const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
@@ -1163,6 +1257,9 @@ export function createRuntime(scene: Scene) {
         : raceNext >= 0
           ? `Gate ${raceNext + 1} of ${GATES.length}`
           : "",
+      talk,
+      photos: { taken: photosTaken, spots: [...photoSpots] },
+      wishes,
     };
     panel = "";
     for (const listener of listeners) listener(snap);
@@ -1363,6 +1460,151 @@ export function createRuntime(scene: Scene) {
     }
   }
 
+  // ---- NPCs + activities ----
+  function nearestNpc(body: Body, max: number) {
+    let best = -1;
+    let bestD = max;
+    npcs.forEach((npc, index) => {
+      const d = Math.hypot(npc.x - body.x, npc.z - body.z);
+      if (d < bestD) {
+        best = index;
+        bestD = d;
+      }
+    });
+    return best;
+  }
+
+  function nearestPhotoSpot(body: Body, max: number): PhotoSpot | null {
+    let best: PhotoSpot | null = null;
+    let bestD = max;
+    for (const spot of PHOTO_SPOTS) {
+      const d = Math.hypot(spot.x - body.x, spot.z - body.z);
+      if (d < bestD) {
+        best = spot;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  function openTalk(index: number) {
+    const npc = npcs[index];
+    if (!npc) return;
+    const info = NPC_LINES[npc.name];
+    talkLines = info?.lines ?? NPC_DEFAULT_LINES;
+    talkNpc = index;
+    const jobId = info?.jobId ?? "";
+    talk = {
+      name: npc.name,
+      role: info?.role ?? "Citizen",
+      line: talkLines[0],
+      index: 0,
+      total: talkLines.length,
+      jobId,
+      jobName: jobId ? jobTitle(jobId) : "",
+    };
+    panel = "talk";
+    publish();
+  }
+
+  function takePhoto(spot: PhotoSpot) {
+    photosTaken += 1;
+    const first = !photoSpots.includes(spot.id);
+    if (first) {
+      photoSpots.push(spot.id);
+      earn(wallet, PHOTO_REWARD, `Photo — ${spot.name}`);
+    }
+    savePhotos();
+    burst(spot.x, 2.2, spot.z);
+    say(
+      first
+        ? `Photo ${photoSpots.length}/${PHOTO_SPOTS.length} — ${spot.name}! +${PHOTO_REWARD} City Sol. (${photosTaken} taken)`
+        : `Photo taken at ${spot.name}. (${photosTaken} taken, ${photoSpots.length}/${PHOTO_SPOTS.length} spots)`,
+    );
+    publish();
+  }
+
+  function makeWish() {
+    if (wallet.balance < WISH_SPOT.cost) {
+      say(`A wish costs ${WISH_SPOT.cost} City Sol — come back richer.`);
+      return;
+    }
+    wallet.balance -= WISH_SPOT.cost;
+    const roll = Math.random();
+    const reward = roll < 0.4 ? 0 : roll < 0.7 ? 5 : roll < 0.9 ? 10 : 25;
+    wallet.balance += reward;
+    wishes += 1;
+    saveWishes();
+    saveWallet(wallet);
+    burst(WISH_SPOT.x, 2.2, WISH_SPOT.z);
+    say(
+      reward > 0
+        ? `Wish #${wishes}: the fountain returns ${reward} City Sol!`
+        : `Wish #${wishes}: the fountain keeps your coin this time.`,
+    );
+    publish();
+  }
+
+  function startDance() {
+    if (dance) return;
+    const now = performance.now();
+    dance = {
+      startAt: now,
+      nextBeatAt: now + DANCE_BEAT_MS,
+      lastBeatAt: 0,
+      endAt: now + DANCE_BEAT_MS * DANCE_BEATS + 600,
+      beat: 0,
+      hits: 0,
+      beatHit: false,
+    };
+    world.emote = "dance";
+    world.emoteUntil = Date.now() + DANCE_BEAT_MS * DANCE_BEATS + 1200;
+    say(`Dance set — ${DANCE_BEATS} beats. Press E right on each beat!`);
+    publish();
+  }
+
+  function registerBeat() {
+    if (!dance) return;
+    const now = performance.now();
+    const near = [dance.nextBeatAt, dance.lastBeatAt || dance.nextBeatAt].reduce(
+      (best, t) => Math.min(best, Math.abs(now - t)),
+      Infinity,
+    );
+    if (near <= 300 && !dance.beatHit) {
+      dance.hits += 1;
+      dance.beatHit = true;
+    }
+    publish();
+  }
+
+  function tickDance(body: Body) {
+    if (!dance) return;
+    // Walking off the floor ends the set — no pay for a set you abandon.
+    if (zoneAt(body)?.id !== "hall") {
+      dance = null;
+      world.emote = "";
+      world.emoteUntil = 0;
+      say("Left the dance floor — set over.");
+      publish();
+      return;
+    }
+    const now = performance.now();
+    if (dance.beat < DANCE_BEATS && now >= dance.nextBeatAt) {
+      dance.beat += 1;
+      dance.lastBeatAt = dance.nextBeatAt;
+      dance.nextBeatAt += DANCE_BEAT_MS;
+      dance.beatHit = false;
+      publish();
+    }
+    if (now >= dance.endAt) {
+      const amount = dance.hits * 2 + 4;
+      const hits = dance.hits;
+      dance = null;
+      say(earn(wallet, amount, `Dance set (${hits}/${DANCE_BEATS} on the beat)`));
+      publish();
+    }
+  }
+
   function interact(body?: Body) {
     const who = body ?? lastBody;
     if (!who || !playing || paused || typing) return;
@@ -1373,6 +1615,12 @@ export function createRuntime(scene: Scene) {
         return;
       }
       exitCar(body);
+      return;
+    }
+    // A running dance set eats E as a beat hit — the player is on the floor,
+    // not opening doors, until the set ends or they leave the hall.
+    if (dance && zoneAt(body)?.id === "hall") {
+      registerBeat();
       return;
     }
     // Order matters: a door / zone service point / lift call wins over a car
@@ -1426,6 +1674,29 @@ export function createRuntime(scene: Scene) {
     }
     if (raceNext < 0 && nearGate(body, 0, 8)) {
       void startRace("street");
+      return;
+    }
+    // NPC talk: an NPC within 3 units answers E — but only after a door /
+    // zone service point has had its say, so E at a door still walks in
+    // even when an NPC patrols past it.
+    const npcIndex = nearestNpc(body, 3);
+    if (npcIndex >= 0) {
+      openTalk(npcIndex);
+      return;
+    }
+    // Photo spots, then the fountain wish, then the dance floor — each with
+    // a real state change (collection, balance, or pay).
+    const photo = nearestPhotoSpot(body, 2.5);
+    if (photo) {
+      takePhoto(photo);
+      return;
+    }
+    if (Math.hypot(body.x - WISH_SPOT.x, body.z - WISH_SPOT.z) < WISH_SPOT.radius) {
+      makeWish();
+      return;
+    }
+    if (zone?.id === "hall" && Math.hypot(body.x - DANCE_SPOT.x, body.z - DANCE_SPOT.z) < 2.5) {
+      startDance();
       return;
     }
     // No door, zone, or board answered: a car within 7 units is the last
@@ -1983,11 +2254,37 @@ export function createRuntime(scene: Scene) {
       tickJobs(body, dt);
       tickGames(body);
       tickTour(body);
+      tickDance(body);
     }
-    for (const npc of npcs) {
-      const sway = Math.sin(clock * 0.6 + npc.phase) * 1.4;
-      npc.group.position.set(npc.x + sway, 0, npc.z);
-      npc.group.rotation.y = clock * 0.2 + npc.phase;
+    // NPC patrol: walk the loop of waypoints around the home spot, pausing
+    // at each stop; face the player while talking.
+    for (const [index, npc] of npcs.entries()) {
+      if (talkNpc === index && lastBody) {
+        npc.yaw = Math.atan2(lastBody.x - npc.x, lastBody.z - npc.z);
+        npc.group.position.set(npc.x, 0, npc.z);
+        npc.group.rotation.y = npc.yaw;
+        continue;
+      }
+      const target = npc.waypoints[npc.wp % npc.waypoints.length];
+      if (clock < npc.waitUntil) {
+        npc.group.position.set(npc.x, 0, npc.z);
+        npc.group.rotation.y = npc.yaw;
+        continue;
+      }
+      const dx = target.x - npc.x;
+      const dz = target.z - npc.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 0.15) {
+        npc.wp = (npc.wp + 1) % npc.waypoints.length;
+        npc.waitUntil = clock + 1.5 + (index % 3) * 0.9;
+        continue;
+      }
+      const step = Math.min(dist, 1.1 * dt);
+      npc.x += (dx / dist) * step;
+      npc.z += (dz / dist) * step;
+      npc.yaw = Math.atan2(dx, dz);
+      npc.group.position.set(npc.x, 0, npc.z);
+      npc.group.rotation.y = npc.yaw;
     }
     if (eventLeft > 0) {
       eventLeft -= dt;
@@ -2175,6 +2472,15 @@ export function createRuntime(scene: Scene) {
         const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office";
         prompt = walkIn ? `Walk in — ${title}` : `Press E — ${title}`;
       } else if (nearGate(body, 0, 8)) prompt = "Press E — street race";
+      else if (dance) prompt = `Dance! Press E on the beat — ${dance.hits}/${DANCE_BEATS} hits, beat ${Math.min(dance.beat + 1, DANCE_BEATS)} of ${DANCE_BEATS}`;
+      else if (nearestNpc(body, 3) >= 0) {
+        const npc = npcs[nearestNpc(body, 3)];
+        prompt = npc ? `Press E — talk to ${npc.name}` : "";
+      } else if (nearestPhotoSpot(body, 2.5)) {
+        const spot = nearestPhotoSpot(body, 2.5)!;
+        prompt = `Press E — take a photo (${spot.name})`;
+      } else if (Math.hypot(body.x - WISH_SPOT.x, body.z - WISH_SPOT.z) < WISH_SPOT.radius) prompt = `Press E — make a wish (${WISH_SPOT.cost} City Sol)`;
+      else if (zone?.id === "hall" && Math.hypot(body.x - DANCE_SPOT.x, body.z - DANCE_SPOT.z) < 2.5) prompt = "Press E — dance floor";
       else {
         // The anchor was already checked above (it beats the gate); here
         // only the car fallback and the zone title remain. Nothing in
@@ -2794,6 +3100,46 @@ export function createRuntime(scene: Scene) {
       body.z = -75;
       body.yaw = -2.34;
       body.pitch = 0.15;
+    } else if (shot === "npc") {
+      // Plaza regular Rio, at talk range, facing him.
+      body.flying = false;
+      body.x = 5;
+      body.y = 0;
+      body.z = 21;
+      body.yaw = 0;
+      body.pitch = 0.05;
+    } else if (shot === "talkm") {
+      // Barista Mina inside Cafe Nova, at talk range (she gives the barista job).
+      body.flying = false;
+      body.x = -17;
+      body.y = 0;
+      body.z = 54;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0.02;
+    } else if (shot === "wish") {
+      // Fountain ring: close enough to wish, facing the water.
+      body.flying = false;
+      body.x = -4;
+      body.y = 0;
+      body.z = 19;
+      body.yaw = 0.5;
+      body.pitch = 0.06;
+    } else if (shot === "dance") {
+      // Community Hall dance floor, at step-on range.
+      body.flying = false;
+      body.x = 48;
+      body.y = 0;
+      body.z = 91.5;
+      body.yaw = 0;
+      body.pitch = 0.02;
+    } else if (shot === "photo") {
+      // Fountain photo spot, at snap range.
+      body.flying = false;
+      body.x = 14;
+      body.y = 0;
+      body.z = 14;
+      body.yaw = 0;
+      body.pitch = 0.05;
     } else if (shot === "liftcall") {
       // Stand at the HQ lift call button in the lobby, facing the shaft.
       body.x = -93.5;
@@ -3083,6 +3429,18 @@ export function createRuntime(scene: Scene) {
       riderOn = false;
       void world.jobStart(id);
       say(`${jobTitle(id)} started.`);
+    },
+    talkNext() {
+      if (!talk || !talkLines.length) return;
+      const next = (talk.index + 1) % talkLines.length;
+      talk = { ...talk, line: talkLines[next], index: next };
+      publish();
+    },
+    closeTalk() {
+      talk = null;
+      talkLines = [];
+      talkNpc = -1;
+      publish();
     },
     startEvent() {
       eventLeft = 8;

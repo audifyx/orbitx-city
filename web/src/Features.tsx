@@ -11,6 +11,7 @@ export function FeaturePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   if (snap.panel === "hq") return <Hq snap={snap} rt={rt} />;
   if (snap.panel === "race") return <Race snap={snap} rt={rt} />;
   if (snap.panel === "home") return <Home snap={snap} rt={rt} />;
+  if (snap.panel === "talk") return <Talk snap={snap} rt={rt} />;
   return null;
 }
 
@@ -22,6 +23,7 @@ export function featureTitle(panel: Snap["panel"]) {
   if (panel === "hq") return "Project HQ";
   if (panel === "race") return "Ring race";
   if (panel === "home") return "Property";
+  if (panel === "talk") return "Chat";
   return "";
 }
 
@@ -49,6 +51,42 @@ function Daily({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
         </article>
       ))}
       <p className="quiet">Three quests rotate by the date. Rewards are City Sol.</p>
+    </div>
+  );
+}
+
+function Talk({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
+  const talk = snap.talk;
+  if (!talk) return <p>Chat over — close the panel and keep playing.</p>;
+  return (
+    <div className="list" data-feature="talk">
+      <p>
+        <b>{talk.name}</b> · {talk.role}
+      </p>
+      <p>&ldquo;{talk.line}&rdquo;</p>
+      <p className="quiet">
+        Line {talk.index + 1} of {talk.total}
+        {snap.photos.spots.length ? ` · Photos ${snap.photos.spots.length}/3` : ""}
+      </p>
+      <button type="button" onClick={() => rt?.talkNext()}>
+        Next line
+      </button>
+      {talk.jobId && (
+        <button
+          type="button"
+          onClick={() => {
+            rt?.startJob(talk.jobId);
+            rt?.closeTalk();
+          }}
+        >
+          Start {talk.jobName} job
+        </button>
+      )}
+      {talk.jobId && (
+        <button type="button" onClick={() => rt?.request("jobs")}>
+          Browse all jobs
+        </button>
+      )}
     </div>
   );
 }

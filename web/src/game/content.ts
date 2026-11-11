@@ -148,6 +148,171 @@ export const DEFAULT_EVENTS: EventInfo[] = [
   },
 ];
 
+// ---- NPCs: names, roles, dialogue, patrol loops ----
+// Keyed by the citizen name in city.ts. `patrol` is a loop of small offsets
+// from the citizen's home spot — the NPC walks between them and pauses at
+// each one. `jobId` makes the NPC a job giver: the talk panel offers that
+// job for real (startJob), never a dead button.
+export interface NpcInfo {
+  role: string;
+  jobId?: string;
+  lines: string[];
+  patrol: Array<[number, number]>;
+}
+
+export const NPC_LINES: Record<string, NpcInfo> = {
+  Rio: {
+    role: "Plaza regular",
+    lines: [
+      "Fountain's been running since the city opened. Toss a coin in — sometimes it tosses one back.",
+      "The fountain lights event starts at sunset. Check the Events board by the kiosks if you want in.",
+      "You ever drive the street race? Gate one is east of here. Beat my time and I'll buy you a coffee.",
+    ],
+    patrol: [
+      [0, 0],
+      [2, 1],
+      [2.5, -0.5],
+      [-2, 1],
+    ],
+  },
+  Mina: {
+    role: "Barista, Cafe Nova",
+    jobId: "barista",
+    lines: [
+      "Welcome to Cafe Nova. The espresso machine is older than the city and twice as loud.",
+      "We're short a barista for the shift. Serve the counter and I'll pay you in City Sol — say the word.",
+      "The regulars sit by the windows. If you take the shift, start at the counter and don't rush the pour.",
+    ],
+    patrol: [
+      [0, 0],
+      [1.5, 0],
+      [-1.5, 0],
+      [0, 1.2],
+    ],
+  },
+  Sol: {
+    role: "Shopkeeper, OrbitX Shop",
+    jobId: "courier",
+    lines: [
+      "OrbitX Shop — suits, hover-cars, hats. Everything's City Sol, nothing real leaves your wallet.",
+      "Got a package that needs legs. Pick it up at the fountain, bring it here — courier pay, on the spot.",
+      "Gold suit's our best seller. Forty City Sol and a quarter of it burns. The city likes that.",
+    ],
+    patrol: [
+      [0, 0],
+      [1.5, 0],
+      [-1.5, 0],
+      [0, -1.5],
+    ],
+  },
+  Nox: {
+    role: "Mall regular",
+    lines: [
+      "Mall's got everything the plaza doesn't: food court upstairs, arcade on the east side.",
+      "The arcade cabinet is free to play. One cabinet, one high score — that's the whole deal.",
+      "I come here when the plaza gets loud. The mezzanine has the best view of the whole city.",
+    ],
+    patrol: [
+      [0, 0],
+      [2.5, 0],
+      [-2.5, 0],
+      [0, 2],
+    ],
+  },
+  Pia: {
+    role: "Vendor, Night Market",
+    jobId: "vendor",
+    lines: [
+      "Night Market stalls open at sunset. Mine's the one with the warm lights — come see.",
+      "Need a vendor for the night shift? Open a stall, work the crowd, keep the City Sol.",
+      "The harbor crowd comes up the pier after dark. Best customers in the city, worst hagglers.",
+    ],
+    patrol: [
+      [0, 0],
+      [1.5, 0],
+      [-1.5, 0],
+      [0, 1.5],
+    ],
+  },
+  Kai: {
+    role: "Dock hand, Harbor",
+    jobId: "dock",
+    lines: [
+      "Harbor Office — ships, shifts, and salt air. Clock in here and the pier pays.",
+      "Dock hand shift's open. Clock in at the office, work the pier, get paid in City Sol.",
+      "The ships run day and night. If the pier looks empty, the next one's already on the horizon.",
+    ],
+    patrol: [
+      [0, 0],
+      [0, 2.5],
+      [2, 0],
+      [-2, 1],
+    ],
+  },
+  Juno: {
+    role: "Hall host & DJ",
+    jobId: "dj",
+    lines: [
+      "Community Hall — stage's open, floor's yours. We dance here most nights.",
+      "I run the decks on set nights. Want to play one? Take the DJ slot and own the floor.",
+      "The dance floor is right there — step on it and hit the beats. Eight beats, real pay.",
+    ],
+    patrol: [
+      [0, 0],
+      [1.5, 1],
+      [-1.5, -1],
+      [0, 2],
+    ],
+  },
+  Theo: {
+    role: "Photographer",
+    lines: [
+      "Light's best at the tower base, then the fountain. Bring me a photo and I'll tell you if it's art.",
+      "Three spots make the set: the fountain, the tower, and the end of the pier. Snap all three.",
+      "I shot the first photo ever taken in this city. It was the fountain, obviously.",
+    ],
+    patrol: [
+      [0, 0],
+      [2, 1],
+      [-2, 0],
+      [0, -1.5],
+    ],
+  },
+};
+
+// Fallback lines for any citizen without an entry above.
+export const NPC_DEFAULT_LINES: string[] = [
+  "Good to see you out in the city.",
+  "Plaza's busy today. The fountain never sleeps.",
+  "If you're looking for work, the Jobs board by the kiosks lists it all.",
+];
+export const NPC_DEFAULT_PATROL: Array<[number, number]> = [
+  [0, 0],
+  [2, 1],
+  [-2, 1],
+  [0, -2],
+];
+
+// ---- Activities (City Sol only, real state changes) ----
+export const WISH_SPOT = { x: 0, z: 12, radius: 8.5, cost: 5 };
+
+export interface PhotoSpot {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+}
+export const PHOTO_SPOTS: PhotoSpot[] = [
+  { id: "fountain", name: "Fountain plaza", x: 14, z: 12 },
+  { id: "tower", name: "ORBITX tower", x: 0, z: 2 },
+  { id: "pier", name: "Harbor pier", x: 0, z: 232 },
+];
+export const PHOTO_REWARD = 10;
+
+export const DANCE_SPOT = { x: 48, z: 90 };
+export const DANCE_BEATS = 8;
+export const DANCE_BEAT_MS = 850;
+
 export interface CityContent {
   projects: ProjectInfo[];
   billboards: BillboardInfo[];

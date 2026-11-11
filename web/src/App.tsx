@@ -99,6 +99,9 @@ const EMPTY: Snap = {
   decorKind: "couch",
   hqIndex: 0,
   banner: "",
+  talk: null,
+  photos: { taken: 0, spots: [] },
+  wishes: 0,
 };
 
 function shotMode(): PlayMode | null {
