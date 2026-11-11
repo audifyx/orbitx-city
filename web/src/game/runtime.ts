@@ -31,6 +31,18 @@ import { dressPerson, loadLooks, lookById, lookName, looksReady } from "./avatar
 import { GOLD, MATERIALS } from "./materials";
 import { world } from "./world";
 import {
+  EMOTES,
+  FURNITURE,
+  GATES,
+  type DailyCard,
+  type Leaders,
+  type LotCard,
+  type MarketCard,
+  type NoteCard,
+  type RaceCard,
+} from "./life";
+import { createLifeView } from "./lifeview";
+import {
   joinVoice,
   leaveVoice,
   setDeafened as deafenMic,
@@ -52,7 +64,7 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home";
 
 export interface PersonCard {
   id: string;
@@ -117,6 +129,29 @@ export interface Snap {
   cam: string;
   camLabel: string;
   lookHint: string;
+  lots: LotCard[];
+  leaders: Leaders;
+  daily: DailyCard | null;
+  race: RaceCard;
+  notes: NoteCard[];
+  market: MarketCard | null;
+  mintSet: boolean;
+  walletKey: string;
+  walletNote: string;
+  holder: boolean;
+  meId: string;
+  spectator: boolean;
+  hideHud: boolean;
+  hideNames: boolean;
+  hideChat: boolean;
+  orbit: boolean;
+  clean: boolean;
+  wheel: boolean;
+  wheelIndex: number;
+  decorate: boolean;
+  decorKind: string;
+  hqIndex: number;
+  banner: string;
 }
 
 interface Remote {
@@ -404,6 +439,24 @@ export function createRuntime(scene: Scene) {
   let lookOn = false;
   let lookId = localStorage.getItem("orbitx-look") || "tjr";
   let payAfter = 0;
+  let life: ReturnType<typeof createLifeView> | null = null;
+  let spectator = false;
+  let hideHud = false;
+  let hideNames = false;
+  let hideChat = false;
+  let orbitOn = false;
+  let clean = false;
+  let wheelOpen = false;
+  let wheelIndex = 0;
+  let decorating = false;
+  let decorKind: (typeof FURNITURE)[number] = "couch";
+  let decorRot = 0;
+  let raceHoldUntil = 0;
+  let raceNext = -1;
+  let hitting = false;
+  let visitedHq = false;
+  let droveQuest = false;
+  let hqIndex = 0;
   const touch = wantsTouch();
   const chat: ChatLine[] = [];
   const remotes = new Map<string, Remote>();
@@ -641,7 +694,11 @@ export function createRuntime(scene: Scene) {
       const index = content.projects.length;
       content.projects.push({ id: `empty-${index}`, name: "Your Project Here", line: "Add it in projects.json" });
     }
-    for (const zone of zones) mountSign(zone);
+    for (const zone of zones) {
+      if (zone.kind === "project") continue;
+      mountSign(zone);
+    }
+    life = createLifeView(root, zones, anchors);
     for (let i = 0; i < 40; i++) {
       const mesh = new Mesh(box, i % 2 ? GOLD : MATERIALS.cyanhot);
       mesh.visible = false;
@@ -736,12 +793,39 @@ export function createRuntime(scene: Scene) {
       lookName: lookById(lookId).displayName,
       cam: camMode,
       camLabel: camTitle(),
-      lookHint: playing && !touch && !lookOn && !paused && !panel && !new URLSearchParams(location.search).get("shot")
+      lookHint: playing && !touch && !lookOn && !paused && !panel && !spectator && !new URLSearchParams(location.search).get("shot")
         ? "Click or drag to look"
         : "",
       mission: world.online ? world.mission : tourStep,
       board: world.board,
       districts: anchors.map((anchor) => ({ id: anchor.id, name: anchor.name, x: anchor.x, z: anchor.z })),
+      lots: world.lots,
+      leaders: world.leaders,
+      daily: world.daily,
+      race: world.raceInfo,
+      notes: world.notes,
+      market: world.market,
+      mintSet: world.mintSet,
+      walletKey: world.me?.wallet || "",
+      walletNote: world.walletNote,
+      holder: !!world.me?.holder,
+      meId: world.id,
+      spectator,
+      hideHud,
+      hideNames,
+      hideChat,
+      orbit: orbitOn,
+      clean,
+      wheel: wheelOpen,
+      wheelIndex,
+      decorate: decorating,
+      decorKind,
+      hqIndex,
+      banner: raceHoldUntil > Date.now()
+        ? `Race starts in ${Math.ceil((raceHoldUntil - Date.now()) / 1000)}`
+        : raceNext >= 0
+          ? `Gate ${raceNext + 1} of ${GATES.length}`
+          : "",
     };
     panel = "";
     for (const listener of listeners) listener(snap);
@@ -840,11 +924,98 @@ export function createRuntime(scene: Scene) {
 
   let lastBody: Body | null = null;
 
+  function applyEmote(group: Group, emote: string, baseYaw: number) {
+    group.rotation.x = 0;
+    group.rotation.z = 0;
+    group.rotation.y = baseYaw;
+    if (emote === "wave") group.rotation.z = Math.sin(clock * 8) * 0.35;
+    else if (emote === "dance") group.rotation.y = baseYaw + Math.sin(clock * 6) * 0.6;
+    else if (emote === "cheer") group.rotation.x = -0.25 + Math.sin(clock * 10) * 0.15;
+    else if (emote === "sit") group.rotation.x = 0.7;
+    else if (emote === "spin") group.rotation.y = clock * 4;
+    else if (emote === "bow") group.rotation.x = 0.9;
+    else if (emote === "clap") group.rotation.z = Math.sin(clock * 14) * 0.22;
+    else if (emote === "robot") group.rotation.y = baseYaw + (Math.sin(clock * 3) > 0 ? 0.5 : -0.5);
+    if (emote === "dance") return Math.abs(Math.sin(clock * 8)) * 0.3;
+    if (emote === "sit") return -0.4;
+    if (emote === "cheer") return Math.abs(Math.sin(clock * 10)) * 0.12;
+    return 0;
+  }
+
+  function nearGate(body: Body, index: number, radius: number) {
+    const gate = GATES[index];
+    if (!gate) return false;
+    return Math.hypot(body.x - gate.x, body.z - gate.z) < radius;
+  }
+
+  function currentLot() {
+    return world.lots.find((lot) => lot.zone === insideName) || null;
+  }
+
+  async function linkWallet() {
+    const sol = (window as unknown as {
+      solana?: {
+        connect: () => Promise<{ publicKey: { toString: () => string } }>;
+        signMessage?: (message: Uint8Array, encoding: string) => Promise<{ signature: Uint8Array } | Uint8Array>;
+      };
+    }).solana;
+    if (!sol?.connect) {
+      world.walletNote = "No Solana wallet in this browser. Install Phantom, then press Connect. The game never sends a transaction.";
+      say(world.walletNote);
+      publish();
+      return;
+    }
+    try {
+      const connected = await sol.connect();
+      const pubkey = connected.publicKey.toString();
+      const message = `OrbitX City sign-in\n${pubkey}`;
+      let signature = "";
+      if (sol.signMessage) {
+        const signed = await sol.signMessage(new TextEncoder().encode(message), "utf8");
+        const bytes = signed instanceof Uint8Array ? signed : signed.signature;
+        let raw = "";
+        bytes.forEach((byte) => {
+          raw += String.fromCharCode(byte);
+        });
+        signature = btoa(raw);
+      }
+      const data = await world.walletLink(pubkey, message, signature);
+      applyMe();
+      say(String(data.message || "Wallet linked. Read-only."));
+    } catch (err) {
+      say(err instanceof Error ? err.message : "Wallet connect failed.");
+    }
+  }
+
+  async function startRace(kind: "street" | "hover") {
+    if (!world.online) {
+      say("The race needs the city server.");
+      return;
+    }
+    if (kind === "hover" && !driving) {
+      say("Get in a hover-car for the time trial.");
+      return;
+    }
+    try {
+      const data = await world.raceGo(kind);
+      raceHoldUntil = Number(world.raceInfo.startedAt || Date.now() + 5000);
+      raceNext = world.raceInfo.next;
+      say(String(data.message || "Race armed."));
+      publish();
+    } catch (err) {
+      say(err instanceof Error ? err.message : "The race did not start.");
+    }
+  }
+
   function interact(body?: Body) {
     const who = body ?? lastBody;
     if (!who || !playing || paused || typing) return;
     body = who;
     if (driving) {
+      if (raceNext < 0 && nearGate(body, 0, 8)) {
+        void startRace("hover");
+        return;
+      }
       exitCar(body);
       return;
     }
@@ -856,8 +1027,17 @@ export function createRuntime(scene: Scene) {
     const zone = zoneAt(body);
     if (zone && nearService(body, zone)) {
       if (zone.kind === "shop") panel = "shop";
+      else if (zone.kind === "arcade") panel = "arcade";
+      else if (zone.kind === "project") {
+        hqIndex = zone.slot;
+        panel = "hq";
+      } else if (zone.kind === "hall" || zone.kind === "market" || zone.kind === "dock") panel = "home";
       else say(zoneTitle(zone));
       publish();
+      return;
+    }
+    if (raceNext < 0 && nearGate(body, 0, 8)) {
+      void startRace("street");
       return;
     }
     const anchor = nearestAnchor(body, 3.3);
@@ -897,6 +1077,10 @@ export function createRuntime(scene: Scene) {
     const car = cars[index];
     retint(car.group, wallet.car);
     say("Press E to get out.");
+    if (!droveQuest && world.online) {
+      droveQuest = true;
+      void world.questPing("drive").then(() => applyMe()).catch(() => {});
+    }
   }
 
   function exitCar(body: Body) {
@@ -921,6 +1105,10 @@ export function createRuntime(scene: Scene) {
   }
 
   function drive(dt: number, body: Body, keys: Set<string>, blocked: (x: number, z: number) => boolean) {
+    if (Date.now() < raceHoldUntil) {
+      carSpeed = 0;
+      return;
+    }
     const { f, s } = moveAxes(keys);
     const ctrl = keys.has("ControlLeft") || keys.has("ControlRight");
     const max = ctrl ? 22 : 12;
@@ -1182,7 +1370,8 @@ export function createRuntime(scene: Scene) {
       remote.group.position.y += (remote.state.y - remote.group.position.y) * blend;
       remote.group.position.z += (remote.state.z - remote.group.position.z) * blend;
       remote.group.rotation.y = remote.state.yaw;
-      person.rotation.y = Math.PI - 2 * remote.state.yaw;
+      const remoteTag = remote.group.getObjectByName("tag");
+      if (remoteTag) remoteTag.visible = !hideNames;
       const ring = person.getObjectByName("ring");
       if (ring) ring.visible = !!remote.state.speaking;
       let ride = remote.group.getObjectByName("ride");
@@ -1197,25 +1386,73 @@ export function createRuntime(scene: Scene) {
       } else {
         if (ride) ride.visible = false;
         person.visible = true;
-        if (remote.state.emote) person.rotation.y = Math.PI - 2 * remote.state.yaw + Math.sin(clock * 6) * 0.4;
+        const lift = applyEmote(person, remote.state.emote || "", Math.PI - 2 * remote.state.yaw);
+        person.position.y = lift;
       }
     }
+    const emoteNow = Date.now() < world.emoteUntil ? world.emote : "";
     if (localBody) {
-      localBody.visible = camMode !== "first" && !driving;
-      localBody.position.set(body.x, body.y, body.z);
-      localBody.rotation.y = Math.PI - body.yaw;
+      localBody.visible = camMode !== "first" && !driving && !spectator;
+      const lift = applyEmote(localBody, emoteNow, Math.PI - body.yaw);
+      localBody.position.set(body.x, body.y + lift, body.z);
       paintPerson(localBody, true);
       const ring = localBody.getObjectByName("ring");
       if (ring) ring.visible = world.speaking;
+      const selfTag = localBody.getObjectByName("tag");
+      if (selfTag) selfTag.visible = !hideNames && !spectator;
     }
     prompt = "";
-    if (playing && !paused && !opts.orbit) {
+    if (playing && !paused && !opts.orbit && !spectator) {
       const zone = zoneAt(body);
       insideName = zone?.id ?? "";
-      if (driving) prompt = "Press E to get out";
+      if (zone?.id === "project-0" && world.mintSet && !world.me?.holder && !driving) {
+        const limit = zone.minX + 5;
+        if (body.x < limit) {
+          body.x = limit + 0.2;
+          say("Holders only. Connect a wallet that holds $ORBITX.");
+        }
+      }
+      if (zone?.kind === "project" && !visitedHq && world.online) {
+        visitedHq = true;
+        void world.questPing("visit").then(() => applyMe()).catch(() => {});
+      }
+      if (world.raceInfo.next !== raceNext && world.raceInfo.startedAt) {
+        raceNext = world.raceInfo.next;
+        raceHoldUntil = world.raceInfo.startedAt;
+      }
+      if (raceNext >= 0 && Date.now() >= raceHoldUntil && !hitting) {
+        const gate = GATES[raceNext];
+        const px = driving ? (cars[carIndex]?.x ?? body.x) : body.x;
+        const pz = driving ? (cars[carIndex]?.z ?? body.z) : body.z;
+        if (gate && Math.hypot(px - gate.x, pz - gate.z) < 8) {
+          hitting = true;
+          void world
+            .raceHit(px, pz, driving)
+            .then((data) => {
+              applyMe();
+              raceNext = world.raceInfo.next;
+              say(String(data.message || "Gate"));
+            })
+            .catch((err: unknown) => {
+              const message = err instanceof Error ? err.message : "";
+              if (message && !/too fast|countdown|not the next/i.test(message)) say(message);
+            })
+            .finally(() => {
+              hitting = false;
+            });
+        }
+      }
+      const lot = currentLot();
+      if (Date.now() < raceHoldUntil) prompt = "Countdown — hold still";
+      else if (raceNext >= 0) prompt = `Next gate ${raceNext + 1} of ${GATES.length}`;
+      else if (decorating && lot) prompt = "Decorate — place, rotate, or remove. X closes it.";
+      else if (driving && nearGate(body, 0, 8)) prompt = "Press E — hover time trial";
+      else if (driving) prompt = "Press E to get out";
+      else if (nearGate(body, 0, 8)) prompt = "Press E — street race";
       else if (nearestCar(body, 7) >= 0) prompt = "Press E to drive";
-      else if (zone && nearService(body, zone)) prompt = zone.kind === "shop" ? "Press E to open the shop" : zoneTitle(zone);
-      else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : zoneTitle(zone);
+      else if (zone && nearService(body, zone)) {
+        prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zoneTitle(zone);
+      } else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : lot?.ownerId === world.id ? `${lot.name} — press X to decorate` : zoneTitle(zone);
       else {
         const anchor = nearestAnchor(body, 3.3);
         if (anchor) {
@@ -1225,6 +1462,14 @@ export function createRuntime(scene: Scene) {
         }
       }
     }
+    life?.sync({
+      lots: world.lots,
+      leaders: world.leaders,
+      projects: content.projects,
+      notes: world.notes,
+      market: world.market,
+      raceNext,
+    });
     let tookCamera = false;
     if (!opts.orbit && (playing || localBody)) {
       tookCamera = placeCamera(camera, body);
@@ -1245,6 +1490,7 @@ export function createRuntime(scene: Scene) {
         speaking: world.speaking,
         emote: Date.now() < world.emoteUntil ? world.emote : "",
         lobby: world.lobby,
+        holder: !!world.me?.holder,
       };
       if (world.online) {
         world.push(pose);
@@ -1310,6 +1556,22 @@ export function createRuntime(scene: Scene) {
   }
 
   function placeCamera(camera: PerspectiveCamera, body: Body) {
+    if (spectator) {
+      hands.visible = false;
+      if (orbitOn) {
+        const t = clock * 0.12;
+        camera.position.set(Math.cos(t) * 26, 10, 12 + Math.sin(t) * 26);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(0, 2, 12);
+        return true;
+      }
+      camera.position.set(body.x, body.y + 1.62, body.z);
+      camera.up.set(0, 1, 0);
+      const cp = Math.cos(body.pitch);
+      const sp = Math.sin(body.pitch);
+      camera.lookAt(body.x + Math.sin(body.yaw) * cp, body.y + 1.62 + sp, body.z - Math.cos(body.yaw) * cp);
+      return true;
+    }
     const focusY = body.y + 1.35;
     hands.visible = false;
     if (!driving && camMode === "first") {
@@ -1466,6 +1728,163 @@ export function createRuntime(scene: Scene) {
       body.z = -52;
       body.yaw = Math.PI;
       body.pitch = 0.42;
+    } else if (shot === "property" || shot === "sale" || shot === "decorate") {
+      void showProperty(shot, body);
+    } else if (shot === "hq" || shot === "hq-edit") {
+      const zone = zones.find((item) => item.id === "project-0");
+      if (zone) {
+        body.x = (zone.minX + zone.maxX) / 2;
+        body.y = 0;
+        body.z = (zone.minZ + zone.maxZ) / 2;
+        body.yaw = Math.atan2(zone.signX - body.x, -(zone.signZ - body.z));
+        body.pitch = 0.05;
+        hqIndex = 0;
+      }
+      if (shot === "hq-edit") {
+        panel = "hq";
+        void world.buyLot("hq-0").then(() => {
+          applyMe();
+          publish();
+        }).catch(() => publish());
+      }
+    } else if (shot === "board" || shot === "leaders") {
+      body.flying = false;
+      body.x = 0;
+      body.y = 0;
+      body.z = 19.2;
+      body.yaw = Math.PI;
+      body.pitch = 0.2;
+      camMode = "first";
+      if (shot === "leaders") panel = "leaders";
+    } else if (shot === "race" || shot === "race-run") {
+      body.x = 36;
+      body.y = 0;
+      body.z = -14;
+      body.yaw = Math.PI;
+      body.pitch = 0.1;
+      if (shot === "race-run") {
+        void (async () => {
+          await world.raceLeave().catch(() => {});
+          await startRace("street");
+          await new Promise((resolve) => setTimeout(resolve, 6000));
+          for (const gate of GATES) {
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            try {
+              const data = await world.raceHit(gate.x, gate.z, false);
+              say(String(data.message || "Gate"));
+            } catch (err) {
+              say(err instanceof Error ? err.message : "Missed a gate");
+            }
+          }
+          publish();
+        })();
+      } else {
+        void startRace("street");
+      }
+    } else if (shot === "hover") {
+      const car = cars[2] || cars[0];
+      if (car) {
+        car.x = 36;
+        car.z = -14;
+        car.yaw = Math.PI;
+        car.group.position.set(36, 0.12, -14);
+        body.x = 36;
+        body.z = -14;
+        enterCar(body, cars.indexOf(car));
+      }
+      void world.raceLeave().then(() => startRace("hover")).catch(() => startRace("hover"));
+    } else if (shot === "arcade") {
+      const zone = zones.find((item) => item.id === "arcade");
+      if (zone) {
+        body.x = zone.serviceX;
+        body.y = 0;
+        body.z = zone.serviceZ + 1.2;
+        body.yaw = Math.atan2(zone.serviceX - body.x, -(zone.serviceZ - body.z));
+      }
+      panel = "arcade";
+    } else if (shot === "daily" || shot === "wallet") {
+      void world.refresh().then(() => {
+        panel = shot === "daily" ? "daily" : "wallet";
+        if (shot === "wallet" && !world.walletNote) {
+          world.walletNote = "No Solana wallet in this browser. Connect stays read-only.";
+        }
+        publish();
+      });
+    } else if (shot === "emote") {
+      void world.raceLeave().catch(() => {});
+      raceNext = -1;
+      raceHoldUntil = 0;
+      body.x = 14;
+      body.y = 0;
+      body.z = 12;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0;
+      camMode = "selfie";
+      wheelOpen = true;
+      wheelIndex = 1;
+      world.emote = "dance";
+      world.emoteUntil = Date.now() + 20000;
+    } else if (shot === "spectate" || shot === "spectate-ui") {
+      void world.raceLeave().catch(() => {});
+      raceNext = -1;
+      raceHoldUntil = 0;
+      spectator = true;
+      orbitOn = true;
+      body.flying = true;
+      clean = shot === "spectate";
+      hideHud = shot === "spectate";
+      hideNames = true;
+      hideChat = true;
+    }
+    publish();
+  }
+
+  async function showProperty(shot: string, body: Body) {
+    if (world.online && shot !== "sale") {
+      try {
+        const data = await world.buyLot("loft");
+        applyMe();
+        say(String(data.message || "Bought."));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "";
+        if (!/already own/i.test(message)) say(message);
+      }
+    }
+    if (shot === "decorate") {
+      const zone = zones.find((item) => item.id === "hall");
+      if (zone) {
+        body.x = zone.minX + 2.4;
+        body.y = 0;
+        body.z = (zone.minZ + zone.maxZ) / 2;
+        body.yaw = Math.PI / 2;
+        const pieces = [
+          { id: "couch", kind: "couch", x: body.x + 2.2, z: body.z - 1.1, rot: 0.2 },
+          { id: "table", kind: "table", x: body.x + 2.4, z: body.z + 1.2, rot: 1 },
+          { id: "plant", kind: "plant", x: body.x + 3.6, z: body.z + 0.2, rot: 0 },
+          { id: "lamp", kind: "lamp", x: body.x + 1.2, z: body.z + 1.8, rot: 0 },
+        ];
+        try {
+          await world.saveFurniture("loft", pieces);
+        } catch {
+          // The room still shows whatever the server already stored.
+        }
+      }
+      decorating = true;
+      decorKind = "couch";
+    } else if (shot === "sale") {
+      body.x = -18;
+      body.y = 0;
+      body.z = 70;
+      body.yaw = Math.PI;
+      body.pitch = 0.28;
+      camMode = "far";
+    } else {
+      body.x = 31.5;
+      body.y = 0;
+      body.z = 15;
+      body.yaw = Math.atan2(41.6 - 31.5, -(18 - 15));
+      body.pitch = 0.22;
+      camMode = "far";
     }
     publish();
   }
@@ -1654,7 +2073,7 @@ export function createRuntime(scene: Scene) {
     },
     emote(name: string) {
       world.emote = name;
-      world.emoteUntil = Date.now() + 1800;
+      world.emoteUntil = Date.now() + 3200;
     },
     joinLobby(id: string) {
       void joinVoice(id);
@@ -1729,6 +2148,172 @@ export function createRuntime(scene: Scene) {
     },
     applyShot,
     quote: (price: number) => burnAmount(price),
+    frozen: () => Date.now() < raceHoldUntil,
+    decorating: () => decorating,
+    wheeling: () => wheelOpen,
+    setWheel(open: boolean) {
+      wheelOpen = open;
+      if (open) wheelIndex = 0;
+      publish();
+    },
+    aimWheel(dx: number, dy: number) {
+      if (!wheelOpen) return;
+      if (dx * dx + dy * dy < 36) return;
+      const angle = Math.atan2(dy, dx);
+      const slice = (angle + Math.PI / 2) / (Math.PI * 2);
+      wheelIndex = Math.floor((((slice % 1) + 1) % 1) * EMOTES.length) % EMOTES.length;
+      publish();
+    },
+    commitWheel() {
+      if (!wheelOpen) return;
+      wheelOpen = false;
+      const name = EMOTES[wheelIndex] || "wave";
+      world.emote = name;
+      world.emoteUntil = Date.now() + 3200;
+      publish();
+    },
+    toggleDecor() {
+      const lot = currentLot();
+      if (!decorating && (!lot || lot.ownerId !== world.id)) {
+        decorating = false;
+        say(lot ? "Only the owner can decorate." : "Step inside a place you own, then press X.");
+        publish();
+        return;
+      }
+      decorating = !decorating;
+      publish();
+    },
+    pickFurniture(kind: string) {
+      if ((FURNITURE as readonly string[]).includes(kind)) decorKind = kind as (typeof FURNITURE)[number];
+      publish();
+    },
+    spinDecor(dir: number) {
+      decorRot += dir * 0.45;
+    },
+    placeFurniture() {
+      const lot = currentLot();
+      if (!lot || lot.ownerId !== world.id || !lastBody) {
+        say("Stand inside your place to drop furniture.");
+        return;
+      }
+      const zone = zones.find((item) => item.id === lot.zone);
+      if (!zone) return;
+      const x = Math.min(zone.maxX - 1.3, Math.max(zone.minX + 1.3, lastBody.x + Math.sin(lastBody.yaw) * 1.5));
+      const z = Math.min(zone.maxZ - 1.3, Math.max(zone.minZ + 1.3, lastBody.z - Math.cos(lastBody.yaw) * 1.5));
+      const furniture = [...lot.furniture, { id: `f${Date.now().toString(36)}`, kind: decorKind, x, z, rot: decorRot }];
+      void world.saveFurniture(lot.id, furniture).then(() => say(`Placed a ${decorKind}.`)).catch((err) => say(err.message));
+    },
+    removeFurniture() {
+      const lot = currentLot();
+      if (!lot || lot.ownerId !== world.id || !lastBody) return;
+      let best = -1;
+      let bestD = 2.4;
+      lot.furniture.forEach((piece, index) => {
+        const d = Math.hypot(piece.x - (lastBody?.x || 0), piece.z - (lastBody?.z || 0));
+        if (d < bestD) {
+          best = index;
+          bestD = d;
+        }
+      });
+      if (best < 0) {
+        say("Stand next to a piece to remove it.");
+        return;
+      }
+      const furniture = lot.furniture.filter((_, index) => index !== best);
+      void world.saveFurniture(lot.id, furniture).then(() => say("Removed.")).catch((err) => say(err.message));
+    },
+    buyLot(id: string) {
+      void world.buyLot(id).then((data) => {
+        applyMe();
+        say(String(data.message || "Bought."));
+      }).catch((err) => say(err.message));
+    },
+    claimDaily() {
+      void world.claimDaily().then((data) => {
+        applyMe();
+        say(String(data.message || "Claimed."));
+      }).catch((err) => say(err.message));
+    },
+    setAnnouncement(index: number, text: string) {
+      void world.setAnnouncement(`hq-${index}`, text).then((data) => say(String(data.message || "Saved."))).catch((err) => say(err.message));
+    },
+    hostEvent(index: number, title: string, when: string, detail: string) {
+      void world.hostEvent(`hq-${index}`, title, when, detail).then((data) => say(String(data.message || "Event posted."))).catch((err) => say(err.message));
+    },
+    startRace(kind: "street" | "hover") {
+      void startRace(kind);
+    },
+    leaveRace() {
+      raceNext = -1;
+      raceHoldUntil = 0;
+      void world.raceLeave().then((data) => say(String(data.message || "Left."))).catch((err) => say(err.message));
+    },
+    arcadeDeal() {
+      return world.arcadePlay().then((data) => {
+        applyMe();
+        say(String(data.message || "Dealt."));
+        return { shown: Number(data.shown || 0), token: String(data.token || "") };
+      }).catch((err) => {
+        say(err.message);
+        return null;
+      });
+    },
+    arcadeGuess(guess: "high" | "low", token: string) {
+      void world.arcadePlay({ guess, token }).then((data) => {
+        applyMe();
+        say(String(data.message || "Resolved."));
+      }).catch((err) => say(err.message));
+    },
+    arcadeArm() {
+      return world.arcadeArm().then((data) => {
+        applyMe();
+        say(String(data.message || "Armed."));
+        return { goAt: Number(data.goAt || 0), token: String(data.token || "") };
+      }).catch((err) => {
+        say(err.message);
+        return null;
+      });
+    },
+    arcadeHit(token: string) {
+      void world.arcadeHit(token).then((data) => {
+        applyMe();
+        say(String(data.message || "Hit."));
+      }).catch((err) => say(err.message));
+    },
+    connectWallet() {
+      void linkWallet();
+    },
+    toggleSpectator() {
+      spectator = !spectator;
+      if (spectator) {
+        if (driving && lastBody) exitCar(lastBody);
+        if (lastBody) {
+          lastBody.flying = true;
+          if (lastBody.y < 2) lastBody.y = 6;
+        }
+      } else if (lastBody) {
+        lastBody.flying = false;
+        lastBody.y = 0;
+        orbitOn = false;
+        hideHud = false;
+        clean = false;
+      }
+      publish();
+    },
+    toggleOrbit() {
+      orbitOn = !orbitOn;
+      if (orbitOn) spectator = true;
+      publish();
+    },
+    toggleHud() {
+      hideHud = !hideHud;
+      publish();
+    },
+    toggleNames() {
+      hideNames = !hideNames;
+      hideChat = hideNames;
+      publish();
+    },
     destroy() {
       world.stop();
       net.close();

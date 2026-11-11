@@ -4,9 +4,11 @@ import type { PanelName, Runtime, Snap } from "./game/runtime";
 import { AD_PRICE } from "./game/content";
 import { parseSeed } from "./game/seed";
 import { Roster } from "./Roster";
+import { DecorBar, EmoteWheel, FeaturePanel, PhoneExtra, RaceBanner, SpectateBar, featureTitle } from "./Features";
+import { EMPTY_LEADERS, EMPTY_RACE } from "./game/life";
 
 const HELP =
-  "WASD move · click or drag to look · arrows or Q/R turn · Space jump · F fly · E use or drive · C camera · T chat · V talk";
+  "WASD move · click or drag to look · arrows or Q/R turn · Space jump · F fly · E use or drive · C camera · hold Z emotes · O spectator · T chat · V talk";
 
 const EMPTY: Snap = {
   playing: false,
@@ -59,6 +61,29 @@ const EMPTY: Snap = {
   mission: 0,
   board: [],
   districts: [],
+  lots: [],
+  leaders: EMPTY_LEADERS,
+  daily: null,
+  race: EMPTY_RACE,
+  notes: [],
+  market: null,
+  mintSet: false,
+  walletKey: "",
+  walletNote: "",
+  holder: false,
+  meId: "",
+  spectator: false,
+  hideHud: false,
+  hideNames: false,
+  hideChat: false,
+  orbit: false,
+  clean: false,
+  wheel: false,
+  wheelIndex: 0,
+  decorate: false,
+  decorKind: "couch",
+  hqIndex: 0,
+  banner: "",
 };
 
 function shotMode(): PlayMode | null {
@@ -79,6 +104,22 @@ function shotMode(): PlayMode | null {
     shot === "sign-back" ||
     shot === "courier" ||
     shot === "car" ||
+    shot === "property" ||
+    shot === "sale" ||
+    shot === "decorate" ||
+    shot === "hq" ||
+    shot === "hq-edit" ||
+    shot === "board" ||
+    shot === "leaders" ||
+    shot === "race" ||
+    shot === "race-run" ||
+    shot === "hover" ||
+    shot === "arcade" ||
+    shot === "daily" ||
+    shot === "wallet" ||
+    shot === "emote" ||
+    shot === "spectate" ||
+    shot === "spectate-ui" ||
     params.has("autostart")
   ) {
     return "play";
@@ -184,14 +225,19 @@ export default function App() {
   return (
     <>
       <canvas ref={canvasRef} className="view" id="view" />
-      <p className="status" id="status">
+      <p className="status" id="status" hidden={snap.hideHud}>
         {menu ? "" : status}
       </p>
-      <div className="crosshair" id="crosshair" hidden={menu || snap.cam !== "first" || !!panel} />
-      {!menu && snap.lookHint ? <p className="look-hint">{snap.lookHint}</p> : null}
-      {!menu && (
+      <div className="crosshair" id="crosshair" hidden={menu || snap.hideHud || snap.cam !== "first" || !!panel || snap.spectator} />
+      {!menu && snap.lookHint && !snap.hideHud ? <p className="look-hint">{snap.lookHint}</p> : null}
+      {!menu && snap.banner ? <RaceBanner text={snap.banner} /> : null}
+      {!menu && snap.wheel ? <EmoteWheel index={snap.wheelIndex} /> : null}
+      {!menu && snap.decorate ? <DecorBar kind={snap.decorKind} rt={gameRef.current?.runtime ?? null} /> : null}
+      {!menu && snap.spectator ? <SpectateBar snap={snap} rt={gameRef.current?.runtime ?? null} /> : null}
+      {!menu && !snap.hideHud && (
         <div className="hud" id="hud">
           <strong>DEMO ORBITX {snap.balance}</strong>
+          {snap.holder ? <span>HOLDER</span> : null}
           <span>Burned {snap.burned}</span>
           <span>{snap.jobTitle ? `${snap.jobTitle} — ${snap.objective}` : snap.objective}</span>
           {snap.eventLabel ? <span>{snap.eventLabel}</span> : null}
@@ -202,8 +248,8 @@ export default function App() {
           <Minimap me={snap.me} people={snap.people} />
         </div>
       )}
-      {!menu && snap.prompt ? <p className="prompt">{snap.prompt}</p> : null}
-      {!menu && (
+      {!menu && snap.prompt && !snap.hideHud ? <p className="prompt">{snap.prompt}</p> : null}
+      {!menu && !snap.hideHud && (
         <div className="actions">
           <button type="button" onClick={() => open("shop")}>Shop</button>
           <button type="button" onClick={() => open("jobs")}>Jobs</button>
@@ -214,7 +260,7 @@ export default function App() {
           <button type="button" onClick={() => open("menu")}>Menu</button>
         </div>
       )}
-      {!menu && snap.touch && !panel ? (
+      {!menu && snap.touch && !panel && !snap.hideHud ? (
         <div className="touch-ui">
           <LookPad
             onLook={(dx, dy) => gameRef.current?.runtime.addLook(dx, dy)}
@@ -228,6 +274,27 @@ export default function App() {
             <button type="button" onClick={() => gameRef.current?.runtime.cycleCamera()}>Camera</button>
             <button type="button" onClick={() => open("chat")}>Chat</button>
             <button type="button" onClick={() => open("shop")}>Shop</button>
+            <button
+              type="button"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                event.currentTarget.dataset.x = String(event.clientX);
+                event.currentTarget.dataset.y = String(event.clientY);
+                gameRef.current?.runtime.setWheel(true);
+              }}
+              onPointerMove={(event) => {
+                if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                const x = Number(event.currentTarget.dataset.x || event.clientX);
+                const y = Number(event.currentTarget.dataset.y || event.clientY);
+                gameRef.current?.runtime.aimWheel(event.clientX - x, event.clientY - y);
+              }}
+              onPointerUp={() => gameRef.current?.runtime.commitWheel()}
+              onPointerCancel={() => gameRef.current?.runtime.commitWheel()}
+            >
+              Emote
+            </button>
+            <button type="button" onClick={() => gameRef.current?.runtime.toggleSpectator()}>Clip</button>
           </div>
         </div>
       ) : null}
@@ -243,10 +310,11 @@ export default function App() {
                 {panel === "chat" && "Chat"}
                 {panel === "phone" && "Phone"}
                 {panel === "menu" && "Menu"}
+                {featureTitle(panel)}
               </strong>
               <button type="button" onClick={close}>Close</button>
             </header>
-            <p className="demo">Demo economy only. These credits are not real ORBITX tokens. Nothing is connected to a wallet or a blockchain.</p>
+            <p className="demo">Shop, jobs, property, and the arcade use demo credits only. They are not real ORBITX and cannot be cashed out. Wallet connect is optional and read-only.</p>
             {panel === "shop" && (
               <div className="list">
                 <p>Balance {snap.balance} · Burned total {snap.burned}</p>
@@ -430,6 +498,7 @@ export default function App() {
               </form>
             )}
             {panel === "phone" && <Phone snap={snap} rt={gameRef.current?.runtime ?? null} />}
+            <FeaturePanel snap={{ ...snap, panel }} rt={gameRef.current?.runtime ?? null} />
             {panel === "menu" && (
               <div className="list">
                 <p>{HELP} · P phone · N day/night · V push to talk · 1-4 emotes</p>
@@ -547,6 +616,7 @@ function Phone({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           <button type="button" onClick={() => rt?.partyInvite(snap.profile?.id || "")}>Invite</button>
         </article>
       ) : null}
+      <PhoneExtra snap={snap} rt={rt} />
       <h3>City tour</h3>
       <span>{snap.mission >= 6 ? "Tour complete." : `Stop ${snap.mission + 1} of 6 is marked on the objective.`}</span>
       <h3>Places</h3>

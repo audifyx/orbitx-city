@@ -75,6 +75,9 @@ The API mints a short-lived token when a player joins a room. The secret stays o
 | `LIVEKIT_URL` | LiveKit | Optional voice SFU |
 | `LIVEKIT_API_KEY` | LiveKit | Optional |
 | `LIVEKIT_API_SECRET` | LiveKit | Optional |
+| `ORBITX_MINT` | Solana | Optional. SPL mint for the read-only holder check |
+| `SOLANA_RPC_URL` | Solana | Optional. Public RPC. Defaults to `https://api.mainnet-beta.solana.com` when the mint is set |
+| `ORBITX_HOLDER_MIN` | Solana | Optional. Minimum balance for the holder badge. Defaults to 1 |
 
 `.env.example` lists the same names. Copy it to `.env.local` only on your machine. Never commit `.env` or `.env.local`.
 
@@ -85,6 +88,18 @@ The API mints a short-lived token when a player joins a room. The secret stays o
 - Two browsers show each other in the player list within a second, with a count on the HUD.
 - The phone (P) lists voice rooms. Join one, and your name shows in that room. Talking shows a dot and a ring on the avatar.
 - If the API is missing, the HUD says this device and other tabs in the same browser still see each other.
+
+## 6. Read-only wallet, and what is not built
+
+`ORBITX_MINT` is optional. Leave it blank and the game still runs. The holder lounge in OrbitX HQ stays open, and the HQ screens show the placeholder price and holder lines from `web/public/config/projects.json`.
+
+When the mint is set, the server asks a public RPC (`getTokenAccountsByOwner`) for that mint. The browser may connect Phantom, or another standard Solana wallet, and may sign a sign-in message. That signature is the only signature this game requests. A holder badge and the lounge door require both a verified signature and a balance of at least `ORBITX_HOLDER_MIN`. The server never sends a transaction, never asks for a signature on a transaction, and never spends tokens. The shop, apartments, races, and arcade stay on demo credits.
+
+Re-run `supabase/schema.sql` after this update. It only adds columns and the `properties` and `announcements` tables, and it is safe to run again. Until that SQL has run, balances still save; property deeds and the new profile fields stay in the server process memory.
+
+### Not built — real buy and burn
+
+A later milestone can add a real $ORBITX buy-and-burn. This build does not. Do not add a transfer, a swap, or a burn instruction here without a separate review. There is no private key, no spender, and no "send" button. Demo credits are the only thing the shop can burn, and that burn is a number on the player's profile.
 
 ## Local check
 

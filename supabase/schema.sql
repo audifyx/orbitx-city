@@ -24,6 +24,29 @@ create table if not exists public.players (
 );
 
 alter table public.players add column if not exists look text not null default 'tjr';
+alter table public.players add column if not exists earned integer not null default 0;
+alter table public.players add column if not exists best_race integer not null default 0;
+alter table public.players add column if not exists best_hover integer not null default 0;
+alter table public.players add column if not exists daily jsonb not null default '{}'::jsonb;
+alter table public.players add column if not exists wallet text not null default '';
+alter table public.players add column if not exists holder boolean not null default false;
+
+create table if not exists public.properties (
+  id text primary key,
+  owner_id text not null default '',
+  owner_name text not null default '',
+  furniture jsonb not null default '[]'::jsonb
+);
+
+create table if not exists public.announcements (
+  id text primary key,
+  text text not null default '',
+  author text not null default '',
+  updated_at timestamptz not null default now()
+);
+
+alter table public.properties enable row level security;
+alter table public.announcements enable row level security;
 
 create table if not exists public.presence (
   id text primary key,

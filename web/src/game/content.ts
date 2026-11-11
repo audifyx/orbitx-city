@@ -2,6 +2,9 @@ export interface ProjectInfo {
   id: string;
   name: string;
   line: string;
+  site?: string;
+  holders?: string;
+  price?: string;
 }
 
 export interface BillboardInfo {
@@ -51,10 +54,10 @@ export const AD_DAYS = [1, 7, 30] as const;
 export const AD_PRICE: Record<number, number> = { 1: 25, 7: 80, 30: 200 };
 
 export const DEFAULT_PROJECTS: ProjectInfo[] = [
-  { id: "orbitx-hq", name: "OrbitX HQ", line: "Community headquarters" },
-  { id: "your-project", name: "Your Project Here", line: "Holders and friends meet here" },
-  { id: "north-star", name: "North Star", line: "Project office" },
-  { id: "lumen", name: "Lumen Labs", line: "Build nights and hangouts" },
+  { id: "orbitx-hq", name: "OrbitX HQ", line: "Community headquarters", site: "https://github.com/audifyx/orbitx-city", holders: "—", price: "Set ORBITX_MINT for a live price" },
+  { id: "your-project", name: "Your Project Here", line: "Holders and friends meet here", site: "", holders: "—", price: "Placeholder" },
+  { id: "north-star", name: "North Star", line: "Project office", site: "", holders: "—", price: "Placeholder" },
+  { id: "lumen", name: "Lumen Labs", line: "Build nights and hangouts", site: "", holders: "—", price: "Placeholder" },
 ];
 
 export const DEFAULT_BILLBOARDS: BillboardInfo[] = [

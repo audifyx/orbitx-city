@@ -479,14 +479,40 @@ export function createGame(
     if (event.code === "Digit2") runtime.emote("dance");
     if (event.code === "Digit3") runtime.emote("cheer");
     if (event.code === "Digit4") runtime.emote("sit");
+    if (event.code === "Digit5") runtime.emote("spin");
+    if (event.code === "Digit6") runtime.emote("bow");
+    if (event.code === "Digit7") runtime.emote("clap");
+    if (event.code === "Digit8") runtime.emote("robot");
+    if (event.code === "KeyZ" && !event.repeat) {
+      wheelX = 0;
+      wheelY = 0;
+      runtime.setWheel(true);
+    }
+    if (event.code === "KeyX" && !event.repeat) runtime.toggleDecor();
+    if (event.code === "KeyO" && !event.repeat) runtime.toggleSpectator();
+    if (event.code === "KeyU" && !event.repeat) runtime.toggleHud();
+    if (event.code === "KeyI" && !event.repeat) runtime.toggleNames();
+    if (event.code === "KeyL" && !event.repeat) runtime.toggleOrbit();
     if (event.code === "Escape") runtime.request("close");
     if (event.code === "Space") event.preventDefault();
   }
   function onKeyUp(event: KeyboardEvent) {
     keys.delete(event.code);
     if (event.code === "KeyV") runtime.setTalking(false);
+    if (event.code === "KeyZ") runtime.commitWheel();
   }
+  let wheelX = 0;
+  let wheelY = 0;
   function onMouseMove(event: MouseEvent) {
+    if (runtime.wheeling()) {
+      if (document.pointerLockElement === canvas) {
+        wheelX += event.movementX;
+        wheelY += event.movementY;
+        runtime.aimWheel(wheelX, wheelY);
+      } else {
+        runtime.aimWheel(event.clientX - window.innerWidth / 2, event.clientY - window.innerHeight / 2);
+      }
+    }
     if (touch || document.pointerLockElement !== canvas) return;
     runtime.addLook(event.movementX * 0.0022, event.movementY * 0.0022);
   }
@@ -601,8 +627,11 @@ export function createGame(
     const dt = real;
     clock += dt;
     if (runtime.paused()) keys.clear();
-    if (playing && mode !== "orbit" && !runtime.paused() && !runtime.typing()) {
-      const yawKeys = (keys.has("ArrowRight") || keys.has("KeyR") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("KeyQ") ? 1 : 0);
+    if (playing && mode !== "orbit" && !runtime.paused() && !runtime.typing() && !runtime.frozen()) {
+      const yawKeys = runtime.decorating()
+        ? (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0)
+        : (keys.has("ArrowRight") || keys.has("KeyR") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("KeyQ") ? 1 : 0);
+      if (runtime.decorating() && (keys.has("KeyQ") || keys.has("KeyR"))) runtime.spinDecor((keys.has("KeyR") ? 1 : 0) - (keys.has("KeyQ") ? 1 : 0));
       const pitchKeys = (keys.has("ArrowDown") ? 1 : 0) - (keys.has("ArrowUp") ? 1 : 0);
       if (yawKeys || pitchKeys) runtime.addLook(yawKeys * 1.7 * dt, pitchKeys * 1.15 * dt);
       let left = dt;

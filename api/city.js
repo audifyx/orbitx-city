@@ -2,6 +2,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 import { createClient } from "@supabase/supabase-js";
 import { Redis } from "@upstash/redis";
+import { ensureDaily, handleLive, noteEarn } from "./live.js";
 
 const START_BALANCE = 250;
 const BURN_RATE = 0.25;
@@ -167,6 +168,23 @@ async function ensureSchema() {
     look TEXT NOT NULL DEFAULT 'tjr'
   )`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS look TEXT NOT NULL DEFAULT 'tjr'`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS earned INTEGER NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS best_race INTEGER NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS best_hover INTEGER NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS daily TEXT NOT NULL DEFAULT '{}'`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS wallet TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS holder BOOLEAN NOT NULL DEFAULT FALSE`;
+  await sql`CREATE TABLE IF NOT EXISTS properties (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    owner_name TEXT NOT NULL,
+    furniture TEXT NOT NULL
+  )`;
+  await sql`CREATE TABLE IF NOT EXISTS announcements (
+    id TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    author TEXT NOT NULL
+  )`;
   await sql`CREATE TABLE IF NOT EXISTS bookings (
     id TEXT PRIMARY KEY,
     project TEXT NOT NULL,
@@ -203,6 +221,12 @@ function freshPlayer(id, name) {
     mission: 0,
     missionAt: 0,
     look: "tjr",
+    earned: 0,
+    bestRace: 0,
+    bestHover: 0,
+    daily: null,
+    wallet: "",
+    holder: false,
   };
 }
 
@@ -221,6 +245,12 @@ function publicPlayer(player) {
     party: player.party,
     mission: player.mission || 0,
     look: player.look || "tjr",
+    earned: player.earned || 0,
+    bestRace: player.bestRace || 0,
+    bestHover: player.bestHover || 0,
+    holder: !!player.holder,
+    wallet: player.wallet || "",
+    daily: ensureDaily(player),
   };
 }
 
@@ -228,9 +258,15 @@ async function savePlayer(player) {
   const client = sb();
   if (client) {
     let { error } = await client.from("players").upsert(rowFromPlayer(player));
-    if (error && /look/i.test(error.message || "")) {
+    if (error && /look|earned|best_race|best_hover|daily|wallet|holder/i.test(error.message || "")) {
       const row = rowFromPlayer(player);
       delete row.look;
+      delete row.earned;
+      delete row.best_race;
+      delete row.best_hover;
+      delete row.daily;
+      delete row.wallet;
+      delete row.holder;
       const retry = await client.from("players").upsert(row);
       error = retry.error;
     }
@@ -244,8 +280,9 @@ async function savePlayer(player) {
     const friends = JSON.stringify(player.friends);
     const inbox = JSON.stringify(player.inbox);
     const job = JSON.stringify(player.job);
-    await sql`INSERT INTO players (id, token, name, balance, burned, owned, color, hat, car, friends, inbox, job, party, look)
-      VALUES (${player.id}, ${player.token}, ${player.name}, ${player.balance}, ${player.burned}, ${owned}, ${player.color}, ${player.hat}, ${player.car}, ${friends}, ${inbox}, ${job}, ${player.party}, ${player.look || "tjr"})
+    const daily = JSON.stringify(player.daily || {});
+    await sql`INSERT INTO players (id, token, name, balance, burned, owned, color, hat, car, friends, inbox, job, party, look, earned, best_race, best_hover, daily, wallet, holder)
+      VALUES (${player.id}, ${player.token}, ${player.name}, ${player.balance}, ${player.burned}, ${owned}, ${player.color}, ${player.hat}, ${player.car}, ${friends}, ${inbox}, ${job}, ${player.party}, ${player.look || "tjr"}, ${player.earned || 0}, ${player.bestRace || 0}, ${player.bestHover || 0}, ${daily}, ${player.wallet || ""}, ${!!player.holder})
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         balance = EXCLUDED.balance,
@@ -258,7 +295,13 @@ async function savePlayer(player) {
         inbox = EXCLUDED.inbox,
         job = EXCLUDED.job,
         party = EXCLUDED.party,
-        look = EXCLUDED.look`;
+        look = EXCLUDED.look,
+        earned = EXCLUDED.earned,
+        best_race = EXCLUDED.best_race,
+        best_hover = EXCLUDED.best_hover,
+        daily = EXCLUDED.daily,
+        wallet = EXCLUDED.wallet,
+        holder = EXCLUDED.holder`;
     return;
   }
   const cache = redis();
@@ -285,6 +328,12 @@ function parsePlayer(row) {
     mission: Number(row.mission || 0),
     missionAt: Number(row.mission_at || row.missionAt || 0),
     look: row.look || "tjr",
+    earned: Number(row.earned || 0),
+    bestRace: Number(row.best_race || row.bestRace || 0),
+    bestHover: Number(row.best_hover || row.bestHover || 0),
+    daily: typeof row.daily === "string" ? JSON.parse(row.daily || "null") : row.daily || null,
+    wallet: row.wallet || "",
+    holder: row.holder === true || row.holder === "true" || row.holder === "t",
   };
 }
 
@@ -306,6 +355,12 @@ function rowFromPlayer(player) {
     mission: player.mission || 0,
     mission_at: player.missionAt || 0,
     look: player.look || "tjr",
+    earned: player.earned || 0,
+    best_race: player.bestRace || 0,
+    best_hover: player.bestHover || 0,
+    daily: player.daily || {},
+    wallet: player.wallet || "",
+    holder: !!player.holder,
   };
 }
 
@@ -632,7 +687,8 @@ export async function GET() {
     database: Boolean(databaseUrl()),
     redis: Boolean(redisEnv()),
     livekit: Boolean(process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET),
-    note: "Demo credits only. No real tokens or wallets.",
+    note: "Demo credits only. Wallet connect is read-only and never sends a transaction.",
+    mint: Boolean(process.env.ORBITX_MINT),
     supabase: Boolean(supabaseEnv()),
     supabaseError: globalThis.__orbitxSbError || "",
     realtime: publicRealtime(),
@@ -690,8 +746,10 @@ export async function POST(request) {
     }
     player.balance += pay;
     player.job = null;
+    const bonus = noteEarn(player, id, pay);
     await savePlayer(player);
-    return json({ ok: true, message: `${id} paid ${pay} demo ORBITX.`, me: publicPlayer(player) });
+    const extra = bonus ? ` Quest paid ${bonus} demo ORBITX.` : "";
+    return json({ ok: true, message: `${id} paid ${pay} demo ORBITX.${extra}`, me: publicPlayer(player) });
   }
 
   if (op === "book") {
@@ -884,6 +942,31 @@ export async function POST(request) {
     });
   }
 
+  const live = await handleLive(
+    {
+      memory,
+      sb,
+      sql: db(),
+      note: noteSupabase,
+      savePlayer,
+      addEvent,
+      burnOf,
+    },
+    player,
+    op,
+    body,
+  );
+  if (live) {
+    const status = live.status || 200;
+    const payload = { ...live };
+    delete payload.status;
+    if (payload.includeMe) {
+      payload.me = publicPlayer(player);
+      delete payload.includeMe;
+    }
+    return json(payload, status);
+  }
+
   return json({ ok: false, message: "Unknown request." }, 400);
 }
 
@@ -926,6 +1009,7 @@ function sanitizeState(player, raw) {
     skin: player.car,
     speaking: Boolean(raw.speaking),
     emote: String(raw.emote || "").slice(0, 16),
+    holder: !!player.holder,
     lobby: String(raw.lobby || "").slice(0, 40),
     seen: Date.now(),
   };

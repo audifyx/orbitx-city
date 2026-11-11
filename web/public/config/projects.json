@@ -2,21 +2,33 @@
   {
     "id": "orbitx-hq",
     "name": "OrbitX HQ",
-    "line": "Community headquarters"
+    "line": "Community headquarters",
+    "site": "https://github.com/audifyx/orbitx-city",
+    "holders": "—",
+    "price": "Set ORBITX_MINT for a live price"
   },
   {
     "id": "your-project",
     "name": "Your Project Here",
-    "line": "Holders and friends meet here"
+    "line": "Holders and friends meet here",
+    "site": "",
+    "holders": "—",
+    "price": "Placeholder"
   },
   {
     "id": "north-star",
     "name": "North Star",
-    "line": "Project office"
+    "line": "Project office",
+    "site": "",
+    "holders": "—",
+    "price": "Placeholder"
   },
   {
     "id": "lumen",
     "name": "Lumen Labs",
-    "line": "Build nights and hangouts"
+    "line": "Build nights and hangouts",
+    "site": "",
+    "holders": "—",
+    "price": "Placeholder"
   }
 ]

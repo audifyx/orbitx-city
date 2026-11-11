@@ -1,4 +1,14 @@
 import { connectLive } from "./live";
+import {
+  EMPTY_LEADERS,
+  EMPTY_RACE,
+  type DailyCard,
+  type Leaders,
+  type LotCard,
+  type MarketCard,
+  type NoteCard,
+  type RaceCard,
+} from "./life";
 
 export interface CityPerson {
   id: string;
@@ -30,6 +40,12 @@ export interface CityMe {
   inbox: { id: string; name: string }[];
   party: string;
   look?: string;
+  earned?: number;
+  bestRace?: number;
+  bestHover?: number;
+  holder?: boolean;
+  wallet?: string;
+  daily?: DailyCard | null;
 }
 
 export interface VoiceRoom {
@@ -76,7 +92,16 @@ class CityWorld {
   volumes: Record<string, number> = {};
   provider = "";
   voiceError = "";
+  lots: LotCard[] = [];
+  leaders: Leaders = EMPTY_LEADERS;
+  daily: DailyCard | null = null;
+  raceInfo: RaceCard = { ...EMPTY_RACE };
+  notes: NoteCard[] = [];
+  market: MarketCard | null = null;
+  mintSet = false;
+  walletNote = "";
   private latest: Record<string, unknown> | null = null;
+  private digestTimer = 0;
   private timer = 0;
   private signals: { from: string; to: string; room: string; data: unknown }[] = [];
 
@@ -95,6 +120,8 @@ class CityWorld {
       const live = data.realtime as { url?: string; anon?: string } | null;
       if (live?.url && live.anon) void connectLive(String(live.url), String(live.anon));
       this.online = true;
+      void this.refresh();
+      this.digestTimer = window.setInterval(() => void this.refresh(), 1000);
       if (new URLSearchParams(location.search).has("ghost")) this.latest = { ghost: true };
     } catch {
       this.online = false;
@@ -118,7 +145,30 @@ class CityWorld {
 
   stop() {
     if (this.timer) window.clearInterval(this.timer);
+    if (this.digestTimer) window.clearInterval(this.digestTimer);
     this.timer = 0;
+    this.digestTimer = 0;
+  }
+
+  private applyDigest(data: Record<string, unknown>) {
+    if (data.me) this.me = data.me as CityMe;
+    if (Array.isArray(data.lots)) this.lots = data.lots as LotCard[];
+    if (data.leaders) this.leaders = data.leaders as Leaders;
+    if (data.daily) this.daily = data.daily as DailyCard;
+    if (data.race) this.raceInfo = { ...EMPTY_RACE, ...(data.race as RaceCard) };
+    if (Array.isArray(data.notes)) this.notes = data.notes as NoteCard[];
+    if (data.market && typeof data.market === "object") this.market = data.market as MarketCard;
+    if ("mintSet" in data) this.mintSet = Boolean(data.mintSet);
+  }
+
+  async refresh() {
+    if (!this.online) return;
+    try {
+      const data = await this.call("digest", {});
+      this.applyDigest(data);
+    } catch {
+      // The next tick tries again.
+    }
   }
 
   private busy = false;
@@ -225,6 +275,83 @@ class CityWorld {
 
   async addEvent(title: string, where: string, when: string, detail: string) {
     return this.call("event-add", { title, where, when, detail });
+  }
+
+  async buyLot(id: string) {
+    const data = await this.call("property-buy", { id });
+    this.applyDigest(data);
+    return data;
+  }
+
+  async saveFurniture(id: string, furniture: LotCard["furniture"]) {
+    const data = await this.call("property-save", { id, furniture });
+    this.applyDigest(data);
+    return data;
+  }
+
+  async setAnnouncement(project: string, text: string) {
+    const data = await this.call("hq-note", { project, text });
+    this.applyDigest(data);
+    return data;
+  }
+
+  async hostEvent(project: string, title: string, when: string, detail: string) {
+    return this.call("event-host", { title, where: project, when, detail, project });
+  }
+
+  async raceGo(kind: "street" | "hover") {
+    const data = await this.call("race-go", { kind });
+    this.applyDigest(data);
+    return data;
+  }
+
+  async raceHit(x: number, z: number, car: boolean) {
+    const data = await this.call("race-hit", { x, z, car });
+    this.applyDigest(data);
+    return data;
+  }
+
+  async raceLeave() {
+    const data = await this.call("race-leave", {});
+    this.applyDigest(data);
+    return data;
+  }
+
+  async claimDaily() {
+    const data = await this.call("daily-claim", {});
+    this.applyDigest(data);
+    return data;
+  }
+
+  async questPing(id: string) {
+    const data = await this.call("quest-ping", { id });
+    this.applyDigest(data);
+    return data;
+  }
+
+  async arcadePlay(extra: Record<string, unknown> = {}) {
+    const data = await this.call("arcade-play", extra);
+    this.applyDigest(data);
+    return data;
+  }
+
+  async arcadeArm() {
+    const data = await this.call("arcade-arm", {});
+    this.applyDigest(data);
+    return data;
+  }
+
+  async arcadeHit(token: string) {
+    const data = await this.call("arcade-hit", { token });
+    this.applyDigest(data);
+    return data;
+  }
+
+  async walletLink(pubkey: string, message = "", signature = "") {
+    const data = await this.call("wallet-link", { pubkey, message, signature });
+    this.applyDigest(data);
+    this.walletNote = String(data.message || "");
+    return data;
   }
 
   private async call(op: string, extra: Record<string, unknown>, auth = true) {

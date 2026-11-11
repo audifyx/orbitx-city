@@ -541,3 +541,62 @@ body.touch .touch-ui {
     padding: 6px 8px;
   }
 }
+
+.race-banner {
+  position: fixed;
+  z-index: 6;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 10px 18px;
+  border: 2px solid #7ef6ff;
+  background: rgba(4, 10, 16, 0.82);
+  color: #fff;
+  font-size: 28px;
+  letter-spacing: 0.04em;
+}
+
+.wheel {
+  position: fixed;
+  z-index: 7;
+  left: 50%;
+  top: 70%;
+  width: 0;
+  height: 0;
+}
+
+.wheel button,
+.wheel span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  min-width: 72px;
+}
+
+.wheel span {
+  color: #e0b33a;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.decor-bar,
+.spectate-bar {
+  position: fixed;
+  z-index: 6;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  max-width: min(720px, 96vw);
+}
+
+.play-money {
+  border: 1px solid #e0b33a;
+  padding: 8px 10px;
+  color: #ffe7a3;
+}

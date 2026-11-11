@@ -13,6 +13,7 @@ export interface NetState {
   emote?: string;
   lobby?: string;
   look?: string;
+  holder?: boolean;
 }
 
 export interface ChatLine {
