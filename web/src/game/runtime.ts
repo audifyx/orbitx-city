@@ -3,6 +3,7 @@ import {
   CanvasTexture,
   CylinderGeometry,
   DoubleSide,
+  FrontSide,
   Group,
   Mesh,
   MeshLambertMaterial,
@@ -184,6 +185,8 @@ const COLORS: Record<string, number> = {
   cyan: 0x7eefff,
   sunset: 0xff7a3c,
   black: 0x16181f,
+  red: 0xd43a2e,
+  silver: 0xc9ced6,
 };
 
 const BOOK_KEY = "orbitx-demo-ads-v1";
@@ -327,24 +330,49 @@ function makeCar(skin: string, style: number) {
     group.add(mesh);
   };
   const body = paint();
+  // Brighter glass canopy (not flat cyan) + dark grille + silver bumpers.
+  const glass = new MeshStandardMaterial({
+    color: 0xbfe6ff,
+    emissive: 0x3d7fa8,
+    emissiveIntensity: 0.55,
+    roughness: 0.12,
+    metalness: 0.35,
+    transparent: true,
+    opacity: 0.85,
+  });
+  const grille = new MeshStandardMaterial({ color: 0x111318, roughness: 0.5, metalness: 0.5 });
+  const chrome = new MeshStandardMaterial({ color: 0xc9ced6, roughness: 0.25, metalness: 0.8 });
   if (style === 1) {
+    // Low coupe: stepped hood lid, spoiler blade on the trunk.
     add(body, 0.15, 0.42, 0, 3.7, 0.32, 1.72);
+    add(body, 0.3, 0.56, 0, 1.1, 0.1, 1.5);
     add(body, -0.25, 0.68, 0, 1.55, 0.28, 1.42);
-    add(MATERIALS.cyan, -0.05, 0.74, 0, 1.05, 0.18, 1.2);
+    add(glass, -0.05, 0.74, 0, 1.05, 0.18, 1.2);
     add(body, -1.55, 0.86, 0, 0.12, 0.28, 1.55);
+    add(body, -1.78, 1.02, 0, 0.5, 0.07, 1.5);
   } else if (style === 2) {
+    // Tall wagon: roof rails.
     add(body, 0.05, 0.62, 0, 3.35, 0.62, 1.62);
     add(body, -0.2, 1.15, 0, 2.15, 0.52, 1.5);
-    add(MATERIALS.cyan, 0.2, 1.18, 0, 1.35, 0.32, 1.32);
+    add(glass, 0.2, 1.18, 0, 1.35, 0.32, 1.32);
     add(GOLD, -0.15, 1.52, 0, 0.55, 0.16, 0.7);
+    add(chrome, -0.2, 1.46, 0.62, 2.0, 0.06, 0.08);
+    add(chrome, -0.2, 1.46, -0.62, 2.0, 0.06, 0.08);
   } else {
     add(body, 0.1, 0.5, 0, 3.45, 0.42, 1.62);
+    add(body, 0.3, 0.64, 0, 1.0, 0.1, 1.45);
     add(body, -0.2, 0.88, 0, 1.65, 0.36, 1.42);
-    add(MATERIALS.cyan, 0.02, 0.92, 0, 1.15, 0.22, 1.22);
+    add(glass, 0.02, 0.92, 0, 1.15, 0.22, 1.22);
   }
+  // Stepped hood lid + dark grille + silver bumpers.
   add(body, 1.62, 0.4, 0, 0.62, 0.26, 1.28);
-  add(MATERIALS.cyanhot, 1.92, 0.42, 0.46, 0.1, 0.14, 0.32);
-  add(MATERIALS.cyanhot, 1.92, 0.42, -0.46, 0.1, 0.14, 0.32);
+  add(grille, 1.94, 0.42, 0, 0.08, 0.18, 0.9);
+  add(chrome, 1.96, 0.3, 0, 0.06, 0.1, 1.3);
+  add(chrome, -1.96, 0.34, 0, 0.06, 0.1, 1.3);
+  // White headlight lenses (red taillights stay).
+  const headlamp = new MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff6d8, emissiveIntensity: 1.4, roughness: 0.2 });
+  add(headlamp, 1.92, 0.46, 0.52, 0.1, 0.14, 0.34);
+  add(headlamp, 1.92, 0.46, -0.52, 0.1, 0.14, 0.34);
   const lamp = new MeshStandardMaterial({ color: 0xff4b5c, emissive: 0xaa1830, emissiveIntensity: 0.8, roughness: 0.3 });
   add(lamp, -1.72, 0.46, 0.52, 0.1, 0.16, 0.34);
   add(lamp, -1.72, 0.46, -0.52, 0.1, 0.16, 0.34);
@@ -363,6 +391,11 @@ function makeCar(skin: string, style: number) {
     mesh.position.set(x, 0.28, z);
     mesh.name = "wheel";
     group.add(mesh);
+    // Silver hubcap.
+    const hub = new Mesh(new CylinderGeometry(0.13, 0.13, 0.24, 10), chrome);
+    hub.rotation.x = Math.PI / 2;
+    hub.position.set(x, 0.28, z);
+    group.add(hub);
     const glow = new Mesh(box, MATERIALS.cyan);
     glow.position.set(x, 0.08, z);
     glow.scale.set(0.34, 0.06, 0.22);
@@ -674,7 +707,7 @@ export function createRuntime(scene: Scene) {
       root.add(tag);
     }
     for (const slot of next.boards) mountBoard(slot);
-    const parked = ["black", "white", "cyan", "gold"];
+    const parked = ["black", "white", "cyan", "gold", "red", "silver"];
     next.cars.forEach((spawn, index) => {
       const group = makeCar(index === 0 ? wallet.car : parked[index % parked.length], index % 3);
       group.position.set(spawn.x, 0.12, spawn.z);
@@ -729,13 +762,25 @@ export function createRuntime(scene: Scene) {
       end: "2026-12-31",
     };
     const texture = paint([faceFor(base).project, faceFor(base).text], `${base.start} → ${base.end}`);
-    const mesh = new Mesh(
-      new PlaneGeometry(6.4, 3.4),
-      new MeshLambertMaterial({ map: texture, emissive: 0x062028, emissiveIntensity: 0.6, side: DoubleSide }),
-    );
+    // Two single-sided planes back to back: a DoubleSide plane shows the
+    // texture mirrored from behind, so roadside boards read reversed from
+    // one side of the street. Both faces read correctly now.
+    const material = new MeshLambertMaterial({
+      map: texture,
+      emissive: 0x062028,
+      emissiveIntensity: 0.6,
+      side: FrontSide,
+    });
+    const mesh = new Mesh(new PlaneGeometry(6.4, 3.4), material);
     mesh.position.set(slot.x, slot.y, slot.z);
     mesh.rotation.y = slot.rotY;
     root.add(mesh);
+    const nx = Math.sin(slot.rotY);
+    const nz = Math.cos(slot.rotY);
+    const back = new Mesh(new PlaneGeometry(6.4, 3.4), material);
+    back.position.set(slot.x + nx * 0.06, slot.y, slot.z + nz * 0.06);
+    back.rotation.y = slot.rotY + Math.PI;
+    root.add(back);
     boards.set(slot.id, { mesh, base, texture });
   }
 

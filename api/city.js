@@ -8,7 +8,7 @@ import { chainShopEnabled, confirmSend, ensureWallet, exportWallet, networkName,
 
 const START_BALANCE = 250;
 const BURN_RATE = 0.25;
-const PRESENCE_MS = 8000;
+const PRESENCE_MS = 25000;
 const JOB_MS = 4000;
 
 const CATALOG = {
@@ -466,6 +466,10 @@ async function readWorld() {
   const client = sb();
   if (client) {
     const since = new Date(Date.now() - PRESENCE_MS).toISOString();
+    // Prune rows nobody will ever read again (players who closed the tab).
+    // Best-effort and probabilistic — one prune per ~20 reads keeps the
+    // table clean without doubling every sync's Supabase traffic.
+    if (Math.random() < 0.05) await client.from("presence").delete().lt("seen", since);
     const { data, error } = await client.from("presence").select("state, seen").gt("seen", since);
     if (!error && data) return data.map((row) => (typeof row.state === "string" ? JSON.parse(row.state) : row.state));
     if (error) noteSupabase(error.message);
@@ -1082,9 +1086,7 @@ export async function POST(request) {
       data: body.data || null,
       at: Date.now(),
     };
-    const cache = redis();
-    if (cache) await cache.lpush("orbitx:signals", JSON.stringify(signal));
-    else memory().signals.push(signal);
+    await pushSignal(signal);
     const mine = await takeSignals(player.id);
     return json({ ok: true, signals: mine });
   }
@@ -1239,7 +1241,60 @@ function ensureGhost() {
   });
 }
 
+async function pushSignal(signal) {
+  // Signals must survive across Vercel serverless instances, so Supabase
+  // is the store. Redis stays as the fallback when it is configured;
+  // per-instance memory is only the local-dev last resort.
+  const client = sb();
+  if (client) {
+    const { error } = await client.from("voice_signals").insert({
+      from_id: signal.from,
+      to_id: signal.to,
+      room: signal.room,
+      data: signal.data,
+    });
+    if (!error) {
+      await client
+        .from("voice_signals")
+        .delete()
+        .lt("created_at", new Date(Date.now() - 15000).toISOString());
+      return;
+    }
+    noteSupabase(error.message);
+  }
+  const cache = redis();
+  if (cache) {
+    await cache.lpush("orbitx:signals", JSON.stringify(signal));
+    return;
+  }
+  memory().signals.push(signal);
+}
+
 async function takeSignals(id) {
+  const client = sb();
+  if (client) {
+    const since = new Date(Date.now() - 15000).toISOString();
+    const { data, error } = await client
+      .from("voice_signals")
+      .select("id, from_id, to_id, room, data, created_at")
+      .eq("to_id", id)
+      .gt("created_at", since)
+      .order("created_at", { ascending: true });
+    if (!error && data) {
+      if (data.length) {
+        const ids = data.map((row) => row.id);
+        await client.from("voice_signals").delete().in("id", ids);
+      }
+      return data.map((row) => ({
+        from: row.from_id,
+        to: row.to_id,
+        room: row.room,
+        data: row.data,
+        at: new Date(row.created_at).getTime(),
+      }));
+    }
+    if (error) noteSupabase(error.message);
+  }
   const cache = redis();
   if (cache) {
     const rows = (await cache.lrange("orbitx:signals", 0, 200)) || [];

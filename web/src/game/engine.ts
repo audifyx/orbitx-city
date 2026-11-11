@@ -23,7 +23,7 @@ import {
 import { buildCity, type City, type Mat, type RailPoint, type ShipPath } from "./city";
 import { MATERIALS } from "./materials";
 import { createRuntime, wantsTouch, type Body, type Runtime } from "./runtime";
-import { mountPretty, type QualityName } from "./pretty";
+import { mountPretty, setPrettyNight, type QualityName } from "./pretty";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
@@ -62,7 +62,14 @@ function makeShip(body: Material, glass: Material, hot: Material) {
   const nose = new Mesh(box, hot);
   nose.scale.set(0.35, 0.28, 0.7);
   nose.position.set(2.15, 0.1, 0);
-  g.add(hull, cabin, wingL, wingR, engine, nose);
+  // Gold pinstripes along the hull sides.
+  const stripeL = new Mesh(box, hot);
+  stripeL.scale.set(4.0, 0.1, 0.06);
+  stripeL.position.set(0, 0.28, 0.88);
+  const stripeR = new Mesh(box, hot);
+  stripeR.scale.set(4.0, 0.1, 0.06);
+  stripeR.position.set(0, 0.28, -0.88);
+  g.add(hull, cabin, wingL, wingR, engine, nose, stripeL, stripeR);
   return g;
 }
 
@@ -122,7 +129,7 @@ export function createGame(
   renderer.shadowMap.type = PCFSoftShadowMap;
 
   const scene = new Scene();
-  const baseFog = new Fog(0xf09158, touch ? 100 : 170, touch ? 300 : 460);
+  const baseFog = new Fog(0xf09158, touch ? 100 : 170, touch ? 420 : 620);
   scene.fog = baseFog;
   const runtime = createRuntime(scene);
 
@@ -134,11 +141,11 @@ export function createGame(
   sun.castShadow = quality !== "low";
   sun.shadow.mapSize.set(quality === "high" ? 2048 : 1024, quality === "high" ? 2048 : 1024);
   sun.shadow.camera.near = 10;
-  sun.shadow.camera.far = 280;
-  sun.shadow.camera.left = -90;
-  sun.shadow.camera.right = 90;
-  sun.shadow.camera.top = 90;
-  sun.shadow.camera.bottom = -90;
+  sun.shadow.camera.far = 420;
+  sun.shadow.camera.left = -150;
+  sun.shadow.camera.right = 150;
+  sun.shadow.camera.top = 150;
+  sun.shadow.camera.bottom = -150;
   const fill = new DirectionalLight(0x93a4ff, 0.32);
   fill.position.set(-60, 28, -40);
   const ambient = new AmbientLight(0xffb080, 0.16);
@@ -432,7 +439,7 @@ export function createGame(
     }
     shipPaths = city.ships;
     for (let i = 0; i < shipPaths.length; i++) {
-      const ship = makeShip(MATERIALS.black, MATERIALS.cyan, MATERIALS.cyanhot);
+      const ship = makeShip(MATERIALS.white, MATERIALS.cyan, MATERIALS.gold);
       ship.scale.setScalar(1.7);
       ships.push(ship);
       scene.add(ship);
@@ -602,8 +609,52 @@ export function createGame(
   function onTouchEnd() {
     pinchDist = 0;
   }
+  // One-finger drag to look on touch: pointer drag is gated off for touch
+  // devices, and pinch only zooms — without this, dragging on a phone does
+  // nothing at all. Same pitch direction as mouse drag (drag up = look up).
+  let lookTouch: number | null = null;
+  let lookTouchX = 0;
+  let lookTouchY = 0;
+  function onTouchStart(event: TouchEvent) {
+    if (event.touches.length !== 1) return;
+    if (!playing || runtime.paused() || runtime.typing()) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("button, a, input, textarea, .panel, .menu")) return;
+    const t = event.touches[0];
+    lookTouch = t.identifier;
+    lookTouchX = t.clientX;
+    lookTouchY = t.clientY;
+    runtime.setLooking(true);
+  }
+  function onTouchMove(event: TouchEvent) {
+    if (lookTouch === null) return;
+    for (let i = 0; i < event.touches.length; i++) {
+      const t = event.touches[i];
+      if (t.identifier !== lookTouch) continue;
+      const dx = t.clientX - lookTouchX;
+      const dy = t.clientY - lookTouchY;
+      lookTouchX = t.clientX;
+      lookTouchY = t.clientY;
+      runtime.addLook(dx * 0.006, dy * 0.006);
+    }
+  }
+  function onTouchEndLook(event: TouchEvent) {
+    if (lookTouch === null) return;
+    let alive = false;
+    for (let i = 0; i < event.touches.length; i++) {
+      if (event.touches[i].identifier === lookTouch) alive = true;
+    }
+    if (!alive) {
+      lookTouch = null;
+      runtime.setLooking(false);
+    }
+  }
   canvas.addEventListener("touchmove", onPinchMove, { passive: true });
   canvas.addEventListener("touchend", onTouchEnd);
+  canvas.addEventListener("touchstart", onTouchStart, { passive: true });
+  canvas.addEventListener("touchmove", onTouchMove, { passive: true });
+  canvas.addEventListener("touchend", onTouchEndLook);
+  canvas.addEventListener("touchcancel", onTouchEndLook);
   window.addEventListener("blur", onBlur);
   window.addEventListener("resize", onResize);
   window.addEventListener("orientationchange", onResize);
@@ -680,23 +731,26 @@ export function createGame(
       sun.intensity = 0.35;
       hemi.intensity = 0.25;
       ambient.intensity = 0.08;
+      setPrettyNight(1);
     } else if (clockName === "day") {
       baseFog.color.setHex(0xb7d4ea);
       sun.intensity = 1.6;
       hemi.intensity = 0.9;
       ambient.intensity = 0.2;
+      setPrettyNight(0.15);
     } else {
       baseFog.color.setHex(0xf09158);
       sun.intensity = 1.9;
       hemi.intensity = 0.78;
       ambient.intensity = 0.16;
+      setPrettyNight(0.5);
     }
     scene.fog = runtime.indoors() ? null : baseFog;
     const tookCamera = runtime.after(dt, player, camera, { orbit: mode === "orbit", fountain });
     if (mode === "orbit") {
       const t = clock * 0.07;
-      camera.position.set(Math.sin(t) * 150, 64, Math.cos(t) * 132 + 10);
-      camera.lookAt(0, 24, -8);
+      camera.position.set(Math.sin(t) * 190, 78, Math.cos(t) * 132 + 10);
+      camera.lookAt(0, 26, 20);
     } else if (!tookCamera) {
       const cp = Math.cos(player.pitch);
       const sp = Math.sin(player.pitch);
@@ -745,9 +799,9 @@ export function createGame(
       player.onGround = true;
       if (nextMode === "air") {
         player.flying = true;
-        player.x = 86;
-        player.y = 52;
-        player.z = 108;
+        player.x = 70;
+        player.y = 72;
+        player.z = 205;
         const dx = focus.x - player.x;
         const dz = focus.z - player.z;
         const dy = focus.y - (player.y + 1.62);
@@ -791,6 +845,10 @@ export function createGame(
       window.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("touchmove", onPinchMove);
       canvas.removeEventListener("touchend", onTouchEnd);
+      canvas.removeEventListener("touchstart", onTouchStart);
+      canvas.removeEventListener("touchmove", onTouchMove);
+      canvas.removeEventListener("touchend", onTouchEndLook);
+      canvas.removeEventListener("touchcancel", onTouchEndLook);
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("resize", onResize);
       window.removeEventListener("orientationchange", onResize);

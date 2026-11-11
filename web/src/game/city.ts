@@ -140,12 +140,12 @@ export interface Citizen {
   z: number;
 }
 
-const CENTERS = [-108, -72, -36, 0, 36, 72, 108];
+const CENTERS = [-180, -144, -108, -72, -36, 0, 36, 72, 108, 144, 180];
 const HALF = 5;
 const SIDE = 2;
 const SOUTH = -3;
 const FOUNTAIN = { x: 0, z: 12 };
-const TRACK_HALF = 74;
+const TRACK_HALF = 110;
 const TRACK_R = 18;
 const TRACK_Y = 30;
 let visualHide = false;
@@ -162,6 +162,9 @@ function put(
   mat: Mat,
   ry = 0,
 ) {
+  // The voxel shell of pretty-faced buildings is hidden dead weight: the
+  // pretty overlay is the only visible representation, so never emit it.
+  if (visualHide) return;
   boxes.push({ x, y, z, sx, sy, sz, mat, ry, hide: visualHide || undefined });
 }
 
@@ -624,12 +627,13 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng) {
       const cx = (x0 + x1) / 2;
       const cz = (z0 + z1) / 2;
       const dist = Math.hypot(cx, cz);
-      const maxH = dist < 68 ? 48 : dist < 100 ? 34 : 24;
-      const minH = dist < 68 ? 26 : dist < 100 ? 16 : 12;
+      const maxH = dist < 48 ? 48 : dist < 68 ? 34 : dist < 120 ? 26 : dist < 170 ? 20 : 16;
+      const minH = dist < 48 ? 26 : dist < 68 ? 16 : dist < 120 ? 12 : 10;
       let height = minH + Math.floor(rng() * (maxH - minH + 1));
       if (dist < 62 && rng() > 0.72) height += 8;
       height = Math.min(height, 54);
-      const style = Math.floor(rng() * 4);
+      // Outer blocks read residential (brick / cream); downtown uses all styles.
+      const style = dist > 100 ? (rng() < 0.5 ? 1 : 3) : Math.floor(rng() * 6);
       const face = frontFace(cx, cz);
       facades.push({
         id: `block-${x0}-${z0}`,
@@ -688,7 +692,7 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng) {
       addAwning(boxes, bx, bz, bw, bd, face);
       if (height > 18) addBalcony(boxes, bx, Math.min(12, roofY - 4), bz, bw, bd, face);
       if (height > 22) addCrown(boxes, cols, bx + bw / 2, roofY, bz + bd / 2, bw, bd);
-      if (height > 22 && dist > 40 && dist < 96 && rng() > 0.55) {
+      if (height > 22 && dist > 40 && dist < 140 && rng() > 0.55) {
         addBillboard(boxes, x0, 8, z0, w, d, face, Math.floor(rng() * 6));
       }
     }
@@ -709,8 +713,8 @@ function gapsOutside(blocked: Array<[number, number]>, from: number, to: number)
 }
 
 function addRoads(boxes: Box[]) {
-  put(boxes, 0, -0.55, 0, 520, 1.1, 520, "hill");
-  put(boxes, 0, 0.02, 0, 250, 0.04, 250, "sidewalk");
+  put(boxes, 0, -0.55, 0, 760, 1.1, 760, "grass");
+  put(boxes, 0, 0.02, 0, 400, 0.04, 400, "sidewalk");
   put(boxes, 0, 0.045, 0, 58, 0.05, 58, "plaza");
 
   const nsBlock: Array<[number, number]> = CENTERS.map((c) => [c - HALF, c + HALF]);
@@ -718,15 +722,15 @@ function addRoads(boxes: Box[]) {
 
   for (const cx of CENTERS) {
     const zSpans = cx === 0
-      ? gapsOutside(plazaBlock, -124, 124)
-      : [[-124, 124] as [number, number]];
+      ? gapsOutside(plazaBlock, -184, 184)
+      : [[-184, 184] as [number, number]];
     for (const [z0, z1] of zSpans) {
       put(boxes, cx, 0.055, (z0 + z1) / 2, HALF * 2, 0.05, z1 - z0, "asphalt");
     }
   }
   for (const cz of CENTERS) {
     const extra = cz === 0 ? plazaBlock : [];
-    const xSpans = gapsOutside([...nsBlock, ...extra], -124, 124);
+    const xSpans = gapsOutside([...nsBlock, ...extra], -184, 184);
     for (const [x0, x1] of xSpans) {
       put(boxes, (x0 + x1) / 2, 0.055, cz, x1 - x0, 0.05, HALF * 2, "asphalt");
     }
@@ -735,7 +739,7 @@ function addRoads(boxes: Box[]) {
   const nearCross = (v: number) => CENTERS.some((c) => Math.abs(v - c) < 9);
 
   for (const cx of CENTERS) {
-    for (let z = -120; z <= 120; z += 5) {
+    for (let z = -180; z <= 180; z += 5) {
       if (nearCross(z)) continue;
       if (cx === 0 && Math.abs(z) < 34) continue;
       put(boxes, cx, 0.1, z, 0.26, 0.04, 2.1, "lane");
@@ -754,7 +758,7 @@ function addRoads(boxes: Box[]) {
     }
   }
   for (const cz of CENTERS) {
-    for (let x = -120; x <= 120; x += 5) {
+    for (let x = -180; x <= 180; x += 5) {
       if (nearCross(x)) continue;
       if (cz === 0 && Math.abs(x) < 34) continue;
       put(boxes, x, 0.1, cz, 2.1, 0.04, 0.26, "lane");
@@ -775,6 +779,63 @@ function addRoads(boxes: Box[]) {
       }
     }
   }
+
+  // Zebra crosswalks at every core intersection (the plaza one has none —
+  // pedestrians own the plaza), curbs along road edges between intersections,
+  // traffic lights at intersections, gold bollards ringing the plaza.
+  for (const cx of CENTERS) {
+    for (const cz of CENTERS) {
+      if (cx === 0 && cz === 0) continue;
+      for (const approach of [-10.5, 10.5]) {
+        for (let i = -2; i <= 2; i++) {
+          put(boxes, cx + i * 1.8, 0.118, cz + approach, 1.1, 0.035, 2.6, "lane");
+        }
+      }
+      for (const approach of [-10.5, 10.5]) {
+        for (let i = -2; i <= 2; i++) {
+          put(boxes, cx + approach, 0.118, cz + i * 1.8, 2.6, 0.035, 1.1, "lane");
+        }
+      }
+      // Traffic light on the +x/+z corner: pole + head + red/amber/green.
+      const lx = cx + 6.8;
+      const lz = cz + 6.8;
+      put(boxes, lx, 1.9, lz, 0.22, 3.8, 0.22, "black");
+      put(boxes, lx, 3.95, lz, 0.55, 1.1, 0.55, "black");
+      put(boxes, lx, 4.3, lz + 0.3, 0.3, 0.26, 0.1, "red");
+      put(boxes, lx, 3.95, lz + 0.3, 0.3, 0.26, 0.1, "warm");
+      put(boxes, lx, 3.6, lz + 0.3, 0.3, 0.26, 0.1, "leaves");
+    }
+  }
+  for (const cx of CENTERS) {
+    for (const side of [-1, 1]) {
+      const x = cx + side * 5.6;
+      for (let i = 0; i < CENTERS.length - 1; i++) {
+        const z0 = CENTERS[i] + 11;
+        const z1 = CENTERS[i + 1] - 11;
+        if (z1 - z0 < 4) continue;
+        if (cx === 0 && z0 < 34 && z1 > -34) continue;
+        if (Math.abs(x) < 32 && z0 < 32 && z1 > -32) continue;
+        put(boxes, x, 0.09, (z0 + z1) / 2, 0.3, 0.06, z1 - z0, "stone");
+      }
+    }
+  }
+  for (const cz of CENTERS) {
+    for (const side of [-1, 1]) {
+      const z = cz + side * 5.6;
+      for (let i = 0; i < CENTERS.length - 1; i++) {
+        const x0 = CENTERS[i] + 11;
+        const x1 = CENTERS[i + 1] - 11;
+        if (x1 - x0 < 4) continue;
+        if (cz === 0 && x0 < 34 && x1 > -34) continue;
+        if (Math.abs(z) < 32 && x0 < 32 && x1 > -32) continue;
+        put(boxes, (x0 + x1) / 2, 0.09, z, x1 - x0, 0.06, 0.3, "stone");
+      }
+    }
+  }
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    put(boxes, Math.cos(a) * 30.5, 0.35, Math.sin(a) * 30.5, 0.5, 0.7, 0.5, "gold");
+  }
 }
 
 function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng) {
@@ -782,7 +843,7 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng) {
   for (const cx of CENTERS) {
     for (const side of [-1, 1]) {
       const x = cx + side * 6.15;
-      for (let z = -110; z <= 110; z += 16) {
+      for (let z = -170; z <= 170; z += 16) {
         if (CENTERS.some((c) => Math.abs(z - c) < 10)) continue;
         if (Math.abs(x) < 32 && Math.abs(z) < 32) continue;
         lampI++;
@@ -794,7 +855,7 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng) {
   for (const cz of CENTERS) {
     for (const side of [-1, 1]) {
       const z = cz + side * 6.15;
-      for (let x = -110; x <= 110; x += 16) {
+      for (let x = -170; x <= 170; x += 16) {
         if (CENTERS.some((c) => Math.abs(x - c) < 10)) continue;
         if (Math.abs(x) < 32 && Math.abs(z) < 32) continue;
         if (rng() > 0.5) addLamp(boxes, x, z);
@@ -868,7 +929,7 @@ function addMonorail(boxes: Box[], cols: Collider[], rail: RailPoint[]) {
 function addHills(boxes: Box[], cols: Collider[], rng: Rng) {
   for (let i = 0; i < 26; i++) {
     const a = (i / 26) * Math.PI * 2 + rng() * 0.1;
-    const rad = 175 + rng() * 28;
+    const rad = 280 + rng() * 35;
     const h = 12 + rng() * 26;
     const x = Math.cos(a) * rad;
     const z = Math.sin(a) * rad;
@@ -876,6 +937,18 @@ function addHills(boxes: Box[], cols: Collider[], rng: Rng) {
     const sz = 18 + rng() * 16;
     put(boxes, x, h / 2 - 1, z, sx, h, sz, "hill");
     cols.push(col(x, h / 2 - 1, z, sx, h, sz));
+    // Grassy berm at the foot + trees so the hill reads as terrain from the
+    // streets, not a sheer maroon wall.
+    put(boxes, x, 0.5, z, sx + 4, 3, sz + 4, "grass");
+    cols.push(col(x, 0.5, z, sx + 4, 3, sz + 4));
+    // Stepped, grassy summit + a tree so hills read as terrain, not a blank
+    // maroon wall at the end of the streets.
+    put(boxes, x, h - 1 + h * 0.15, z, sx * 0.55, h * 0.3, sz * 0.55, "hill");
+    cols.push(col(x, h - 1 + h * 0.15, z, sx * 0.55, h * 0.3, sz * 0.55));
+    put(boxes, x, h - 1 + 0.25, z, sx + 1, 0.5, sz + 1, "grass");
+    addTree(boxes, cols, x, z, h - 1 + 0.5);
+    addTree(boxes, cols, x + sx * 0.7, z + 2, 0);
+    addTree(boxes, cols, x - sx * 0.6, z - 3, 0);
   }
 }
 
@@ -951,15 +1024,42 @@ function furnishShop(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   put(boxes, back.x, 1.15, back.z, counterAlongX ? 7.4 : 1.25, 0.12, counterAlongX ? 1.25 : 7.4, "stone");
   put(boxes, back.x, 1.55, back.z, 0.35, 0.55, 0.35, "gold");
   const shelfZ = [z0 + 2.3, z0 + d - 2.3];
+  const goods: Mat[] = ["cyan", "gold", "red", "white", "warm", "cyan"];
   for (const z of shelfZ) {
-    put(boxes, cx, 0.85, z, w - 8, 1.5, 0.7, "wood");
-    cols.push(col(cx, 0.85, z, w - 8, 1.5, 0.7));
-    put(boxes, cx, 1.62, z, w - 8, 0.1, 0.78, "stone");
-    put(boxes, cx - 2.4, 1.9, z, 0.7, 0.4, 0.45, "cyan");
-    put(boxes, cx, 1.9, z, 0.55, 0.45, 0.45, "gold");
-    put(boxes, cx + 2.4, 1.85, z, 0.45, 0.55, 0.4, "white");
-    put(boxes, cx + 4, 1.85, z, 0.4, 0.35, 0.4, "red");
+    // Tall stocked shelf rows (two levels of goods) instead of one low box.
+    put(boxes, cx, 1.2, z, w - 8, 2.4, 0.7, "wood");
+    cols.push(col(cx, 1.2, z, w - 8, 2.4, 0.7));
+    put(boxes, cx, 2.45, z, w - 8, 0.12, 0.78, "stone");
+    for (let level = 0; level < 2; level++) {
+      const y = level === 0 ? 0.95 : 1.95;
+      for (let i = 0; i < 6; i++) {
+        put(boxes, cx - 5.5 + i * 2.2, y, z, 0.55, 0.5, 0.45, goods[(i + level * 2) % goods.length]);
+      }
+    }
   }
+  // Tall end-cap units flanking the counter on the back wall.
+  for (const side of [-1, 1]) {
+    const ex = x0 + w - 1.9;
+    const ez = cz + side * 6;
+    put(boxes, ex, 1.2, ez, 1.0, 2.4, 2.6, "wood");
+    cols.push(col(ex, 1.2, ez, 1.0, 2.4, 2.6));
+    for (let level = 0; level < 2; level++) {
+      const y = level === 0 ? 0.95 : 1.95;
+      put(boxes, ex - 0.55, y, ez - 0.6, 0.4, 0.5, 0.45, goods[(side + 2 + level) % goods.length]);
+      put(boxes, ex - 0.55, y, ez + 0.6, 0.4, 0.5, 0.45, goods[(side + 3 + level) % goods.length]);
+    }
+  }
+  // Central island display with goods on top.
+  put(boxes, cx, 0.5, cz, 3.2, 1.0, 1.6, "wood");
+  cols.push(col(cx, 0.5, cz, 3.2, 1.0, 1.6));
+  put(boxes, cx, 1.05, cz, 3.4, 0.12, 1.8, "stone");
+  for (let i = 0; i < 4; i++) {
+    put(boxes, cx - 1.2 + i * 0.8, 1.35, cz, 0.45, 0.45, 0.45, goods[i % goods.length]);
+  }
+  // Red carpet runner from the door to the counter, split around the island.
+  // Sits on the cream floor slab (top 0.12), not buried under it.
+  put(boxes, cx - 6, 0.145, cz, 6, 0.05, 2.4, "red");
+  put(boxes, cx + 4.5, 0.145, cz, 5, 0.05, 2.4, "red");
   for (const side of [-1, 1]) {
     const z = cz + side * 4.2;
     put(boxes, cx - 1.5, 0.45, z, 1.6, 0.85, 1.1, "stone");
@@ -1229,21 +1329,27 @@ function addKiosk(boxes: Box[], cols: Collider[], x: number, z: number, top: Mat
 }
 
 function addHarbor(boxes: Box[], cols: Collider[]) {
-  put(boxes, -30, 0.04, 152, 40, 0.08, 48, "water");
-  put(boxes, 30, 0.04, 152, 40, 0.08, 48, "water");
-  cols.push({ minX: -50, maxX: -10, minY: 0, maxY: 1.2, minZ: 128, maxZ: 176 });
-  cols.push({ minX: 10, maxX: 50, minY: 0, maxY: 1.2, minZ: 128, maxZ: 176 });
-  put(boxes, 0, 0.12, 150, 6, 0.16, 52, "wood");
-  put(boxes, 0, 0.2, 150, 5.2, 0.08, 50, "stone");
-  for (const z of [132, 146, 160, 172]) {
+  put(boxes, -30, 0.04, 222, 40, 0.08, 48, "water");
+  put(boxes, 30, 0.04, 222, 40, 0.08, 48, "water");
+  cols.push({ minX: -50, maxX: -10, minY: 0, maxY: 1.2, minZ: 198, maxZ: 246 });
+  cols.push({ minX: 10, maxX: 50, minY: 0, maxY: 1.2, minZ: 198, maxZ: 246 });
+  put(boxes, 0, 0.12, 220, 6, 0.16, 52, "wood");
+  put(boxes, 0, 0.2, 220, 5.2, 0.08, 50, "stone");
+  for (const z of [202, 216, 230, 242]) {
     put(boxes, -2.4, 1.3, z, 0.25, 2.2, 0.25, "black");
     put(boxes, 2.4, 1.3, z, 0.25, 2.2, 0.25, "black");
     put(boxes, 0, 2.35, z, 5.2, 0.12, 0.2, "cyanhot");
     cols.push(col(-2.4, 1.3, z, 0.25, 2.2, 0.25));
     cols.push(col(2.4, 1.3, z, 0.25, 2.2, 0.25));
   }
-  put(boxes, -18, 0.2, 156, 10, 0.3, 3.2, "black");
-  put(boxes, 18, 0.2, 160, 12, 0.35, 3.4, "white");
+  put(boxes, -18, 0.2, 226, 10, 0.3, 3.2, "black");
+  put(boxes, 18, 0.2, 230, 12, 0.35, 3.4, "white");
+  // Stone quay in front of the water so the harbor reads as a waterfront,
+  // not a bright blue stripe at the base of the dock (the pier gap stays open).
+  put(boxes, -27, 0.75, 196.5, 46, 1.5, 1.2, "stone");
+  put(boxes, 27, 0.75, 196.5, 46, 1.5, 1.2, "stone");
+  cols.push({ minX: -50, maxX: -4, minY: 0, maxY: 1.5, minZ: 195.9, maxZ: 197.1 });
+  cols.push({ minX: 4, maxX: 50, minY: 0, maxY: 1.5, minZ: 195.9, maxZ: 197.1 });
 }
 
 function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; boards: BoardSlot[]; zones: Zone[] } {
@@ -1257,7 +1363,7 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     addVenue(boxes, cols, -29, 79, 22, 22, 12, "n", "market"),
   ];
   addHarbor(boxes, cols);
-  zones.push(addVenue(boxes, cols, -8, 142, 16, 14, 10, "n", "dock"));
+  zones.push(addVenue(boxes, cols, -8, 212, 16, 14, 10, "n", "dock"));
 
   const projectZs = [-65, -29, 43, 79];
   projectZs.forEach((z0, index) => {
@@ -1277,12 +1383,12 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     { id: "hall", name: "Community Hall", kind: "hall", x: 41.6, y: 0, z: 18, yaw: Math.PI / 2, slot: 2 },
     { id: "jobs", name: "Jobs board", kind: "jobs", x: 10, y: 0, z: 17.6, yaw: 0, slot: 0 },
     { id: "events", name: "Events board", kind: "events", x: -10, y: 0, z: 17.6, yaw: 0, slot: 0 },
-    { id: "ads", name: "Billboard desk", kind: "ads", x: 8, y: 0, z: 69.8, yaw: 0, slot: 0 },
+    { id: "ads", name: "Billboard desk", kind: "ads", x: 12, y: 0, z: 66, yaw: 0, slot: 0 },
     { id: "bank", name: "OrbitX Bank", kind: "bank", x: 77.6, y: 0, z: 18, yaw: Math.PI / 2, slot: 0 },
     { id: "garage", name: "Hover Garage", kind: "garage", x: 77.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
     { id: "arcade", name: "Neon Arcade", kind: "arcade", x: 41.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
     { id: "market", name: "Night Market", kind: "market", x: -18, y: 0, z: 77.6, yaw: Math.PI, slot: 0 },
-    { id: "dock", name: "Harbor Office", kind: "dock", x: 0, y: 0, z: 140.6, yaw: Math.PI, slot: 0 },
+    { id: "dock", name: "Harbor Office", kind: "dock", x: 0, y: 0, z: 210.6, yaw: Math.PI, slot: 0 },
   ];
   projectZs.forEach((z0, index) => {
     anchors.push({
@@ -1361,7 +1467,15 @@ export function buildCity(seed: number): City {
       { id: "north-ave", x: 18, z: 72, yaw: Math.PI / 2 },
       { id: "south-ave", x: -18, z: -72, yaw: -Math.PI / 2 },
       { id: "garage-row", x: 72, z: 54, yaw: Math.PI },
-      { id: "pier", x: 0, z: 132, yaw: 0 },
+      { id: "pier", x: 0, z: 220, yaw: 0 },
+      { id: "outer-north", x: -108, z: 50, yaw: 0 },
+      { id: "outer-south", x: 108, z: -50, yaw: Math.PI },
+      { id: "outer-east", x: 144, z: 18, yaw: 0 },
+      { id: "outer-west", x: -144, z: -18, yaw: Math.PI },
+      { id: "outer-ne", x: 180, z: 54, yaw: Math.PI / 2 },
+      { id: "outer-nw", x: -180, z: -54, yaw: -Math.PI / 2 },
+      { id: "outer-se", x: 54, z: 180, yaw: Math.PI },
+      { id: "outer-sw", x: -54, z: -180, yaw: 0 },
     ],
     citizens: [
       { name: "Rio", color: "sunset", x: 4, z: 20 },
@@ -1369,7 +1483,42 @@ export function buildCity(seed: number): City {
       { name: "Sol", color: "gold", x: 16, z: 28 },
       { name: "Nox", color: "black", x: 72, z: 40 },
       { name: "Pia", color: "white", x: -18, z: 90 },
-      { name: "Harbor", color: "cyan", x: 0, z: 136 },
+      { name: "Harbor", color: "cyan", x: 0, z: 206 },
     ],
   };
+}
+
+export interface CityMapModel {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  roads: number[];
+  blocks: Array<{ x: number; z: number; w: number; d: number; style: number; hero: boolean }>;
+  plaza: { x: number; z: number; w: number; d: number };
+  tower: { x: number; z: number; w: number; d: number };
+  harbor: { x: number; z: number; w: number; d: number };
+  venues: Array<{ id: string; name: string; x: number; z: number }>;
+}
+
+const mapModelCache = new Map<number, CityMapModel>();
+export function cityMapModel(seed: number): CityMapModel {
+  const key = seed || 1;
+  const cached = mapModelCache.get(key);
+  if (cached) return cached;
+  const city = buildCity(key);
+  const model: CityMapModel = {
+    minX: -190,
+    maxX: 190,
+    minZ: -190,
+    maxZ: 258,
+    roads: [...CENTERS],
+    blocks: city.facades.map((f) => ({ x: f.x, z: f.z, w: f.w, d: f.d, style: f.style, hero: f.hero })),
+    plaza: { x: -29, z: -29, w: 58, d: 58 },
+    tower: { x: -16, z: -31, w: 32, d: 32 },
+    harbor: { x: -50, z: 198, w: 100, d: 48 },
+    venues: city.anchors.map((a) => ({ id: a.id, name: a.name, x: a.x, z: a.z })),
+  };
+  mapModelCache.set(key, model);
+  return model;
 }

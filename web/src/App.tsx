@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
 import type { PanelName, Runtime, Snap } from "./game/runtime";
 import { AD_PRICE } from "./game/content";
 import { parseSeed } from "./game/seed";
+import { cityMapModel } from "./game/city";
 import { Roster } from "./Roster";
 import { AuthPanel } from "./AuthPanel";
 import { signOutAccount, type Account } from "./auth";
@@ -144,6 +145,7 @@ export default function App() {
   const [menu, setMenu] = useState(() => shotMode() === null);
   const [busy, setBusy] = useState(false);
   const [seedText, setSeedText] = useState(() => new URLSearchParams(window.location.search).get("seed") ?? "");
+  const [seed, setSeed] = useState(() => parseSeed(new URLSearchParams(window.location.search).get("seed") ?? "1"));
   const [status, setStatus] = useState("");
   const [webglMissing, setWebglMissing] = useState(false);
   const [snap, setSnap] = useState<Snap>(EMPTY);
@@ -177,11 +179,13 @@ export default function App() {
       }
     });
     const mode = shotMode();
+    const startSeed = parseSeed(params.get("seed") ?? "1");
+    setSeed(startSeed);
     if (mode) {
-      game.start(parseSeed(params.get("seed") ?? "1"), mode);
+      game.start(startSeed, mode);
       setMenu(false);
     } else {
-      game.start(parseSeed(params.get("seed") ?? "1"), "orbit");
+      game.start(startSeed, "orbit");
     }
     return () => {
       off();
@@ -220,7 +224,9 @@ export default function App() {
     const canvas = canvasRef.current;
     if (!game || !canvas || busy) return;
     setBusy(true);
-    game.start(parseSeed(seedText), "play");
+    const startSeed = parseSeed(seedText);
+    setSeed(startSeed);
+    game.start(startSeed, "play");
     setBusy(false);
     setMenu(false);
     if (!snap.touch) {
@@ -238,7 +244,11 @@ export default function App() {
   return (
     <>
       <canvas ref={canvasRef} className="view" id="view" />
-      <p className="status" id="status" hidden={snap.hideHud}>
+      {/*
+        Debug-only status (WALKING + raw coordinates + seed) — kept in the DOM
+        for diagnostics but never shown to players.
+      */}
+      <p className="status" id="status" hidden>
         {menu ? "" : status}
       </p>
       <div className="crosshair" id="crosshair" hidden={menu || snap.hideHud || snap.cam !== "first" || !!panel || snap.spectator} />
@@ -263,7 +273,7 @@ export default function App() {
           <span className="quiet">
             {snap.others + 1} in the city · {snap.camLabel} · {snap.lookName}
           </span>
-          <Minimap me={snap.me} people={snap.people} />
+          <Minimap me={snap.me} people={snap.people} seed={seed} />
         </div>
       )}
       {!menu && snap.prompt && !snap.hideHud ? <p className="prompt">{snap.prompt}</p> : null}
@@ -601,8 +611,30 @@ export default function App() {
   );
 }
 
-function Minimap({ me, people }: { me: Snap["me"]; people: Snap["people"] }) {
+// Minimap block fill colors by facade style (glass, brick, concrete, cream, neon, OrbitX dark).
+const MAP_BLOCK_COLORS: Record<number, string> = {
+  0: "#1d3247",
+  1: "#8a4a34",
+  2: "#8b9096",
+  3: "#cfc4a8",
+  4: "#232a38",
+  5: "#10141c",
+};
+
+const MAP_LABELS: Record<string, string> = {
+  shop: "Shop",
+  cafe: "Cafe",
+  bank: "Bank",
+  garage: "Garage",
+  arcade: "Arcade",
+  market: "Market",
+  hall: "Hall",
+  dock: "Dock",
+};
+
+function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"]; seed: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const model = useMemo(() => cityMapModel(seed), [seed]);
   useEffect(() => {
     const canvas = ref.current;
     const ctx = canvas?.getContext("2d");
@@ -611,22 +643,105 @@ function Minimap({ me, people }: { me: Snap["me"]; people: Snap["people"] }) {
     ctx.clearRect(0, 0, size, size);
     ctx.fillStyle = "rgba(8, 12, 18, 0.72)";
     ctx.fillRect(0, 0, size, size);
-    ctx.strokeStyle = "#7ef6ff";
-    ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
-    const plot = (x: number, z: number) => [size / 2 + x * 0.55, size / 2 + z * 0.55] as const;
-    ctx.fillStyle = "#e0b33a";
+    // Fit the full extent (harbor included) — no hardcoded scale.
+    const spanX = model.maxX - model.minX;
+    const spanZ = model.maxZ - model.minZ;
+    const scale = (size - 12) / Math.max(spanX, spanZ);
+    const offX = (size - spanX * scale) / 2;
+    const offZ = (size - spanZ * scale) / 2;
+    const plot = (x: number, z: number) =>
+      [offX + (x - model.minX) * scale, offZ + (z - model.minZ) * scale] as const;
+    // Harbor water.
+    const [hx, hz] = plot(model.harbor.x, model.harbor.z);
+    ctx.fillStyle = "#14568f";
+    ctx.fillRect(hx, hz, model.harbor.w * scale, model.harbor.d * scale);
+    // Building blocks, colored by facade style; the tower is gold.
+    for (const block of model.blocks) {
+      const [bx, bz] = plot(block.x, block.z);
+      ctx.fillStyle = block.hero ? "#e0b33a" : MAP_BLOCK_COLORS[block.style] ?? "#232a38";
+      ctx.fillRect(bx, bz, Math.max(1.5, block.w * scale), Math.max(1.5, block.d * scale));
+    }
+    // Plaza outline.
+    const [px, pz] = plot(model.plaza.x, model.plaza.z);
+    ctx.strokeStyle = "#e0b33a";
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(px + 0.5, pz + 0.5, model.plaza.w * scale, model.plaza.d * scale);
+    // Road grid.
+    ctx.strokeStyle = "rgba(126,246,255,0.28)";
+    ctx.lineWidth = 1;
+    for (const c of model.roads) {
+      const [rx] = plot(c, model.minZ);
+      ctx.beginPath();
+      ctx.moveTo(rx, offZ);
+      ctx.lineTo(rx, offZ + spanZ * scale);
+      ctx.stroke();
+      const [, rz] = plot(model.minX, c);
+      ctx.beginPath();
+      ctx.moveTo(offX, rz);
+      ctx.lineTo(offX + spanX * scale, rz);
+      ctx.stroke();
+    }
+    // Venue dots + tiny labels (Cafe labels left — it sits next to the Shop).
+    // Labels shift down when they would collide: several venues share a row
+    // (Shop/Arcade/Garage on z=54, Hall/Bank on z=18) and their 7px labels
+    // are wider than the dots are apart, so unshifted they pile up unreadably.
+    ctx.font = "6px sans-serif";
+    const placed: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
+    for (const venue of model.venues) {
+      const label = MAP_LABELS[venue.id];
+      if (!label) continue;
+      const [vx, vz] = plot(venue.x, venue.z);
+      ctx.fillStyle = "#e0b33a";
+      ctx.beginPath();
+      ctx.arc(vx, vz, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#e8f6ff";
+      const w = label.length * 3.6;
+      const x0 = venue.id === "cafe" ? vx - 4 - w : vx + 4;
+      let y0 = vz - 4.5;
+      // Stack the label down until its rect clears every placed label.
+      for (let shift = 0; shift < 4; shift++) {
+        const clash = placed.some(
+          (r) => x0 < r.x1 && x0 + w > r.x0 && y0 < r.y1 && y0 + 6 > r.y0,
+        );
+        if (!clash) break;
+        y0 += 8;
+      }
+      placed.push({ x0, y0, x1: x0 + w, y1: y0 + 6 });
+      ctx.textAlign = "left";
+      // Dark halo so the white label stays readable over the light blocks.
+      ctx.strokeStyle = "rgba(4, 8, 14, 0.9)";
+      ctx.lineWidth = 2;
+      ctx.strokeText(label, x0, y0 + 6);
+      ctx.fillText(label, x0, y0 + 6);
+    }
+    ctx.textAlign = "left";
+    // North marker.
+    ctx.fillStyle = "#7ef6ff";
+    ctx.font = "bold 9px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("N", size / 2, 10);
+    ctx.textAlign = "left";
+    // Other players.
+    for (const person of people) {
+      const [ppx, ppz] = plot(person.x, person.z);
+      ctx.fillStyle = person.speaking ? "#7ef6ff" : "#f4f6fa";
+      ctx.beginPath();
+      ctx.arc(ppx, ppz, person.speaking ? 4 : 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Player: gold dot with a white ring.
     const [mx, mz] = plot(me.x, me.z);
+    ctx.fillStyle = "#e0b33a";
     ctx.beginPath();
     ctx.arc(mx, mz, 4, 0, Math.PI * 2);
     ctx.fill();
-    for (const person of people) {
-      const [px, pz] = plot(person.x, person.z);
-      ctx.fillStyle = person.speaking ? "#7ef6ff" : "#f4f6fa";
-      ctx.beginPath();
-      ctx.arc(px, pz, person.speaking ? 4 : 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }, [me, people]);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(mx, mz, 5.5, 0, Math.PI * 2);
+    ctx.stroke();
+  }, [me, people, model]);
   return <canvas ref={ref} className="minimap" width={148} height={148} />;
 }
 

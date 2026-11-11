@@ -167,6 +167,14 @@ class CityWorld {
     }
   }
 
+  // Re-send the last pose with the current lobby. Called when the lobby
+  // changes so room membership propagates on the next 250ms flush instead
+  // of waiting for the next animation frame (frames stall on slow or
+  // backgrounded tabs, which would hide the player from voice).
+  pushLobby() {
+    if (this.latest) this.push(this.latest);
+  }
+
   stop() {
     if (this.timer) window.clearInterval(this.timer);
     if (this.digestTimer) window.clearInterval(this.digestTimer);
