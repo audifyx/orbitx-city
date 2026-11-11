@@ -151,15 +151,6 @@ const TRACK_Y = 30;
 let visualHide = false;
 const facades: Facade[] = [];
 
-const FONT: Record<string, string[]> = {
-  O: ["01110", "10001", "10001", "10001", "01110"],
-  R: ["11110", "10001", "11110", "10010", "10001"],
-  B: ["11110", "10001", "11110", "10001", "11110"],
-  I: ["11111", "00100", "00100", "00100", "11111"],
-  T: ["11111", "00100", "00100", "00100", "00100"],
-  X: ["10001", "01010", "00100", "01010", "10001"],
-};
-
 function put(
   boxes: Box[],
   x: number,
@@ -520,36 +511,6 @@ function frontFace(cx: number, cz: number): Face {
   return cz > 0 ? "n" : "s";
 }
 
-function addSign(boxes: Box[], cols: Collider[], roofY: number) {
-  visualHide = true;
-  const ps = 1.48;
-  const word = "ORBITX";
-  const glyph = 5;
-  const gap = 1;
-  const totalCols = word.length * glyph + (word.length - 1) * gap;
-  const totalW = totalCols * ps;
-  const platY = roofY + 0.4;
-  put(boxes, 0, platY, SOUTH + 1.15, totalW + 2, 0.7, 5.2, "black");
-  put(boxes, 0, platY + 0.45, SOUTH + 1.15, totalW + 2.4, 0.18, 0.35, "cyanhot");
-  cols.push(col(0, platY, SOUTH + 1.15, totalW + 2, 0.7, 5.2));
-  let cursor = -totalW / 2;
-  const z = SOUTH + 2.35;
-  for (const ch of word) {
-    const rows = FONT[ch];
-    for (let r = 0; r < rows.length; r++) {
-      for (let c = 0; c < rows[r].length; c++) {
-        if (rows[r][c] !== "1") continue;
-        const x = cursor + (c + 0.5) * ps;
-        const y = platY + 0.55 + (4 - r) * ps;
-        put(boxes, x, y, z - 0.55, ps * 1.05, ps * 1.05, 0.35, "black");
-        put(boxes, x, y, z, ps * 0.9, ps * 0.9, 0.85, "cyanhot");
-      }
-    }
-    cursor += (glyph + gap) * ps;
-  }
-  visualHide = false;
-}
-
 function addTower(boxes: Box[], cols: Collider[]) {
   const tiers = [
     { w: 28, d: 26, h: 14 },
@@ -568,7 +529,6 @@ function addTower(boxes: Box[], cols: Collider[]) {
     y = shell(boxes, cols, x0, y, z0, tier.w, tier.h, tier.d, (u, ly) => sample(u, ly), "black");
   }
   addTowerPorch(boxes, cols);
-  addSign(boxes, cols, y);
   facades.push({
     id: "tower",
     x: -16,

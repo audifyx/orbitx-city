@@ -24,6 +24,21 @@ const CATALOG = {
   "color-black": { price: 25, kind: "color", value: "black" },
 };
 
+const LOOKS = new Set([
+  "tjr",
+  "ansem",
+  "poor-goat",
+  "cupsy",
+  "cobie",
+  "hsaka",
+  "gainzy",
+  "zachxbt",
+  "threadguy",
+  "murad",
+  "frank",
+  "kaleo",
+]);
+
 const JOBS = {
   courier: 45,
   taxi: 70,
@@ -148,8 +163,10 @@ async function ensureSchema() {
     friends TEXT NOT NULL,
     inbox TEXT NOT NULL,
     job TEXT NOT NULL,
-    party TEXT NOT NULL
+    party TEXT NOT NULL,
+    look TEXT NOT NULL DEFAULT 'tjr'
   )`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS look TEXT NOT NULL DEFAULT 'tjr'`;
   await sql`CREATE TABLE IF NOT EXISTS bookings (
     id TEXT PRIMARY KEY,
     project TEXT NOT NULL,
@@ -185,6 +202,7 @@ function freshPlayer(id, name) {
     party: "",
     mission: 0,
     missionAt: 0,
+    look: "tjr",
   };
 }
 
@@ -202,13 +220,20 @@ function publicPlayer(player) {
     inbox: player.inbox,
     party: player.party,
     mission: player.mission || 0,
+    look: player.look || "tjr",
   };
 }
 
 async function savePlayer(player) {
   const client = sb();
   if (client) {
-    const { error } = await client.from("players").upsert(rowFromPlayer(player));
+    let { error } = await client.from("players").upsert(rowFromPlayer(player));
+    if (error && /look/i.test(error.message || "")) {
+      const row = rowFromPlayer(player);
+      delete row.look;
+      const retry = await client.from("players").upsert(row);
+      error = retry.error;
+    }
     if (!error) return;
     noteSupabase(error.message);
   }
@@ -219,8 +244,8 @@ async function savePlayer(player) {
     const friends = JSON.stringify(player.friends);
     const inbox = JSON.stringify(player.inbox);
     const job = JSON.stringify(player.job);
-    await sql`INSERT INTO players (id, token, name, balance, burned, owned, color, hat, car, friends, inbox, job, party)
-      VALUES (${player.id}, ${player.token}, ${player.name}, ${player.balance}, ${player.burned}, ${owned}, ${player.color}, ${player.hat}, ${player.car}, ${friends}, ${inbox}, ${job}, ${player.party})
+    await sql`INSERT INTO players (id, token, name, balance, burned, owned, color, hat, car, friends, inbox, job, party, look)
+      VALUES (${player.id}, ${player.token}, ${player.name}, ${player.balance}, ${player.burned}, ${owned}, ${player.color}, ${player.hat}, ${player.car}, ${friends}, ${inbox}, ${job}, ${player.party}, ${player.look || "tjr"})
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         balance = EXCLUDED.balance,
@@ -232,7 +257,8 @@ async function savePlayer(player) {
         friends = EXCLUDED.friends,
         inbox = EXCLUDED.inbox,
         job = EXCLUDED.job,
-        party = EXCLUDED.party`;
+        party = EXCLUDED.party,
+        look = EXCLUDED.look`;
     return;
   }
   const cache = redis();
@@ -258,6 +284,7 @@ function parsePlayer(row) {
     party: row.party || "",
     mission: Number(row.mission || 0),
     missionAt: Number(row.mission_at || row.missionAt || 0),
+    look: row.look || "tjr",
   };
 }
 
@@ -278,6 +305,7 @@ function rowFromPlayer(player) {
     party: player.party || "",
     mission: player.mission || 0,
     mission_at: player.missionAt || 0,
+    look: player.look || "tjr",
   };
 }
 
@@ -698,6 +726,8 @@ export async function POST(request) {
   if (op === "profile") {
     const name = String(body.name || player.name).trim().slice(0, 18);
     if (name) player.name = name;
+    const look = String(body.look || "");
+    if (LOOKS.has(look)) player.look = look;
     await savePlayer(player);
     return json({ ok: true, me: publicPlayer(player) });
   }

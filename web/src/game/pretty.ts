@@ -1,11 +1,9 @@
 import {
   CanvasTexture,
   CylinderGeometry,
-  DoubleSide,
   Group,
   Mesh,
   MeshStandardMaterial,
-  PlaneGeometry,
   RepeatWrapping,
   SRGBColorSpace,
   BoxGeometry,
@@ -161,14 +159,54 @@ function hollow(facade: Facade, material: MeshStandardMaterial) {
   return group;
 }
 
+function orbitWord() {
+  const glyphs: Record<string, string[]> = {
+    O: ["01110", "10001", "10001", "10001", "01110"],
+    R: ["11110", "10001", "11110", "10100", "10010"],
+    B: ["11110", "10001", "11110", "10001", "11110"],
+    I: ["11111", "00100", "00100", "00100", "11111"],
+    T: ["11111", "00100", "00100", "00100", "00100"],
+    X: ["10001", "01010", "00100", "01010", "10001"],
+  };
+  const word = "ORBITX";
+  const group = new Group();
+  const ps = 0.24;
+  const gap = 0.14;
+  const glyphW = 5 * ps;
+  const total = word.length * glyphW + (word.length - 1) * gap;
+  const plate = new Mesh(
+    box,
+    new MeshStandardMaterial({ color: 0x071018, roughness: 0.45, metalness: 0.2, emissive: 0x062833, emissiveIntensity: 0.35 }),
+  );
+  plate.scale.set(total + 0.36, 5 * ps + 0.36, 0.08);
+  plate.position.set(0, 2 * ps, -0.1);
+  group.add(plate);
+  const lit = new MeshStandardMaterial({ color: 0xf7fdff, emissive: 0x8af6ff, emissiveIntensity: 1.55, roughness: 0.22 });
+  let cursor = -total / 2;
+  for (const ch of word) {
+    const rows = glyphs[ch];
+    for (let r = 0; r < rows.length; r++) {
+      for (let c = 0; c < rows[r].length; c++) {
+        if (rows[r][c] !== "1") continue;
+        const cell = new Mesh(box, lit);
+        cell.position.set(cursor + (c + 0.5) * ps, (rows.length - 1 - r) * ps, 0);
+        cell.scale.set(ps * 0.84, ps * 0.84, 0.2);
+        group.add(cell);
+      }
+    }
+    cursor += glyphW + gap;
+  }
+  return group;
+}
+
 function solidTower(facade: Facade) {
   const group = new Group();
   const tiers = [
     { w: 28, d: 26, h: 14 },
     { w: 22, d: 20, h: 12 },
-    { w: 16, d: 14, h: 12 },
-    { w: 12, d: 10, h: 10 },
-    { w: 18, d: 12, h: 8 },
+    { w: 17, d: 15, h: 12 },
+    { w: 13, d: 11, h: 10 },
+    { w: 10, d: 8, h: 8 },
   ];
   let y = 0;
   tiers.forEach((tier, index) => {
@@ -195,34 +233,15 @@ function solidTower(facade: Facade) {
     group.add(glass);
     y += tier.h;
   });
-  const signCanvas = document.createElement("canvas");
-  signCanvas.width = 1024;
-  signCanvas.height = 256;
-  const ctx = signCanvas.getContext("2d");
-  if (ctx) {
-    ctx.fillStyle = "#05080d";
-    ctx.fillRect(0, 0, 1024, 256);
-    ctx.strokeStyle = "#7ef6ff";
-    ctx.lineWidth = 12;
-    ctx.strokeRect(16, 16, 992, 224);
-    ctx.fillStyle = "#e9fbff";
-    ctx.font = "800 120px system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("ORBITX", 512, 128);
-  }
-  const signMap = new CanvasTexture(signCanvas);
-  signMap.colorSpace = SRGBColorSpace;
-  const sign = new Mesh(
-    new PlaneGeometry(28, 7),
-    new MeshStandardMaterial({ map: signMap, emissive: 0x7ef6ff, emissiveIntensity: 0.55, roughness: 0.3 }),
-  );
-  sign.position.set(0, y + 5, -6);
-  group.add(sign);
-  const signBack = sign.clone();
-  signBack.position.z = -28;
-  signBack.rotation.y = Math.PI;
-  group.add(signBack);
+  const top = tiers[tiers.length - 1];
+  const roofY = y + 1.35;
+  const front = orbitWord();
+  front.position.set(0, roofY, -2.55);
+  group.add(front);
+  const back = orbitWord();
+  back.position.set(0, roofY, -3 - top.d - 0.4);
+  back.rotation.y = Math.PI;
+  group.add(back);
   for (const x of [-8, -4, 4, 8]) {
     const col = new Mesh(column, new MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.4, metalness: 0.15 }));
     col.scale.set(1, 6.2, 1);
@@ -276,12 +295,5 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
       }
     }
   }
-  const deck = new Mesh(
-    new PlaneGeometry(18, 4),
-    new MeshStandardMaterial({ color: 0x141820, roughness: 0.6, metalness: 0.2, side: DoubleSide }),
-  );
-  deck.rotation.x = -Math.PI / 2;
-  deck.position.set(0, 30.2, 0);
-  root.add(deck);
   return root;
 }

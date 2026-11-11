@@ -19,8 +19,11 @@ create table if not exists public.players (
   party text not null default '',
   mission integer not null default 0,
   mission_at bigint not null default 0,
+  look text not null default 'tjr',
   updated_at timestamptz not null default now()
 );
+
+alter table public.players add column if not exists look text not null default 'tjr';
 
 create table if not exists public.presence (
   id text primary key,

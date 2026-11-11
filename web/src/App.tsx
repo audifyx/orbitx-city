@@ -3,9 +3,10 @@ import { createGame, type Game, type PlayMode } from "./game/engine";
 import type { PanelName, Runtime, Snap } from "./game/runtime";
 import { AD_PRICE } from "./game/content";
 import { parseSeed } from "./game/seed";
+import { Roster } from "./Roster";
 
 const HELP =
-  "WASD move · mouse look · Space jump · F fly · E use or drive · Shift down · Ctrl faster · B shop · J jobs · G ads · H events · C chat";
+  "WASD move · click or drag to look · arrows or Q/R turn · Space jump · F fly · E use or drive · C camera · T chat · V talk";
 
 const EMPTY: Snap = {
   playing: false,
@@ -50,6 +51,11 @@ const EMPTY: Snap = {
   profile: null,
   server: "",
   chatScope: "global",
+  lookId: "tjr",
+  lookName: "TJR",
+  cam: "shoulder",
+  camLabel: "Over the shoulder",
+  lookHint: "",
   mission: 0,
   board: [],
   districts: [],
@@ -70,6 +76,9 @@ function shotMode(): PlayMode | null {
     shot === "inside" ||
     shot === "cafe" ||
     shot === "hall" ||
+    shot === "sign-back" ||
+    shot === "courier" ||
+    shot === "car" ||
     params.has("autostart")
   ) {
     return "play";
@@ -132,6 +141,13 @@ export default function App() {
     document.body.classList.toggle("playing", !menu);
   }, [snap.touch, menu]);
 
+  useEffect(() => {
+    if (panel !== "shop") return;
+    if (new URLSearchParams(window.location.search).get("shot") !== "shop") return;
+    const node = document.querySelector(".panel");
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [panel]);
+
   const open = (name: PanelName) => {
     setPanel(name);
     const lock = name !== "chat";
@@ -153,7 +169,13 @@ export default function App() {
     game.start(parseSeed(seedText), "play");
     setBusy(false);
     setMenu(false);
-    if (!snap.touch) canvas.requestPointerLock();
+    if (!snap.touch) {
+      try {
+        canvas.requestPointerLock();
+      } catch {
+        // Drag look still works if the browser blocks the lock.
+      }
+    }
   };
 
   const price = AD_PRICE[adDays];
@@ -165,7 +187,8 @@ export default function App() {
       <p className="status" id="status">
         {menu ? "" : status}
       </p>
-      <div className="crosshair" id="crosshair" hidden={menu || snap.touch || !!panel} />
+      <div className="crosshair" id="crosshair" hidden={menu || snap.cam !== "first" || !!panel} />
+      {!menu && snap.lookHint ? <p className="look-hint">{snap.lookHint}</p> : null}
       {!menu && (
         <div className="hud" id="hud">
           <strong>DEMO ORBITX {snap.balance}</strong>
@@ -174,7 +197,7 @@ export default function App() {
           {snap.eventLabel ? <span>{snap.eventLabel}</span> : null}
           {snap.notice ? <em>{snap.notice}</em> : null}
           <span className="quiet">
-            {snap.others + 1} in the city · {snap.netMode}
+            {snap.others + 1} in the city · {snap.camLabel} · {snap.lookName}
           </span>
           <Minimap me={snap.me} people={snap.people} />
         </div>
@@ -202,6 +225,7 @@ export default function App() {
             <button type="button" onClick={() => gameRef.current?.runtime.toggleFly()}>Fly</button>
             <Hold label="Down" onDown={() => gameRef.current?.runtime.hold("down", true)} onUp={() => gameRef.current?.runtime.hold("down", false)} />
             <button type="button" onClick={() => gameRef.current?.runtime.interact()}>Use</button>
+            <button type="button" onClick={() => gameRef.current?.runtime.cycleCamera()}>Camera</button>
             <button type="button" onClick={() => open("chat")}>Chat</button>
             <button type="button" onClick={() => open("shop")}>Shop</button>
           </div>
@@ -418,7 +442,7 @@ export default function App() {
                   ))}
                   <button type="button" onClick={() => gameRef.current?.runtime.cycleTime()}>Time: {snap.time}</button>
                 </div>
-                <p>On a phone, use the stick to move, drag the right side to look, and the buttons to jump, fly, and use things.</p>
+                <p>On a phone, use the stick to move, drag the right side to look, pinch to zoom, and the Camera button to change view.</p>
                 <button
                   type="button"
                   onClick={() => {
@@ -436,9 +460,10 @@ export default function App() {
       ) : null}
       {menu && (
         <section className="menu" id="menu">
-          <div className="card">
+          <div className="card wide">
             <h1>ORBITX CITY</h1>
-            <p className="tag">{webglMissing ? "This browser has no WebGL." : "Tropical downtown in the browser"}</p>
+            <p className="tag">{webglMissing ? "This browser has no WebGL." : "Pick a character, then walk the downtown"}</p>
+            <Roster />
             <label>
               Seed
               <input
@@ -539,12 +564,17 @@ function Phone({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
         </article>
       ))}
       <h3>People here</h3>
-      {snap.people.length === 0 ? <span>You are the only one in view. The main world still lists you.</span> : null}
+      <article>
+        <div>
+          <b>You · {snap.name || "Guest"}</b>
+          <span>{snap.lookName}</span>
+        </div>
+      </article>
       {snap.people.map((person) => (
         <article key={person.id}>
           <div>
             <b>{person.name} {person.speaking ? "●" : ""}</b>
-            <span>{person.lobby || "in the street"}</span>
+            <span>{person.look ? `${person.look} · ` : ""}{person.lobby || "in the street"}</span>
           </div>
           <button type="button" onClick={() => rt?.inspect(person.id)}>Profile</button>
         </article>

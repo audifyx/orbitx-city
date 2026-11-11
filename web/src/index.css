@@ -36,6 +36,80 @@ body,
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
 }
 
+.card.wide {
+  width: min(760px, calc(100% - 20px));
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+}
+
+.menu {
+  overflow: auto;
+}
+
+.roster {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 14px;
+  text-align: left;
+  margin: 8px 0 4px;
+}
+
+.roster-view {
+  width: 200px;
+  height: 250px;
+  background: #101820;
+  border: 1px solid #9fdfff;
+}
+
+.roster h2 {
+  margin: 8px 0 0;
+  letter-spacing: 0.08em;
+}
+
+.tagline {
+  margin: 4px 0 10px;
+  color: #d7f4ff;
+}
+
+.roster-nav,
+.roster-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.roster-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.roster button {
+  margin: 0;
+  min-height: 44px;
+  padding: 8px 6px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.roster button.on {
+  outline: 2px solid #7ef6ff;
+}
+
+.look-hint {
+  position: fixed;
+  z-index: 4;
+  left: 50%;
+  bottom: 16%;
+  transform: translateX(-50%);
+  margin: 0;
+  background: rgba(0, 0, 0, 0.78);
+  color: #ffffff;
+  border: 2px solid #e0b33a;
+  padding: 10px 16px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
 h1 {
   margin: 0;
   font-size: 42px;
@@ -240,12 +314,14 @@ body {
 
 .panel {
   width: min(520px, 100%);
-  max-height: min(78dvh, 720px);
-  overflow: auto;
+  min-height: 0;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: #000000;
   color: #ffffff;
   border: 2px solid #e0b33a;
-  padding: 14px;
+  padding: 14px 14px 32px;
   touch-action: pan-y;
 }
 
@@ -410,8 +486,21 @@ body.touch .touch-ui {
   }
 
   .panel {
-    max-height: 74dvh;
-    padding: 12px;
+    max-height: calc(100dvh - 16px);
+    padding: 12px 12px 28px;
+  }
+
+  .roster {
+    grid-template-columns: 1fr;
+  }
+
+  .roster-view {
+    width: 100%;
+    height: 220px;
+  }
+
+  .pad-buttons {
+    grid-template-columns: repeat(3, minmax(58px, 68px));
   }
 }
 

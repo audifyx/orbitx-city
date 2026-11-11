@@ -14,6 +14,7 @@ export interface CityPerson {
   speaking: boolean;
   emote: string;
   lobby: string;
+  look?: string;
 }
 
 export interface CityMe {
@@ -28,6 +29,7 @@ export interface CityMe {
   friends: { id: string; name: string }[];
   inbox: { id: string; name: string }[];
   party: string;
+  look?: string;
 }
 
 export interface VoiceRoom {
@@ -119,8 +121,11 @@ class CityWorld {
     this.timer = 0;
   }
 
+  private busy = false;
+
   private async flush() {
-    if (!this.online || !this.latest) return;
+    if (this.busy || !this.online || !this.latest) return;
+    this.busy = true;
     try {
       const data = await this.call("sync", { state: this.latest });
       this.me = (data.me as CityMe) || this.me;
@@ -135,8 +140,9 @@ class CityWorld {
       const incoming = (data.signals as CityWorld["signals"]) || [];
       if (incoming.length) this.signals.push(...incoming);
     } catch {
-      this.online = false;
-      this.server = "This device";
+      // One missed heartbeat should not drop the session or the player list.
+    } finally {
+      this.busy = false;
     }
   }
 
@@ -156,15 +162,17 @@ class CityWorld {
   }
 
   async earn(job: string) {
-    return this.call("earn", { job });
+    const data = await this.call("earn", { job });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
   }
 
   async book(id: string, days: number, project: string, text: string) {
     return this.call("book", { id, days, project, text });
   }
 
-  async rename(name: string) {
-    const data = await this.call("profile", { name });
+  async rename(name: string, look = "") {
+    const data = await this.call("profile", { name, look });
     if (data.me) this.me = data.me as CityMe;
     return data;
   }

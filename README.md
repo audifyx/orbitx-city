@@ -10,7 +10,7 @@ Demo credits labeled ORBITX are play money. With the city API running, the balan
 
 What you can do:
 
-- **Drive.** Hover-cars sit on the roads. Stand next to one and press Use (E) to get in or out. WASD, or the stick, drives. The camera follows behind the car.
+- **Drive.** Hover-cars sit on the roads. Stand next to one and press E. The prompt says Press E to drive. WASD, or the stick, drives. C switches between the cockpit and chase cameras.
 - **Work.** Jobs (J) offers courier, taxi, city guide, mechanic, photographer, and promoter. The objective stays on the HUD. The server pays the fixed amount after the route has taken at least a few seconds.
 - **Visit.** OrbitX Shop, Cafe Nova, the Community Hall, OrbitX Bank, the Hover Garage, the Neon Arcade, the Night Market, and the Harbor Office are real ground floors. Project District, on the west side, is a row of offices. Walk through the door, or press Use at the sign to step inside. The phone can also send you to a door.
 - **Tour.** The objective line walks a six-stop tour from the fountain to the harbor. Each stop pays demo credits after you actually arrive. The burn board lists who has burned the most.
@@ -26,7 +26,7 @@ Edit these files and refresh. A local server picks them up. Opening the html fil
 - `web/public/config/billboards.json` — `id` (`plaza-east`, `plaza-west`, `hall-front`, `district-row`), `project`, `text`, optional `image`, `start`, `end`.
 - `web/public/config/events.json` — `title`, `where`, `when`, `detail`.
 
-Keys: WASD move, mouse look, Space jump, F fly, Shift down, Ctrl faster, E use or drive, B shop, J jobs, G ads, H events, C chat, P phone, N sunset/night/day, V push-to-talk, 1–4 emotes, M menu, Esc closes a panel.
+Keys: WASD move, click or drag to look (pointer lock when the browser allows it), arrows or Q/R turn, Space jump, F fly, Shift down, Ctrl faster, E use or drive, C camera, mouse wheel or pinch zooms the third-person camera, T chat, B shop, J jobs, G ads, H events, P phone, N sunset/night/day, V push-to-talk, 1–4 emotes, M menu, Esc closes a panel. The title screen picks a character from `web/public/config/characters.json`. Camera choice is remembered on this device.
 
 Quality is Low, Medium, or High from the menu. Phones start on Low. High adds softer shadows and a light bloom on the neon.
 
