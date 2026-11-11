@@ -39,6 +39,7 @@ const EMPTY: Snap = {
   shop: [],
   eventLabel: "",
   panel: "",
+  lift: null,
   people: [],
   friends: [],
   requests: [],
@@ -122,6 +123,9 @@ function shotMode(): PlayMode | null {
     shot === "hq" ||
     shot === "hq-edit" ||
     shot === "board" ||
+    shot === "board-s" ||
+    shot === "road" ||
+    shot === "garage" ||
     shot === "leaders" ||
     shot === "race" ||
     shot === "race-run" ||
@@ -130,6 +134,15 @@ function shotMode(): PlayMode | null {
     shot === "daily" ||
     shot === "wallet" ||
     shot === "emote" ||
+    shot === "yard" ||
+    shot === "home" ||
+    shot === "mall" ||
+    shot === "mall2" ||
+    shot === "office" ||
+    shot === "office2" ||
+    shot === "roof" ||
+    shot === "lift" ||
+    shot === "liftcall" ||
     shot === "spectate" ||
     shot === "spectate-ui" ||
     params.has("autostart")
@@ -362,6 +375,7 @@ export default function App() {
                 {panel === "chat" && "Chat"}
                 {panel === "phone" && "Phone"}
                 {panel === "menu" && "Menu"}
+                {panel === "lift" && (snap.lift?.name ?? "Lift")}
                 {featureTitle(panel)}
               </strong>
               <button type="button" onClick={close}>Close</button>
@@ -661,6 +675,29 @@ export default function App() {
                 >
                   Back to title
                 </button>
+              </div>
+            )}
+            {panel === "lift" && snap.lift && (
+              <div className="list">
+                <p>You are in the lift. Pick a floor — the doors close and the cab rides.</p>
+                {snap.lift.floors.map((floor, i) => (
+                  <article key={i}>
+                    <div>
+                      <b>{snap.lift!.stops[i] ?? `Floor ${i + 1}`}</b>
+                      <span>{i === snap.lift!.current ? "You are here" : `Level ${floor}`}</span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={i === snap.lift!.current}
+                      onClick={() => {
+                        gameRef.current?.runtime.rideLift(i);
+                        close();
+                      }}
+                    >
+                      {i === snap.lift!.current ? "Here" : "Go"}
+                    </button>
+                  </article>
+                ))}
               </div>
             )}
           </div>

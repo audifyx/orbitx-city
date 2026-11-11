@@ -58,6 +58,9 @@ export interface Collider {
   maxX: number;
   maxY: number;
   maxZ: number;
+  // Optional tag for colliders the runtime enables/disables (e.g. a lift
+  // door blocker: "lift-door:<liftId>:<floorIndex>").
+  tag?: string;
 }
 
 export interface ShipPath {
@@ -77,12 +80,41 @@ export interface RailPoint {
 export interface Anchor {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "arcade" | "market" | "dock";
+  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "lift";
   x: number;
   y: number;
   z: number;
   yaw: number;
   slot: number;
+  liftId?: string;
+  liftFloor?: number;
+}
+
+/** A painted sign / wall art plate mounted by the runtime (canvas texture). */
+export interface Art {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+  w: number;
+  h: number;
+  lines: string[];
+  sub: string;
+}
+
+/** A working elevator: shaft rect + the walking-surface Y of each stop. */
+export interface Lift {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  floors: number[];
+  stops: string[];
+  // The shaft face the call buttons and the cab door sit on.
+  landing: Face;
 }
 
 export interface BoardSlot {
@@ -103,7 +135,7 @@ export interface CarSpawn {
 export interface Zone {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "arcade" | "market" | "dock";
+  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office";
   slot: number;
   minX: number;
   maxX: number;
@@ -115,6 +147,8 @@ export interface Zone {
   signY: number;
   signZ: number;
   signRot: number;
+  minY?: number;
+  maxY?: number;
 }
 
 export interface City {
@@ -131,6 +165,8 @@ export interface City {
   zones: Zone[];
   facades: Facade[];
   citizens: Citizen[];
+  art: Art[];
+  lifts: Lift[];
 }
 
 export interface Citizen {
@@ -150,6 +186,19 @@ const TRACK_R = 18;
 const TRACK_Y = 30;
 let visualHide = false;
 const facades: Facade[] = [];
+const art: Art[] = [];
+
+// Mega buildings: superblocks east (mall) and west (OrbitX office) of the
+// plaza. Each is 58x58 and straddles the x=±72 road and the z=0 road, so
+// addRoads / addStreetLife / reservedPlot all treat them as one plot.
+const MALL = { x0: 43, z0: -29, x1: 101, z1: 29 };
+const OFFICE = { x0: -101, z0: -29, x1: -43, z1: 29 };
+function inMega(x: number, z: number) {
+  return (
+    (x >= MALL.x0 && x <= MALL.x1 && z >= MALL.z0 && z <= MALL.z1) ||
+    (x >= OFFICE.x0 && x <= OFFICE.x1 && z >= OFFICE.z0 && z <= OFFICE.z1)
+  );
+}
 
 function put(
   boxes: Box[],
@@ -616,7 +665,57 @@ function intervalsOverlap(a0: number, a1: number, b0: number, b1: number) {
   return a0 < b1 && a1 > b0;
 }
 
-function addBuildings(boxes: Box[], cols: Collider[], rng: Rng) {
+function addYard(boxes: Box[], cols: Collider[], x0: number, z0: number, x1: number, z1: number, face: Face, rng: Rng) {
+  // A real front yard in the strip the building was set back from: lawn,
+  // stone path to the door, hedge, and (usually) a tree + lamp.
+  const cx = (x0 + x1) / 2;
+  const cz = (z0 + z1) / 2;
+  if (face === "n") {
+    put(boxes, cx, 0.12, z0 + 1.5, x1 - x0, 0.14, 3, "grass");
+    put(boxes, cx, 0.15, z0 + 1.5, 2, 0.08, 3, "stone");
+    put(boxes, cx - 2.2, 0.7, z0 + 1.5, 0.6, 0.9, 2.6, "hedge");
+    put(boxes, cx + 2.2, 0.7, z0 + 1.5, 0.6, 0.9, 2.6, "hedge");
+    cols.push(col(cx - 2.2, 0.7, z0 + 1.5, 0.6, 0.9, 2.6));
+    cols.push(col(cx + 2.2, 0.7, z0 + 1.5, 0.6, 0.9, 2.6));
+    if (rng() < 0.6) addTree(boxes, cols, x0 + 4, z0 + 1.5, 0.19);
+    if (rng() < 0.35) addLamp(boxes, x1 - 3.5, z0 + 1.5, 0.19);
+  } else if (face === "s") {
+    put(boxes, cx, 0.12, z1 - 1.5, x1 - x0, 0.14, 3, "grass");
+    put(boxes, cx, 0.15, z1 - 1.5, 2, 0.08, 3, "stone");
+    put(boxes, cx - 2.2, 0.7, z1 - 1.5, 0.6, 0.9, 2.6, "hedge");
+    put(boxes, cx + 2.2, 0.7, z1 - 1.5, 0.6, 0.9, 2.6, "hedge");
+    cols.push(col(cx - 2.2, 0.7, z1 - 1.5, 0.6, 0.9, 2.6));
+    cols.push(col(cx + 2.2, 0.7, z1 - 1.5, 0.6, 0.9, 2.6));
+    if (rng() < 0.6) addTree(boxes, cols, x1 - 4, z1 - 1.5, 0.19);
+    if (rng() < 0.35) addLamp(boxes, x0 + 3.5, z1 - 1.5, 0.19);
+  } else if (face === "w") {
+    put(boxes, x0 + 1.5, 0.12, cz, 3, 0.14, z1 - z0, "grass");
+    put(boxes, x0 + 1.5, 0.15, cz, 3, 0.08, 2, "stone");
+    put(boxes, x0 + 1.5, 0.7, cz - 2.2, 2.6, 0.9, 0.6, "hedge");
+    put(boxes, x0 + 1.5, 0.7, cz + 2.2, 2.6, 0.9, 0.6, "hedge");
+    cols.push(col(x0 + 1.5, 0.7, cz - 2.2, 2.6, 0.9, 0.6));
+    cols.push(col(x0 + 1.5, 0.7, cz + 2.2, 2.6, 0.9, 0.6));
+    if (rng() < 0.6) addTree(boxes, cols, x0 + 1.5, z0 + 4, 0.19);
+    if (rng() < 0.35) addLamp(boxes, x0 + 1.5, z1 - 3.5, 0.19);
+  } else {
+    put(boxes, x1 - 1.5, 0.12, cz, 3, 0.14, z1 - z0, "grass");
+    put(boxes, x1 - 1.5, 0.15, cz, 3, 0.08, 2, "stone");
+    put(boxes, x1 - 1.5, 0.7, cz - 2.2, 2.6, 0.9, 0.6, "hedge");
+    put(boxes, x1 - 1.5, 0.7, cz + 2.2, 2.6, 0.9, 0.6, "hedge");
+    cols.push(col(x1 - 1.5, 0.7, cz - 2.2, 2.6, 0.9, 0.6));
+    cols.push(col(x1 - 1.5, 0.7, cz + 2.2, 2.6, 0.9, 0.6));
+    if (rng() < 0.6) addTree(boxes, cols, x1 - 1.5, z1 - 4, 0.19);
+    if (rng() < 0.35) addLamp(boxes, x1 - 1.5, z0 + 3.5, 0.19);
+  }
+}
+
+function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): { zones: Zone[]; anchors: Anchor[] } {
+  // A separate rng stream for yards/homes so the main sequence (heights,
+  // styles, street life) stays identical to before.
+  const yardRng = makeRng((seed || 1) * 131 + 7);
+  const zones: Zone[] = [];
+  const anchors: Anchor[] = [];
+  let homesBuilt = 0;
   const plots = bands();
   for (const [x0, x1] of plots) {
     for (const [z0, z1] of plots) {
@@ -635,23 +734,52 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng) {
       // Outer blocks read residential (brick / cream); downtown uses all styles.
       const style = dist > 100 ? (rng() < 0.5 ? 1 : 3) : Math.floor(rng() * 6);
       const face = frontFace(cx, cz);
+      // Front yard: set the building back 3 units on its street face so the
+      // outside reads finished — lawn, path, hedge, tree — not a bare slab.
+      const set = 3;
+      let bx = x0;
+      let bz = z0;
+      let bw = w;
+      let bd = d;
+      if (face === "n") {
+        bz += set;
+        bd -= set;
+      } else if (face === "s") {
+        bd -= set;
+      } else if (face === "w") {
+        bx += set;
+        bw -= set;
+      } else {
+        bw -= set;
+      }
+      addYard(boxes, cols, x0, z0, x1, z1, face, yardRng);
+      // A few outer residential blocks are real homes: walk in through the
+      // front door to a furnished living room + kitchen, not a solid slab.
+      const isHome = dist > 100 && (style === 1 || style === 3) && homesBuilt < 8 && yardRng() < 0.3;
+      if (isHome) {
+        const home = addHome(boxes, cols, bx, bz, bw, bd, height, face, homesBuilt);
+        zones.push(home.zone);
+        anchors.push(home.anchor);
+        homesBuilt++;
+        continue;
+      }
       facades.push({
         id: `block-${x0}-${z0}`,
-        x: x0,
-        z: z0,
-        w,
-        d,
+        x: bx,
+        z: bz,
+        w: bw,
+        d: bd,
         h: height,
         style,
         door: "",
         enterable: false,
         hero: false,
       });
+      const baseX = bx;
+      const baseZ = bz;
+      const baseW = bw;
+      const baseD = bd;
       let y = 0;
-      let bx = x0;
-      let bz = z0;
-      let bw = w;
-      let bd = d;
       let guard = 0;
       while (y < height && guard < 8) {
         guard++;
@@ -693,10 +821,11 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng) {
       if (height > 18) addBalcony(boxes, bx, Math.min(12, roofY - 4), bz, bw, bd, face);
       if (height > 22) addCrown(boxes, cols, bx + bw / 2, roofY, bz + bd / 2, bw, bd);
       if (height > 22 && dist > 40 && dist < 140 && rng() > 0.55) {
-        addBillboard(boxes, x0, 8, z0, w, d, face, Math.floor(rng() * 6));
+        addBillboard(boxes, baseX, 8, baseZ, baseW, baseD, face, Math.floor(rng() * 6));
       }
     }
   }
+  return { zones, anchors };
 }
 
 function gapsOutside(blocked: Array<[number, number]>, from: number, to: number) {
@@ -712,6 +841,13 @@ function gapsOutside(blocked: Array<[number, number]>, from: number, to: number)
   return result.filter(([a, b]) => b - a > 0.4);
 }
 
+function rectHitsMega(x0: number, z0: number, x1: number, z1: number) {
+  for (const r of [MALL, OFFICE]) {
+    if (x0 < r.x1 && x1 > r.x0 && z0 < r.z1 && z1 > r.z0) return true;
+  }
+  return false;
+}
+
 function addRoads(boxes: Box[]) {
   put(boxes, 0, -0.55, 0, 760, 1.1, 760, "grass");
   put(boxes, 0, 0.02, 0, 400, 0.04, 400, "sidewalk");
@@ -721,15 +857,17 @@ function addRoads(boxes: Box[]) {
   const plazaBlock: Array<[number, number]> = [[-31, 31]];
 
   for (const cx of CENTERS) {
-    const zSpans = cx === 0
-      ? gapsOutside(plazaBlock, -184, 184)
-      : [[-184, 184] as [number, number]];
+    // The mega superblocks swallow the road that crosses them (same pattern
+    // as the plaza swallowing the x=0 road).
+    const gaps: Array<[number, number]> =
+      cx === 0 ? plazaBlock : cx === 72 || cx === -72 ? [[MALL.z0, MALL.z1]] : [];
+    const zSpans = gaps.length ? gapsOutside(gaps, -184, 184) : [[-184, 184] as [number, number]];
     for (const [z0, z1] of zSpans) {
       put(boxes, cx, 0.055, (z0 + z1) / 2, HALF * 2, 0.05, z1 - z0, "asphalt");
     }
   }
   for (const cz of CENTERS) {
-    const extra = cz === 0 ? plazaBlock : [];
+    const extra = cz === 0 ? [...plazaBlock, [MALL.x0, MALL.x1] as [number, number], [OFFICE.x0, OFFICE.x1] as [number, number]] : [];
     const xSpans = gapsOutside([...nsBlock, ...extra], -184, 184);
     for (const [x0, x1] of xSpans) {
       put(boxes, (x0 + x1) / 2, 0.055, cz, x1 - x0, 0.05, HALF * 2, "asphalt");
@@ -742,6 +880,7 @@ function addRoads(boxes: Box[]) {
     for (let z = -180; z <= 180; z += 5) {
       if (nearCross(z)) continue;
       if (cx === 0 && Math.abs(z) < 34) continue;
+      if (inMega(cx, z)) continue;
       put(boxes, cx, 0.1, z, 0.26, 0.04, 2.1, "lane");
       put(boxes, cx - 2.35, 0.1, z + 1.2, 0.18, 0.035, 1.5, "lane");
       put(boxes, cx + 2.35, 0.1, z + 1.2, 0.18, 0.035, 1.5, "lane");
@@ -753,6 +892,7 @@ function addRoads(boxes: Box[]) {
         const z1 = CENTERS[i + 1] - 9;
         if (z1 - z0 < 4) continue;
         if (cx === 0 && z0 < 34 && z1 > -34) continue;
+        if (rectHitsMega(x - 0.1, z0, x + 0.1, z1)) continue;
         put(boxes, x, 0.095, (z0 + z1) / 2, 0.16, 0.03, z1 - z0, "lane");
       }
     }
@@ -761,6 +901,7 @@ function addRoads(boxes: Box[]) {
     for (let x = -180; x <= 180; x += 5) {
       if (nearCross(x)) continue;
       if (cz === 0 && Math.abs(x) < 34) continue;
+      if (inMega(x, cz)) continue;
       put(boxes, x, 0.1, cz, 2.1, 0.04, 0.26, "lane");
       put(boxes, x + 1.2, 0.1, cz - 2.35, 1.5, 0.035, 0.18, "lane");
       put(boxes, x + 1.2, 0.1, cz + 2.35, 1.5, 0.035, 0.18, "lane");
@@ -788,17 +929,20 @@ function addRoads(boxes: Box[]) {
       if (cx === 0 && cz === 0) continue;
       for (const approach of [-10.5, 10.5]) {
         for (let i = -2; i <= 2; i++) {
-          put(boxes, cx + i * 1.8, 0.118, cz + approach, 1.1, 0.035, 2.6, "lane");
+          if (inMega(cx + i * 1.5, cz + approach)) continue;
+          put(boxes, cx + i * 1.5, 0.118, cz + approach, 0.7, 0.035, 1.7, "lane");
         }
       }
       for (const approach of [-10.5, 10.5]) {
         for (let i = -2; i <= 2; i++) {
-          put(boxes, cx + approach, 0.118, cz + i * 1.8, 2.6, 0.035, 1.1, "lane");
+          if (inMega(cx + approach, cz + i * 1.5)) continue;
+          put(boxes, cx + approach, 0.118, cz + i * 1.5, 1.7, 0.035, 0.7, "lane");
         }
       }
       // Traffic light on the +x/+z corner: pole + head + red/amber/green.
       const lx = cx + 6.8;
       const lz = cz + 6.8;
+      if (inMega(lx, lz)) continue;
       put(boxes, lx, 1.9, lz, 0.22, 3.8, 0.22, "black");
       put(boxes, lx, 3.95, lz, 0.55, 1.1, 0.55, "black");
       put(boxes, lx, 4.3, lz + 0.3, 0.3, 0.26, 0.1, "red");
@@ -815,6 +959,7 @@ function addRoads(boxes: Box[]) {
         if (z1 - z0 < 4) continue;
         if (cx === 0 && z0 < 34 && z1 > -34) continue;
         if (Math.abs(x) < 32 && z0 < 32 && z1 > -32) continue;
+        if (rectHitsMega(x - 0.2, z0, x + 0.2, z1)) continue;
         put(boxes, x, 0.09, (z0 + z1) / 2, 0.3, 0.06, z1 - z0, "stone");
       }
     }
@@ -828,6 +973,7 @@ function addRoads(boxes: Box[]) {
         if (x1 - x0 < 4) continue;
         if (cz === 0 && x0 < 34 && x1 > -34) continue;
         if (Math.abs(z) < 32 && x0 < 32 && x1 > -32) continue;
+        if (rectHitsMega(x0, z - 0.2, x1, z + 0.2)) continue;
         put(boxes, (x0 + x1) / 2, 0.09, z, x1 - x0, 0.06, 0.3, "stone");
       }
     }
@@ -846,6 +992,7 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng) {
       for (let z = -170; z <= 170; z += 16) {
         if (CENTERS.some((c) => Math.abs(z - c) < 10)) continue;
         if (Math.abs(x) < 32 && Math.abs(z) < 32) continue;
+        if (inMega(x, z)) continue;
         lampI++;
         if (lampI % 2 === 0) addLamp(boxes, x, z);
         else if (rng() > 0.55) addTree(boxes, cols, x, z, 0);
@@ -858,6 +1005,7 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng) {
       for (let x = -170; x <= 170; x += 16) {
         if (CENTERS.some((c) => Math.abs(x - c) < 10)) continue;
         if (Math.abs(x) < 32 && Math.abs(z) < 32) continue;
+        if (inMega(x, z)) continue;
         if (rng() > 0.5) addLamp(boxes, x, z);
         if (rng() > 0.72) addTree(boxes, cols, x, z, 0);
       }
@@ -957,11 +1105,14 @@ function reservedPlot(x0: number, x1: number, z0: number, z1: number) {
   const spots: Array<[number, number, number, number]> = [
     [7, 29, 43, 65],
     [-29, -7, 43, 65],
-    [43, 65, 7, 29],
-    [79, 101, 7, 29],
+    [43, 65, 79, 101],
+    [79, 101, -65, -43],
     [79, 101, 43, 65],
     [43, 65, 43, 65],
     [-29, -7, 79, 101],
+    // Mega mall + mega OrbitX office superblocks.
+    [43, 101, -29, 29],
+    [-101, -43, -29, 29],
   ];
   return spots.some(([a, b, c, d]) => x0 >= a - 0.2 && x1 <= b + 0.2 && z0 >= c - 0.2 && z1 <= d + 0.2);
 }
@@ -983,6 +1134,19 @@ function cladWalls(boxes: Box[], x0: number, z0: number, w: number, d: number, d
   const h = 3.15;
   const t = 0.16;
   const inset = 1.18;
+  if (door !== "n") put(boxes, x0 + w / 2, y, z0 + inset, w - 2.5, h, t, "cream");
+  if (door !== "s") put(boxes, x0 + w / 2, y, z0 + d - inset, w - 2.5, h, t, "cream");
+  if (door !== "w") put(boxes, x0 + inset, y, z0 + d / 2, t, h, d - 2.5, "cream");
+  if (door !== "e") put(boxes, x0 + w - inset, y, z0 + d / 2, t, h, d - 2.5, "cream");
+}
+
+// Full-height interior cladding for tall rooms (mall, HQ): the stock
+// cladWalls only covers the bottom 3.4 units, so in a 9-20 unit room the
+// upper walls showed the dark exterior facade texture from inside.
+function cladWallsTall(boxes: Box[], x0: number, z0: number, w: number, d: number, door: Face, h: number) {
+  const t = 0.16;
+  const inset = 1.18;
+  const y = h / 2;
   if (door !== "n") put(boxes, x0 + w / 2, y, z0 + inset, w - 2.5, h, t, "cream");
   if (door !== "s") put(boxes, x0 + w / 2, y, z0 + d - inset, w - 2.5, h, t, "cream");
   if (door !== "w") put(boxes, x0 + inset, y, z0 + d / 2, t, h, d - 2.5, "cream");
@@ -1312,6 +1476,692 @@ function furnishSpot(
   };
 }
 
+// ---- finished interiors: shared helpers ----
+
+// A solid wall run along X with a door gap (colliders + visual), at elevation y0.
+function wallRunX(boxes: Box[], cols: Collider[], x0: number, x1: number, y0: number, z: number, h: number, mat: Mat, doorAt: number, doorW: number) {
+  const t = 0.3;
+  if (doorW > 0) {
+    const g0 = doorAt - doorW / 2;
+    const g1 = doorAt + doorW / 2;
+    if (g0 - x0 > 0.05) {
+      put(boxes, (x0 + g0) / 2, y0 + h / 2, z, g0 - x0, h, t, mat);
+      cols.push({ minX: x0, maxX: g0, minY: y0, maxY: y0 + h, minZ: z - t / 2, maxZ: z + t / 2 });
+    }
+    if (x1 - g1 > 0.05) {
+      put(boxes, (g1 + x1) / 2, y0 + h / 2, z, x1 - g1, h, t, mat);
+      cols.push({ minX: g1, maxX: x1, minY: y0, maxY: y0 + h, minZ: z - t / 2, maxZ: z + t / 2 });
+    }
+    put(boxes, doorAt, y0 + 2.6 + (h - 2.6) / 2, z, doorW, h - 2.6, t, mat);
+    cols.push({ minX: g0, maxX: g1, minY: y0 + 2.6, maxY: y0 + h, minZ: z - t / 2, maxZ: z + t / 2 });
+  } else {
+    put(boxes, (x0 + x1) / 2, y0 + h / 2, z, x1 - x0, h, t, mat);
+    cols.push({ minX: x0, maxX: x1, minY: y0, maxY: y0 + h, minZ: z - t / 2, maxZ: z + t / 2 });
+  }
+}
+
+// A solid wall run along Z with a door gap, at elevation y0.
+function wallRunZ(boxes: Box[], cols: Collider[], z0: number, z1: number, y0: number, x: number, h: number, mat: Mat, doorAt: number, doorW: number) {
+  const t = 0.3;
+  if (doorW > 0) {
+    const g0 = doorAt - doorW / 2;
+    const g1 = doorAt + doorW / 2;
+    if (g0 - z0 > 0.05) {
+      put(boxes, x, y0 + h / 2, (z0 + g0) / 2, t, h, g0 - z0, mat);
+      cols.push({ minX: x - t / 2, maxX: x + t / 2, minY: y0, maxY: y0 + h, minZ: z0, maxZ: g0 });
+    }
+    if (z1 - g1 > 0.05) {
+      put(boxes, x, y0 + h / 2, (g1 + z1) / 2, t, h, z1 - g1, mat);
+      cols.push({ minX: x - t / 2, maxX: x + t / 2, minY: y0, maxY: y0 + h, minZ: g1, maxZ: z1 });
+    }
+    put(boxes, x, y0 + 2.6 + (h - 2.6) / 2, doorAt, t, h - 2.6, doorW, mat);
+    cols.push({ minX: x - t / 2, maxX: x + t / 2, minY: y0 + 2.6, maxY: y0 + h, minZ: g0, maxZ: g1 });
+  } else {
+    put(boxes, x, y0 + h / 2, (z0 + z1) / 2, t, h, z1 - z0, mat);
+    cols.push({ minX: x - t / 2, maxX: x + t / 2, minY: y0, maxY: y0 + h, minZ: z0, maxZ: z1 });
+  }
+}
+
+// A floor slab at elevation y0 (walking surface at y0) with rectangular holes
+// (lift shaft, stairwell). Emitted as a set of boxes that avoid the holes.
+function slabWithHoles(boxes: Box[], cols: Collider[], x0: number, y0: number, z0: number, w: number, d: number, holes: Array<[number, number, number, number]>, mat: Mat) {
+  let rects: Array<[number, number, number, number]> = [[x0, z0, x0 + w, z0 + d]];
+  for (const [hx0, hz0, hx1, hz1] of holes) {
+    const next: Array<[number, number, number, number]> = [];
+    for (const [a0, b0, a1, b1] of rects) {
+      if (hx1 <= a0 || hx0 >= a1 || hz1 <= b0 || hz0 >= b1) {
+        next.push([a0, b0, a1, b1]);
+        continue;
+      }
+      if (hx0 > a0) next.push([a0, b0, hx0, b1]);
+      if (hx1 < a1) next.push([hx1, b0, a1, b1]);
+      const cx0 = Math.max(a0, hx0);
+      const cx1 = Math.min(a1, hx1);
+      if (hz0 > b0) next.push([cx0, b0, cx1, hz0]);
+      if (hz1 < b1) next.push([cx0, hz1, cx1, b1]);
+    }
+    rects = next;
+  }
+  for (const [a0, b0, a1, b1] of rects) {
+    if (a1 - a0 < 0.05 || b1 - b0 < 0.05) continue;
+    put(boxes, (a0 + a1) / 2, y0 - 0.15, (b0 + b1) / 2, a1 - a0, 0.3, b1 - b0, mat);
+    cols.push({ minX: a0, maxX: a1, minY: y0 - 0.3, maxY: y0, minZ: b0, maxZ: b1 });
+  }
+}
+
+// Pendant lights hanging from the slab above (ceilingY), over a floor.
+function hangLights(boxes: Box[], cx: number, ceilingY: number, cz: number, w: number, d: number) {
+  const xs = w > 30 ? [-w / 4, 0, w / 4] : [-w / 5, w / 5];
+  const zs = d > 30 ? [-d / 4, 0, d / 4] : [-d / 5, d / 5];
+  for (const dx of xs) {
+    for (const dz of zs) {
+      put(boxes, cx + dx, ceilingY - 0.6, cz + dz, 0.12, 0.55, 0.12, "gray");
+      put(boxes, cx + dx, ceilingY - 0.92, cz + dz, 0.55, 0.16, 0.55, "warm");
+    }
+  }
+}
+
+// A framed abstract painting on a wall: gold frame + three colored panels.
+// rotY rotates the painting's facing (0 = faces +z, PI/2 = faces +x).
+function voxelPainting(boxes: Box[], x: number, y: number, z: number, rotY: number, w: number, h: number) {
+  const nx = Math.sin(rotY);
+  const nz = Math.cos(rotY);
+  const alongX = Math.abs(nz) > 0.5;
+  const t = 0.12;
+  if (alongX) {
+    put(boxes, x, y, z, w + 0.3, h + 0.3, t, "gold");
+    put(boxes, x - w * 0.22, y + h * 0.1, z + nz * 0.1, w * 0.42, h * 0.5, 0.06, "cyan");
+    put(boxes, x + w * 0.2, y - h * 0.12, z + nz * 0.1, w * 0.38, h * 0.42, 0.06, "warm");
+    put(boxes, x + w * 0.05, y + h * 0.28, z + nz * 0.1, w * 0.24, h * 0.24, 0.06, "red");
+  } else {
+    put(boxes, x, y, z, t, h + 0.3, w + 0.3, "gold");
+    put(boxes, x + nx * 0.1, y + h * 0.1, z - w * 0.22, 0.06, h * 0.5, w * 0.42, "cyan");
+    put(boxes, x + nx * 0.1, y - h * 0.12, z + w * 0.2, 0.06, h * 0.42, w * 0.38, "warm");
+    put(boxes, x + nx * 0.1, y + h * 0.28, z + w * 0.05, 0.06, h * 0.24, w * 0.24, "red");
+  }
+}
+
+function roomSign(id: string, x: number, y: number, z: number, rotY: number, w: number, h: number, lines: string[], sub: string) {
+  art.push({ id, x, y, z, rotY, w, h, lines, sub });
+}
+
+// The anchor a player presses E on to step inside a venue: just outside the
+// front door, facing in.
+function doorAnchor(id: string, name: string, kind: Anchor["kind"], x0: number, z0: number, w: number, d: number, door: Face, slot = 0): Anchor {
+  const cx = x0 + w / 2;
+  const cz = z0 + d / 2;
+  if (door === "n") return { id, name, kind, x: cx, y: 0, z: z0 - 1.4, yaw: Math.PI, slot };
+  if (door === "s") return { id, name, kind, x: cx, y: 0, z: z0 + d + 1.4, yaw: 0, slot };
+  if (door === "w") return { id, name, kind, x: x0 - 1.4, y: 0, z: cz, yaw: Math.PI / 2, slot };
+  return { id, name, kind, x: x0 + w + 1.4, y: 0, z: cz, yaw: -Math.PI / 2, slot };
+}
+
+// A furnished home: living room (sofa, rug, TV, paintings), kitchenette,
+// bedroom nook. Ground floor only, like the other venues.
+function furnishHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face, index: number): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  const back = opposite(door, x0, z0, w, d, 2.4);
+  const alongX = door === "n" || door === "s";
+  // Living room: sofa + coffee table + rug, facing the TV on the far wall.
+  const tv = opposite(door, x0, z0, w, d, 1.35);
+  put(boxes, tv.x, 1.5, tv.z, alongX ? 3.6 : 0.2, 2, alongX ? 0.2 : 3.6, "black");
+  put(boxes, tv.x, 1.5, tv.z, alongX ? 3.2 : 0.1, 1.6, alongX ? 0.1 : 3.2, "cyan");
+  put(boxes, cx, 0.12, cz, alongX ? 5 : 3.6, 0.05, alongX ? 3.6 : 5, "red");
+  if (alongX) {
+    // TV is on the far wall (south for door n, north for door s); sofa sits
+    // on the door side of center, facing the TV.
+    const s = door === "s" ? 1 : -1;
+    put(boxes, cx, 0.38, cz + s * 1.5, 3.4, 0.45, 1.1, "red");
+    cols.push(col(cx, 0.38, cz + s * 1.5, 3.4, 0.45, 1.1));
+    put(boxes, cx, 0.85, cz + s * 2.05, 3.4, 0.7, 0.2, "red");
+    put(boxes, cx, 0.4, cz - s * 0.3, 1.6, 0.35, 0.9, "wood");
+    cols.push(col(cx, 0.4, cz - s * 0.3, 1.6, 0.35, 0.9));
+  } else {
+    const s = door === "e" ? 1 : -1;
+    put(boxes, cx + s * 1.5, 0.38, cz, 1.1, 0.45, 3.4, "red");
+    cols.push(col(cx + s * 1.5, 0.38, cz, 1.1, 0.45, 3.4));
+    put(boxes, cx + s * 2.05, 0.85, cz, 0.2, 0.7, 3.4, "red");
+    put(boxes, cx - s * 0.3, 0.4, cz, 0.9, 0.35, 1.6, "wood");
+    cols.push(col(cx - s * 0.3, 0.4, cz, 0.9, 0.35, 1.6));
+  }
+  // Kitchenette along the back wall: counter + cabinets + fridge.
+  const kx = alongX ? cx + 5 : back.x;
+  const kz = alongX ? back.z : cz + 5;
+  put(boxes, kx, 0.55, kz, alongX ? 4.6 : 1.1, 1.05, alongX ? 1.1 : 4.6, "stone");
+  cols.push(col(kx, 0.55, kz, alongX ? 4.6 : 1.1, 1.05, alongX ? 1.1 : 4.6));
+  put(boxes, kx, 1.2, kz, alongX ? 4.8 : 1.2, 0.14, alongX ? 1.2 : 4.8, "wood");
+  put(boxes, alongX ? kx + 2.8 : kx, 1.0, alongX ? kz : kz + 2.8, 0.9, 2, 0.9, "white");
+  cols.push(col(alongX ? kx + 2.8 : kx, 1.0, alongX ? kz : kz + 2.8, 0.9, 2, 0.9));
+  // Bedroom nook: bed + nightstand.
+  const bedX = x0 + w - 3.4;
+  const bedZ = z0 + d - 3.4;
+  put(boxes, bedX, 0.35, bedZ, 2.4, 0.55, 3.4, "wood");
+  cols.push(col(bedX, 0.35, bedZ, 2.4, 0.55, 3.4));
+  put(boxes, bedX, 0.7, bedZ, 2.2, 0.22, 3.2, "white");
+  put(boxes, bedX, 0.85, bedZ - 1.4, 1.6, 0.3, 0.5, "red");
+  put(boxes, bedX + 1.6, 0.4, bedZ + 1.6, 0.6, 0.7, 0.6, "black");
+  // Paintings on the side walls + a plant by the door.
+  const side = opposite(door, x0, z0, w, d, 1.4);
+  voxelPainting(boxes, alongX ? cx + 6 : x0 + 1.3, 1.9, alongX ? z0 + 1.3 : cz + 6, alongX ? 0 : Math.PI / 2, 2.2, 1.5);
+  voxelPainting(boxes, alongX ? cx - 6 : x0 + w - 1.3, 1.9, alongX ? z0 + d - 1.3 : cz - 6, alongX ? Math.PI : -Math.PI / 2, 2.2, 1.5);
+  put(boxes, side.x, 0.5, side.z, 0.7, 0.9, 0.7, "leavesDark");
+  cols.push(col(side.x, 0.5, side.z, 0.7, 0.9, 0.7));
+  const service = opposite(door, x0, z0, w, d, 4.1);
+  return {
+    id: `home-${index}`,
+    name: `Home ${index + 1}`,
+    kind: "hall",
+    slot: index,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX: service.x,
+    serviceZ: service.z,
+    signX: back.x + (door === "w" ? -0.55 : door === "e" ? 0.55 : 0),
+    signY: 2.35,
+    signZ: back.z + (door === "n" ? -0.55 : door === "s" ? 0.55 : 0),
+    signRot: back.rot,
+  };
+}
+
+function addHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, h: number, door: Face, index: number): { zone: Zone; anchor: Anchor } {
+  const style = index % 2 === 0 ? 1 : 3;
+  shellOpen(
+    boxes,
+    cols,
+    x0,
+    0,
+    z0,
+    w,
+    h,
+    d,
+    (u, ly, face, len) => (hole(face, door, u, ly, len) ? "air" : facadeSample(style, len)(u, ly)),
+    "black",
+    door,
+  );
+  addAwning(boxes, x0, z0, w, d, door);
+  facades.push({
+    id: `home-${index}`,
+    x: x0,
+    z: z0,
+    w,
+    d,
+    h,
+    style,
+    door,
+    enterable: true,
+    hero: false,
+  });
+  const zone = furnishHome(boxes, cols, x0, z0, w, d, door, index);
+  const anchor = doorAnchor(`home-${index}`, `Home ${index + 1}`, "hall", x0, z0, w, d, door, index);
+  return { zone, anchor };
+}
+
+// ---- mega mall + mega office ----
+
+const MALL_FLOOR2 = 5;
+const MALL_ROOF = 9.5;
+const OFFICE_FLOORS = [0, 8, 12, 16, 20];
+const OFFICE_STOPS = ["Lobby", "Floor 2", "Floor 3", "Floor 4", "Roof Terrace"];
+
+// A glass lift shaft: glass walls + cap, with a door opening on each floor's
+// landing side. The opening is blocked by one solid (invisible) collider per
+// floor so nobody can step into the void; the cab door panel is a runtime mesh.
+function buildGlassShaft(boxes: Box[], cols: Collider[], liftId: string, x0: number, z0: number, w: number, d: number, capY: number, floors: number[], landing: Face) {
+  const doorW = 2.4;
+  for (const face of ["n", "s", "w", "e"] as Face[]) {
+    const isLanding = face === landing;
+    const alongX = face === "n" || face === "s";
+    const mid = alongX ? x0 + w / 2 : z0 + d / 2;
+    const g0 = mid - doorW / 2;
+    const g1 = mid + doorW / 2;
+    const panel = (a0: number, a1: number, y0: number, y1: number) => {
+      if (a1 - a0 < 0.05 || y1 - y0 < 0.05) return;
+      if (alongX) {
+        const z = face === "n" ? z0 : z0 + d;
+        // White, not cyan: an opaque cyan wall filled the cab view from
+        // inside (cyan wash). The cab's own glass stays tinted.
+        put(boxes, (a0 + a1) / 2, (y0 + y1) / 2, z, a1 - a0, y1 - y0, 0.15, "white");
+        cols.push({ minX: a0, maxX: a1, minY: y0, maxY: y1, minZ: z - 0.075, maxZ: z + 0.075 });
+      } else {
+        const x = face === "w" ? x0 : x0 + w;
+        put(boxes, x, (y0 + y1) / 2, (a0 + a1) / 2, 0.15, y1 - y0, a1 - a0, "white");
+        cols.push({ minX: x - 0.075, maxX: x + 0.075, minY: y0, maxY: y1, minZ: a0, maxZ: a1 });
+      }
+    };
+    if (!isLanding) {
+      panel(alongX ? x0 : z0, alongX ? x0 + w : z0 + d, 0, capY);
+    } else {
+      panel(alongX ? x0 : z0, g0, 0, capY);
+      panel(g1, alongX ? x0 + w : z0 + d, 0, capY);
+      for (let i = 0; i < floors.length; i++) {
+        const y0 = floors[i] + 3;
+        const y1 = i + 1 < floors.length ? floors[i + 1] : capY;
+        panel(g0, g1, y0, y1);
+      }
+      for (let i = 0; i < floors.length; i++) {
+        const f = floors[i];
+        if (alongX) {
+          const z = face === "n" ? z0 : z0 + d;
+          cols.push({ minX: g0, maxX: g1, minY: f, maxY: f + 3, minZ: z - 0.075, maxZ: z + 0.075, tag: `lift-door:${liftId}:${i}` });
+        } else {
+          const x = face === "w" ? x0 : x0 + w;
+          cols.push({ minX: x - 0.075, maxX: x + 0.075, minY: f, maxY: f + 3, minZ: g0, maxZ: g1, tag: `lift-door:${liftId}:${i}` });
+        }
+      }
+    }
+  }
+  put(boxes, x0 + w / 2, capY + 0.1, z0 + d / 2, w + 0.4, 0.2, d + 0.4, "cyan");
+  put(boxes, x0 + w / 2, capY + 0.35, z0 + d / 2, 0.5, 0.4, 0.5, "gold");
+}
+
+// A staircase along +z: 10 steps, each 0.5 high and 2 deep, spanning the
+// full stairwell width. The 0.5 step-up in the engine makes it walkable.
+function buildStairs(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, y0: number, y1: number) {
+  const steps = Math.round((y1 - y0) / 0.5);
+  for (let i = 0; i < steps; i++) {
+    const top = y0 + 0.5 * (i + 1);
+    put(boxes, x0 + w / 2, top - 0.25, z0 + i * 2 + 1, w, 0.5, 2, "stone");
+    cols.push({ minX: x0, maxX: x0 + w, minY: y0, maxY: top, minZ: z0 + i * 2, maxZ: z0 + (i + 1) * 2 });
+    // Stepped railing on the open (west) side.
+    put(boxes, x0 + 0.1, top + 0.55, z0 + i * 2 + 1, 0.15, 1.1, 2, "gold");
+    cols.push({ minX: x0, maxX: x0 + 0.2, minY: top, maxY: top + 1.1, minZ: z0 + i * 2, maxZ: z0 + (i + 1) * 2 });
+  }
+}
+
+// One mall shopfront: counter + shelves + goods + a wall sign above.
+// rotY rotates the sign's facing (PI = faces -z, 0 = faces +z).
+function mallShop(boxes: Box[], cols: Collider[], x: number, y0: number, z: number, w: number, alongX: boolean, rotY: number, lines: string[], sub: string, goods: Mat) {
+  // Counter + two shelves against the wall, goods on top.
+  if (alongX) {
+    put(boxes, x, y0 + 0.55, z, w - 1, 1.05, 1.1, "wood");
+    cols.push(col(x, y0 + 0.55, z, w - 1, 1.05, 1.1));
+    put(boxes, x - (w - 1) / 4, y0 + 1.2, z + 0.4, (w - 1) / 2, 0.14, 0.9, "stone");
+    put(boxes, x + (w - 1) / 4, y0 + 1.2, z + 0.4, (w - 1) / 2, 0.14, 0.9, "stone");
+    put(boxes, x - (w - 1) / 4, y0 + 1.5, z + 0.4, (w - 1) / 2 - 0.4, 0.55, 0.7, goods);
+    put(boxes, x + (w - 1) / 4, y0 + 1.5, z + 0.4, (w - 1) / 2 - 0.4, 0.55, 0.7, "cyan");
+  } else {
+    put(boxes, x, y0 + 0.55, z, 1.1, 1.05, w - 1, "wood");
+    cols.push(col(x, y0 + 0.55, z, 1.1, 1.05, w - 1));
+    put(boxes, x + 0.4, y0 + 1.2, z - (w - 1) / 4, 0.9, 0.14, (w - 1) / 2, "stone");
+    put(boxes, x + 0.4, y0 + 1.2, z + (w - 1) / 4, 0.9, 0.14, (w - 1) / 2, "stone");
+    put(boxes, x + 0.4, y0 + 1.5, z - (w - 1) / 4, 0.7, 0.55, (w - 1) / 2 - 0.4, goods);
+    put(boxes, x + 0.4, y0 + 1.5, z + (w - 1) / 4, 0.7, 0.55, (w - 1) / 2 - 0.4, "cyan");
+  }
+  roomSign(`mall-shop-${x}-${z}-${y0}`, x, y0 + 2.6, z, rotY, Math.min(6, w - 1.5), 1.2, lines, sub);
+}
+
+// Food court: four tables with chairs.
+function foodCourt(boxes: Box[], cols: Collider[], x0: number, y0: number, z0: number, x1: number, z1: number) {
+  for (const [tx, tz] of [[x0 + 3, z0 + 3], [x1 - 3, z0 + 3], [x0 + 3, z1 - 3], [x1 - 3, z1 - 3]]) {
+    put(boxes, tx, y0 + 0.45, tz, 2, 0.1, 2, "wood");
+    put(boxes, tx, y0 + 0.22, tz, 0.3, 0.4, 0.3, "black");
+    cols.push(col(tx, y0 + 0.5, tz, 1.6, 0.9, 1.6));
+    for (const [cx2, cz2] of [[tx - 1.6, tz], [tx + 1.6, tz], [tx, tz - 1.6], [tx, tz + 1.6]]) {
+      put(boxes, cx2, y0 + 0.3, cz2, 0.7, 0.5, 0.7, "red");
+      cols.push(col(cx2, y0 + 0.3, cz2, 0.7, 0.5, 0.7));
+    }
+  }
+}
+
+// A row of desks: tops, legs, glowing screens.
+function deskRow(boxes: Box[], cols: Collider[], x0: number, y0: number, z: number, n: number, spacing: number, alongX: boolean) {
+  for (let i = 0; i < n; i++) {
+    const px = alongX ? x0 + i * spacing : x0;
+    const pz = alongX ? z : z + i * spacing;
+    put(boxes, px, y0 + 0.4, pz, 1.8, 0.08, 0.9, "wood");
+    put(boxes, px, y0 + 0.2, pz, 0.2, 0.4, 0.7, "black");
+    cols.push(col(px, y0 + 0.45, pz, 1.8, 0.8, 0.9));
+    put(boxes, px, y0 + 1.0, pz - 0.22, 0.9, 0.6, 0.08, "cyan");
+    put(boxes, px, y0 + 0.25, pz + 0.55, 0.6, 0.45, 0.6, "gray");
+  }
+}
+
+// A meeting room: big table, chairs, wall screen.
+function meetingTable(boxes: Box[], cols: Collider[], cx: number, y0: number, cz: number, w: number, d: number) {
+  put(boxes, cx, y0 + 0.45, cz, w, 0.1, d, "wood");
+  put(boxes, cx, y0 + 0.22, cz, 0.4, 0.4, 0.4, "black");
+  cols.push(col(cx, y0 + 0.5, cz, w, 0.9, d));
+  for (let i = 0; i < 3; i++) {
+    put(boxes, cx - w / 2 + 1 + i * (w / 3), y0 + 0.3, cz - d / 2 - 0.9, 0.7, 0.5, 0.7, "red");
+    cols.push(col(cx - w / 2 + 1 + i * (w / 3), y0 + 0.3, cz - d / 2 - 0.9, 0.7, 0.5, 0.7));
+    put(boxes, cx - w / 2 + 1 + i * (w / 3), y0 + 0.3, cz + d / 2 + 0.9, 0.7, 0.5, 0.7, "red");
+    cols.push(col(cx - w / 2 + 1 + i * (w / 3), y0 + 0.3, cz + d / 2 + 0.9, 0.7, 0.5, 0.7));
+  }
+  put(boxes, cx, y0 + 1.6, cz - d / 2 - 1.5, w - 1, 1.6, 0.2, "black");
+  put(boxes, cx, y0 + 1.6, cz - d / 2 - 1.4, w - 1.6, 1.2, 0.1, "cyan");
+}
+
+// A lounge: two sofas, coffee table, rug, paintings on the wall behind
+// (wall = the room face the paintings hang on, wallCoord = its inner surface).
+function loungeSet(boxes: Box[], cols: Collider[], cx: number, y0: number, cz: number, wall: Face, wallCoord: number) {
+  put(boxes, cx, y0 + 0.12, cz, 6, 0.05, 4.4, "gold");
+  put(boxes, cx - 2.2, y0 + 0.38, cz, 1.1, 0.45, 3.4, "red");
+  cols.push(col(cx - 2.2, y0 + 0.38, cz, 1.1, 0.45, 3.4));
+  put(boxes, cx + 2.2, y0 + 0.38, cz, 1.1, 0.45, 3.4, "red");
+  cols.push(col(cx + 2.2, y0 + 0.38, cz, 1.1, 0.45, 3.4));
+  put(boxes, cx, y0 + 0.4, cz, 1.6, 0.35, 0.9, "wood");
+  cols.push(col(cx, y0 + 0.4, cz, 1.6, 0.35, 0.9));
+  if (wall === "n") {
+    voxelPainting(boxes, cx - 3, y0 + 1.9, wallCoord, Math.PI, 2.2, 1.5);
+    voxelPainting(boxes, cx + 3, y0 + 1.9, wallCoord, Math.PI, 2.2, 1.5);
+  } else if (wall === "s") {
+    voxelPainting(boxes, cx - 3, y0 + 1.9, wallCoord, 0, 2.2, 1.5);
+    voxelPainting(boxes, cx + 3, y0 + 1.9, wallCoord, 0, 2.2, 1.5);
+  } else if (wall === "e") {
+    voxelPainting(boxes, wallCoord, y0 + 1.9, cz - 3, -Math.PI / 2, 2.2, 1.5);
+    voxelPainting(boxes, wallCoord, y0 + 1.9, cz + 3, -Math.PI / 2, 2.2, 1.5);
+  } else {
+    voxelPainting(boxes, wallCoord, y0 + 1.9, cz - 3, Math.PI / 2, 2.2, 1.5);
+    voxelPainting(boxes, wallCoord, y0 + 1.9, cz + 3, Math.PI / 2, 2.2, 1.5);
+  }
+}
+
+// A kitchenette: counter + stools + fridge.
+function kitchenette(boxes: Box[], cols: Collider[], x: number, y0: number, z: number, alongX: boolean) {
+  if (alongX) {
+    put(boxes, x, y0 + 0.55, z, 4.6, 1.05, 1.1, "stone");
+    cols.push(col(x, y0 + 0.55, z, 4.6, 1.05, 1.1));
+    put(boxes, x - 1.4, y0 + 0.3, z + 1.2, 0.7, 0.5, 0.7, "gray");
+    cols.push(col(x - 1.4, y0 + 0.3, z + 1.2, 0.7, 0.5, 0.7));
+    put(boxes, x + 1.4, y0 + 0.3, z + 1.2, 0.7, 0.5, 0.7, "gray");
+    cols.push(col(x + 1.4, y0 + 0.3, z + 1.2, 0.7, 0.5, 0.7));
+    put(boxes, x + 2.9, y0 + 1.0, z, 0.9, 2, 0.9, "white");
+    cols.push(col(x + 2.9, y0 + 1.0, z, 0.9, 2, 0.9));
+  } else {
+    put(boxes, x, y0 + 0.55, z, 1.1, 1.05, 4.6, "stone");
+    cols.push(col(x, y0 + 0.55, z, 1.1, 1.05, 4.6));
+    put(boxes, x + 1.2, y0 + 0.3, z - 1.4, 0.7, 0.5, 0.7, "gray");
+    cols.push(col(x + 1.2, y0 + 0.3, z - 1.4, 0.7, 0.5, 0.7));
+    put(boxes, x + 1.2, y0 + 0.3, z + 1.4, 0.7, 0.5, 0.7, "gray");
+    cols.push(col(x + 1.2, y0 + 0.3, z + 1.4, 0.7, 0.5, 0.7));
+    put(boxes, x, y0 + 1.0, z + 2.9, 0.9, 2, 0.9, "white");
+    cols.push(col(x, y0 + 1.0, z + 2.9, 0.9, 2, 0.9));
+  }
+}
+
+// A reception desk: stone counter with a gold top, plants flanking it.
+function receptionDesk(boxes: Box[], cols: Collider[], x: number, y0: number, z: number, alongX: boolean) {
+  const w = alongX ? 6 : 1.4;
+  const d = alongX ? 1.4 : 6;
+  put(boxes, x, y0 + 0.6, z, w, 1.15, d, "stone");
+  cols.push(col(x, y0 + 0.6, z, w, 1.15, d));
+  put(boxes, x, y0 + 1.25, z, w + 0.3, 0.16, d + 0.3, "gold");
+  for (const s of [-1, 1]) {
+    const px = alongX ? x + s * 4.2 : x;
+    const pz = alongX ? z : z + s * 4.2;
+    put(boxes, px, y0 + 0.5, pz, 0.8, 0.9, 0.8, "leavesDark");
+    cols.push(col(px, y0 + 0.5, pz, 0.8, 0.9, 0.8));
+  }
+}
+
+// A floor zone (one level of a mega building), floor-aware via minY/maxY.
+function floorZone(id: string, name: string, kind: Zone["kind"], x0: number, z0: number, w: number, d: number, minY: number, maxY: number, svcX: number, svcZ: number, signX: number, signY: number, signZ: number, signRot: number): Zone {
+  return {
+    id,
+    name,
+    kind,
+    slot: 0,
+    minX: x0 + 0.6,
+    maxX: x0 + w - 0.6,
+    minZ: z0 + 0.6,
+    maxZ: z0 + d - 0.6,
+    minY,
+    maxY,
+    serviceX: svcX,
+    serviceZ: svcZ,
+    signX,
+    signY,
+    signZ,
+    signRot,
+  };
+}
+
+function addMegaMall(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: Anchor[]; lifts: Lift[] } {
+  const x0 = MALL.x0;
+  const z0 = MALL.z0;
+  const w = MALL.x1 - MALL.x0;
+  const d = MALL.z1 - MALL.z0;
+  const h = MALL_ROOF;
+  shellOpen(
+    boxes,
+    cols,
+    x0,
+    0,
+    z0,
+    w,
+    h,
+    d,
+    (u, ly, face, len) => (hole(face, "w", u, ly, len) ? "air" : facadeSample(4, len)(u, ly)),
+    "black",
+    "w",
+  );
+  facades.push({
+    id: "megamall",
+    x: x0,
+    z: z0,
+    w,
+    d,
+    h,
+    style: 4,
+    door: "w",
+    enterable: true,
+    hero: true,
+  });
+  // Ground floor: stone finish, ceiling slab is the mezzanine (built below).
+  put(boxes, x0 + w / 2, 0.08, z0 + d / 2, w - 2.4, 0.08, d - 2.4, "stone");
+  cladWallsTall(boxes, x0, z0, w, d, "w", 9.5);
+  // Shopfronts along the south wall.
+  const shops: Array<[string, string, Mat]> = [
+    ["ORBITX GEAR", "Merch + gear", "gold"],
+    ["PLAZA COFFEE", "Coffee + bites", "warm"],
+    ["SNEAKER DEN", "Kicks + streetwear", "red"],
+    ["NEON ARCADE", "Games + prizes", "cyan"],
+    ["STYLE LAB", "Fashion + fits", "gold"],
+    ["TOKEN TOYS", "Toys + collectibles", "warm"],
+  ];
+  for (let i = 0; i < shops.length; i++) {
+    const sx = x0 + 6 + i * 8.6;
+    mallShop(boxes, cols, sx, 0, z0 + d - 2.1, 8, true, Math.PI, [shops[i][0]], shops[i][1], shops[i][2]);
+  }
+  // Food court, NW corner. The sign hangs on the north wall, facing in.
+  foodCourt(boxes, cols, x0 + 3, 0, z0 + 3, x0 + 17, z0 + 17);
+  roomSign("mall-food", x0 + 10, 2.6, z0 + 1.3, 0, 6, 1.2, ["FOOD COURT"], "Eat + drink");
+  // Atrium: benches + planters, glass skylight in the roof. (The zone sign
+  // by the west door carries the directory text.)
+  for (const bz of [-6, 6]) {
+    put(boxes, 66, 0.38, bz, 1.1, 0.45, 3.4, "red");
+    cols.push(col(66, 0.38, bz, 1.1, 0.45, 3.4));
+    put(boxes, 78, 0.38, bz, 1.1, 0.45, 3.4, "red");
+    cols.push(col(78, 0.38, bz, 1.1, 0.45, 3.4));
+  }
+  for (const [px, pz] of [[64, -8], [80, -8], [64, 8], [80, 8]] as Array<[number, number]>) {
+    put(boxes, px, 0.5, pz, 0.8, 0.9, 0.8, "leavesDark");
+    cols.push(col(px, 0.5, pz, 0.8, 0.9, 0.8));
+  }
+  // Mezzanine floor: slab with atrium + shaft + stairwell holes, atrium railing.
+  slabWithHoles(boxes, cols, x0, MALL_FLOOR2, z0, w, d, [[63, -9, 81, 9], [93, -27, 97, -23], [95, 5, 99, 25]], "cream");
+  for (const [rx, rz, rw, rd] of [[63, -9.15, 18, 0.3], [63, 8.85, 18, 0.3], [62.85, -9, 0.3, 18], [81.15, -9, 0.3, 18]] as Array<[number, number, number, number]>) {
+    put(boxes, rx + rw / 2, MALL_FLOOR2 + 0.55, rz + rd / 2, rw, 1.1, rd, "cyan");
+    cols.push({ minX: rx, maxX: rx + rw, minY: MALL_FLOOR2, maxY: MALL_FLOOR2 + 1.1, minZ: rz, maxZ: rz + rd });
+  }
+  hangLights(boxes, 72, MALL_FLOOR2, 20, 30, 14);
+  hangLights(boxes, 72, MALL_FLOOR2, -20, 30, 14);
+  // Chandelier over the atrium, hung from the roof (the mezzanine has a
+  // hole there, so nothing hangs from it).
+  put(boxes, 72, 8.4, 0, 0.14, 1.4, 0.14, "gold");
+  put(boxes, 72, 7.6, 0, 1.4, 0.3, 1.4, "warm");
+  put(boxes, 72, 7.1, 0, 0.7, 0.7, 0.7, "gold");
+  // Mezzanine lights hang from the roof slab (solid over the atrium).
+  hangLights(boxes, 72, MALL_ROOF, 0, 40, 30);
+  // Mezzanine shops along the north wall + a lounge on the east side.
+  const mezz: Array<[string, string, Mat]> = [
+    ["SKY COFFEE", "Coffee above the crowd", "warm"],
+    ["ORBITX LAB", "New drops first", "gold"],
+    ["VINYL VAULT", "Records + audio", "red"],
+    ["CLOUD CAFE", "Tea + desserts", "cyan"],
+  ];
+  for (let i = 0; i < mezz.length; i++) {
+    const sx = x0 + 6 + i * 8.6;
+    mallShop(boxes, cols, sx, MALL_FLOOR2, z0 + 2.1, 8, true, 0, [mezz[i][0]], mezz[i][1], mezz[i][2]);
+  }
+  loungeSet(boxes, cols, 89, MALL_FLOOR2, -1, "e", 99.7);
+  // Roof: slab, skylight over the atrium, parapet, AC + beacon.
+  put(boxes, x0 + w / 2, MALL_ROOF - 0.15, z0 + d / 2, w, 0.3, d, "stone");
+  put(boxes, 72, MALL_ROOF + 0.2, 0, 16, 0.35, 16, "cyan");
+  for (const [px, pz, pw, pd] of [[x0 + w / 2, z0 + 0.35, w, 0.7], [x0 + w / 2, z0 + d - 0.35, w, 0.7], [x0 + 0.35, z0 + d / 2, 0.7, d], [x0 + w - 0.35, z0 + d / 2, 0.7, d]] as Array<[number, number, number, number]>) {
+    put(boxes, px, MALL_ROOF + 0.5, pz, pw, 0.6, pd, "black");
+  }
+  put(boxes, x0 + w - 6, MALL_ROOF + 0.6, z0 + 6, 3, 1.2, 3, "gray");
+  put(boxes, x0 + w / 2, MALL_ROOF + 0.9, z0 + d / 2, 0.5, 0.8, 0.5, "gold");
+  // Glass lift shaft (NE corner) + stairs (east wall).
+  buildGlassShaft(boxes, cols, "mall-lift", 93, -27, 4, 4, MALL_FLOOR2 + 2.8, [0, MALL_FLOOR2], "w");
+  buildStairs(boxes, cols, 95, 5, 4, 0, MALL_FLOOR2);
+  const zones: Zone[] = [
+    floorZone("mall-g", "Mega Mall", "mall", x0, z0, w, d, -0.1, 4.9, 72, 0, 44.6, 2.6, 0, Math.PI / 2),
+    floorZone("mall-2", "Mega Mall — Mezzanine", "mall", x0, z0, w, d, 4.9, 9.4, 89, -1, 72, 7.2, -8.4, 0),
+  ];
+  const anchors: Anchor[] = [
+    doorAnchor("megamall", "Mega Mall", "mall", x0, z0, w, d, "w"),
+    { id: "mall-lift-0", name: "Mall Lift", kind: "lift", x: 91.5, y: 0, z: -25, yaw: Math.PI / 2, slot: 0, liftId: "mall-lift", liftFloor: 0 },
+    { id: "mall-lift-1", name: "Mall Lift", kind: "lift", x: 91.5, y: MALL_FLOOR2, z: -25, yaw: Math.PI / 2, slot: 1, liftId: "mall-lift", liftFloor: 1 },
+  ];
+  const lifts: Lift[] = [{ id: "mall-lift", name: "Mall Lift", x: 95, z: -25, w: 4, d: 4, floors: [0, MALL_FLOOR2], stops: ["Ground Floor", "Mezzanine"], landing: "w" }];
+  return { zones, anchors, lifts };
+}
+
+function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: Anchor[]; lifts: Lift[] } {
+  const x0 = OFFICE.x0;
+  const z0 = OFFICE.z0;
+  const w = OFFICE.x1 - OFFICE.x0;
+  const d = OFFICE.z1 - OFFICE.z0;
+  const h = 20;
+  shellOpen(
+    boxes,
+    cols,
+    x0,
+    0,
+    z0,
+    w,
+    h,
+    d,
+    (u, ly, face, len) => (hole(face, "e", u, ly, len) ? "air" : facadeSample(5, len)(u, ly)),
+    "black",
+    "e",
+  );
+  facades.push({
+    id: "orbitx-hq",
+    x: x0,
+    z: z0,
+    w,
+    d,
+    h,
+    style: 5,
+    door: "e",
+    enterable: true,
+    hero: true,
+  });
+  // Ground floor: lobby, double-height void over the north strip (z 5..29).
+  put(boxes, x0 + w / 2, 0.08, z0 + d / 2, w - 2.4, 0.08, d - 2.4, "cream");
+  cladWallsTall(boxes, x0, z0, w, d, "e", 20);
+  // Gold ORBITX logo wall on the north wall + reception desk at the void edge.
+  roomSign("hq-logo", -72, 4.2, z0 + d - 0.75, Math.PI, 14, 3, ["ORBITX"], "The city builds here");
+  receptionDesk(boxes, cols, -72, 0, 3.4, true);
+  loungeSet(boxes, cols, -92, 0, 14, "n", 27.7);
+  // Lobby seating + plants on the south strip (under floor 2).
+  for (const [px, pz] of [[-92, -20], [-52, -20]] as Array<[number, number]>) {
+    put(boxes, px, 0.38, pz, 1.1, 0.45, 3.4, "red");
+    cols.push(col(px, 0.38, pz, 1.1, 0.45, 3.4));
+    put(boxes, px, 0.5, pz + 2.6, 0.8, 0.9, 0.8, "leavesDark");
+    cols.push(col(px, 0.5, pz + 2.6, 0.8, 0.9, 0.8));
+  }
+  // Lobby centrepiece: a gold-trimmed rug with a coffee table and seating,
+  // so the big double-height lobby reads furnished from its centre, not
+  // just at the edges.
+  put(boxes, -72, 0.12, -8, 12, 0.06, 9, "gold");
+  put(boxes, -72, 0.16, -8, 10.5, 0.06, 7.5, "red");
+  put(boxes, -72, 0.5, -8, 3.2, 0.5, 1.6, "wood");
+  cols.push(col(-72, 0.5, -8, 3.2, 0.5, 1.6));
+  for (const [bx, bz, bw, bd] of [[-72, -13.2, 3.4, 1.1], [-72, -2.8, 3.4, 1.1], [-77.5, -8, 1.1, 3.4], [-66.5, -8, 1.1, 3.4]] as Array<[number, number, number, number]>) {
+    put(boxes, bx, 0.38, bz, bw, 0.45, bd, "red");
+    cols.push(col(bx, 0.38, bz, bw, 0.45, bd));
+  }
+  for (const [px, pz] of [[-79.5, -13.5], [-64.5, -13.5]] as Array<[number, number]>) {
+    put(boxes, px, 0.5, pz, 0.8, 0.9, 0.8, "leavesDark");
+    cols.push(col(px, 0.5, pz, 0.8, 0.9, 0.8));
+  }
+  hangLights(boxes, -72, 12, 14, 40, 22);
+  hangLights(boxes, -72, 8, -14, 40, 22);
+  // Floor slabs: 8 (with the lobby void hole), 12, 16, 20 (roof terrace).
+  slabWithHoles(boxes, cols, x0, 8, z0, w, d, [[x0, 5, x0 + w, z0 + d], [-99, -27, -95, -23]], "cream");
+  slabWithHoles(boxes, cols, x0, 12, z0, w, d, [[-99, -27, -95, -23]], "cream");
+  slabWithHoles(boxes, cols, x0, 16, z0, w, d, [[-99, -27, -95, -23]], "cream");
+  slabWithHoles(boxes, cols, x0, 20, z0, w, d, [[-99, -27, -95, -23]], "cream");
+  // Floor 2 (y=8, south strip only): open office (north) + lounge (south,
+  // behind the partition wall). The meeting table sits against the north
+  // wall so its screen hangs on it.
+  wallRunX(boxes, cols, -99, -57, 8, -14, 4, "cream", -78, 2.4);
+  deskRow(boxes, cols, -95, 8, -20, 4, 5, true);
+  deskRow(boxes, cols, -95, 8, -24, 4, 5, true);
+  meetingTable(boxes, cols, -50, 8, -24.2, 6, 4);
+  loungeSet(boxes, cols, -72, 8, -4, "s", 3.7);
+  hangLights(boxes, -72, 12, -16, 40, 20);
+  // (The floor-2 zone sign carries the "FLOOR 2" label.)
+  // Floor 3 (y=12): open office + lounge.
+  wallRunX(boxes, cols, -99, -57, 12, 6, 4, "cream", -78, 2.4);
+  deskRow(boxes, cols, -95, 12, -12, 4, 5, true);
+  deskRow(boxes, cols, -95, 12, -16, 4, 5, true);
+  deskRow(boxes, cols, -95, 12, -20, 4, 5, true);
+  loungeSet(boxes, cols, -72, 12, 16, "n", 27.7);
+  voxelPainting(boxes, -52, 14, 27.7, Math.PI, 2.2, 1.5);
+  hangLights(boxes, -72, 16, 0, 40, 30);
+  // (The floor-3 zone sign carries the "FLOOR 3" label.)
+  // Floor 4 (y=16): two meeting rooms (screens on the north wall) +
+  // kitchenette on the south wall.
+  wallRunZ(boxes, cols, -27, -3, 16, -71, 4, "cream", -15, 2.4);
+  wallRunX(boxes, cols, -99, -71, 16, -3, 4, "cream", -85, 2.4);
+  meetingTable(boxes, cols, -85, 16, -24.2, 6, 4);
+  meetingTable(boxes, cols, -57, 16, -24.2, 6, 4);
+  kitchenette(boxes, cols, -48, 16, 26, true);
+  voxelPainting(boxes, -99 + 1.3, 18, -15, Math.PI / 2, 2.2, 1.5);
+  hangLights(boxes, -72, 20, 0, 40, 30);
+  // (The floor-4 zone sign carries the "FLOOR 4" label.)
+  // Roof terrace (y=20): railing, trees, benches, gold ORBITX sign east.
+  for (const [rx, rz, rw, rd] of [[x0 + 0.15, z0 + 0.15, w - 0.3, 0.3], [x0 + 0.15, z0 + d - 0.45, w - 0.3, 0.3], [x0 + 0.15, z0 + 0.15, 0.3, d - 0.3], [x0 + w - 0.45, z0 + 0.15, 0.3, d - 0.3]] as Array<[number, number, number, number]>) {
+    put(boxes, rx + rw / 2, 20.55, rz + rd / 2, rw, 1.1, rd, "gold");
+    cols.push({ minX: rx, maxX: rx + rw, minY: 20, maxY: 21.1, minZ: rz, maxZ: rz + rd });
+  }
+  for (const [px, pz] of [[-92, 18], [-52, 18], [-92, -18], [-52, -18]] as Array<[number, number]>) {
+    addTree(boxes, cols, px, pz, 20);
+    put(boxes, px + 3, 20.38, pz, 1.1, 0.45, 3.4, "red");
+    cols.push(col(px + 3, 20.38, pz, 1.1, 0.45, 3.4));
+  }
+  roomSign("hq-roof", -43.4, 22.2, 0, Math.PI / 2, 12, 2.4, ["ORBITX"], "Roof terrace · the city below");
+  // Glass lift shaft (NW corner, through all floors) + roof penthouse cap.
+  buildGlassShaft(boxes, cols, "hq-lift", -99, -27, 4, 4, 22.8, OFFICE_FLOORS, "e");
+  const zones: Zone[] = [
+    floorZone("hq-g", "OrbitX HQ — Lobby", "office", x0, z0, w, d, -0.1, 7.9, -72, 3.4, -44.4, 2.6, 14, -Math.PI / 2),
+    floorZone("hq-2", "OrbitX HQ — Floor 2", "office", x0, z0, w, d, 7.9, 11.9, -72, -20, -72, 10.4, -27.4, 0),
+    floorZone("hq-3", "OrbitX HQ — Floor 3", "office", x0, z0, w, d, 11.9, 15.9, -72, -12, -72, 14.4, -27.4, 0),
+    floorZone("hq-4", "OrbitX HQ — Floor 4", "office", x0, z0, w, d, 15.9, 19.9, -85, -15, -72, 18.4, -27.4, 0),
+    floorZone("hq-roof", "OrbitX HQ — Roof Terrace", "office", x0, z0, w, d, 19.9, 24, -72, 0, -72, 22.2, 27.7, Math.PI),
+  ];
+  const anchors: Anchor[] = [
+    doorAnchor("orbitx-hq", "OrbitX HQ", "office", x0, z0, w, d, "e"),
+    { id: "hq-lift-0", name: "HQ Lift", kind: "lift", x: -93.5, y: 0, z: -25, yaw: -Math.PI / 2, slot: 0, liftId: "hq-lift", liftFloor: 0 },
+    { id: "hq-lift-1", name: "HQ Lift", kind: "lift", x: -93.5, y: 8, z: -25, yaw: -Math.PI / 2, slot: 1, liftId: "hq-lift", liftFloor: 1 },
+    { id: "hq-lift-2", name: "HQ Lift", kind: "lift", x: -93.5, y: 12, z: -25, yaw: -Math.PI / 2, slot: 2, liftId: "hq-lift", liftFloor: 2 },
+    { id: "hq-lift-3", name: "HQ Lift", kind: "lift", x: -93.5, y: 16, z: -25, yaw: -Math.PI / 2, slot: 3, liftId: "hq-lift", liftFloor: 3 },
+    { id: "hq-lift-4", name: "HQ Lift", kind: "lift", x: -93.5, y: 20, z: -25, yaw: -Math.PI / 2, slot: 4, liftId: "hq-lift", liftFloor: 4 },
+  ];
+  const lifts: Lift[] = [{ id: "hq-lift", name: "HQ Lift", x: -97, z: -25, w: 4, d: 4, floors: OFFICE_FLOORS, stops: OFFICE_STOPS, landing: "e" }];
+  return { zones, anchors, lifts };
+}
+
 function addPark(boxes: Box[], cols: Collider[], x0: number, z0: number, x1: number, z1: number) {
   const cx = (x0 + x1) / 2;
   const cz = (z0 + z1) / 2;
@@ -1356,8 +2206,8 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
   const zones = [
     addVenue(boxes, cols, 7, 43, 22, 22, 16, "w", "shop"),
     addVenue(boxes, cols, -29, 43, 22, 22, 14, "e", "cafe"),
-    addVenue(boxes, cols, 43, 7, 22, 22, 18, "w", "hall"),
-    addVenue(boxes, cols, 79, 7, 22, 22, 16, "w", "bank"),
+    addVenue(boxes, cols, 43, 79, 22, 22, 18, "w", "hall"),
+    addVenue(boxes, cols, 79, -65, 22, 22, 16, "w", "bank"),
     addVenue(boxes, cols, 79, 43, 22, 22, 14, "w", "garage"),
     addVenue(boxes, cols, 43, 43, 22, 22, 12, "w", "arcade"),
     addVenue(boxes, cols, -29, 79, 22, 22, 12, "n", "market"),
@@ -1365,13 +2215,13 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
   addHarbor(boxes, cols);
   zones.push(addVenue(boxes, cols, -8, 212, 16, 14, 10, "n", "dock"));
 
-  const projectZs = [-65, -29, 43, 79];
+  const projectZs = [-65, -137, 43, 79];
   projectZs.forEach((z0, index) => {
     const h = [22, 30, 18, 26][index];
     zones.push(addVenue(boxes, cols, -101, z0, 22, 22, h, "e", "project", index));
   });
   addPark(boxes, cols, -101, -101, -79, -79);
-  addPark(boxes, cols, -101, 7, -79, 29);
+  addPark(boxes, cols, -101, 101, -79, 123);
 
   addKiosk(boxes, cols, 10, 16, "white");
   addKiosk(boxes, cols, -10, 16, "cyan");
@@ -1380,11 +2230,11 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
   const anchors: Anchor[] = [
     { id: "shop", name: "OrbitX Shop", kind: "shop", x: 5.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
     { id: "cafe", name: "Cafe Nova", kind: "cafe", x: -5.6, y: 0, z: 54, yaw: -Math.PI / 2, slot: 1 },
-    { id: "hall", name: "Community Hall", kind: "hall", x: 41.6, y: 0, z: 18, yaw: Math.PI / 2, slot: 2 },
+    { id: "hall", name: "Community Hall", kind: "hall", x: 41.6, y: 0, z: 90, yaw: Math.PI / 2, slot: 2 },
     { id: "jobs", name: "Jobs board", kind: "jobs", x: 10, y: 0, z: 17.6, yaw: 0, slot: 0 },
     { id: "events", name: "Events board", kind: "events", x: -10, y: 0, z: 17.6, yaw: 0, slot: 0 },
     { id: "ads", name: "Billboard desk", kind: "ads", x: 12, y: 0, z: 66, yaw: 0, slot: 0 },
-    { id: "bank", name: "OrbitX Bank", kind: "bank", x: 77.6, y: 0, z: 18, yaw: Math.PI / 2, slot: 0 },
+    { id: "bank", name: "OrbitX Bank", kind: "bank", x: 77.6, y: 0, z: -54, yaw: Math.PI / 2, slot: 0 },
     { id: "garage", name: "Hover Garage", kind: "garage", x: 77.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
     { id: "arcade", name: "Neon Arcade", kind: "arcade", x: 41.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
     { id: "market", name: "Night Market", kind: "market", x: -18, y: 0, z: 77.6, yaw: Math.PI, slot: 0 },
@@ -1420,14 +2270,17 @@ function blocked(cols: Collider[], x: number, z: number) {
 
 export function buildCity(seed: number): City {
   facades.length = 0;
+  art.length = 0;
   const rng = makeRng(seed || 1);
   const boxes: Box[] = [];
   const colliders: Collider[] = [];
   addRoads(boxes);
   addPlaza(boxes, colliders);
   const towerTop = addTower(boxes, colliders);
-  addBuildings(boxes, colliders, rng);
+  const built = addBuildings(boxes, colliders, rng, seed || 1);
   const fixed = addFixedPlaces(boxes, colliders);
+  const mall = addMegaMall(boxes, colliders);
+  const office = addMegaOffice(boxes, colliders);
   addStreetLife(boxes, colliders, rng);
   const rail = loopPoints();
   addMonorail(boxes, colliders, rail);
@@ -1453,17 +2306,19 @@ export function buildCity(seed: number): City {
     spawn: { x: sx, y: 0, z: sz, yaw: 0, pitch: 0.44 },
     focus: { x: 0, y: Math.max(36, towerTop * 0.45), z: -10 },
     fountain: FOUNTAIN,
-    anchors: fixed.anchors,
+    anchors: [...fixed.anchors, ...built.anchors, ...mall.anchors, ...office.anchors],
     boards: fixed.boards,
-    zones: fixed.zones,
+    zones: [...fixed.zones, ...built.zones, ...mall.zones, ...office.zones],
     facades: facades.slice(),
+    art: art.slice(),
+    lifts: [...mall.lifts, ...office.lifts],
     cars: [
       { id: "north", x: 0, z: 46, yaw: 0 },
       { id: "south", x: 0, z: 84, yaw: Math.PI },
       { id: "east", x: 36, z: 50, yaw: 0 },
       { id: "west", x: -36, z: 50, yaw: Math.PI },
-      { id: "east-ave", x: 72, z: 18, yaw: 0 },
-      { id: "west-ave", x: -72, z: -18, yaw: Math.PI },
+      { id: "east-ave", x: 72, z: 90, yaw: 0 },
+      { id: "west-ave", x: -72, z: -90, yaw: Math.PI },
       { id: "north-ave", x: 18, z: 72, yaw: Math.PI / 2 },
       { id: "south-ave", x: -18, z: -72, yaw: -Math.PI / 2 },
       { id: "garage-row", x: 72, z: 54, yaw: Math.PI },

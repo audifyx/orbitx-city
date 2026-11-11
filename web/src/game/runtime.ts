@@ -16,7 +16,7 @@ import {
   type PerspectiveCamera,
   type Scene,
 } from "three";
-import type { Anchor, BoardSlot, City, Collider, Zone } from "./city";
+import type { Anchor, Art, BoardSlot, City, Collider, Lift, Zone } from "./city";
 import {
   DEMO_AD_PRICE,
   SHOP,
@@ -66,7 +66,7 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift";
 
 export interface PersonCard {
   id: string;
@@ -123,6 +123,7 @@ export interface Snap {
   shop: ShopItem[];
   eventLabel: string;
   panel: PanelName | "";
+  lift: { name: string; floors: number[]; stops: string[]; current: number } | null;
   mission: number;
   board: { name: string; burned: number }[];
   districts: { id: string; name: string; x: number; z: number }[];
@@ -455,6 +456,21 @@ export function createRuntime(scene: Scene) {
   let activeCols: Collider[] = [];
   let anchors: Anchor[] = [];
   let zones: Zone[] = [];
+  let lifts: Lift[] = [];
+  let liftPanel: { name: string; floors: number[]; stops: string[]; current: number } | null = null;
+  let liftRide: { liftId: string; from: number; to: number; t: number; dur: number; body: Body } | null = null;
+  let liftOpen: { liftId: string; floor: number } | null = null;
+  interface LiftCab {
+    group: Group;
+    door: Mesh;
+    doorPos: number;
+    doorTarget: number;
+    baseX: number;
+    baseZ: number;
+    slideX: number;
+    slideZ: number;
+  }
+  const liftCabs = new Map<string, LiftCab>();
   let insideName = "";
   let driving = false;
   let carIndex = -1;
@@ -608,12 +624,14 @@ export function createRuntime(scene: Scene) {
     if (zone.kind === "arcade") return "One cabinet is free";
     if (zone.kind === "market") return "Stalls and neon";
     if (zone.kind === "dock") return "Pier is open";
+    if (zone.kind === "mall") return "Shops · food court · mezzanine";
+    if (zone.kind === "office") return "OrbitX HQ — walk in";
     return "Gather here";
   }
 
   function mountSign(zone: Zone) {
     const sub =
-      zone.kind === "shop" ? "Use the counter" : zone.kind === "cafe" ? "Pull up a seat" : zone.kind === "hall" ? "Stage is open" : zone.kind === "bank" ? "Savings window" : zone.kind === "garage" ? "Cars on the avenue" : zone.kind === "dock" ? "Clock in here" : "Walk in";
+      zone.id.startsWith("home-") ? "Welcome home" : zone.kind === "shop" ? "Use the counter" : zone.kind === "cafe" ? "Pull up a seat" : zone.kind === "hall" ? "Stage is open" : zone.kind === "bank" ? "Savings window" : zone.kind === "garage" ? "Cars on the avenue" : zone.kind === "dock" ? "Clock in here" : "Walk in";
     const texture = paint([zoneTitle(zone), zoneLine(zone)], sub);
     const mesh = new Mesh(
       new PlaneGeometry(zone.kind === "hall" ? 5.4 : 4.2, 1.7),
@@ -622,6 +640,155 @@ export function createRuntime(scene: Scene) {
     mesh.position.set(zone.signX, zone.signY, zone.signZ);
     mesh.rotation.y = zone.signRot;
     root.add(mesh);
+  }
+
+  // Wall art (paintings, room signs, the gold ORBITX logo wall): canvas planes
+  // registered by the city builder, mounted next to the zone signs.
+  function mountArt(item: Art) {
+    const texture = paint(item.lines, item.sub);
+    const mesh = new Mesh(
+      new PlaneGeometry(item.w, item.h),
+      new MeshLambertMaterial({ map: texture, side: DoubleSide, emissive: 0x062028, emissiveIntensity: 0.35 }),
+    );
+    mesh.position.set(item.x, item.y, item.z);
+    mesh.rotation.y = item.rotY;
+    root.add(mesh);
+  }
+
+  // The colliders the engine walks on: the city's full set minus the one lift
+  // door blocker that is currently open (so the rider can step out of the cab).
+  function refreshActiveCols() {
+    if (!liftOpen) {
+      activeCols = cityCols;
+      return;
+    }
+    const tag = `lift-door:${liftOpen.liftId}:${liftOpen.floor}`;
+    activeCols = cityCols.filter((c) => c.tag !== tag);
+  }
+
+  // One glass cab per lift: gold platform, glass walls, a sliding gold door
+  // on the landing face. The cab group rides the shaft; its y is the floor.
+  function buildLiftCabs() {
+    liftCabs.clear();
+    for (const lift of lifts) {
+      const group = new Group();
+      const glassMat = new MeshLambertMaterial({ color: 0x66d9e8, transparent: true, opacity: 0.35, side: DoubleSide });
+      const platform = new Mesh(box, GOLD);
+      platform.scale.set(lift.w - 0.6, 0.15, lift.d - 0.6);
+      platform.position.y = 0.08;
+      group.add(platform);
+      const roof = new Mesh(box, glassMat);
+      roof.scale.set(lift.w - 0.4, 0.1, lift.d - 0.4);
+      roof.position.y = 2.85;
+      group.add(roof);
+      const hw = lift.w / 2;
+      const hd = lift.d / 2;
+      const wall = (x: number, z: number, sx: number, sz: number) => {
+        const m = new Mesh(box, glassMat);
+        m.scale.set(sx, 2.8, sz);
+        m.position.set(x, 1.42, z);
+        group.add(m);
+      };
+      const header = (x: number, z: number, sx: number, sz: number) => {
+        const m = new Mesh(box, glassMat);
+        m.scale.set(sx, 0.2, sz);
+        m.position.set(x, 2.7, z);
+        group.add(m);
+      };
+      const doorW = 2.4;
+      const side = (lift.w - doorW) / 2;
+      // The landing face gets two glass columns flanking the door opening
+      // plus a header above it; the other three faces are full glass walls.
+      if (lift.landing === "w") {
+        wall(hw, 0, 0.12, lift.d);
+        wall(0, -hd, lift.w, 0.12);
+        wall(0, hd, lift.w, 0.12);
+        wall(-hw, -hd + side / 2, 0.12, side);
+        wall(-hw, hd - side / 2, 0.12, side);
+        header(-hw, 0, 0.12, doorW);
+      } else if (lift.landing === "e") {
+        wall(-hw, 0, 0.12, lift.d);
+        wall(0, -hd, lift.w, 0.12);
+        wall(0, hd, lift.w, 0.12);
+        wall(hw, -hd + side / 2, 0.12, side);
+        wall(hw, hd - side / 2, 0.12, side);
+        header(hw, 0, 0.12, doorW);
+      } else if (lift.landing === "n") {
+        wall(-hw, 0, 0.12, lift.d);
+        wall(hw, 0, 0.12, lift.d);
+        wall(0, hd, lift.w, 0.12);
+        wall(-hw + side / 2, -hd, side, 0.12);
+        wall(hw - side / 2, -hd, side, 0.12);
+        header(0, -hd, doorW, 0.12);
+      } else {
+        wall(-hw, 0, 0.12, lift.d);
+        wall(hw, 0, 0.12, lift.d);
+        wall(0, -hd, lift.w, 0.12);
+        wall(-hw + side / 2, hd, side, 0.12);
+        wall(hw - side / 2, hd, side, 0.12);
+        header(0, hd, doorW, 0.12);
+      }
+      const door = new Mesh(box, GOLD);
+      door.scale.set(lift.landing === "w" || lift.landing === "e" ? 0.12 : doorW, 2.6, lift.landing === "w" || lift.landing === "e" ? doorW : 0.12);
+      const baseX = lift.landing === "w" ? -hw : lift.landing === "e" ? hw : 0;
+      const baseZ = lift.landing === "n" ? -hd : lift.landing === "s" ? hd : 0;
+      door.position.set(baseX, 1.3, baseZ);
+      group.add(door);
+      group.position.set(lift.x, lift.floors[0], lift.z);
+      root.add(group);
+      liftCabs.set(lift.id, {
+        group,
+        door,
+        doorPos: 0,
+        doorTarget: 0,
+        baseX,
+        baseZ,
+        slideX: lift.landing === "w" || lift.landing === "e" ? 0 : doorW,
+        slideZ: lift.landing === "w" || lift.landing === "e" ? doorW : 0,
+      });
+    }
+  }
+
+  // E at a lift call button: step into the cab, close the door, pick a floor.
+  function openLift(anchor: Anchor) {
+    const lift = lifts.find((item) => item.id === anchor.liftId);
+    if (!lift || !lastBody) return;
+    const current = Math.max(0, lift.floors.indexOf(anchor.liftFloor ?? lift.floors[0]));
+    liftPanel = { name: lift.name, floors: lift.floors, stops: lift.stops, current };
+    const cab = liftCabs.get(lift.id);
+    if (cab) {
+      cab.group.position.set(lift.x, lift.floors[current], lift.z);
+      cab.doorTarget = 0;
+    }
+    lastBody.x = lift.x;
+    lastBody.z = lift.z;
+    lastBody.y = lift.floors[current];
+    lastBody.vy = 0;
+    panel = "lift";
+    publish();
+  }
+
+  // Pick a floor from the lift panel: close the panel, ride the cab.
+  function rideLift(index: number) {
+    if (!liftPanel) return;
+    const lift = lifts.find((item) => item.name === liftPanel!.name);
+    if (!lift || !lastBody) return;
+    const to = lift.floors[index];
+    const from = lift.floors[liftPanel.current];
+    panel = "";
+    liftPanel = null;
+    if (to === from || to === undefined) {
+      publish();
+      return;
+    }
+    const body = lastBody;
+    body.x = lift.x;
+    body.z = lift.z;
+    body.y = from;
+    body.vy = 0;
+    body.flying = true;
+    liftRide = { liftId: lift.id, from, to, t: 0, dur: Math.abs(to - from) * 0.35 + 0.9, body };
+    publish();
   }
 
   function clearRoot() {
@@ -636,6 +803,11 @@ export function createRuntime(scene: Scene) {
     rider = null;
     localBody = null;
     sparks.length = 0;
+    liftCabs.clear();
+    liftRide = null;
+    liftOpen = null;
+    liftPanel = null;
+    refreshActiveCols();
   }
 
   function applyMe() {
@@ -703,9 +875,10 @@ export function createRuntime(scene: Scene) {
     if (token !== bootGen) return;
     clearRoot();
     cityCols = next.colliders;
-    activeCols = cityCols;
+    refreshActiveCols();
     anchors = next.anchors;
     zones = next.zones;
+    lifts = next.lifts;
     npcs.length = 0;
     next.citizens.forEach((citizen, index) => {
       const group = makePerson(citizen.color, index % 2 ? "cap" : "none");
@@ -720,10 +893,12 @@ export function createRuntime(scene: Scene) {
     for (const anchor of anchors) {
       const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
       const tag = makeLabel(title);
-      tag.position.set(anchor.x, 2.7, anchor.z);
+      tag.position.set(anchor.x, anchor.y + 2.7, anchor.z);
       root.add(tag);
     }
     for (const slot of next.boards) mountBoard(slot);
+    for (const item of next.art) mountArt(item);
+    buildLiftCabs();
     const parked = ["black", "white", "cyan", "gold", "red", "silver"];
     next.cars.forEach((spawn, index) => {
       const group = makeCar(index === 0 ? wallet.car : parked[index % parked.length], index % 3);
@@ -835,6 +1010,7 @@ export function createRuntime(scene: Scene) {
       shop: SHOP,
       eventLabel: eventLeft > 0 ? `Fountain lights in ${Math.ceil(eventLeft)}` : burstLeft > 0 ? "Fountain lights" : "",
       panel,
+      lift: liftPanel,
       people: [...remotes.values()].map((remote) => ({
         id: remote.state.id,
         name: remote.state.name,
@@ -983,9 +1159,15 @@ export function createRuntime(scene: Scene) {
   }
 
   function zoneAt(body: Body) {
-    if (body.y > 3.2) return null;
     for (const zone of zones) {
-      if (body.x > zone.minX && body.x < zone.maxX && body.z > zone.minZ && body.z < zone.maxZ) return zone;
+      if (body.x > zone.minX && body.x < zone.maxX && body.z > zone.minZ && body.z < zone.maxZ) {
+        if (zone.minY !== undefined) {
+          if (body.y < zone.minY || body.y > (zone.maxY ?? 99)) continue;
+        } else if (body.y > 3.2) {
+          continue;
+        }
+        return zone;
+      }
     }
     return null;
   }
@@ -1066,11 +1248,11 @@ export function createRuntime(scene: Scene) {
       exitCar(body);
       return;
     }
-    const car = nearestCar(body, 7);
-    if (car >= 0) {
-      enterCar(body, car);
-      return;
-    }
+    // Order matters: a door / zone service point / lift call wins over a car
+    // parked nearby. The car used to be checked first, so pressing E at the
+    // shop door (with a car parked within 7 units) teleported the player
+    // back into the car instead of walking in. The car is the fallback —
+    // only when nothing nearer answers E.
     const zone = zoneAt(body);
     if (zone && nearService(body, zone)) {
       if (zone.kind === "shop") panel = "shop";
@@ -1088,16 +1270,29 @@ export function createRuntime(scene: Scene) {
       return;
     }
     const anchor = nearestAnchor(body, 3.3);
-    if (!anchor) return;
-    if (anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock") {
-      stepInside(anchor, body);
+    if (anchor) {
+      if (anchor.kind === "lift") {
+        openLift(anchor);
+        return;
+      }
+      if (anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office") {
+        stepInside(anchor, body);
+        publish();
+        return;
+      }
+      if (anchor.kind === "jobs") panel = "jobs";
+      if (anchor.kind === "ads") panel = "ads";
+      if (anchor.kind === "events") panel = "events";
       publish();
       return;
     }
-    if (anchor.kind === "jobs") panel = "jobs";
-    if (anchor.kind === "ads") panel = "ads";
-    if (anchor.kind === "events") panel = "events";
-    publish();
+    // No door, zone, or board answered: a car within 7 units is the last
+    // resort, re-checked at press time (never from a stale prompt).
+    const car = nearestCar(body, 7);
+    if (car >= 0) {
+      enterCar(body, car);
+      return;
+    }
   }
 
   function nearestCar(body: Body, max: number) {
@@ -1403,6 +1598,64 @@ export function createRuntime(scene: Scene) {
       spark.mesh.scale.setScalar(s);
       if (spark.life <= 0) spark.mesh.visible = false;
     }
+    // Elevator doors slide toward their target every frame.
+    for (const cab of liftCabs.values()) {
+      cab.doorPos += (cab.doorTarget - cab.doorPos) * Math.min(1, dt * 6);
+      cab.door.position.set(cab.baseX + cab.slideX * cab.doorPos, 1.3, cab.baseZ + cab.slideZ * cab.doorPos);
+    }
+    // Elevator ride: ease the cab + rider between floors, then open the door
+    // (which also opens the shaft's door blocker for that floor so the rider
+    // can step out). The blocker closes again once the rider walks away.
+    if (liftRide) {
+      const ride = liftRide;
+      ride.t += dt;
+      const k = Math.min(1, ride.t / ride.dur);
+      const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+      const y = ride.from + (ride.to - ride.from) * e;
+      const lift = lifts.find((item) => item.id === ride.liftId);
+      if (lift) {
+        ride.body.x = lift.x;
+        ride.body.z = lift.z;
+      }
+      ride.body.y = y;
+      ride.body.vy = 0;
+      const cab = liftCabs.get(ride.liftId);
+      if (cab) {
+        cab.group.position.y = y;
+        cab.doorTarget = 0;
+      }
+      if (k >= 1) {
+        // Deposit the rider at the destination floor's landing anchor —
+        // outside the shaft, on solid floor. Without this the rider is left
+        // standing in the open shaft (the cab platform is a mesh, not a
+        // collider) and falls through it back to the lobby.
+        ride.body.y = ride.to;
+        if (lift) {
+          const floorIndex = lift.floors.indexOf(ride.to);
+          const landing = anchors.find((a) => a.kind === "lift" && a.liftId === lift.id && a.liftFloor === floorIndex);
+          if (landing) {
+            ride.body.x = landing.x;
+            ride.body.z = landing.z;
+            ride.body.y = landing.y;
+          }
+          liftOpen = { liftId: lift.id, floor: floorIndex };
+          refreshActiveCols();
+          say(`${lift.stops[floorIndex] ?? "Floor"} — ${lift.name}`);
+        }
+        ride.body.vy = 0;
+        ride.body.flying = false;
+        liftRide = null;
+        if (cab) cab.doorTarget = 1;
+      }
+    } else if (liftOpen) {
+      const lift = lifts.find((item) => item.id === liftOpen!.liftId);
+      if (lift && Math.hypot(body.x - lift.x, body.z - lift.z) > 3) {
+        liftOpen = null;
+        refreshActiveCols();
+        const cab = liftCabs.get(lift.id);
+        if (cab) cab.doorTarget = 0;
+      }
+    }
     const now = performance.now();
     for (const [id, remote] of remotes) {
       if (now - remote.seen > 8000) {
@@ -1496,17 +1749,24 @@ export function createRuntime(scene: Scene) {
       else if (driving && nearGate(body, 0, 8)) prompt = "Press E — hover time trial";
       else if (driving) prompt = "Press E to get out";
       else if (nearGate(body, 0, 8)) prompt = "Press E — street race";
-      else if (nearestCar(body, 7) >= 0) prompt = "Press E to drive";
       else if (zone && nearService(body, zone)) {
         prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zoneTitle(zone);
-      } else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : lot?.ownerId === world.id ? `${lot.name} — press X to decorate` : zoneTitle(zone);
-      else {
+      } else {
+        // Mirror interact()'s priority: a door / lift / board answers E
+        // before a car does, so the prompt shows the door's action — not
+        // "Press E to drive" — when the player stands at a door with a car
+        // parked nearby. The car is the fallback; the zone title is
+        // informational only. Nothing in range: clear the prompt (leaving it
+        // untouched kept "Press E to drive" on screen 30-40 m after the
+        // player walked away from the car).
         const anchor = nearestAnchor(body, 3.3);
         if (anchor) {
           const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
-          const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock";
+          const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office";
           prompt = walkIn ? `Walk in — ${title}` : `Press E — ${title}`;
-        }
+        } else if (nearestCar(body, 7) >= 0) prompt = "Press E to drive";
+        else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : lot?.ownerId === world.id ? `${lot.name} — press X to decorate` : zoneTitle(zone);
+        else prompt = "";
       }
     }
     life?.sync({
@@ -1670,7 +1930,12 @@ export function createRuntime(scene: Scene) {
     const sign = camMode === "selfie" ? 1 : -1;
     const desired = {
       x: body.x + fx * dist * sign * Math.cos(pitch) + rx * side,
-      y: body.y + (camMode === "selfie" ? 1.75 : 1.7) + (camMode === "selfie" ? 0 : Math.sin(pitch) * dist * 0.45),
+      // Drag up = look up: a higher pitch must DROP the camera (so it looks
+      // up at the player), not raise it. The old "+" raised the camera on a
+      // drag-up and swung the view down to the ground — inverted in the
+      // default shoulder cam (first-person and the driving chase cam already
+      // had the correct sign).
+      y: body.y + (camMode === "selfie" ? 1.75 : 1.7) - (camMode === "selfie" ? 0 : Math.sin(pitch) * dist * 0.45),
       z: body.z + fz * dist * sign * Math.cos(pitch) + rz * side,
     };
     const pulled = pullCamera({ x: body.x, y: focusY, z: body.z }, desired);
@@ -1708,7 +1973,7 @@ export function createRuntime(scene: Scene) {
     } else if (shot === "hall") {
       body.x = 50;
       body.y = 0;
-      body.z = 18;
+      body.z = 90;
       body.yaw = Math.PI / 2;
       body.pitch = 0.04;
     } else if (shot === "shop") {
@@ -1816,6 +2081,36 @@ export function createRuntime(scene: Scene) {
       body.pitch = 0.2;
       camMode = "first";
       if (shot === "leaders") panel = "leaders";
+    } else if (shot === "board-s") {
+      // Plaza board from the south (spawn) side — the back face. Same board,
+      // opposite side: the text must read correctly here too.
+      body.flying = false;
+      body.x = 0;
+      body.y = 0;
+      body.z = 38;
+      body.yaw = 0;
+      body.pitch = 0.15;
+      camMode = "first";
+    } else if (shot === "road") {
+      // Street-level road view: the crosswalk at (0, 61.5) ahead, the road
+      // running north to the plaza. Checks asphalt tone + stripe size.
+      body.flying = false;
+      body.x = 0;
+      body.y = 0;
+      body.z = 56;
+      body.yaw = 0;
+      body.pitch = 0.08;
+      camMode = "first";
+    } else if (shot === "garage") {
+      // E-priority probe: the garage door anchor (77.6, 54) is 5.6 units
+      // from the garage-row car (72, 54), inside the car's 7-unit entry
+      // radius. Pressing E here must walk into the garage, not enter the car.
+      body.flying = false;
+      body.x = 77.6;
+      body.y = 0;
+      body.z = 54;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.05;
     } else if (shot === "race" || shot === "race-run") {
       body.x = 36;
       body.y = 0;
@@ -1895,6 +2190,75 @@ export function createRuntime(scene: Scene) {
       hideHud = shot === "spectate";
       hideNames = true;
       hideChat = true;
+    } else if (shot === "mall") {
+      body.x = 50;
+      body.y = 0;
+      body.z = 0;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.05;
+    } else if (shot === "mall2") {
+      body.x = 72;
+      body.y = 5; // mall mezzanine floor — on the ring (z 20), NOT over
+      body.z = 20; // the atrium void (x 63..81, z -9..9), which drops the
+      body.yaw = 0; // player to the ground floor.
+      body.pitch = 0.12;
+    } else if (shot === "office") {
+      body.x = -84;
+      body.y = 0;
+      body.z = 2;
+      body.yaw = 1.5; // face east at the reception desk (-72, 3.4)
+      body.pitch = 0.05;
+    } else if (shot === "office2") {
+      body.x = -70; // Floor 3: stand by the desk rows, face west at them.
+      body.y = 12;
+      body.z = -2;
+      body.yaw = -1.1;
+      body.pitch = 0.05;
+    } else if (shot === "roof") {
+      body.x = -80;
+      body.y = 20;
+      body.z = 0;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.15;
+    } else if (shot === "home") {
+      const zone = zones.find((item) => item.id.startsWith("home-"));
+      if (zone) {
+        body.x = (zone.minX + zone.maxX) / 2;
+        body.y = 0;
+        body.z = (zone.minZ + zone.maxZ) / 2;
+        body.yaw = Math.atan2(zone.serviceX - body.x, -(zone.serviceZ - body.z));
+        body.pitch = 0.05;
+      }
+    } else if (shot === "yard") {
+      const anchor = anchors.find((item) => item.id.startsWith("home-"));
+      if (anchor) {
+        body.x = anchor.x - Math.sin(anchor.yaw) * 5;
+        body.y = 0;
+        body.z = anchor.z + Math.cos(anchor.yaw) * 5;
+        body.yaw = anchor.yaw;
+        body.pitch = 0.08;
+      }
+    } else if (shot === "liftcall") {
+      // Stand at the HQ lift call button in the lobby, facing the shaft.
+      body.x = -93.5;
+      body.y = 0;
+      body.z = -25;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0;
+    } else if (shot === "lift") {
+      // Stand inside the HQ lift at the lobby, door open, facing the landing.
+      const lift = lifts.find((item) => item.id === "hq-lift");
+      if (lift) {
+        body.x = lift.x;
+        body.y = lift.floors[0];
+        body.z = lift.z;
+        body.yaw = Math.PI / 2;
+        body.pitch = 0;
+        liftOpen = { liftId: lift.id, floor: 0 };
+        refreshActiveCols();
+        const cab = liftCabs.get(lift.id);
+        if (cab) cab.doorTarget = 1;
+      }
     }
     publish();
   }
@@ -2093,6 +2457,7 @@ export function createRuntime(scene: Scene) {
     drive,
     after,
     interact,
+    rideLift,
     consumeLook,
     setStick(x: number, y: number) {
       stickX = x;

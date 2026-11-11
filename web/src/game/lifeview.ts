@@ -3,6 +3,7 @@ import {
   CanvasTexture,
   CylinderGeometry,
   DoubleSide,
+  FrontSide,
   Group,
   Mesh,
   MeshLambertMaterial,
@@ -69,13 +70,20 @@ export function createLifeView(root: Group, zones: Zone[], anchors: Anchor[]) {
 
   const leader = canvas(1024, 576);
   const leaderTex = textureOf(leader.el);
-  const leaderMesh = new Mesh(
-    new PlaneGeometry(8.4, 4.7),
-    new MeshLambertMaterial({ map: leaderTex, side: DoubleSide, emissive: 0x062028, emissiveIntensity: 0.4 }),
-  );
+  // Two single-sided planes back to back, like the roadside boards in
+  // mountBoard: one DoubleSide plane renders the canvas mirrored from
+  // behind, so the plaza board read backwards from the spawn (south) side.
+  // The front plane faces the plaza (north); the back plane faces the
+  // street (south). The same texture reads correctly from both sides.
+  const leaderMat = new MeshLambertMaterial({ map: leaderTex, side: FrontSide, emissive: 0x062028, emissiveIntensity: 0.4 });
+  const leaderMesh = new Mesh(new PlaneGeometry(8.4, 4.7), leaderMat);
   leaderMesh.position.set(0, 3.6, 28);
   leaderMesh.rotation.y = Math.PI;
   root.add(leaderMesh);
+  const leaderBack = new Mesh(new PlaneGeometry(8.4, 4.7), leaderMat);
+  leaderBack.position.set(0, 3.6, 28.06);
+  leaderBack.rotation.y = 0;
+  root.add(leaderBack);
 
   const hqMeshes: { zone: Zone; canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D | null; tex: CanvasTexture; key: string }[] = [];
   for (const zone of zones.filter((item) => item.kind === "project")) {

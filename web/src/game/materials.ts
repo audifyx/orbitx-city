@@ -27,7 +27,7 @@ function styledMaterial(opts: {
 }
 
 export const MATERIALS: Record<Mat, MeshStandardMaterial> = {
-  asphalt: styledMaterial({ color: 0x171a22 }),
+  asphalt: styledMaterial({ color: 0x2a2f3a }),
   sidewalk: styledMaterial({ color: 0xc5c9d1, grid: 0.35 }),
   plaza: styledMaterial({ color: 0xe4e7ee, grid: 0.45 }),
   grass: styledMaterial({ color: 0x3c9a3a, grid: 0.4 }),
