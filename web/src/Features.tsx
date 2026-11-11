@@ -31,7 +31,7 @@ function Daily({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   return (
     <div className="list" data-feature="daily">
       <p>
-        Day {daily.day}. Streak {daily.streak}. {daily.claimed ? "Claimed today." : `Claim ${daily.reward} demo ORBITX.`}
+        Day {daily.day}. Streak {daily.streak}. {daily.claimed ? "Claimed today." : `Claim ${daily.reward} City Sol.`}
       </p>
       <button type="button" disabled={daily.claimed} onClick={() => rt?.claimDaily()}>
         {daily.claimed ? "Claimed" : "Claim login reward"}
@@ -48,7 +48,7 @@ function Daily({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           </div>
         </article>
       ))}
-      <p className="quiet">Three quests rotate by the date. Rewards are demo credits.</p>
+      <p className="quiet">Three quests rotate by the date. Rewards are City Sol.</p>
     </div>
   );
 }
@@ -193,7 +193,7 @@ function Wallet({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           ) : null}
         </>
       ) : (
-        <p>Play as a guest keeps demo credits on this device. Sign in to open the in-app wallet.</p>
+        <p>Play as a guest keeps City Sol on this device. Sign in to open the in-app wallet.</p>
       )}
       {note ? <p id="wallet-note">{note}</p> : null}
     </div>
@@ -217,9 +217,9 @@ function Arcade({ rt }: { rt: Runtime | null }) {
   const [reflexToken, setReflexToken] = useState("");
   return (
     <div className="list" data-feature="arcade">
-      <p className="play-money">PLAY MONEY. These games spend demo credits only. No cash, no crypto, no payout you can withdraw.</p>
+      <p className="play-money">PLAY MONEY. These games spend City Sol only. No cash, no crypto, no payout you can withdraw.</p>
       <h3>High / low</h3>
-      <p>Stake 10 demo ORBITX. A win returns 18. The burn line shows on the notice.</p>
+      <p>Stake 10 City Sol. A win returns 18. The burn line shows on the notice.</p>
       <button
         type="button"
         onClick={() => {
@@ -238,7 +238,7 @@ function Arcade({ rt }: { rt: Runtime | null }) {
         <button type="button" onClick={() => rt?.arcadeGuess("low", token)}>Lower</button>
       </div>
       <h3>Reflex light</h3>
-      <p>Stake 10. Hit the light after it turns gold. Fast hits pay more demo credits.</p>
+      <p>Stake 10. Hit the light after it turns gold. Fast hits pay more City Sol.</p>
       <button
         type="button"
         className={light === "go" ? "on" : ""}
@@ -305,7 +305,7 @@ function Hq({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           <button type="button" onClick={() => rt?.hostEvent(snap.hqIndex, title, when, "Meet inside this HQ.")}>Post to the events board</button>
         </>
       ) : (
-        <p>{mine?.ownerId ? `Owned by ${mine.ownerName}.` : `For sale · ${mine?.price ?? 90} demo ORBITX.`}</p>
+        <p>{mine?.ownerId ? `Owned by ${mine.ownerName}.` : `For sale · ${mine?.price ?? 90} City Sol.`}</p>
       )}
       {!mine?.ownerId ? <button type="button" onClick={() => rt?.buyLot(`hq-${snap.hqIndex}`)}>Buy this HQ</button> : null}
       <p className="quiet">The big screen on the back wall shows the same info. Holder lounge is the gold room at the back of OrbitX HQ.</p>
@@ -345,7 +345,7 @@ function Race({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
 function Home({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   return (
     <div className="list" data-feature="property">
-      <p>Apartments and shops sell for demo credits. The burn is in the notice. Door signs show the owner.</p>
+      <p>Apartments and shops sell for City Sol. The burn is in the notice. Door signs show the owner.</p>
       {snap.lots.map((lot) => (
         <article key={lot.id}>
           <div>

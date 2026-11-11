@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
-import type { PanelName, Runtime, Snap } from "./game/runtime";
-import { AD_PRICE } from "./game/content";
+import type { AdOrder, PanelName, Runtime, Snap } from "./game/runtime";
+import { adSolPrice } from "./game/content";
 import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
 import { Roster } from "./Roster";
@@ -153,9 +153,36 @@ export default function App() {
   const [adText, setAdText] = useState("ORBITX LIVE");
   const [adId, setAdId] = useState("plaza-east");
   const [adDays, setAdDays] = useState<1 | 7 | 30>(7);
+  const [adQuoteData, setAdQuoteData] = useState<{ priceSol: number; estOrbitxUi: string; usd: string; endsAt: string } | null>(null);
+  const [adOrder, setAdOrder] = useState<AdOrder | null>(null);
+  const [adOrders, setAdOrders] = useState<AdOrder[]>([]);
+  const [adBusy, setAdBusy] = useState(false);
+  const [adMsg, setAdMsg] = useState("");
   const [chatText, setChatText] = useState("");
   const [gate, setGate] = useState<"login" | "city">("login");
   const [who, setWho] = useState<Account | null>(null);
+
+  // Keep my ad orders fresh while the Ads panel is open.
+  useEffect(() => {
+    if (panel !== "ads") return;
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    void rt.adOrders().then((res) => {
+      if (res.ok) setAdOrders(((res as { orders?: AdOrder[] }).orders || []) as AdOrder[]);
+    });
+  }, [panel]);
+
+  // Poll an in-flight booking until it lands (live / failed / burn-pending).
+  useEffect(() => {
+    if (!adOrder || !["swapping", "burning", "processing"].includes(adOrder.status)) return;
+    const timer = window.setInterval(async () => {
+      const rt = gameRef.current?.runtime;
+      if (!rt) return;
+      const res = await rt.adStatus(adOrder.id);
+      if (res.ok && (res as { order?: AdOrder }).order) setAdOrder((res as { order: AdOrder }).order);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [adOrder?.id, adOrder?.status]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -238,9 +265,6 @@ export default function App() {
     }
   };
 
-  const price = AD_PRICE[adDays];
-  const burn = gameRef.current?.runtime.quote(price) ?? Math.max(1, Math.round(price * 0.25));
-
   return (
     <>
       <canvas ref={canvasRef} className="view" id="view" />
@@ -264,7 +288,7 @@ export default function App() {
             <b>{snap.name || "Guest"}</b>
             <span>{snap.account ? "Account" : "Guest"}</span>
           </div>
-          <strong>DEMO ORBITX {snap.balance}</strong>
+          <strong>CITY SOL {snap.balance}</strong>
           {snap.holder ? <span>HOLDER</span> : null}
           <span>Burned {snap.burned}</span>
           <span>{snap.jobTitle ? `${snap.jobTitle} — ${snap.objective}` : snap.objective}</span>
@@ -342,7 +366,7 @@ export default function App() {
               </strong>
               <button type="button" onClick={close}>Close</button>
             </header>
-            <p className="demo">Shop, jobs, property, and the arcade use demo credits only. They are not the in-app Solana wallet and cannot be cashed out.</p>
+            <p className="demo">Shop, jobs, property, and the arcade use City Sol only. They are not the in-app Solana wallet and cannot be cashed out.</p>
             {panel === "shop" && (
               <div className="list">
                 <p>Balance {snap.balance} · Burned total {snap.burned}</p>
@@ -353,7 +377,7 @@ export default function App() {
                     <article key={item.id}>
                       <div>
                         <b>{item.name}</b>
-                        <span>{item.price} demo ORBITX · burns {part}</span>
+                        <span>{item.price} City Sol · burns {part}</span>
                       </div>
                       <button
                         type="button"
@@ -434,39 +458,118 @@ export default function App() {
               </div>
             )}
             {panel === "ads" && (
-              <form
-                className="list"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  gameRef.current?.runtime.book(adId, adDays, adText);
-                }}
-              >
-                <label>
-                  Billboard
-                  <select value={adId} onChange={(event) => setAdId(event.target.value)}>
-                    {(snap.billboards.length ? snap.billboards : [{ id: "plaza-east", project: "OrbitX", text: "" }]).map((board) => (
-                      <option key={board.id} value={board.id}>
-                        {board.id} — {board.project}
-                      </option>
+              <div className="list">
+                {!snap.account ? (
+                  <p>Create an account to book a real billboard. Guests keep City Sol only.</p>
+                ) : (
+                  <form
+                    onSubmit={async (event) => {
+                      event.preventDefault();
+                      if (adBusy) return;
+                      const rt = gameRef.current?.runtime;
+                      if (!rt) return;
+                      setAdBusy(true);
+                      setAdMsg("");
+                      if (!adQuoteData) {
+                        const q = await rt.quoteAd(adId, adDays);
+                        if (q.ok) {
+                          setAdQuoteData({
+                            priceSol: Number((q as { priceSol?: number }).priceSol || 0),
+                            estOrbitxUi: String((q as { estOrbitxUi?: string }).estOrbitxUi || ""),
+                            usd: String((q as { usd?: string }).usd || ""),
+                            endsAt: String((q as { endsAt?: string }).endsAt || ""),
+                          });
+                        } else {
+                          setAdMsg(String((q as { message?: string }).message || "The quote failed."));
+                        }
+                      } else {
+                        const res = await rt.book(adId, adDays, adText);
+                        if (res.ok && res.order) {
+                          setAdOrder(res.order);
+                          setAdMsg(String(res.message || ""));
+                          const mine = await rt.adOrders();
+                          if (mine.ok) setAdOrders(((mine as { orders?: AdOrder[] }).orders || []) as AdOrder[]);
+                        } else {
+                          setAdMsg(String(res.message || "Booking failed."));
+                        }
+                      }
+                      setAdBusy(false);
+                    }}
+                  >
+                    <label>
+                      Billboard
+                      <select value={adId} onChange={(event) => { setAdId(event.target.value); setAdQuoteData(null); }}>
+                        {(snap.billboards.length ? snap.billboards : [{ id: "plaza-east", project: "OrbitX", text: "" }]).map((board) => (
+                          <option key={board.id} value={board.id}>
+                            {board.id} — {board.project}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Message
+                      <input value={adText} maxLength={32} onChange={(event) => setAdText(event.target.value)} />
+                    </label>
+                    <div className="days">
+                      {([1, 7, 30] as const).map((days) => (
+                        <button key={days} type="button" className={adDays === days ? "on" : ""} onClick={() => { setAdDays(days); setAdQuoteData(null); }}>
+                          {days} day{days === 1 ? "" : "s"} · {adSolPrice(adId, days)} SOL
+                        </button>
+                      ))}
+                    </div>
+                    {adQuoteData ? (
+                      <p>
+                        {adQuoteData.priceSol} SOL buys ~{adQuoteData.estOrbitxUi} ORBITX{adQuoteData.usd ? ` (${adQuoteData.usd})` : ""} and burns it all.
+                        100% buy + burn. No fee, no cut. Live until {adQuoteData.endsAt}.
+                      </p>
+                    ) : (
+                      <p>Real billboards: pay SOL from your in-app wallet, the city buys ORBITX and burns it all. No fee, no cut.</p>
+                    )}
+                    {adMsg ? <p>{adMsg}</p> : null}
+                    <button type="submit" disabled={adBusy}>{adQuoteData ? "Confirm & pay from in-app wallet" : "Get price"}</button>
+                    {adQuoteData ? <button type="button" onClick={() => setAdQuoteData(null)}>Change board or days</button> : null}
+                  </form>
+                )}
+                {adOrder ? (
+                  <article>
+                    <div>
+                      <b>{adOrder.board} — {adOrder.status}</b>
+                      <span>{adOrder.project} · {adOrder.text}</span>
+                      {adOrder.error ? <span>{adOrder.error}</span> : null}
+                      {adOrder.swapUrl ? <span><a href={adOrder.swapUrl} target="_blank" rel="noreferrer">Swap tx</a></span> : null}
+                      {adOrder.burnUrl ? <span><a href={adOrder.burnUrl} target="_blank" rel="noreferrer">Burn tx</a></span> : null}
+                    </div>
+                    {adOrder.status === "burn-pending" ? (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          const res = await rt.adRetryBurn(adOrder.id);
+                          if (res.ok && (res as { order?: AdOrder }).order) setAdOrder((res as { order: AdOrder }).order);
+                          else setAdMsg(String((res as { message?: string }).message || "Retry failed."));
+                        }}
+                      >
+                        Retry burn
+                      </button>
+                    ) : null}
+                  </article>
+                ) : null}
+                {adOrders.length ? (
+                  <div>
+                    <p>My ads</p>
+                    {adOrders.map((item) => (
+                      <article key={item.id}>
+                        <div>
+                          <b>{item.board} — {item.status}</b>
+                          <span>{item.project} · {item.text} · until {String(item.expiresAt || "").slice(0, 10)}</span>
+                          {item.burnUrl ? <span><a href={item.burnUrl} target="_blank" rel="noreferrer">Burn tx</a></span> : null}
+                        </div>
+                      </article>
                     ))}
-                  </select>
-                </label>
-                <label>
-                  Message
-                  <input value={adText} maxLength={32} onChange={(event) => setAdText(event.target.value)} />
-                </label>
-                <div className="days">
-                  {([1, 7, 30] as const).map((days) => (
-                    <button key={days} type="button" className={adDays === days ? "on" : ""} onClick={() => setAdDays(days)}>
-                      {days} day{days === 1 ? "" : "s"} · {AD_PRICE[days]}
-                    </button>
-                  ))}
-                </div>
-                <p>
-                  Price {price} demo ORBITX. Burned on this purchase: {burn}. Running burned total: {snap.burned}.
-                </p>
-                <button type="submit">Book it</button>
-              </form>
+                  </div>
+                ) : null}
+              </div>
             )}
             {panel === "events" && (
               <div className="list">
@@ -790,7 +893,7 @@ function Phone({ snap, rt, onLogout }: { snap: Snap; rt: Runtime | null; onLogou
         </article>
       ))}
       <h3>Burn board</h3>
-      {snap.board.length === 0 ? <span>Burn some demo credits and your name can land here.</span> : null}
+      {snap.board.length === 0 ? <span>Burn some City Sol and your name can land here.</span> : null}
       {snap.board.map((row) => (
         <article key={row.name}>
           <div><b>{row.name}</b><span>{row.burned} burned</span></div>

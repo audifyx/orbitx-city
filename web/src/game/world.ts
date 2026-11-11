@@ -251,8 +251,28 @@ class CityWorld {
     return data;
   }
 
-  async book(id: string, days: number, project: string, text: string) {
-    return this.call("book", { id, days, project, text });
+  async book(id: string, days: number, project: string, text: string, idempotencyKey = "") {
+    return this.call("book", { id, days, project, text, idempotencyKey });
+  }
+
+  async adQuote(board: string, days: number) {
+    return this.call("ad-quote", { board, days });
+  }
+
+  async adStatus(orderId: string) {
+    return this.call("ad-status", { orderId });
+  }
+
+  async adRetryBurn(orderId: string) {
+    return this.call("ad-retry-burn", { orderId });
+  }
+
+  async adRemove(board: string) {
+    return this.call("ad-remove", { board });
+  }
+
+  async adOrders() {
+    return this.call("ad-orders", {});
   }
 
   async rename(name: string, look = "") {

@@ -293,7 +293,7 @@ function leadersFrom(players) {
     if (Number(row.bestHover) > 0) times.push({ name: row.name || "Guest", ms: Number(row.bestHover), kind: "hover" });
   }
   return {
-    rich: top(rows, (row) => Number(row.balance) || 0, (n) => `${n} demo`),
+    rich: top(rows, (row) => Number(row.balance) || 0, (n) => `${n} City Sol`),
     earners: top(rows, (row) => Number(row.earned) || 0, (n) => `${n} earned`),
     burned: top(rows, (row) => Number(row.burned) || 0, (n) => `${n} burned`),
     race: times
@@ -414,7 +414,7 @@ async function buyLot(ctx, player, store, id) {
   if (saved?.ownerId) {
     return fail(saved.ownerId === player.id ? "You already own this." : `${saved.ownerName || "Someone"} already owns this.`);
   }
-  if (player.balance < lot.price) return fail("Not enough demo ORBITX.");
+  if (player.balance < lot.price) return fail("Not enough City Sol.");
   const burned = ctx.burnOf(lot.price);
   player.balance -= lot.price;
   player.burned += burned;
@@ -423,7 +423,7 @@ async function buyLot(ctx, player, store, id) {
   await ctx.savePlayer(player);
   return {
     ok: true,
-    message: `Bought ${lot.name} for ${lot.price} demo ORBITX. Burned ${burned}.`,
+    message: `Bought ${lot.name} for ${lot.price} City Sol. Burned ${burned}.`,
     burned,
     includeMe: true,
     lots: catalog(store, player),
@@ -541,14 +541,14 @@ async function hitGate(ctx, player, store, body) {
   const seconds = (timeMs / 1000).toFixed(2);
   return {
     ok: true,
-    message: `Finished in ${seconds}s.${bonus ? ` Quest paid ${bonus} demo ORBITX.` : ""} Play money only.`,
+    message: `Finished in ${seconds}s.${bonus ? ` Quest paid ${bonus} City Sol.` : ""} Play money only.`,
     race: raceView(store, player),
     includeMe: true,
   };
 }
 
 function stake(player) {
-  if (player.balance < STAKE) return "Not enough demo ORBITX. The arcade stake is 10 play-money credits.";
+  if (player.balance < STAKE) return "Not enough City Sol. The arcade stake is 10 City Sol.";
   const burned = Math.max(1, Math.round(STAKE * 0.25));
   player.balance -= STAKE;
   player.burned += burned;
@@ -569,7 +569,7 @@ async function playHighLow(ctx, player, store, body) {
     await ctx.savePlayer(player);
     return {
       ok: true,
-      message: `Play money. Staked ${STAKE} demo ORBITX. Burned ${burned}. The card is ${shown}. Higher or lower?`,
+      message: `Play money. Staked ${STAKE} City Sol. Burned ${burned}. The card is ${shown}. Higher or lower?`,
       shown,
       token: player.arcade.token,
       includeMe: true,
@@ -587,7 +587,7 @@ async function playHighLow(ctx, player, store, body) {
   return {
     ok: true,
     message: win
-      ? `Play money. Next card ${pending.next}. You win ${payout} demo ORBITX.`
+      ? `Play money. Next card ${pending.next}. You win ${payout} City Sol.`
       : `Play money. Next card ${pending.next}. No payout.`,
     shown: pending.shown,
     next: pending.next,
@@ -607,7 +607,7 @@ async function armReflex(ctx, player, store) {
   await ctx.savePlayer(player);
   return {
     ok: true,
-    message: `Play money. Staked ${STAKE} demo ORBITX. Burned ${burned}. Wait for the light.`,
+    message: `Play money. Staked ${STAKE} City Sol. Burned ${burned}. Wait for the light.`,
     goAt,
     token: player.arcade.token,
     includeMe: true,
@@ -624,10 +624,10 @@ async function hitReflex(ctx, player, store, body) {
   let message = "Play money. Too early. No payout.";
   if (dt >= 0 && dt < 280) {
     payout = 30;
-    message = `Play money. ${dt} ms. Payout ${payout} demo ORBITX.`;
+    message = `Play money. ${dt} ms. Payout ${payout} City Sol.`;
   } else if (dt >= 280 && dt < 480) {
     payout = 16;
-    message = `Play money. ${dt} ms. Payout ${payout} demo ORBITX.`;
+    message = `Play money. ${dt} ms. Payout ${payout} City Sol.`;
   } else if (dt >= 0) {
     message = `Play money. ${dt} ms. Too slow. No payout.`;
   }
@@ -708,7 +708,7 @@ export async function handleLive(ctx, player, op, body) {
     await ctx.savePlayer(player);
     return {
       ok: true,
-      message: `Login streak ${daily.streak}. Claimed ${reward} demo ORBITX.`,
+      message: `Login streak ${daily.streak}. Claimed ${reward} City Sol.`,
       daily: viewDaily(player),
       includeMe: true,
     };
@@ -720,7 +720,7 @@ export async function handleLive(ctx, player, op, body) {
     await ctx.savePlayer(player);
     return {
       ok: true,
-      message: bonus ? `Quest paid ${bonus} demo ORBITX.` : "Quest noted.",
+      message: bonus ? `Quest paid ${bonus} City Sol.` : "Quest noted.",
       daily: viewDaily(player),
       includeMe: true,
     };

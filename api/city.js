@@ -3,6 +3,7 @@ import { neon } from "@neondatabase/serverless";
 import { createClient } from "@supabase/supabase-js";
 import { Redis } from "@upstash/redis";
 import { ensureDaily, handleLive, noteEarn } from "./live.js";
+import { adBuy, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus } from "./ads.js";
 import { authMode, checkReauth, handleAuthOp, looksLikeAccountToken, supabasePublic, verifyAccessToken } from "./auth.js";
 import { chainShopEnabled, confirmSend, ensureWallet, exportWallet, networkName, quoteSend, walletView } from "./wallet.js";
 
@@ -62,8 +63,6 @@ const MISSIONS = [
   { id: "tower", pay: 30 },
   { id: "dock", pay: 80 },
 ];
-
-const AD_PRICE = { 1: 25, 7: 80, 30: 200 };
 
 const LOBBIES = [
   { id: "plaza", name: "Plaza" },
@@ -577,25 +576,30 @@ async function saveBooking(info) {
   memory().bookings.set(info.id, info);
 }
 
+function liveBookings(rows) {
+  const today = new Date().toISOString().slice(0, 10);
+  return (rows || []).filter((row) => !row.end || row.end >= today);
+}
+
 async function readBookings() {
   const client = sb();
   if (client) {
-    const { data, error } = await client.from("bookings").select("id, project, text, start, end, burned");
+    const { data, error } = await client.from("bookings").select("id, project, text, start, end, burned, owner_id").gte("end", new Date().toISOString().slice(0, 10));
     if (!error && data) return data;
     if (error) noteSupabase(error.message);
   }
   const sql = db();
   if (sql) {
     await ensureSchema();
-    const rows = await sql`SELECT id, project, text, start, until AS end, burned FROM bookings`;
+    const rows = await sql`SELECT id, project, text, start, until AS end, burned, owner_id FROM bookings WHERE until >= ${new Date().toISOString().slice(0, 10)}`;
     return rows;
   }
   const cache = redis();
   if (cache) {
     const all = (await cache.hgetall("orbitx:bookings")) || {};
-    return Object.values(all).map((row) => (typeof row === "string" ? JSON.parse(row) : row));
+    return liveBookings(Object.values(all).map((row) => (typeof row === "string" ? JSON.parse(row) : row)));
   }
-  return [...memory().bookings.values()];
+  return liveBookings([...memory().bookings.values()]);
 }
 
 async function addEvent(info) {
@@ -707,7 +711,7 @@ async function spendItem(player, itemId) {
     await savePlayer(player);
     return { ok: true, message: "Already yours. Equipped.", me: publicPlayer(player) };
   }
-  if (player.balance < item.price) return { ok: false, message: "Not enough demo ORBITX." };
+  if (player.balance < item.price) return { ok: false, message: "Not enough City Sol." };
   const burned = burnOf(item.price);
   player.balance -= item.price;
   player.burned += burned;
@@ -718,7 +722,7 @@ async function spendItem(player, itemId) {
   await savePlayer(player);
   return {
     ok: true,
-    message: `Spent ${item.price} demo ORBITX. Burned ${burned}. Burned total ${player.burned}.`,
+    message: `Spent ${item.price} City Sol. Burned ${burned}. Burned total ${player.burned}.`,
     me: publicPlayer(player),
   };
 }
@@ -900,7 +904,7 @@ export async function POST(request) {
   if (!player) return json({ ok: false, message: "Sign in first." }, 401);
 
   if (op === "wallet-view") {
-    if (!player.authUser) return json({ ok: false, message: "Create an account to open the in-app wallet. Guests keep demo credits only." }, 400);
+    if (!player.authUser) return json({ ok: false, message: "Create an account to open the in-app wallet. Guests keep City Sol only." }, 400);
     const view = await walletView(player.authUser);
     player.holder = !!view.holder;
     if (view.address) player.address = view.address;
@@ -955,39 +959,24 @@ export async function POST(request) {
     player.job = null;
     const bonus = noteEarn(player, id, pay);
     await savePlayer(player);
-    const extra = bonus ? ` Quest paid ${bonus} demo ORBITX.` : "";
-    return json({ ok: true, message: `${id} paid ${pay} demo ORBITX.${extra}`, me: publicPlayer(player) });
+    const extra = bonus ? ` Quest paid ${bonus} City Sol.` : "";
+    return json({ ok: true, message: `${id} paid ${pay} City Sol.${extra}`, me: publicPlayer(player) });
   }
 
-  if (op === "book") {
-    const days = Number(body.days);
-    const price = AD_PRICE[days];
-    const id = String(body.id || "").slice(0, 40);
-    if (!price || !id) return json({ ok: false, message: "Pick a billboard and 1, 7, or 30 days." }, 400);
-    if (player.balance < price) return json({ ok: false, message: "Not enough demo ORBITX." }, 400);
-    const burned = burnOf(price);
-    player.balance -= price;
-    player.burned += burned;
-    await savePlayer(player);
-    const start = new Date();
-    const end = new Date(start.getTime() + days * 86400000);
-    const info = {
-      id,
-      project: String(body.project || player.name).slice(0, 32),
-      text: String(body.text || "NEW CAMPAIGN").slice(0, 32),
-      start: start.toISOString().slice(0, 10),
-      end: end.toISOString().slice(0, 10),
-      burned,
-      owner_id: player.id,
-    };
-    await saveBooking(info);
-    return json({
-      ok: true,
-      message: `Spent ${price} demo ORBITX. Burned ${burned}. Billboard ${id} is up.`,
-      me: publicPlayer(player),
-      booking: info,
-    });
-  }
+  // Real billboards: pay SOL from the in-app wallet, Jupiter swaps
+  // SOL -> ORBITX, and the received ORBITX is burned. 100% buy + burn.
+  const adCtx = { sb, note: noteSupabase, readBookings, saveBooking, savePlayer };
+  const adReply = async (result) => {
+    const { status, ...payload } = result;
+    if (result.ok) payload.me = publicPlayer(player);
+    return json(payload, status || 200);
+  };
+  if (op === "ad-quote") return adReply(await adQuote(adCtx, player, body));
+  if (op === "ad-status") return adReply(await adStatus(adCtx, player, body));
+  if (op === "ad-retry-burn") return adReply(await adRetryBurn(adCtx, player, body));
+  if (op === "ad-remove") return adReply(await adRemove(adCtx, player, body));
+  if (op === "ad-orders") return adReply(await adOrdersFor(adCtx, player));
+  if (op === "book") return adReply(await adBuy(adCtx, player, body));
 
   if (op === "profile") {
     const name = String(body.name || player.name).trim().slice(0, 18);
@@ -1143,7 +1132,7 @@ export async function POST(request) {
     await savePlayer(player);
     return json({
       ok: true,
-      message: `Tour stop ${step + 1} paid ${reward} demo ORBITX.`,
+      message: `Tour stop ${step + 1} paid ${reward} City Sol.`,
       me: publicPlayer(player),
     });
   }

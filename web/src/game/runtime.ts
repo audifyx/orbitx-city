@@ -18,7 +18,7 @@ import {
 } from "three";
 import type { Anchor, BoardSlot, City, Collider, Zone } from "./city";
 import {
-  AD_PRICE,
+  DEMO_AD_PRICE,
   SHOP,
   type BillboardInfo,
   type CityContent,
@@ -78,6 +78,23 @@ export interface PersonCard {
   lobby: string;
   x: number;
   z: number;
+}
+
+export interface AdOrder {
+  id: string;
+  board: string;
+  days: number;
+  project: string;
+  text: string;
+  status: string;
+  priceSol: number;
+  orbitxAmount: string;
+  swapSignature: string;
+  burnSignature: string;
+  swapUrl: string;
+  burnUrl: string;
+  error: string;
+  expiresAt: string;
 }
 
 export interface Snap {
@@ -1713,7 +1730,20 @@ export function createRuntime(scene: Scene) {
       body.yaw = -0.95;
       body.pitch = 0.22;
     } else if (shot === "billboard") {
-      book("plaza-east", 7, "OrbitX", "BOUGHT WITH A BURN");
+      // Screenshot rig: a local demo booking only — never a real buy.
+      const start = new Date();
+      const end = new Date(start.getTime() + 7 * 86400000);
+      const demo = bookings();
+      demo["plaza-east"] = {
+        id: "plaza-east",
+        project: "OrbitX",
+        text: "BOUGHT WITH A BURN",
+        image: "",
+        start: start.toISOString().slice(0, 10),
+        end: end.toISOString().slice(0, 10),
+      };
+      localStorage.setItem(BOOK_KEY, JSON.stringify(demo));
+      redrawBoard("plaza-east");
       body.x = -2;
       body.y = 0;
       body.z = 50;
@@ -1919,25 +1949,32 @@ export function createRuntime(scene: Scene) {
     publish();
   }
 
+  // Real billboard flow (online): the buy sends the swap and returns at
+  // once; the order is polled until it is live. The App panel owns the
+  // polling. The offline branch below is the this-device-only demo booking.
   async function book(id: string, days: number, project = wallet.name, text = "NEW CAMPAIGN") {
     if (world.online) {
       try {
-        const data = await world.book(id, days, project, text);
-        applyMe();
-        const message = String(data.message || "Booked.");
+        const data = await world.book(id, days, project, text, crypto.randomUUID());
+        if (!data.ok) {
+          const message = String(data.message || "Booking refused.");
+          say(message);
+          return { ok: false as const, message };
+        }
+        const message = String(data.message || "Swap sent.");
         say(message);
-        return message;
+        return { ok: true as const, message, order: data.order as AdOrder | undefined };
       } catch (err) {
         const message = err instanceof Error ? err.message : "The city refused the booking.";
         say(message);
-        return message;
+        return { ok: false as const, message };
       }
     }
-    const price = AD_PRICE[days] ?? 25;
+    const price = DEMO_AD_PRICE[days] ?? 25;
     const result = spend(wallet, price, `ad-${id}-${Date.now()}`);
     if (!result.ok) {
       say(result.message);
-      return result.message;
+      return { ok: false as const, message: result.message };
     }
     const start = new Date();
     const end = new Date(start.getTime() + days * 86400000);
@@ -1955,7 +1992,52 @@ export function createRuntime(scene: Scene) {
     redrawBoard(id);
     const message = `${result.message} Billboard ${id} is up for ${days} day${days === 1 ? "" : "s"}.`;
     say(message);
-    return message;
+    return { ok: true as const, message };
+  }
+
+  async function quoteAd(id: string, days: number) {
+    if (!world.online) return { ok: false as const, message: "Sign in to price a real billboard. Guests use City Sol only." };
+    try {
+      return await world.adQuote(id, days);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "The quote failed." };
+    }
+  }
+
+  async function adStatus(orderId: string) {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      return await world.adStatus(orderId);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Status check failed." };
+    }
+  }
+
+  async function adRetryBurn(orderId: string) {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      return await world.adRetryBurn(orderId);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Burn retry failed." };
+    }
+  }
+
+  async function adRemove(board: string) {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      return await world.adRemove(board);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Removal failed." };
+    }
+  }
+
+  async function adOrders() {
+    if (!world.online) return { ok: false as const, message: "Offline.", orders: [] as AdOrder[] };
+    try {
+      return await world.adOrders();
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Could not load your ads.", orders: [] as AdOrder[] };
+    }
   }
 
   async function buy(id: string) {
@@ -2048,6 +2130,11 @@ export function createRuntime(scene: Scene) {
     book(id: string, days: number, text: string) {
       return book(id, days, wallet.name || "Demo project", text || "NEW CAMPAIGN");
     },
+    quoteAd,
+    adStatus,
+    adRetryBurn,
+    adRemove,
+    adOrders,
     cycleCamera() {
       const index = CAMS.indexOf(camMode);
       camMode = CAMS[(index + 1) % CAMS.length];

@@ -5,6 +5,14 @@ import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, ra
 import { b58decode, b58encode } from "./live.js";
 
 const SYSTEM = b58decode("11111111111111111111111111111111");
+export const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+export const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+// The Solana incinerator: SOL sent here is gone for good. SPL/Token-2022
+// tokens are NOT burned by sending them to this address (that would leave
+// them in the supply) — a real token burn is the Token program's Burn
+// instruction, which reduces the mint's supply. The incinerator address is
+// kept here as the documented burn destination for SOL.
+export const INCINERATOR = "11111111111111111111111111111111";
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
@@ -165,18 +173,26 @@ export function setRpcForTests(fn) {
   rpcImpl = fn;
 }
 
-async function rpc(method, params) {
+export async function walletRow(userId) {
+  return load(userId);
+}
+
+export async function solanaRpc(method, params) {
   if (rpcImpl) return rpcImpl(method, params);
   const res = await fetch(rpcUrl(), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) throw new Error(`RPC ${res.status}`);
   const data = await res.json();
   if (data.error) throw new Error(data.error.message || "RPC error");
   return data.result;
+}
+
+async function rpc(method, params) {
+  return solanaRpc(method, params);
 }
 
 async function qrSvg(text) {
@@ -291,6 +307,110 @@ export function buildSolTransfer(fromAddress, toAddress, lamports, blockhash) {
 export function signMessage(secret64, message) {
   const seed = Buffer.from(secret64).subarray(0, 32);
   return sign(null, message, keyFromSeed(seed));
+}
+
+// Which token program owns a mint (legacy SPL Token vs Token-2022).
+// ORBITX is a Token-2022 mint. The Burn instruction is the same shape
+// (instruction 8, u64 amount) on both programs — only the program id differs.
+export async function tokenProgramForMint(mint, cache) {
+  if (cache?.has(mint)) return cache.get(mint);
+  let program = TOKEN_PROGRAM_ID;
+  try {
+    const info = await solanaRpc("getAccountInfo", [mint, { encoding: "base64" }]);
+    const value = info?.value || info;
+    if (value?.owner === TOKEN_2022_PROGRAM_ID) program = TOKEN_2022_PROGRAM_ID;
+  } catch {
+    // Unknown owner: fall back to the legacy program id.
+  }
+  cache?.set(mint, program);
+  return program;
+}
+
+/**
+ * Build an unsigned legacy burn transaction message.
+ * Instruction (Token / Token-2022): Burn = 8, data [8, amount u64 LE].
+ * Accounts: [token account (writable), mint (writable), owner (signer)].
+ * The program id is the 4th account (readonly, index 3).
+ * Same hand-rolled message layout as buildSolTransfer.
+ */
+export function buildTokenBurn(ownerAddress, tokenAccountAddress, mintAddress, amountBaseUnits, blockhash, programId) {
+  const owner = b58decode(ownerAddress);
+  const account = b58decode(tokenAccountAddress);
+  const mint = b58decode(mintAddress);
+  const program = b58decode(programId);
+  const hash = b58decode(blockhash);
+  if (!owner || owner.length !== 32 || !account || account.length !== 32 || !mint || mint.length !== 32 || !program || program.length !== 32 || !hash || hash.length !== 32) {
+    return null;
+  }
+  const amount = BigInt(amountBaseUnits);
+  if (amount <= 0n) return null;
+  const data = Buffer.alloc(9);
+  data.writeUInt8(8, 0);
+  data.writeBigUInt64LE(amount, 1);
+  const message = Buffer.concat([
+    Buffer.from([1, 0, 1]),
+    compact(4),
+    owner,
+    account,
+    mint,
+    program,
+    hash,
+    compact(1),
+    Buffer.from([3]),
+    compact(3),
+    Buffer.from([0, 1, 2]),
+    compact(data.length),
+    data,
+  ]);
+  return message;
+}
+
+/** Sign a legacy message built by buildSolTransfer/buildTokenBurn and serialize it. */
+export function signLegacyMessage(secret, message) {
+  const sig = signMessage(secret, message);
+  const tx = Buffer.concat([compact(1), sig, message]).toString("base64");
+  return { signedTx: tx, signature: b58encode(sig) };
+}
+
+export async function sendSignedTx(signedBase64) {
+  const sent = await solanaRpc("sendTransaction", [signedBase64, { encoding: "base64", preflightCommitment: "confirmed" }]);
+  return String(sent || "");
+}
+
+/** "confirmed" | "finalized" | "failed" | null (not seen yet / unknown). */
+export async function getSignatureStatus(signature) {
+  try {
+    const res = await solanaRpc("getSignatureStatuses", [[signature], { searchTransactionHistory: true }]);
+    const entry = (res?.value || res || [])[0];
+    if (!entry) return null;
+    if (entry.err) return "failed";
+    if (entry.confirmationStatus === "finalized" || entry.confirmationStatus === "confirmed") return entry.confirmationStatus;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Confirmed transaction meta (pre/post token balances), or null. */
+export async function getTransactionMeta(signature) {
+  try {
+    const tx = await solanaRpc("getTransaction", [signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }]);
+    return tx?.meta || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Token accounts holding a mint for an owner: [{ pubkey, amount (base units, string) }]. */
+export async function getTokenAccounts(owner, mint) {
+  const result = await solanaRpc("getTokenAccountsByOwner", [owner, { mint }, { encoding: "jsonParsed" }]);
+  const out = [];
+  for (const item of result?.value || []) {
+    const info = item.account?.data?.parsed?.info;
+    if (!info) continue;
+    out.push({ pubkey: item.pubkey, amount: String(info.tokenAmount?.amount || "0"), decimals: Number(info.tokenAmount?.decimals || 0) });
+  }
+  return out;
 }
 
 function badDest(value) {

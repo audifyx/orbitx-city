@@ -60,7 +60,7 @@ export function spend(wallet: Wallet, price: number, itemId: string): { ok: bool
     return { ok: true, burned: 0, message: "Already yours. Equipped." };
   }
   if (wallet.balance < price) {
-    return { ok: false, burned: 0, message: "Not enough demo ORBITX." };
+    return { ok: false, burned: 0, message: "Not enough City Sol." };
   }
   const burned = burnAmount(price);
   wallet.balance -= price;
@@ -70,12 +70,12 @@ export function spend(wallet: Wallet, price: number, itemId: string): { ok: bool
   return {
     ok: true,
     burned,
-    message: `Spent ${price} demo ORBITX. Burned ${burned}. Burned total ${wallet.burned}.`,
+    message: `Spent ${price} City Sol. Burned ${burned}. Burned total ${wallet.burned}.`,
   };
 }
 
 export function earn(wallet: Wallet, amount: number, reason: string) {
   wallet.balance += amount;
   saveWallet(wallet);
-  return `${reason} paid ${amount} demo ORBITX.`;
+  return `${reason} paid ${amount} City Sol.`;
 }
