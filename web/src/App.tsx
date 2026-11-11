@@ -4,6 +4,8 @@ import type { PanelName, Runtime, Snap } from "./game/runtime";
 import { AD_PRICE } from "./game/content";
 import { parseSeed } from "./game/seed";
 import { Roster } from "./Roster";
+import { AuthPanel } from "./AuthPanel";
+import { signOutAccount, type Account } from "./auth";
 import { DecorBar, EmoteWheel, FeaturePanel, PhoneExtra, RaceBanner, SpectateBar, featureTitle } from "./Features";
 import { EMPTY_LEADERS, EMPTY_RACE } from "./game/life";
 
@@ -71,6 +73,15 @@ const EMPTY: Snap = {
   walletKey: "",
   walletNote: "",
   holder: false,
+  account: false,
+  email: "",
+  avatar: "",
+  chainAddress: "",
+  chainSol: null,
+  chainOrbitx: null,
+  chainNetwork: "",
+  chainHistory: [],
+  chainQr: "",
   meId: "",
   spectator: false,
   hideHud: false,
@@ -141,6 +152,8 @@ export default function App() {
   const [adId, setAdId] = useState("plaza-east");
   const [adDays, setAdDays] = useState<1 | 7 | 30>(7);
   const [chatText, setChatText] = useState("");
+  const [gate, setGate] = useState<"login" | "city">("login");
+  const [who, setWho] = useState<Account | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -236,6 +249,11 @@ export default function App() {
       {!menu && snap.spectator ? <SpectateBar snap={snap} rt={gameRef.current?.runtime ?? null} /> : null}
       {!menu && !snap.hideHud && (
         <div className="hud" id="hud">
+          <div className="who">
+            {snap.avatar ? <img alt="" src={snap.avatar} /> : <i>{(snap.name || "G").slice(0, 1).toUpperCase()}</i>}
+            <b>{snap.name || "Guest"}</b>
+            <span>{snap.account ? "Account" : "Guest"}</span>
+          </div>
           <strong>DEMO ORBITX {snap.balance}</strong>
           {snap.holder ? <span>HOLDER</span> : null}
           <span>Burned {snap.burned}</span>
@@ -314,7 +332,7 @@ export default function App() {
               </strong>
               <button type="button" onClick={close}>Close</button>
             </header>
-            <p className="demo">Shop, jobs, property, and the arcade use demo credits only. They are not real ORBITX and cannot be cashed out. Wallet connect is optional and read-only.</p>
+            <p className="demo">Shop, jobs, property, and the arcade use demo credits only. They are not the in-app Solana wallet and cannot be cashed out.</p>
             {panel === "shop" && (
               <div className="list">
                 <p>Balance {snap.balance} · Burned total {snap.burned}</p>
@@ -497,7 +515,15 @@ export default function App() {
                 <button type="submit">Send</button>
               </form>
             )}
-            {panel === "phone" && <Phone snap={snap} rt={gameRef.current?.runtime ?? null} />}
+            {panel === "phone" && <Phone snap={snap} rt={gameRef.current?.runtime ?? null} onLogout={() => {
+              void signOutAccount().then(() => {
+                close();
+                setWho(null);
+                setGate("login");
+                setMenu(true);
+                gameRef.current?.start(parseSeed(seedText || "1"), "orbit");
+              });
+            }} />}
             <FeaturePanel snap={{ ...snap, panel }} rt={gameRef.current?.runtime ?? null} />
             {panel === "menu" && (
               <div className="list">
@@ -531,7 +557,20 @@ export default function App() {
         <section className="menu" id="menu">
           <div className="card wide">
             <h1>ORBITX CITY</h1>
-            <p className="tag">{webglMissing ? "This browser has no WebGL." : "Pick a character, then walk the downtown"}</p>
+            {gate === "login" ? (
+              <AuthPanel
+                onAccount={(account) => {
+                  setWho(account);
+                  setGate("city");
+                }}
+                onGuest={() => {
+                  setWho(null);
+                  setGate("city");
+                }}
+              />
+            ) : (
+              <>
+            <p className="tag">{who ? `Signed in as ${who.name}` : "Playing as a guest. Sign up later and this city comes with you."}</p>
             <Roster />
             <label>
               Seed
@@ -552,6 +591,9 @@ export default function App() {
             </button>
             <p className="help">{HELP}</p>
             <p className="help">Demo credits only. No real tokens.</p>
+            <button type="button" onClick={() => { setGate("login"); setWho(null); }}>Back to sign in</button>
+              </>
+            )}
           </div>
         </section>
       )}
@@ -588,7 +630,7 @@ function Minimap({ me, people }: { me: Snap["me"]; people: Snap["people"] }) {
   return <canvas ref={ref} className="minimap" width={148} height={148} />;
 }
 
-function Phone({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
+function Phone({ snap, rt, onLogout }: { snap: Snap; rt: Runtime | null; onLogout: () => void }) {
   const rooms = snap.lobbies.length
     ? snap.lobbies
     : [
@@ -600,9 +642,15 @@ function Phone({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
       ];
   return (
     <div className="list phone">
+      <div className="who">
+        {snap.avatar ? <img alt="" src={snap.avatar} /> : <i>{(snap.name || "G").slice(0, 1).toUpperCase()}</i>}
+        <b>{snap.name || "Guest"}</b>
+        <span>{snap.account ? snap.email || "Account" : "Guest"}</span>
+      </div>
       <p>
         {snap.name} · {snap.server || "offline profile"} · voice {snap.voiceProvider || "not joined"}
       </p>
+      <button id="logout" type="button" onClick={onLogout}>Log out</button>
       {snap.voiceError ? <p>{snap.voiceError}</p> : null}
       {snap.profile ? (
         <article>

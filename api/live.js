@@ -1,7 +1,5 @@
-// Server rules for property, races, dailies, arcade play-money, and the read-only wallet.
-// Demo credits only. This file never builds or sends a transaction.
-
-import { createPublicKey, verify } from "node:crypto";
+// Server rules for property, races, dailies, and arcade play-money.
+// Demo credits only. In-app Solana keys live in wallet.js, not here.
 
 export const LOTS = [
   { id: "loft", zone: "hall", anchor: "hall", name: "Sunset Loft", kind: "apartment", price: 120 },
@@ -639,7 +637,7 @@ async function hitReflex(ctx, player, store, body) {
   return { ok: true, message, payout, ms: dt, includeMe: true };
 }
 
-function b58decode(text) {
+export function b58decode(text) {
   if (typeof text !== "string" || !text) return null;
   let zeros = 0;
   while (text[zeros] === "1") zeros += 1;
@@ -649,10 +647,10 @@ function b58decode(text) {
     if (value < 0) return null;
     n = n * 58n + BigInt(value);
   }
+  if (n === 0n) return Buffer.alloc(zeros);
   let hex = n.toString(16);
   if (hex.length % 2) hex = `0${hex}`;
-  const body = hex === "0" ? Buffer.alloc(0) : Buffer.from(hex, "hex");
-  return Buffer.concat([Buffer.alloc(zeros), body]);
+  return Buffer.concat([Buffer.alloc(zeros), Buffer.from(hex, "hex")]);
 }
 
 export function b58encode(bytes) {
@@ -666,113 +664,6 @@ export function b58encode(bytes) {
     n /= 58n;
   }
   return "1".repeat(zeros) + (out || (zeros ? "" : ""));
-}
-
-function decodeSignature(value) {
-  if (typeof value !== "string" || !value) return null;
-  if (/^[1-9A-HJ-NP-Za-km-z]+$/.test(value)) {
-    const raw = b58decode(value);
-    if (raw && raw.length === 64) return raw;
-  }
-  try {
-    const raw = Buffer.from(value, "base64");
-    if (raw.length === 64) return raw;
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-export function verifySignIn(pubkey, message, signature) {
-  try {
-    const pub = b58decode(pubkey);
-    const sig = decodeSignature(signature);
-    if (!pub || pub.length !== 32 || !sig) return false;
-    const key = createPublicKey({
-      key: { kty: "OKP", crv: "Ed25519", x: pub.toString("base64url") },
-      format: "jwk",
-    });
-    return verify(null, Buffer.from(message), key, sig);
-  } catch {
-    return false;
-  }
-}
-
-async function readBalance(owner, mint) {
-  const rpc = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
-  const res = await fetch(rpc, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "getTokenAccountsByOwner",
-      params: [owner, { mint }, { encoding: "jsonParsed" }],
-    }),
-    signal: AbortSignal.timeout(4000),
-  });
-  if (!res.ok) throw new Error(`RPC ${res.status}`);
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message || "RPC error");
-  let amount = 0;
-  for (const row of data.result?.value || []) {
-    amount += Number(row.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0);
-  }
-  return amount;
-}
-
-async function linkWallet(ctx, player, body) {
-  const pubkey = String(body.pubkey || "");
-  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(pubkey)) return fail("That is not a Solana address.");
-  const message = String(body.message || "");
-  const verified = message ? verifySignIn(pubkey, message, String(body.signature || "")) : false;
-  player.wallet = pubkey;
-  const mint = process.env.ORBITX_MINT || "";
-  if (!mint) {
-    player.holder = false;
-    await ctx.savePlayer(player);
-    return {
-      ok: true,
-      configured: false,
-      verified,
-      holder: false,
-      amount: 0,
-      includeMe: true,
-      message: verified
-        ? "Sign-in checked. ORBITX_MINT is not set, so no balance was read and the holder lounge stays open."
-        : "Address noted. ORBITX_MINT is not set, so no balance was read. The sign-in message is optional.",
-    };
-  }
-  let amount = 0;
-  try {
-    amount = await readBalance(pubkey, mint);
-  } catch (err) {
-    player.holder = false;
-    await ctx.savePlayer(player);
-    return {
-      ok: true,
-      configured: true,
-      verified,
-      holder: false,
-      amount: 0,
-      includeMe: true,
-      message: `Wallet saved, but the public RPC did not answer (${err.message || "RPC error"}). No balance was invented.`,
-    };
-  }
-  const min = Number(process.env.ORBITX_HOLDER_MIN || 1);
-  player.holder = verified && amount >= min;
-  await ctx.savePlayer(player);
-  const proof = verified ? "Signature checked." : "Sign the sign-in message to prove this address is yours.";
-  const hold = player.holder ? "Holder badge on." : `Need at least ${min} $ORBITX and a verified signature for the badge.`;
-  return {
-    ok: true,
-    configured: true,
-    verified,
-    holder: player.holder,
-    amount,
-    includeMe: true,
-    message: `${proof} Read-only balance ${amount}. ${hold} No transaction was sent.`,
-  };
 }
 
 export async function handleLive(ctx, player, op, body) {
@@ -837,6 +728,5 @@ export async function handleLive(ctx, player, op, body) {
   if (op === "arcade-play") return playHighLow(ctx, player, store, body);
   if (op === "arcade-arm") return armReflex(ctx, player, store);
   if (op === "arcade-hit") return hitReflex(ctx, player, store, body);
-  if (op === "wallet-link") return linkWallet(ctx, player, body);
   return null;
 }

@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generateKeyPairSync, sign } from "node:crypto";
-import { b58encode, handleLive, verifySignIn } from "./live.js";
+import { handleLive } from "./live.js";
 
 function ctxFor() {
   const store = {
@@ -127,24 +126,9 @@ test("arcade high-low and reflex stay inside play-money payouts", async () => {
   assert.ok(!JSON.stringify(early).includes("sendTransaction"));
 });
 
-test("wallet link verifies a signature and does not invent a balance without a mint", async () => {
-  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
-  const jwk = publicKey.export({ format: "jwk" });
-  const raw = Buffer.from(jwk.x, "base64url");
-  const pubkey = b58encode(raw);
-  const message = `OrbitX City sign-in\n${pubkey}`;
-  const signature = b58encode(sign(null, Buffer.from(message), privateKey));
-  assert.equal(verifySignIn(pubkey, message, signature), true);
-  assert.equal(verifySignIn(pubkey, message, b58encode(Buffer.alloc(64, 1))), false);
+test("external wallet link is no longer a live op", async () => {
   const ctx = ctxFor();
   const ada = player();
-  delete process.env.ORBITX_MINT;
-  const linked = await handleLive(ctx, ada, "wallet-link", { pubkey, message, signature });
-  assert.equal(linked.ok, true);
-  assert.equal(linked.configured, false);
-  assert.equal(linked.verified, true);
-  assert.equal(linked.holder, false);
-  assert.equal(ada.holder, false);
-  const junk = await handleLive(ctx, ada, "wallet-link", { pubkey: "not-an-address" });
-  assert.equal(junk.ok, false);
+  const linked = await handleLive(ctx, ada, "wallet-link", { pubkey: "x" });
+  assert.equal(linked, null);
 });

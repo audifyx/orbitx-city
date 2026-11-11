@@ -3,6 +3,8 @@ import { neon } from "@neondatabase/serverless";
 import { createClient } from "@supabase/supabase-js";
 import { Redis } from "@upstash/redis";
 import { ensureDaily, handleLive, noteEarn } from "./live.js";
+import { authMode, checkReauth, handleAuthOp, looksLikeAccountToken, supabasePublic, verifyAccessToken } from "./auth.js";
+import { chainShopEnabled, confirmSend, ensureWallet, exportWallet, networkName, quoteSend, walletView } from "./wallet.js";
 
 const START_BALANCE = 250;
 const BURN_RATE = 0.25;
@@ -130,6 +132,7 @@ function sb() {
   if (!slot.__orbitxSb) {
     slot.__orbitxSb = createClient(env.url, env.key, { auth: { persistSession: false, autoRefreshToken: false } });
   }
+  slot.__orbitxSbClient = slot.__orbitxSb;
   return slot.__orbitxSb;
 }
 
@@ -174,6 +177,11 @@ async function ensureSchema() {
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS daily TEXT NOT NULL DEFAULT '{}'`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS wallet TEXT NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS holder BOOLEAN NOT NULL DEFAULT FALSE`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS avatar TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS auth_user TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT ''`;
   await sql`CREATE TABLE IF NOT EXISTS properties (
     id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL,
@@ -227,6 +235,11 @@ function freshPlayer(id, name) {
     daily: null,
     wallet: "",
     holder: false,
+    email: "",
+    avatar: "",
+    provider: "",
+    authUser: "",
+    address: "",
   };
 }
 
@@ -251,6 +264,11 @@ function publicPlayer(player) {
     holder: !!player.holder,
     wallet: player.wallet || "",
     daily: ensureDaily(player),
+    email: player.email || "",
+    avatar: player.avatar || "",
+    provider: player.provider || "",
+    account: Boolean(player.authUser),
+    address: player.address || "",
   };
 }
 
@@ -258,7 +276,7 @@ async function savePlayer(player) {
   const client = sb();
   if (client) {
     let { error } = await client.from("players").upsert(rowFromPlayer(player));
-    if (error && /look|earned|best_race|best_hover|daily|wallet|holder/i.test(error.message || "")) {
+    if (error && /look|earned|best_race|best_hover|daily|wallet|holder|email|avatar|provider|auth_user|address/i.test(error.message || "")) {
       const row = rowFromPlayer(player);
       delete row.look;
       delete row.earned;
@@ -267,6 +285,11 @@ async function savePlayer(player) {
       delete row.daily;
       delete row.wallet;
       delete row.holder;
+      delete row.email;
+      delete row.avatar;
+      delete row.provider;
+      delete row.auth_user;
+      delete row.address;
       const retry = await client.from("players").upsert(row);
       error = retry.error;
     }
@@ -281,8 +304,8 @@ async function savePlayer(player) {
     const inbox = JSON.stringify(player.inbox);
     const job = JSON.stringify(player.job);
     const daily = JSON.stringify(player.daily || {});
-    await sql`INSERT INTO players (id, token, name, balance, burned, owned, color, hat, car, friends, inbox, job, party, look, earned, best_race, best_hover, daily, wallet, holder)
-      VALUES (${player.id}, ${player.token}, ${player.name}, ${player.balance}, ${player.burned}, ${owned}, ${player.color}, ${player.hat}, ${player.car}, ${friends}, ${inbox}, ${job}, ${player.party}, ${player.look || "tjr"}, ${player.earned || 0}, ${player.bestRace || 0}, ${player.bestHover || 0}, ${daily}, ${player.wallet || ""}, ${!!player.holder})
+    await sql`INSERT INTO players (id, token, name, balance, burned, owned, color, hat, car, friends, inbox, job, party, look, earned, best_race, best_hover, daily, wallet, holder, email, avatar, provider, auth_user, address)
+      VALUES (${player.id}, ${player.token}, ${player.name}, ${player.balance}, ${player.burned}, ${owned}, ${player.color}, ${player.hat}, ${player.car}, ${friends}, ${inbox}, ${job}, ${player.party}, ${player.look || "tjr"}, ${player.earned || 0}, ${player.bestRace || 0}, ${player.bestHover || 0}, ${daily}, ${player.wallet || ""}, ${!!player.holder}, ${player.email || ""}, ${player.avatar || ""}, ${player.provider || ""}, ${player.authUser || ""}, ${player.address || ""})
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         balance = EXCLUDED.balance,
@@ -301,7 +324,12 @@ async function savePlayer(player) {
         best_hover = EXCLUDED.best_hover,
         daily = EXCLUDED.daily,
         wallet = EXCLUDED.wallet,
-        holder = EXCLUDED.holder`;
+        holder = EXCLUDED.holder,
+        email = EXCLUDED.email,
+        avatar = EXCLUDED.avatar,
+        provider = EXCLUDED.provider,
+        auth_user = EXCLUDED.auth_user,
+        address = EXCLUDED.address`;
     return;
   }
   const cache = redis();
@@ -334,6 +362,11 @@ function parsePlayer(row) {
     daily: typeof row.daily === "string" ? JSON.parse(row.daily || "null") : row.daily || null,
     wallet: row.wallet || "",
     holder: row.holder === true || row.holder === "true" || row.holder === "t",
+    email: row.email || "",
+    avatar: row.avatar || "",
+    provider: row.provider || "",
+    authUser: row.auth_user || row.authUser || "",
+    address: row.address || "",
   };
 }
 
@@ -361,6 +394,11 @@ function rowFromPlayer(player) {
     daily: player.daily || {},
     wallet: player.wallet || "",
     holder: !!player.holder,
+    email: player.email || "",
+    avatar: player.avatar || "",
+    provider: player.provider || "",
+    auth_user: player.authUser || "",
+    address: player.address || "",
   };
 }
 
@@ -687,13 +725,117 @@ export async function GET() {
     database: Boolean(databaseUrl()),
     redis: Boolean(redisEnv()),
     livekit: Boolean(process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET),
-    note: "Demo credits only. Wallet connect is read-only and never sends a transaction.",
+    note: "Demo credits are separate from the in-app Solana wallet. The shop does not spend on-chain tokens.",
     mint: Boolean(process.env.ORBITX_MINT),
+    auth: publicAuth(),
+    network: networkName(),
+    shopOnChain: chainShopEnabled(),
     supabase: Boolean(supabaseEnv()),
     supabaseError: globalThis.__orbitxSbError || "",
     realtime: publicRealtime(),
   });
 }
+
+function publicAuth() {
+  const pub = supabasePublic();
+  if (pub?.anon) return { mode: "supabase", url: pub.url, anon: pub.anon };
+  return { mode: "mock", url: "", anon: "" };
+}
+
+function isFresh(player) {
+  return player.balance === START_BALANCE
+    && !player.burned
+    && (!player.owned || player.owned.length === 0)
+    && !player.earned
+    && !player.mission;
+}
+
+async function deletePlayer(id) {
+  const store = memory();
+  const player = store.players.get(id);
+  if (player) store.tokens.delete(player.token);
+  store.players.delete(id);
+  const client = sb();
+  if (client) {
+    const { error } = await client.from("players").delete().eq("id", id);
+    if (error) noteSupabase(error.message);
+  }
+  const sql = db();
+  if (sql) {
+    try {
+      await sql`DELETE FROM players WHERE id = ${id}`;
+    } catch {
+      // The guest row is already gone from memory.
+    }
+  }
+}
+
+async function adoptGuest(account, guest) {
+  account.balance = guest.balance;
+  account.burned = guest.burned;
+  account.owned = guest.owned || [];
+  account.color = guest.color;
+  account.hat = guest.hat;
+  account.car = guest.car;
+  account.friends = guest.friends || [];
+  account.inbox = guest.inbox || [];
+  account.job = guest.job;
+  account.party = guest.party || "";
+  account.mission = guest.mission || 0;
+  account.missionAt = guest.missionAt || 0;
+  account.look = guest.look || account.look;
+  account.earned = guest.earned || 0;
+  account.bestRace = guest.bestRace || 0;
+  account.bestHover = guest.bestHover || 0;
+  account.daily = guest.daily;
+  account.name = guest.name || account.name;
+  const store = memory();
+  if (store.lots) {
+    for (const lot of store.lots.values()) {
+      if (lot.ownerId === guest.id) {
+        lot.ownerId = account.id;
+        lot.ownerName = account.name;
+      }
+    }
+  }
+  const client = sb();
+  if (client) {
+    const moved = await client.from("properties").update({ owner_id: account.id, owner_name: account.name }).eq("owner_id", guest.id);
+    if (moved.error) noteSupabase(moved.error.message);
+    const books = await client.from("bookings").update({ owner_id: account.id }).eq("owner_id", guest.id);
+    if (books.error && !/owner_id/i.test(books.error.message || "")) noteSupabase(books.error.message);
+  }
+  await deletePlayer(guest.id);
+}
+
+async function openAccount(account, body) {
+  let player = await playerById(account.id);
+  let upgraded = false;
+  if (!player) {
+    player = freshPlayer(account.id, account.name || "Player");
+    player.authUser = account.id;
+  }
+  player.email = account.email || player.email;
+  player.avatar = account.avatar || player.avatar;
+  player.provider = account.provider || player.provider;
+  player.authUser = account.id;
+  const guestToken = String(body.guestToken || "");
+  if (guestToken && isFresh(player)) {
+    const guest = await playerByToken(guestToken);
+    if (guest && guest.id !== player.id && !guest.authUser) {
+      await adoptGuest(player, guest);
+      upgraded = true;
+    }
+  }
+  const chain = await ensureWallet(player.authUser);
+  if (chain?.publicKey) player.address = chain.publicKey;
+  const view = chain ? await walletView(player.authUser) : null;
+  if (view) player.holder = !!view.holder;
+  await savePlayer(player);
+  return { player, upgraded, chain: view };
+}
+
+const HEARTBEAT = new Set(["sync", "digest", "me", "board"]);
 
 export async function POST(request) {
   let body = {};
@@ -703,11 +845,34 @@ export async function POST(request) {
     return json({ ok: false, message: "Send JSON." }, 400);
   }
   const op = String(body.op || "");
+  if (op.startsWith("auth-")) {
+    const result = await handleAuthOp(op, body);
+    if (!result) return json({ ok: false, message: "Unknown auth request." }, 400);
+    const status = result.status || 200;
+    const payload = { ...result };
+    delete payload.status;
+    return json(payload, status);
+  }
+  const token = bearer(request);
+  const account = looksLikeAccountToken(token) ? await verifyAccessToken(token, !HEARTBEAT.has(op)) : null;
   if (op === "session") {
+    if (looksLikeAccountToken(token)) {
+      if (!account) return json({ ok: false, message: "That login expired. Sign in again." }, 401);
+      const opened = await openAccount(account, body);
+      return json({
+        ok: true,
+        token: opened.player.token,
+        me: publicPlayer(opened.player),
+        storage: storageName(),
+        upgraded: opened.upgraded,
+        chain: opened.chain,
+        auth: authMode(),
+      });
+    }
     const wanted = String(body.id || "").slice(0, 64);
     const known = String(body.token || "");
     let player = wanted ? await playerById(wanted) : null;
-    if (player && player.token !== known) player = null;
+    if (player && (player.token !== known || player.authUser)) player = null;
     if (!player) {
       player = freshPlayer(wanted || randomBytes(12).toString("hex"), body.name);
       await savePlayer(player);
@@ -715,11 +880,47 @@ export async function POST(request) {
       player.name = String(body.name).slice(0, 18);
       await savePlayer(player);
     }
-    return json({ ok: true, token: player.token, me: publicPlayer(player), storage: storageName() });
+    return json({ ok: true, token: player.token, me: publicPlayer(player), storage: storageName(), auth: authMode() });
   }
 
-  const player = await playerByToken(bearer(request));
+  let player = null;
+  if (looksLikeAccountToken(token)) {
+    if (!account) return json({ ok: false, message: "That login expired. Sign in again." }, 401);
+    player = await playerById(account.id);
+  } else {
+    player = await playerByToken(token);
+    if (player?.authUser) return json({ ok: false, message: "Sign in with your account." }, 401);
+  }
   if (!player) return json({ ok: false, message: "Sign in first." }, 401);
+
+  if (op === "wallet-view") {
+    if (!player.authUser) return json({ ok: false, message: "Create an account to open the in-app wallet. Guests keep demo credits only." }, 400);
+    const view = await walletView(player.authUser);
+    player.holder = !!view.holder;
+    if (view.address) player.address = view.address;
+    await savePlayer(player);
+    return json({ ...view, me: publicPlayer(player) });
+  }
+  if (op === "wallet-quote") {
+    if (!player.authUser) return json({ ok: false, message: "Create an account before sending from the in-app wallet." }, 400);
+    const quote = quoteSend(body);
+    return json(quote, quote.status || 200);
+  }
+  if (op === "wallet-confirm") {
+    if (!player.authUser) return json({ ok: false, message: "Create an account before sending from the in-app wallet." }, 400);
+    const sent = await confirmSend(player.authUser, body);
+    return json(sent, sent.status || 200);
+  }
+  if (op === "wallet-export") {
+    if (!player.authUser) return json({ ok: false, message: "Create an account before exporting a key." }, 400);
+    if (String(body.confirm || "") !== "EXPORT") return json({ ok: false, message: "Export needs the warning confirmed." }, 400);
+    const allowed = await checkReauth(account, body);
+    const exported = await exportWallet(player.authUser, allowed);
+    return json(exported, exported.status || 200);
+  }
+  if (op === "wallet-link") {
+    return json({ ok: false, message: "External wallet connect is not used. Each account has an in-app wallet." }, 410);
+  }
 
   if (op === "me") return json({ ok: true, me: publicPlayer(player) });
 
@@ -771,6 +972,7 @@ export async function POST(request) {
       start: start.toISOString().slice(0, 10),
       end: end.toISOString().slice(0, 10),
       burned,
+      owner_id: player.id,
     };
     await saveBooking(info);
     return json({

@@ -1,3 +1,4 @@
+import { accountToken, readAccount } from "../auth";
 import { connectLive } from "./live";
 import {
   EMPTY_LEADERS,
@@ -46,6 +47,11 @@ export interface CityMe {
   holder?: boolean;
   wallet?: string;
   daily?: DailyCard | null;
+  email?: string;
+  avatar?: string;
+  provider?: string;
+  account?: boolean;
+  address?: string;
 }
 
 export interface VoiceRoom {
@@ -100,22 +106,40 @@ class CityWorld {
   market: MarketCard | null = null;
   mintSet = false;
   walletNote = "";
+  chain: {
+    address: string;
+    sol: number | null;
+    orbitx: number | null;
+    network: string;
+    history: { id: string; status: string; amount: string; unit: string; destination: string; signature: string; at: string }[];
+    qr: string;
+    note: string;
+  } | null = null;
   private latest: Record<string, unknown> | null = null;
   private digestTimer = 0;
   private timer = 0;
   private signals: { from: string; to: string; room: string; data: unknown }[] = [];
 
   async start(name: string) {
+    const account = readAccount();
     const saved = localStorage.getItem(SESSION_KEY) || "";
     const savedToken = localStorage.getItem(TOKEN_KEY) || "";
     try {
-      const data = await this.call("session", { id: saved, token: savedToken, name }, false);
-      this.token = String(data.token || "");
+      const data = account
+        ? await this.call("session", { guestToken: savedToken, name: account.name || name }, "account")
+        : await this.call("session", { id: saved, token: savedToken, name }, false);
+      this.token = account ? account.token : String(data.token || "");
       this.me = data.me as CityMe;
       this.id = this.me.id;
       this.server = String(data.storage || "City server");
-      localStorage.setItem(SESSION_KEY, this.id);
-      localStorage.setItem(TOKEN_KEY, this.token);
+      if (data.chain && typeof data.chain === "object") this.chain = data.chain as CityWorld["chain"];
+      if (data.upgraded) {
+        localStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(TOKEN_KEY);
+      } else if (!account) {
+        localStorage.setItem(SESSION_KEY, this.id);
+        localStorage.setItem(TOKEN_KEY, this.token);
+      }
       this.mission = Number((this.me as CityMe & { mission?: number }).mission || 0);
       const live = data.realtime as { url?: string; anon?: string } | null;
       if (live?.url && live.anon) void connectLive(String(live.url), String(live.anon));
@@ -203,7 +227,9 @@ class CityWorld {
   }
 
   async spend(item: string) {
-    return this.call("spend", { item });
+    const data = await this.call("spend", { item });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
   }
 
   async jobStart(job: string) {
@@ -347,16 +373,33 @@ class CityWorld {
     return data;
   }
 
-  async walletLink(pubkey: string, message = "", signature = "") {
-    const data = await this.call("wallet-link", { pubkey, message, signature });
-    this.applyDigest(data);
-    this.walletNote = String(data.message || "");
+  async walletView() {
+    const data = await this.call("wallet-view", {});
+    if (data.me) this.me = data.me as CityMe;
+    this.chain = data as CityWorld["chain"];
+    this.walletNote = String(data.note || "");
     return data;
   }
 
-  private async call(op: string, extra: Record<string, unknown>, auth = true) {
+  async walletQuote(destination: string, amount: string) {
+    return this.call("wallet-quote", { destination, amount });
+  }
+
+  async walletConfirm(destination: string, amount: string, idempotencyKey: string) {
+    const data = await this.call("wallet-confirm", { destination, amount, idempotencyKey });
+    if (Array.isArray(data.history) && this.chain) this.chain = { ...this.chain, history: data.history as NonNullable<CityWorld["chain"]>["history"] };
+    return data;
+  }
+
+  async walletExport(proof: { password?: string; otp?: string }) {
+    return this.call("wallet-export", { confirm: "EXPORT", ...proof });
+  }
+
+  private async call(op: string, extra: Record<string, unknown>, auth: boolean | "account" = true) {
     const headers: Record<string, string> = { "content-type": "application/json" };
-    if (auth && this.token) headers.authorization = `Bearer ${this.token}`;
+    const access = accountToken();
+    if (access) headers.authorization = `Bearer ${access}`;
+    else if (auth === true && this.token) headers.authorization = `Bearer ${this.token}`;
     const response = await fetch("/api/city", {
       method: "POST",
       headers,

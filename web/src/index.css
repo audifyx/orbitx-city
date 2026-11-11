@@ -600,3 +600,56 @@ body.touch .touch-ui {
   padding: 8px 10px;
   color: #ffe7a3;
 }
+
+.auth {
+  text-align: left;
+  display: grid;
+  gap: 8px;
+}
+
+.auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.who i,
+.who img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid #7ef6ff;
+  display: grid;
+  place-items: center;
+  font-style: normal;
+  color: #e0b33a;
+  background: #101820;
+  object-fit: cover;
+}
+
+.sheet {
+  border: 1px solid #7ef6ff;
+  padding: 10px;
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+  text-align: left;
+}
+
+.addr {
+  word-break: break-all;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.qr svg {
+  width: 148px;
+  height: 148px;
+  background: #fff;
+}

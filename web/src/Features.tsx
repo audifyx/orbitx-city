@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { requestExportCode } from "./auth";
 import type { Runtime, Snap } from "./game/runtime";
 import { EMOTES, FURNITURE } from "./game/life";
 
@@ -15,7 +16,7 @@ export function FeaturePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
 
 export function featureTitle(panel: Snap["panel"]) {
   if (panel === "daily") return "Daily rewards";
-  if (panel === "wallet") return "Wallet (read-only)";
+  if (panel === "wallet") return "In-app wallet";
   if (panel === "leaders") return "Leaderboards";
   if (panel === "arcade") return "Neon Arcade";
   if (panel === "hq") return "Project HQ";
@@ -81,18 +82,132 @@ function Leaders({ snap }: { snap: Snap }) {
 }
 
 function Wallet({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
+  const [dest, setDest] = useState("");
+  const [amount, setAmount] = useState("0.01");
+  const [quote, setQuote] = useState<{ amount?: string; fee?: string; destination?: string; network?: string; message?: string } | null>(null);
+  const [step, setStep] = useState<"closed" | "warn" | "auth" | "show">("closed");
+  const [password, setPassword] = useState("");
+  const [otp, setOtp] = useState("");
+  const [secret, setSecret] = useState<{ secretBase58: string; phantom: number[] } | null>(null);
+  const [note, setNote] = useState("");
+  useEffect(() => {
+    rt?.refreshWallet();
+  }, [rt]);
+  useEffect(() => {
+    if (!quote) return;
+    document.getElementById("send-sheet")?.scrollIntoView({ block: "nearest" });
+  }, [quote]);
+  const sol = snap.chainSol == null ? "not read" : `${snap.chainSol} SOL`;
+  const token = snap.chainOrbitx == null ? "not read" : `${snap.chainOrbitx} $ORBITX`;
   return (
     <div className="list" data-feature="wallet">
-      <p className="play-money">Read-only. Connect checks a public balance. It does not send, sign, or spend a transaction.</p>
+      <p className="play-money">Demo credits in the HUD are play money. This panel is the in-app Solana wallet. The shop does not spend it.</p>
       <p>
-        {snap.walletKey ? `Linked ${snap.walletKey.slice(0, 4)}…${snap.walletKey.slice(-4)}` : "No wallet linked."}
+        <b>{snap.name || "Guest"}</b>
+        {snap.account ? " · account" : " · guest"}
         {snap.holder ? " · HOLDER" : ""}
       </p>
-      <p>{snap.mintSet ? "ORBITX_MINT is set. A verified balance can unlock the holder lounge." : "ORBITX_MINT is not set. The holder lounge stays open and no balance is shown."}</p>
-      <p>{snap.walletNote || "Phantom and other standard Solana wallets work in the browser. This preview has none."}</p>
-      <button type="button" onClick={() => rt?.connectWallet()}>Connect wallet</button>
+      {snap.account ? (
+        <>
+          <p className="addr">{snap.chainAddress || "Creating the wallet…"}</p>
+          <p>{snap.chainNetwork || "devnet"} · {sol} · {token}</p>
+          {snap.chainQr.startsWith("<svg") ? <div className="qr" dangerouslySetInnerHTML={{ __html: snap.chainQr }} /> : null}
+          <p>{snap.walletNote}</p>
+          <h3>Send SOL</h3>
+          <label>
+            Destination
+            <input id="send-dest" value={dest} onChange={(event) => setDest(event.target.value)} />
+          </label>
+          <label>
+            Amount
+            <input id="send-amount" value={amount} onChange={(event) => setAmount(event.target.value)} />
+          </label>
+          <button id="send-review" type="button" onClick={() => {
+            void rt?.quoteSend(dest, amount)?.then((data) => {
+              const row = data as { ok?: boolean; message?: string; amount?: string; fee?: string; destination?: string; network?: string };
+              if (row.ok === false) setNote(String(row.message || "Check the amount."));
+              else setQuote(row);
+            }).catch((err) => setNote(err instanceof Error ? err.message : "Could not review."));
+          }}>Review send</button>
+          {quote ? (
+            <div className="sheet" id="send-sheet">
+              <h3>Confirm</h3>
+              <p>{quote.amount} SOL</p>
+              <p>Network fee about {quote.fee} SOL</p>
+              <p>To {quote.destination}</p>
+              <p>Network {quote.network}</p>
+              <button type="button" id="send-confirm" onClick={() => {
+                const key = crypto.randomUUID();
+                void rt?.confirmSend(String(quote.destination || ""), String(quote.amount || ""), key)?.then(() => {
+                  setQuote(null);
+                  rt.refreshWallet();
+                }).catch((err) => setNote(err instanceof Error ? err.message : "Send failed."));
+              }}>Confirm</button>
+              <button type="button" onClick={() => setQuote(null)}>Back</button>
+            </div>
+          ) : null}
+          <h3>Recent</h3>
+          {snap.chainHistory.length === 0 ? <span>No on-chain sends yet.</span> : null}
+          {snap.chainHistory.map((row) => (
+            <article key={row.id}>
+              <div><b>{row.amount} SOL · {row.status}</b><span>{row.destination.slice(0, 6)}… {row.signature ? row.signature.slice(0, 8) : ""}</span></div>
+            </article>
+          ))}
+          <h3>Export key</h3>
+          {step === "closed" ? <button id="export-open" type="button" onClick={() => setStep("warn")}>Export private key</button> : null}
+          {step === "warn" ? (
+            <div className="sheet" id="export-warn">
+              <p>This shows the private key. Anyone who copies it can move the funds. The city cannot undo that.</p>
+              <button id="export-understand" type="button" onClick={() => setStep("auth")}>I understand</button>
+              <button type="button" onClick={() => setStep("closed")}>Cancel</button>
+            </div>
+          ) : null}
+          {step === "auth" ? (
+            <div className="sheet" id="export-auth">
+              <label>Password<input id="export-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+              <label>Or a fresh email code<input value={otp} onChange={(event) => setOtp(event.target.value)} /></label>
+              <button id="export-reveal" type="button" onClick={() => {
+                setNote("");
+                void rt?.exportKey({ password, otp })?.then((data) => {
+                  const row = data as { ok?: boolean; secretBase58?: string; phantom?: number[]; message?: string };
+                  if (!row.secretBase58 || !row.phantom) {
+                    setNote(String(row.message || "Export refused."));
+                    return;
+                  }
+                  setSecret({ secretBase58: row.secretBase58, phantom: row.phantom });
+                  setStep("show");
+                }).catch((err) => setNote(err instanceof Error ? err.message : "Export refused."));
+              }}>Reveal key</button>
+              <button type="button" onClick={() => {
+                void requestExportCode(snap.email).then((result) => setNote(result.devCode ? `Dev code ${result.devCode}` : result.message || "Check your email.")).catch((err) => setNote(err instanceof Error ? err.message : "Could not send a code."));
+              }}>Email a code</button>
+            </div>
+          ) : null}
+          {step === "show" && secret ? (
+            <div className="sheet" id="export-key">
+              <p className="addr">{secret.secretBase58}</p>
+              <button type="button" onClick={() => download("orbitx-secret.txt", secret.secretBase58)}>Download base58</button>
+              <button type="button" onClick={() => download("orbitx-phantom.json", JSON.stringify(secret.phantom))}>Download Phantom JSON</button>
+              <button type="button" onClick={() => { setSecret(null); setStep("closed"); }}>Hide</button>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <p>Play as a guest keeps demo credits on this device. Sign in to open the in-app wallet.</p>
+      )}
+      {note ? <p id="wallet-note">{note}</p> : null}
     </div>
   );
+}
+
+function download(name: string, text: string) {
+  const blob = new Blob([text], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function Arcade({ rt }: { rt: Runtime | null }) {
@@ -284,8 +399,8 @@ export function PhoneExtra({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
       <h3>Wallet</h3>
       <article>
         <div>
-          <b>{snap.holder ? "HOLDER" : snap.walletKey ? "Linked" : "Not linked"}</b>
-          <span>{snap.mintSet ? "Mint configured" : "Mint not set"}</span>
+          <b>{snap.holder ? "HOLDER" : snap.account ? "In-app wallet" : "Sign in for a wallet"}</b>
+          <span>{snap.chainNetwork || (snap.mintSet ? "Mint configured" : "Devnet")}</span>
         </div>
         <button type="button" onClick={() => rt?.request("wallet")}>Open</button>
       </article>

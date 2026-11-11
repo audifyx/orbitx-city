@@ -29,6 +29,7 @@ import { burnAmount, earn, loadWallet, saveWallet, spend } from "./economy";
 import { createNet, type ChatLine, type NetAdapter, type NetState } from "./net";
 import { dressPerson, loadLooks, lookById, lookName, looksReady } from "./avatar";
 import { GOLD, MATERIALS } from "./materials";
+import { readAccount } from "../auth";
 import { world } from "./world";
 import {
   EMOTES,
@@ -139,6 +140,15 @@ export interface Snap {
   walletKey: string;
   walletNote: string;
   holder: boolean;
+  account: boolean;
+  email: string;
+  avatar: string;
+  chainAddress: string;
+  chainSol: number | null;
+  chainOrbitx: number | null;
+  chainNetwork: string;
+  chainHistory: { id: string; status: string; amount: string; destination: string; signature: string }[];
+  chainQr: string;
   meId: string;
   spectator: boolean;
   hideHud: boolean;
@@ -611,7 +621,8 @@ export function createRuntime(scene: Scene) {
 
   async function begin(next: City, isPlay: boolean) {
     await loadLooks();
-    await world.start(wallet.name);
+    world.stop();
+    if (isPlay) await world.start(readAccount()?.name || wallet.name);
     if (world.online) applyMe();
     const params = new URLSearchParams(location.search);
     lookId = params.get("look") || localStorage.getItem("orbitx-look") || world.me?.look || "tjr";
@@ -809,6 +820,15 @@ export function createRuntime(scene: Scene) {
       walletKey: world.me?.wallet || "",
       walletNote: world.walletNote,
       holder: !!world.me?.holder,
+      account: !!world.me?.account,
+      email: world.me?.email || "",
+      avatar: world.me?.avatar || "",
+      chainAddress: world.chain?.address || world.me?.address || "",
+      chainSol: world.chain?.sol ?? null,
+      chainOrbitx: world.chain?.orbitx ?? null,
+      chainNetwork: world.chain?.network || "",
+      chainHistory: world.chain?.history || [],
+      chainQr: world.chain?.qr || "",
       meId: world.id,
       spectator,
       hideHud,
@@ -950,41 +970,6 @@ export function createRuntime(scene: Scene) {
 
   function currentLot() {
     return world.lots.find((lot) => lot.zone === insideName) || null;
-  }
-
-  async function linkWallet() {
-    const sol = (window as unknown as {
-      solana?: {
-        connect: () => Promise<{ publicKey: { toString: () => string } }>;
-        signMessage?: (message: Uint8Array, encoding: string) => Promise<{ signature: Uint8Array } | Uint8Array>;
-      };
-    }).solana;
-    if (!sol?.connect) {
-      world.walletNote = "No Solana wallet in this browser. Install Phantom, then press Connect. The game never sends a transaction.";
-      say(world.walletNote);
-      publish();
-      return;
-    }
-    try {
-      const connected = await sol.connect();
-      const pubkey = connected.publicKey.toString();
-      const message = `OrbitX City sign-in\n${pubkey}`;
-      let signature = "";
-      if (sol.signMessage) {
-        const signed = await sol.signMessage(new TextEncoder().encode(message), "utf8");
-        const bytes = signed instanceof Uint8Array ? signed : signed.signature;
-        let raw = "";
-        bytes.forEach((byte) => {
-          raw += String.fromCharCode(byte);
-        });
-        signature = btoa(raw);
-      }
-      const data = await world.walletLink(pubkey, message, signature);
-      applyMe();
-      say(String(data.message || "Wallet linked. Read-only."));
-    } catch (err) {
-      say(err instanceof Error ? err.message : "Wallet connect failed.");
-    }
   }
 
   async function startRace(kind: "street" | "hover") {
@@ -1805,8 +1790,8 @@ export function createRuntime(scene: Scene) {
     } else if (shot === "daily" || shot === "wallet") {
       void world.refresh().then(() => {
         panel = shot === "daily" ? "daily" : "wallet";
-        if (shot === "wallet" && !world.walletNote) {
-          world.walletNote = "No Solana wallet in this browser. Connect stays read-only.";
+        if (shot === "wallet" && !world.me?.account) {
+          world.walletNote = "Sign in to open the in-app wallet. This shot is still a guest.";
         }
         publish();
       });
@@ -2280,8 +2265,25 @@ export function createRuntime(scene: Scene) {
         say(String(data.message || "Hit."));
       }).catch((err) => say(err.message));
     },
-    connectWallet() {
-      void linkWallet();
+    refreshWallet() {
+      void world.walletView().then(() => {
+        applyMe();
+        publish();
+      }).catch((err) => say(err instanceof Error ? err.message : "Wallet unavailable."));
+    },
+    quoteSend(destination: string, amount: string) {
+      return world.walletQuote(destination, amount);
+    },
+    confirmSend(destination: string, amount: string, idempotencyKey: string) {
+      return world.walletConfirm(destination, amount, idempotencyKey).then((data) => {
+        applyMe();
+        say(String(data.message || "Sent."));
+        publish();
+        return data;
+      });
+    },
+    exportKey(proof: { password?: string; otp?: string }) {
+      return world.walletExport(proof);
     },
     toggleSpectator() {
       spectator = !spectator;
