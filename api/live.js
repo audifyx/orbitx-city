@@ -13,6 +13,37 @@ export const LOTS = [
 
 export const FURNITURE = ["couch", "table", "plant", "lamp", "screen", "rug"];
 
+// Rent + utilities (City Sol only — never real money). Every owned lot gets
+// a weekly bill: rent is 10% of the lot price, plus utilities by kind. The
+// first bill lands 7 days after purchase (a grace week). Bills are checked
+// on digest, warned about in the Property panel, and go into arrears when
+// the balance cannot cover them — never an eviction, and new purchases are
+// blocked until arrears are paid. Arrears stop growing after 4 unpaid bills
+// so a returning player is never wiped out.
+export const RENT_WEEK_MS = 7 * 86400000;
+const RENT_RATE = 0.1;
+const UTILITIES = { apartment: 5, shop: 8, hq: 10 };
+const MAX_ARREARS_BILLS = 4;
+
+export function rentBill(lot) {
+  return Math.round((lot.price || 0) * RENT_RATE) + (UTILITIES[lot.kind] ?? 5);
+}
+
+// Player-run businesses (City Sol only). One business per player. It earns
+// while the player is away, capped at 240 uncollected so idle income never
+// explodes. Buying burns 25% of the setup cost, like every other purchase.
+export const BUSINESSES = {
+  stall: { name: "Night Market stall", price: 150, rate: 2, cap: 240 },
+  stand: { name: "Plaza coffee stand", price: 300, rate: 3, cap: 240 },
+};
+
+export function businessAccrued(business, now = Date.now()) {
+  if (!business || !BUSINESSES[business.kind]) return 0;
+  const spec = BUSINESSES[business.kind];
+  const minutes = Math.max(0, (now - Number(business.lastCollect || business.started || now)) / 60000);
+  return Math.min(spec.cap, Math.floor(minutes * spec.rate));
+}
+
 export const GATES = [
   { x: 36, z: 0 },
   { x: 36, z: 36 },
@@ -147,7 +178,7 @@ async function loadWorld(ctx) {
   store.lotsLoaded = true;
   const client = ctx.sb();
   if (client) {
-    const props = await client.from("properties").select("id, owner_id, owner_name, furniture");
+    const props = await client.from("properties").select("id, owner_id, owner_name, furniture, brand");
     if (!props.error && props.data) {
       for (const row of props.data) {
         store.lots.set(row.id, {
@@ -155,6 +186,7 @@ async function loadWorld(ctx) {
           ownerId: row.owner_id || "",
           ownerName: row.owner_name || "",
           furniture: Array.isArray(row.furniture) ? row.furniture : [],
+          brand: row.brand && typeof row.brand === "object" ? row.brand : {},
         });
       }
     }
@@ -165,15 +197,18 @@ async function loadWorld(ctx) {
   }
   if (ctx.sql) {
     try {
-      const rows = await ctx.sql`SELECT id, owner_id, owner_name, furniture FROM properties`;
+      const rows = await ctx.sql`SELECT id, owner_id, owner_name, furniture, brand FROM properties`;
       for (const row of rows) {
         if (store.lots.has(row.id)) continue;
         const furniture = typeof row.furniture === "string" ? JSON.parse(row.furniture || "[]") : row.furniture || [];
+        const brand =
+          typeof row.brand === "string" ? JSON.parse(row.brand || "{}") : row.brand || {};
         store.lots.set(row.id, {
           id: row.id,
           ownerId: row.owner_id || "",
           ownerName: row.owner_name || "",
           furniture,
+          brand,
         });
       }
     } catch {
@@ -196,24 +231,39 @@ async function persistLot(ctx, lot) {
   store.lots.set(lot.id, lot);
   const client = ctx.sb();
   if (client) {
-    await client.from("properties").upsert({
+    const row = {
       id: lot.id,
       owner_id: lot.ownerId,
       owner_name: lot.ownerName,
       furniture: lot.furniture,
-    });
+    };
+    if (lot.brand) row.brand = lot.brand;
+    await client.from("properties").upsert(row);
   }
   if (ctx.sql) {
     try {
       const furniture = JSON.stringify(lot.furniture || []);
-      await ctx.sql`INSERT INTO properties (id, owner_id, owner_name, furniture)
-        VALUES (${lot.id}, ${lot.ownerId}, ${lot.ownerName}, ${furniture})
+      const brand = JSON.stringify(lot.brand || {});
+      await ctx.sql`INSERT INTO properties (id, owner_id, owner_name, furniture, brand)
+        VALUES (${lot.id}, ${lot.ownerId}, ${lot.ownerName}, ${furniture}, ${brand})
         ON CONFLICT (id) DO UPDATE SET
           owner_id = EXCLUDED.owner_id,
           owner_name = EXCLUDED.owner_name,
-          furniture = EXCLUDED.furniture`;
+          furniture = EXCLUDED.furniture,
+          brand = EXCLUDED.brand`;
     } catch {
-      // Memory already has the lot.
+      try {
+        // Older schema without the brand column — furniture still saves.
+        const furniture = JSON.stringify(lot.furniture || []);
+        await ctx.sql`INSERT INTO properties (id, owner_id, owner_name, furniture)
+          VALUES (${lot.id}, ${lot.ownerId}, ${lot.ownerName}, ${furniture})
+          ON CONFLICT (id) DO UPDATE SET
+            owner_id = EXCLUDED.owner_id,
+            owner_name = EXCLUDED.owner_name,
+            furniture = EXCLUDED.furniture`;
+      } catch {
+        // Memory already has the lot.
+      }
     }
   }
 }
@@ -239,6 +289,7 @@ function catalog(store, player) {
     const saved = store.lots.get(lot.id);
     let ownerName = saved?.ownerName || "";
     if (saved?.ownerId && saved.ownerId === player?.id && player.name) ownerName = player.name;
+    const rent = player?.rent?.[lot.id];
     return {
       id: lot.id,
       zone: lot.zone,
@@ -249,8 +300,71 @@ function catalog(store, player) {
       ownerId: saved?.ownerId || "",
       ownerName,
       furniture: saved?.furniture || [],
+      brand: saved?.brand || {},
+      // Rent state for lots this player owns (null when not owned).
+      rentDue: rent ? Number(rent.nextDue || 0) : null,
+      rentBill: rent ? rentBill(lot) : null,
+      arrears: rent ? Number(rent.arrears || 0) : 0,
     };
   });
+}
+
+function rentState(player) {
+  if (!player.rent || typeof player.rent !== "object") player.rent = {};
+  return player.rent;
+}
+
+function totalArrears(player) {
+  return Object.values(rentState(player)).reduce((sum, entry) => sum + Number(entry?.arrears || 0), 0);
+}
+
+// Charge weekly rent + utilities for every owned lot whose bill is due.
+// Returns { charged, arrearsAdded, touched } so the caller can save + message.
+function applyRent(player, store) {
+  const now = Date.now();
+  let charged = 0;
+  let arrearsAdded = 0;
+  let touched = false;
+  const rent = rentState(player);
+  if (store?.lots) {
+    // Lots bought before rent existed get a grace week, never a back-bill.
+    for (const lot of store.lots.values()) {
+      if (lot.ownerId === player.id && !rent[lot.id]) {
+        rent[lot.id] = { nextDue: now + RENT_WEEK_MS, arrears: 0 };
+        touched = true;
+      }
+    }
+  }
+  for (const [lotId, entry] of Object.entries(rent)) {
+    const lot = lotById(lotId);
+    if (!lot || !entry || typeof entry !== "object") continue;
+    let nextDue = Number(entry.nextDue || 0);
+    if (!nextDue) {
+      entry.nextDue = now + RENT_WEEK_MS;
+      continue;
+    }
+    let arrears = Number(entry.arrears || 0);
+    const bill = rentBill(lot);
+    // Bills are counted, not endlessly stacked: total arrears stop growing
+    // after 4 unpaid bills. The due date waits at that bill until the
+    // player pays, so a returning player is never wiped out.
+    while (now >= nextDue) {
+      if (player.balance >= bill) {
+        player.balance -= bill;
+        charged += bill;
+        nextDue += RENT_WEEK_MS;
+      } else if (arrears < MAX_ARREARS_BILLS * bill) {
+        arrears += bill;
+        arrearsAdded += bill;
+        nextDue += RENT_WEEK_MS;
+      } else {
+        break;
+      }
+    }
+    entry.nextDue = nextDue;
+    entry.arrears = arrears;
+  }
+  return { charged, arrearsAdded, touched };
 }
 
 function lotById(id) {
@@ -389,6 +503,8 @@ async function digest(ctx, player, store) {
       if (lot.ownerId === player.id) lot.ownerName = player.name;
     }
   }
+  const rent = applyRent(player, store);
+  if (rent.charged || rent.arrearsAdded || rent.touched) await ctx.savePlayer(player);
   const leaders = leadersFrom(await leaderRows(ctx, store));
   return {
     ok: true,
@@ -414,16 +530,20 @@ async function buyLot(ctx, player, store, id) {
   if (saved?.ownerId) {
     return fail(saved.ownerId === player.id ? "You already own this." : `${saved.ownerName || "Someone"} already owns this.`);
   }
+  const owed = totalArrears(player);
+  if (owed > 0) return fail(`Pay your arrears first — you owe ${owed} City Sol. See Property.`);
   if (player.balance < lot.price) return fail("Not enough City Sol.");
   const burned = ctx.burnOf(lot.price);
   player.balance -= lot.price;
   player.burned += burned;
-  const next = { id: lot.id, ownerId: player.id, ownerName: player.name, furniture: [] };
+  const next = { id: lot.id, ownerId: player.id, ownerName: player.name, furniture: [], brand: {} };
+  // First weekly bill lands 7 days after purchase — a grace week.
+  rentState(player)[lot.id] = { nextDue: Date.now() + RENT_WEEK_MS, arrears: 0 };
   await persistLot(ctx, next);
   await ctx.savePlayer(player);
   return {
     ok: true,
-    message: `Bought ${lot.name} for ${lot.price} City Sol. Burned ${burned}.`,
+    message: `Bought ${lot.name} for ${lot.price} City Sol. Burned ${burned}. First rent + utilities (${rentBill(lot)}) is due in 7 days.`,
     burned,
     includeMe: true,
     lots: catalog(store, player),
@@ -457,12 +577,89 @@ async function hostEvent(ctx, player, store, body) {
   const info = {
     id: `hq-${hit.lot.id}-${Date.now().toString(36)}`,
     title,
-    where: hit.lot.name,
+    where: (hit.saved.brand && hit.saved.brand.name) || hit.lot.name,
     when: String(body.when || "Today").slice(0, 40),
     detail: String(body.detail || "Hosted inside the HQ.").slice(0, 180),
   };
   await ctx.addEvent(info);
-  return { ok: true, message: `Event posted at ${hit.lot.name}.`, event: info };
+  return { ok: true, message: `Event posted at ${info.where}.`, event: info };
+}
+
+async function buyBusiness(ctx, player, store, kind) {
+  const spec = BUSINESSES[kind];
+  if (!spec) return fail("That business is not on the market.");
+  if (player.business) return fail(`You already run the ${BUSINESSES[player.business.kind]?.name || "business"}. One business per player.`);
+  if (player.balance < spec.price) return fail(`Not enough City Sol. A ${spec.name} costs ${spec.price}.`);
+  const burned = ctx.burnOf(spec.price);
+  player.balance -= spec.price;
+  player.burned += burned;
+  player.business = { kind, started: Date.now(), lastCollect: Date.now() };
+  await ctx.savePlayer(player);
+  return {
+    ok: true,
+    message: `You run the ${spec.name}. It earns ${spec.rate} City Sol a minute, up to ${spec.cap} uncollected. Collect it from the Jobs panel.`,
+    business: player.business,
+    includeMe: true,
+  };
+}
+
+async function collectBusiness(ctx, player, store) {
+  if (!player.business) return fail("You do not run a business yet. See the Jobs panel.");
+  const spec = BUSINESSES[player.business.kind];
+  if (!spec) return fail("That business closed down. Tell the city.");
+  const amount = businessAccrued(player.business);
+  if (amount <= 0) return fail("Nothing to collect yet. It earns every minute.");
+  player.balance += amount;
+  player.business.lastCollect = Date.now();
+  await ctx.savePlayer(player);
+  return {
+    ok: true,
+    message: `Collected ${amount} City Sol from the ${spec.name}.`,
+    collected: amount,
+    business: player.business,
+    includeMe: true,
+  };
+}
+
+async function payRent(ctx, player, store, lotId) {
+  const rent = rentState(player);
+  const ids = lotId === "all" ? Object.keys(rent) : [String(lotId || "")];
+  let owed = 0;
+  for (const id of ids) owed += Number(rent[id]?.arrears || 0);
+  if (owed <= 0) return fail("Nothing owed. Rent is current.");
+  if (player.balance < owed) return fail(`You owe ${owed} City Sol and hold ${player.balance}. Earn a little first.`);
+  player.balance -= owed;
+  for (const id of ids) {
+    if (rent[id]) rent[id].arrears = 0;
+  }
+  await ctx.savePlayer(player);
+  return {
+    ok: true,
+    message: `Paid ${owed} City Sol of arrears. Rent is current.`,
+    includeMe: true,
+    lots: catalog(store, player),
+  };
+}
+
+async function setBrand(ctx, player, store, body) {
+  const id = String(body.lot || body.project || "");
+  const lotId = id.startsWith("hq-") ? id : `hq-${id}`;
+  const hit = ownedLot(store, player, lotId);
+  if (!hit || hit.lot.kind !== "hq") return fail("Only the HQ owner can brand it.");
+  const brand = {
+    name: String(body.name || "").trim().slice(0, 40) || hit.lot.name,
+    line: String(body.line || "").trim().slice(0, 80),
+    site: String(body.site || "").trim().slice(0, 80),
+  };
+  hit.saved.brand = brand;
+  await persistLot(ctx, hit.saved);
+  return {
+    ok: true,
+    message: `This office is now ${brand.name}.`,
+    brand,
+    includeMe: true,
+    lots: catalog(store, player),
+  };
 }
 
 function armRace(store, player, kind) {
@@ -678,6 +875,10 @@ export async function handleLive(ctx, player, op, body) {
   }
   if (op === "property-buy") return buyLot(ctx, player, store, String(body.id || ""));
   if (op === "property-save") return saveFurniture(ctx, player, store, body);
+  if (op === "business-buy") return buyBusiness(ctx, player, store, String(body.kind || ""));
+  if (op === "business-collect") return collectBusiness(ctx, player, store);
+  if (op === "rent-pay") return payRent(ctx, player, store, String(body.lot || "all"));
+  if (op === "hq-brand") return setBrand(ctx, player, store, body);
   if (op === "hq-note") return setNote(ctx, player, store, body);
   if (op === "event-host") return hostEvent(ctx, player, store, body);
   if (op === "race-join" || op === "race-go") {

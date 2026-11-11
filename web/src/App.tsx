@@ -85,6 +85,8 @@ const EMPTY: Snap = {
   chainHistory: [],
   chainQr: "",
   meId: "",
+  jobStreak: 0,
+  business: null,
   spectator: false,
   hideHud: false,
   hideNames: false,
@@ -138,6 +140,8 @@ function shotMode(): PlayMode | null {
     shot === "home" ||
     shot === "mall" ||
     shot === "mall2" ||
+    shot === "mallk" ||
+    shot === "malln" ||
     shot === "office" ||
     shot === "office2" ||
     shot === "roof" ||
@@ -406,69 +410,49 @@ export default function App() {
             )}
             {panel === "jobs" && (
               <div className="list">
-                <article>
-                  <div>
-                    <b>Courier</b>
-                    <span>Pick up a package at the fountain and drop it at the shop. Pays 45.</span>
-                  </div>
-                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("courier"); close(); }}>Start</button>
-                </article>
-                <article>
-                  <div>
-                    <b>Taxi driver</b>
-                    <span>Drive a hover-car, pick up a rider, drop them at the cafe. Pays 70.</span>
-                  </div>
-                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("taxi"); close(); }}>Start</button>
-                </article>
-                <article>
-                  <div>
-                    <b>City guide</b>
-                    <span>Visit the shop, the hall, and OrbitX HQ. Pays 60.</span>
-                  </div>
-                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("guide"); close(); }}>Start</button>
-                </article>
-                <article>
-                  <div>
-                    <b>Mechanic</b>
-                    <span>Service the hover-car on the east road. Pays 55.</span>
-                  </div>
-                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("mechanic"); close(); }}>Start</button>
-                </article>
-                <article>
-                  <div>
-                    <b>Photographer</b>
-                    <span>Shoot the fountain, then the ORBITX tower. Pays 40.</span>
-                  </div>
-                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("photographer"); close(); }}>Start</button>
-                </article>
-                <article>
-                  <div>
-                    <b>Promoter</b>
-                    <span>Visit the hall, then the plaza ad kiosk. Pays 50.</span>
-                  </div>
-                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("promoter"); close(); }}>Start</button>
-                </article>
-                <article>
-                  <div>
-                    <b>Dock hand</b>
-                    <span>Clock in at the harbor office, down the pier. Pays 65.</span>
-                  </div>
-                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("dock"); close(); }}>Start</button>
-                </article>
-                <article>
-                  <div>
-                    <b>DJ</b>
-                    <span>Play a set inside the Community Hall. Pays 55.</span>
-                  </div>
-                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("dj"); close(); }}>Start</button>
-                </article>
-                <article>
-                  <div>
-                    <b>Bank teller</b>
-                    <span>Open the window at OrbitX Bank. Pays 50.</span>
-                  </div>
-                  <button type="button" onClick={() => { gameRef.current?.runtime.startJob("banker"); close(); }}>Start</button>
-                </article>
+                <p className="muted">
+                  Every job pays in City Sol — the game&apos;s own money, never real SOL. Job streak {snap.jobStreak}: +5% pay per job in a row, up to +50%.
+                </p>
+                {JOB_LIST.map((job) => {
+                  const pay = Math.round(job.base * (1 + 0.05 * Math.min(snap.jobStreak, 10)));
+                  return (
+                    <article key={job.id}>
+                      <div>
+                        <b>{job.name}</b>
+                        <span>{job.desc} Pays {pay} City Sol.</span>
+                      </div>
+                      <button type="button" onClick={() => { gameRef.current?.runtime.startJob(job.id); close(); }}>Start</button>
+                    </article>
+                  );
+                })}
+                <h3>Your business</h3>
+                <p className="muted">Open a business and it earns City Sol while you play. Collect before it fills at 240 — it does not overflow. Opening one burns 25% of its setup cost.</p>
+                {snap.business ? (
+                  <article>
+                    <div>
+                      <b>{snap.business.kind === "stand" ? "Plaza coffee stand" : "Night Market stall"}</b>
+                      <span>Earns about {snap.business.kind === "stand" ? 3 : 2} City Sol a minute. Last collected {new Date(snap.business.lastCollect).toLocaleTimeString()}.</span>
+                    </div>
+                    <button type="button" onClick={() => gameRef.current?.runtime.collectBusiness()}>Collect</button>
+                  </article>
+                ) : (
+                  <>
+                    <article>
+                      <div>
+                        <b>Night Market stall</b>
+                        <span>2 City Sol a minute. Setup 150 City Sol.</span>
+                      </div>
+                      <button type="button" onClick={() => gameRef.current?.runtime.buyBusiness("stall")}>Open</button>
+                    </article>
+                    <article>
+                      <div>
+                        <b>Plaza coffee stand</b>
+                        <span>3 City Sol a minute. Setup 300 City Sol.</span>
+                      </div>
+                      <button type="button" onClick={() => gameRef.current?.runtime.buyBusiness("stand")}>Open</button>
+                    </article>
+                  </>
+                )}
               </div>
             )}
             {panel === "ads" && (
@@ -772,6 +756,27 @@ const MAP_LABELS: Record<string, string> = {
   dock: "Dock",
 };
 
+// Label priority: the plaza core gets its preferred spot first; the z=54
+// row (Shop/Cafe/Arcade/Garage) is the crowded one, so the order matters.
+const MAP_LABEL_PRIORITY = ["shop", "cafe", "hall", "dock", "bank", "market", "arcade", "garage"];
+
+// Job board — single source of truth for the base pay the server pays
+// (api/city.js JOBS, plus the +5%-per-streak scaling in scaledPay).
+const JOB_LIST: Array<{ id: string; name: string; desc: string; base: number }> = [
+  { id: "courier", name: "Courier", desc: "Pick up a package at the fountain and drop it at the shop.", base: 45 },
+  { id: "taxi", name: "Taxi driver", desc: "Three fares around the city — pick up, drop off, repeat.", base: 90 },
+  { id: "guide", name: "City guide", desc: "Visit the shop, the hall, and OrbitX HQ.", base: 60 },
+  { id: "barista", name: "Barista", desc: "Serve the shift at Cafe Nova.", base: 45 },
+  { id: "vendor", name: "Market vendor", desc: "Open a stall at the Night Market.", base: 55 },
+  { id: "security", name: "Security", desc: "Patrol the fountain, the hall, and OrbitX HQ.", base: 75 },
+  { id: "mechanic", name: "Mechanic", desc: "Service the hover-car on the east road.", base: 55 },
+  { id: "photographer", name: "Photographer", desc: "Shoot the fountain, then the ORBITX tower.", base: 40 },
+  { id: "promoter", name: "Promoter", desc: "Visit the hall, then the plaza ad kiosk.", base: 50 },
+  { id: "dock", name: "Dock hand", desc: "Clock in at the harbor office, down the pier.", base: 65 },
+  { id: "dj", name: "DJ", desc: "Play a set inside the Community Hall.", base: 55 },
+  { id: "banker", name: "Bank teller", desc: "Open the window at OrbitX Bank.", base: 50 },
+];
+
 function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"]; seed: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const model = useMemo(() => cityMapModel(seed), [seed]);
@@ -821,39 +826,84 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
       ctx.lineTo(offX + spanX * scale, rz);
       ctx.stroke();
     }
-    // Venue dots + tiny labels (Cafe labels left — it sits next to the Shop).
-    // Labels shift down when they would collide: several venues share a row
-    // (Shop/Arcade/Garage on z=54, Hall/Bank on z=18) and their 7px labels
-    // are wider than the dots are apart, so unshifted they pile up unreadably.
+    // Venue dots + labels. The old down-only stacking piled the z=54 row
+    // (Shop/Cafe/Arcade/Garage sit ~4px apart at this scale) into one
+    // unreadable block, and the player marker could sit on top of "Shop".
+    // Now every label tries 8 positions around its dot (right/left/above/
+    // below + diagonals), picks the one with the least overlap against
+    // already-placed labels AND the player/other-player markers, and gets a
+    // thin leader line back to its dot when it is not adjacent.
     ctx.font = "6px sans-serif";
-    const placed: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
-    for (const venue of model.venues) {
-      const label = MAP_LABELS[venue.id];
-      if (!label) continue;
+    const [mx, mz] = plot(me.x, me.z);
+    const placed: Array<{ x0: number; y0: number; x1: number; y1: number }> = [
+      // Player marker (drawn last, gold dot + white ring) — keep labels off it.
+      { x0: mx - 7, y0: mz - 7, x1: mx + 7, y1: mz + 7 },
+    ];
+    for (const person of people) {
+      const [ppx, ppz] = plot(person.x, person.z);
+      placed.push({ x0: ppx - 5, y0: ppz - 5, x1: ppx + 5, y1: ppz + 5 });
+    }
+    const byId = new Map(model.venues.map((venue) => [venue.id, venue]));
+    const overlapArea = (r: { x0: number; y0: number; x1: number; y1: number }) =>
+      placed.reduce((sum, other) => {
+        const ox = Math.max(0, Math.min(r.x1, other.x1) - Math.max(r.x0, other.x0));
+        const oy = Math.max(0, Math.min(r.y1, other.y1) - Math.max(r.y0, other.y0));
+        return sum + ox * oy;
+      }, 0);
+    for (const id of MAP_LABEL_PRIORITY) {
+      const venue = byId.get(id);
+      const label = MAP_LABELS[id];
+      if (!venue || !label) continue;
       const [vx, vz] = plot(venue.x, venue.z);
       ctx.fillStyle = "#e0b33a";
       ctx.beginPath();
       ctx.arc(vx, vz, 2, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#e8f6ff";
       const w = label.length * 3.6;
-      const x0 = venue.id === "cafe" ? vx - 4 - w : vx + 4;
-      let y0 = vz - 4.5;
-      // Stack the label down until its rect clears every placed label.
-      for (let shift = 0; shift < 4; shift++) {
-        const clash = placed.some(
-          (r) => x0 < r.x1 && x0 + w > r.x0 && y0 < r.y1 && y0 + 6 > r.y0,
-        );
-        if (!clash) break;
-        y0 += 8;
+      const h = 6;
+      const candidates = [
+        { dx: 5, dy: -3 },
+        { dx: -5 - w, dy: -3 },
+        { dx: -w / 2, dy: -11 },
+        { dx: -w / 2, dy: 5 },
+        { dx: 5, dy: 5 },
+        { dx: -5 - w, dy: 5 },
+        { dx: 5, dy: -11 },
+        { dx: -5 - w, dy: -11 },
+      ];
+      let best: { x0: number; y0: number; x1: number; y1: number } | null = null;
+      let bestScore = Infinity;
+      for (const cand of candidates) {
+        const x0 = Math.max(2, Math.min(size - 2 - w, vx + cand.dx));
+        const y0 = Math.max(13, Math.min(size - 8, vz + cand.dy));
+        const rect = { x0, y0, x1: x0 + w, y1: y0 + h };
+        const score = overlapArea(rect);
+        if (score < bestScore) {
+          bestScore = score;
+          best = rect;
+          if (score === 0) break;
+        }
       }
-      placed.push({ x0, y0, x1: x0 + w, y1: y0 + 6 });
+      if (!best) continue;
+      placed.push({ x0: best.x0 - 1, y0: best.y0 - 1, x1: best.x1 + 1, y1: best.y1 + 1 });
+      // Leader line from the dot to the label edge (skip when adjacent).
+      const cx = Math.max(best.x0, Math.min(vx, best.x1));
+      const cy = Math.max(best.y0, Math.min(vz, best.y1));
+      if (Math.hypot(cx - vx, cy - vz) > 6) {
+        ctx.strokeStyle = "rgba(232,246,255,0.45)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(vx, vz);
+        ctx.lineTo(cx, cy);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "#e8f6ff";
       ctx.textAlign = "left";
       // Dark halo so the white label stays readable over the light blocks.
       ctx.strokeStyle = "rgba(4, 8, 14, 0.9)";
       ctx.lineWidth = 2;
-      ctx.strokeText(label, x0, y0 + 6);
-      ctx.fillText(label, x0, y0 + 6);
+      ctx.strokeText(label, best.x0, best.y0 + 6);
+      ctx.fillText(label, best.x0, best.y0 + 6);
     }
     ctx.textAlign = "left";
     // North marker.
@@ -871,7 +921,6 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
       ctx.fill();
     }
     // Player: gold dot with a white ring.
-    const [mx, mz] = plot(me.x, me.z);
     ctx.fillStyle = "#e0b33a";
     ctx.beginPath();
     ctx.arc(mx, mz, 4, 0, Math.PI * 2);
@@ -882,7 +931,7 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
     ctx.arc(mx, mz, 5.5, 0, Math.PI * 2);
     ctx.stroke();
   }, [me, people, model]);
-  return <canvas ref={ref} className="minimap" width={148} height={148} />;
+  return <canvas ref={ref} className="minimap" width={168} height={168} />;
 }
 
 function Phone({ snap, rt, onLogout }: { snap: Snap; rt: Runtime | null; onLogout: () => void }) {

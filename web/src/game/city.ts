@@ -1232,7 +1232,9 @@ function furnishShop(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
     put(boxes, cx - 0.9, 1.45, z, 0.35, 0.2, 0.35, "gold");
   }
   const mat = opposite(door, x0, z0, w, d, 4.2);
-  put(boxes, mat.x, 0.06, mat.z, counterAlongX ? 3.2 : 2.2, 0.04, counterAlongX ? 2.2 : 3.2, "gold");
+  // Gold floor strip — sits at 0.145 like the red carpet runner (above),
+  // because at 0.06 it was buried under the cream floor slab (top 0.12).
+  put(boxes, mat.x, 0.145, mat.z, counterAlongX ? 3.2 : 2.2, 0.05, counterAlongX ? 2.2 : 3.2, "gold");
   const service = opposite(door, x0, z0, w, d, 4.1);
   return {
     id: "shop",
@@ -1980,6 +1982,35 @@ function addMegaMall(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: 
     cols.push(col(78, 0.38, bz, 1.1, 0.45, 3.4));
   }
   for (const [px, pz] of [[64, -8], [80, -8], [64, 8], [80, 8]] as Array<[number, number]>) {
+    put(boxes, px, 0.5, pz, 0.8, 0.9, 0.8, "leavesDark");
+    cols.push(col(px, 0.5, pz, 0.8, 0.9, 0.8));
+  }
+  // Ground-floor center dressing: the atrium + food court read well, but the
+  // north strip (z -29..-12, x 60..90) and the west entry (x 44..62, z -9..9)
+  // were flat empty stone. Directory kiosk by the west door, a gold runner
+  // down the entry walk, seating clusters + planters on the north strip.
+  // Directory kiosk at (48, -7) — offset from the west-door entry path so it
+  // never blocks the door. Stone base, cyan screen, gold trim, and a sign
+  // facing east into the mall (rotY pi/2).
+  put(boxes, 48, 0.5, -7, 1.6, 0.9, 1.2, "stone");
+  cols.push(col(48, 0.5, -7, 1.6, 0.9, 1.2));
+  put(boxes, 48, 1.1, -7, 1.4, 0.7, 0.1, "cyan");
+  put(boxes, 48, 1.55, -7, 1.7, 0.12, 1.3, "gold");
+  roomSign("mall-directory", 48.9, 2.2, -7, Math.PI / 2, 3.4, 1.1, ["DIRECTORY"], "Shops · Food court · Lift");
+  // Gold runner along z = 0 from the west door to the atrium.
+  put(boxes, 53, 0.145, 0, 17, 0.05, 2.4, "gold");
+  // Seating clusters on the north strip: bench + table + planter, with colliders.
+  for (const [bx, bz] of [[66, -18], [80, -18]] as Array<[number, number]>) {
+    put(boxes, bx, 0.38, bz, 1.1, 0.45, 3.4, "red");
+    cols.push(col(bx, 0.38, bz, 1.1, 0.45, 3.4));
+    put(boxes, bx + 2.6, 0.72, bz, 1.35, 0.1, 1.35, "wood");
+    put(boxes, bx + 2.6, 0.38, bz, 0.22, 0.6, 0.22, "black");
+    cols.push(col(bx + 2.6, 0.55, bz, 1.35, 0.9, 1.35));
+    put(boxes, bx - 2.6, 0.5, bz, 0.8, 0.9, 0.8, "leavesDark");
+    cols.push(col(bx - 2.6, 0.5, bz, 0.8, 0.9, 0.8));
+  }
+  // North-wall planters along the strip.
+  for (const [px, pz] of [[68, -26.5], [84, -26.5]] as Array<[number, number]>) {
     put(boxes, px, 0.5, pz, 0.8, 0.9, 0.8, "leavesDark");
     cols.push(col(px, 0.5, pz, 0.8, 0.9, 0.8));
   }

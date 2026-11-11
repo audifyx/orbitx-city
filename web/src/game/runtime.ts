@@ -169,6 +169,8 @@ export interface Snap {
   chainHistory: { id: string; status: string; amount: string; destination: string; signature: string }[];
   chainQr: string;
   meId: string;
+  jobStreak: number;
+  business: { kind: string; started: number; lastCollect: number } | null;
   spectator: boolean;
   hideHud: boolean;
   hideNames: boolean;
@@ -1068,6 +1070,8 @@ export function createRuntime(scene: Scene) {
       chainHistory: world.chain?.history || [],
       chainQr: world.chain?.qr || "",
       meId: world.id,
+      jobStreak: world.me?.jobStreak ?? 0,
+      business: world.me?.business ?? null,
       spectator,
       hideHud,
       hideNames,
@@ -1115,14 +1119,36 @@ export function createRuntime(scene: Scene) {
     if (id === "dock") return "Dock hand";
     if (id === "dj") return "DJ";
     if (id === "banker") return "Bank teller";
+    if (id === "barista") return "Barista";
+    if (id === "vendor") return "Market vendor";
+    if (id === "security") return "Security";
     return "City guide";
+  }
+
+  // Taxi loop: three fares, each a pickup + a drop. The rider waits at a
+  // different curb each fare, and the drop moves around the city.
+  const TAXI_PICKUPS = [
+    { x: 0, z: 80 },
+    { x: 0, z: -80 },
+    { x: 72, z: 0 },
+  ] as const;
+  const TAXI_DROPS = ["cafe", "hall", "bank"] as const;
+
+  function taxiDropName(fare: number) {
+    const drop = TAXI_DROPS[Math.min(fare - 1, 2)];
+    if (drop === "hall") return "the Community Hall";
+    if (drop === "bank") return "OrbitX Bank";
+    return "Cafe Nova";
   }
 
   function objectiveText() {
     if (job === "courier" && phase === 0) return "Pick up the glowing package in front of the fountain";
     if (job === "courier") return "Drop the package at OrbitX Shop";
-    if (job === "taxi" && phase === 0) return "Pick up the rider on the main road (in a car)";
-    if (job === "taxi") return "Drop the rider at Cafe Nova";
+    if (job === "taxi") {
+      const fare = Math.floor(phase / 2) + 1;
+      if (phase % 2 === 0) return `Fare ${fare} of 3 — pick up the rider (in a car)`;
+      return `Fare ${fare} of 3 — drop the rider at ${taxiDropName(fare)}`;
+    }
     if (job === "guide" && phase === 0) return "Visit the OrbitX Shop door";
     if (job === "guide" && phase === 1) return "Visit the Community Hall door";
     if (job === "guide") return "Visit OrbitX HQ in the Project District";
@@ -1134,6 +1160,11 @@ export function createRuntime(scene: Scene) {
     if (job === "dock") return "Clock in at the harbor office";
     if (job === "dj") return "Play the Community Hall";
     if (job === "banker") return "Open the window at OrbitX Bank";
+    if (job === "barista") return "Serve the shift at Cafe Nova";
+    if (job === "vendor") return "Open the stall at the Night Market";
+    if (job === "security" && phase === 0) return "Patrol the fountain";
+    if (job === "security" && phase === 1) return "Patrol the Community Hall";
+    if (job === "security") return "Patrol OrbitX HQ in the Project District";
     const stop = tourStops[world.online ? world.mission : tourStep];
     if (stop) return stop.text;
     return "City tour complete — pick up a job";
@@ -1420,8 +1451,18 @@ export function createRuntime(scene: Scene) {
     let target: { x: number; z: number } | null = null;
     if (job === "courier" && phase === 0) target = { x: 0, z: 24 };
     if (job === "courier" && phase === 1) target = anchors.find((item) => item.id === "shop") ?? null;
-    if (job === "taxi" && phase === 0) target = { x: 0, z: 80 };
-    if (job === "taxi" && phase === 1) target = anchors.find((item) => item.id === "cafe") ?? null;
+    if (job === "taxi") {
+      const fare = Math.min(Math.floor(phase / 2), 2);
+      if (phase % 2 === 0) target = TAXI_PICKUPS[fare];
+      else target = anchors.find((item) => item.id === TAXI_DROPS[fare]) ?? null;
+    }
+    if (job === "barista") target = anchors.find((item) => item.id === "cafe") ?? null;
+    if (job === "vendor") target = anchors.find((item) => item.id === "market") ?? null;
+    if (job === "security") {
+      if (phase === 0) target = { x: 0, z: 12 };
+      else if (phase === 1) target = anchors.find((item) => item.id === "hall") ?? null;
+      else target = anchors.find((item) => item.id === "project-0") ?? null;
+    }
     if (job === "guide") target = guidePoint() ?? null;
     if (job === "mechanic") target = { x: 36, z: 50 };
     if (job === "photographer") target = phase === 0 ? { x: 0, z: 12 } : { x: 0, z: -6 };
@@ -1443,7 +1484,10 @@ export function createRuntime(scene: Scene) {
     }
     if (rider) {
       rider.visible = job === "taxi" && !riderOn;
-      if (rider.visible) rider.position.set(0, 0, 80);
+      if (rider.visible) {
+        const pickup = TAXI_PICKUPS[Math.min(Math.floor(phase / 2), 2)];
+        rider.position.set(pickup.x, 0, pickup.z);
+      }
     }
     if (!target || paused) return;
     const reachDist = job === "courier" && phase === 0 ? 5.2 : job === "courier" ? 6 : driving ? 4.2 : 2.8;
@@ -1455,16 +1499,28 @@ export function createRuntime(scene: Scene) {
       say("Package picked up. Take it to OrbitX Shop.");
     } else if (job === "courier" && phase === 1) {
       void finishJob("courier");
-    } else if (job === "taxi" && phase === 0 && driving) {
-      phase = 1;
-      riderOn = true;
-      say("Rider aboard.");
-    } else if (job === "taxi" && phase === 1 && driving) {
-      riderOn = false;
-      void finishJob("taxi");
+    } else if (job === "taxi" && driving) {
+      if (phase % 2 === 0) {
+        phase += 1;
+        riderOn = true;
+        say("Rider aboard.");
+      } else if (phase >= 5) {
+        riderOn = false;
+        void finishJob("taxi");
+      } else {
+        phase += 1;
+        riderOn = false;
+        say(`Fare ${Math.floor(phase / 2) + 1} of 3 — next rider is waiting.`);
+      }
     } else if (job === "guide") {
       phase += 1;
       if (phase >= 3) void finishJob("guide");
+      else say("Checkpoint reached.");
+    } else if (job === "barista" || job === "vendor") {
+      void finishJob(job);
+    } else if (job === "security") {
+      phase += 1;
+      if (phase >= 3) void finishJob("security");
       else say("Checkpoint reached.");
     } else if (job === "mechanic") {
       void finishJob("mechanic");
@@ -1522,7 +1578,7 @@ export function createRuntime(scene: Scene) {
   let tourStep = 0;
 
   async function pay(id: string) {
-    const amounts: Record<string, number> = { courier: 45, taxi: 70, guide: 60, mechanic: 55, photographer: 40, promoter: 50, dock: 65, dj: 55, banker: 50 };
+    const amounts: Record<string, number> = { courier: 45, taxi: 90, guide: 60, mechanic: 55, photographer: 40, promoter: 50, dock: 65, dj: 55, banker: 50, barista: 45, vendor: 55, security: 75 };
     if (!world.online) {
       say(earn(wallet, amounts[id], jobTitle(id)));
       return true;
@@ -2202,6 +2258,20 @@ export function createRuntime(scene: Scene) {
       body.z = 20; // the atrium void (x 63..81, z -9..9), which drops the
       body.yaw = 0; // player to the ground floor.
       body.pitch = 0.12;
+    } else if (shot === "mallk") {
+      // Mall directory kiosk by the west door, facing east into the mall.
+      body.x = 56;
+      body.y = 0;
+      body.z = 0;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.05;
+    } else if (shot === "malln") {
+      // Mall ground-floor north strip seating, facing north from the atrium.
+      body.x = 72;
+      body.y = 0;
+      body.z = 6;
+      body.yaw = Math.PI;
+      body.pitch = 0.08;
     } else if (shot === "office") {
       body.x = -84;
       body.y = 0;
@@ -2719,8 +2789,29 @@ export function createRuntime(scene: Scene) {
     setAnnouncement(index: number, text: string) {
       void world.setAnnouncement(`hq-${index}`, text).then((data) => say(String(data.message || "Saved."))).catch((err) => say(err.message));
     },
+    setBrand(index: number, name: string, line: string, site: string) {
+      void world.setBrand(`hq-${index}`, name, line, site).then((data) => say(String(data.message || "Branded."))).catch((err) => say(err.message));
+    },
     hostEvent(index: number, title: string, when: string, detail: string) {
       void world.hostEvent(`hq-${index}`, title, when, detail).then((data) => say(String(data.message || "Event posted."))).catch((err) => say(err.message));
+    },
+    buyBusiness(kind: string) {
+      void world.buyBusiness(kind).then((data) => {
+        applyMe();
+        say(String(data.message || "Business open."));
+      }).catch((err) => say(err.message));
+    },
+    collectBusiness() {
+      void world.collectBusiness().then((data) => {
+        applyMe();
+        say(String(data.message || "Collected."));
+      }).catch((err) => say(err.message));
+    },
+    payRent(lot: string) {
+      void world.payRent(lot).then((data) => {
+        applyMe();
+        say(String(data.message || "Paid."));
+      }).catch((err) => say(err.message));
     },
     startRace(kind: "street" | "hover") {
       void startRace(kind);

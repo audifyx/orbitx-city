@@ -45,7 +45,7 @@ const LOOKS = new Set([
 
 const JOBS = {
   courier: 45,
-  taxi: 70,
+  taxi: 90,
   guide: 60,
   mechanic: 55,
   photographer: 40,
@@ -53,7 +53,19 @@ const JOBS = {
   dock: 65,
   dj: 55,
   banker: 50,
+  barista: 45,
+  vendor: 55,
+  security: 75,
 };
+
+// Payouts scale with the player's job streak: +5% per completed job, up
+// to +50% (streak 10). The client shows the scaled pay in the Jobs panel.
+function scaledPay(id, streak) {
+  const base = JOBS[id];
+  if (!base) return 0;
+  const mult = 1 + 0.05 * Math.min(Math.max(0, Number(streak || 0)), 10);
+  return Math.round(base * mult);
+}
 
 const MISSIONS = [
   { id: "plaza", pay: 15 },
@@ -172,6 +184,9 @@ async function ensureSchema() {
     look TEXT NOT NULL DEFAULT 'tjr'
   )`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS look TEXT NOT NULL DEFAULT 'tjr'`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS job_streak INTEGER NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS business TEXT NOT NULL DEFAULT '{}'`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS rent TEXT NOT NULL DEFAULT '{}'`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS earned INTEGER NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS best_race INTEGER NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS best_hover INTEGER NOT NULL DEFAULT 0`;
@@ -189,6 +204,7 @@ async function ensureSchema() {
     owner_name TEXT NOT NULL,
     furniture TEXT NOT NULL
   )`;
+  await sql`ALTER TABLE properties ADD COLUMN IF NOT EXISTS brand TEXT NOT NULL DEFAULT '{}'`;
   await sql`CREATE TABLE IF NOT EXISTS announcements (
     id TEXT PRIMARY KEY,
     text TEXT NOT NULL,
@@ -226,6 +242,9 @@ function freshPlayer(id, name) {
     friends: [],
     inbox: [],
     job: null,
+    jobStreak: 0,
+    business: null,
+    rent: {},
     party: "",
     mission: 0,
     missionAt: 0,
@@ -260,6 +279,9 @@ function publicPlayer(player) {
     mission: player.mission || 0,
     look: player.look || "tjr",
     earned: player.earned || 0,
+    jobStreak: Number(player.jobStreak || 0),
+    business: player.business || null,
+    rent: player.rent || {},
     bestRace: player.bestRace || 0,
     bestHover: player.bestHover || 0,
     holder: !!player.holder,
@@ -277,7 +299,7 @@ async function savePlayer(player) {
   const client = sb();
   if (client) {
     let { error } = await client.from("players").upsert(rowFromPlayer(player));
-    if (error && /look|earned|best_race|best_hover|daily|wallet|holder|email|avatar|provider|auth_user|address/i.test(error.message || "")) {
+    if (error && /look|earned|best_race|best_hover|daily|wallet|holder|email|avatar|provider|auth_user|address|job_streak|business|rent/i.test(error.message || "")) {
       const row = rowFromPlayer(player);
       delete row.look;
       delete row.earned;
@@ -291,6 +313,9 @@ async function savePlayer(player) {
       delete row.provider;
       delete row.auth_user;
       delete row.address;
+      delete row.job_streak;
+      delete row.business;
+      delete row.rent;
       const retry = await client.from("players").upsert(row);
       error = retry.error;
     }
@@ -305,8 +330,10 @@ async function savePlayer(player) {
     const inbox = JSON.stringify(player.inbox);
     const job = JSON.stringify(player.job);
     const daily = JSON.stringify(player.daily || {});
-    await sql`INSERT INTO players (id, token, name, balance, burned, owned, color, hat, car, friends, inbox, job, party, look, earned, best_race, best_hover, daily, wallet, holder, email, avatar, provider, auth_user, address)
-      VALUES (${player.id}, ${player.token}, ${player.name}, ${player.balance}, ${player.burned}, ${owned}, ${player.color}, ${player.hat}, ${player.car}, ${friends}, ${inbox}, ${job}, ${player.party}, ${player.look || "tjr"}, ${player.earned || 0}, ${player.bestRace || 0}, ${player.bestHover || 0}, ${daily}, ${player.wallet || ""}, ${!!player.holder}, ${player.email || ""}, ${player.avatar || ""}, ${player.provider || ""}, ${player.authUser || ""}, ${player.address || ""})
+    const business = JSON.stringify(player.business || null);
+    const rent = JSON.stringify(player.rent || {});
+    await sql`INSERT INTO players (id, token, name, balance, burned, owned, color, hat, car, friends, inbox, job, job_streak, business, rent, party, look, earned, best_race, best_hover, daily, wallet, holder, email, avatar, provider, auth_user, address)
+      VALUES (${player.id}, ${player.token}, ${player.name}, ${player.balance}, ${player.burned}, ${owned}, ${player.color}, ${player.hat}, ${player.car}, ${friends}, ${inbox}, ${job}, ${Number(player.jobStreak || 0)}, ${business}, ${rent}, ${player.party}, ${player.look || "tjr"}, ${player.earned || 0}, ${player.bestRace || 0}, ${player.bestHover || 0}, ${daily}, ${player.wallet || ""}, ${!!player.holder}, ${player.email || ""}, ${player.avatar || ""}, ${player.provider || ""}, ${player.authUser || ""}, ${player.address || ""})
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         balance = EXCLUDED.balance,
@@ -318,6 +345,9 @@ async function savePlayer(player) {
         friends = EXCLUDED.friends,
         inbox = EXCLUDED.inbox,
         job = EXCLUDED.job,
+        job_streak = EXCLUDED.job_streak,
+        business = EXCLUDED.business,
+        rent = EXCLUDED.rent,
         party = EXCLUDED.party,
         look = EXCLUDED.look,
         earned = EXCLUDED.earned,
@@ -353,6 +383,9 @@ function parsePlayer(row) {
     friends: typeof row.friends === "string" ? JSON.parse(row.friends || "[]") : row.friends || [],
     inbox: typeof row.inbox === "string" ? JSON.parse(row.inbox || "[]") : row.inbox || [],
     job: typeof row.job === "string" ? JSON.parse(row.job || "null") : row.job,
+    jobStreak: Number(row.job_streak ?? row.jobStreak ?? 0),
+    business: typeof row.business === "string" ? JSON.parse(row.business || "null") : row.business || null,
+    rent: typeof row.rent === "string" ? JSON.parse(row.rent || "{}") : row.rent || {},
     party: row.party || "",
     mission: Number(row.mission || 0),
     missionAt: Number(row.mission_at || row.missionAt || 0),
@@ -385,6 +418,9 @@ function rowFromPlayer(player) {
     friends: player.friends,
     inbox: player.inbox,
     job: player.job,
+    job_streak: Number(player.jobStreak || 0),
+    business: player.business || null,
+    rent: player.rent || {},
     party: player.party || "",
     mission: player.mission || 0,
     mission_at: player.missionAt || 0,
@@ -790,6 +826,9 @@ async function adoptGuest(account, guest) {
   account.friends = guest.friends || [];
   account.inbox = guest.inbox || [];
   account.job = guest.job;
+  account.jobStreak = guest.jobStreak || 0;
+  account.business = guest.business || null;
+  account.rent = guest.rent || {};
   account.party = guest.party || "";
   account.mission = guest.mission || 0;
   account.missionAt = guest.missionAt || 0;
@@ -949,7 +988,7 @@ export async function POST(request) {
 
   if (op === "earn") {
     const id = String(body.job || "");
-    const pay = JOBS[id];
+    const pay = scaledPay(id, player.jobStreak);
     if (!pay) return json({ ok: false, message: "Unknown job." }, 400);
     if (!player.job || player.job.id !== id) return json({ ok: false, message: "Start that job first." }, 400);
     if (Date.now() - Number(player.job.started) < JOB_MS) {
@@ -957,10 +996,11 @@ export async function POST(request) {
     }
     player.balance += pay;
     player.job = null;
+    player.jobStreak = Number(player.jobStreak || 0) + 1;
     const bonus = noteEarn(player, id, pay);
     await savePlayer(player);
     const extra = bonus ? ` Quest paid ${bonus} City Sol.` : "";
-    return json({ ok: true, message: `${id} paid ${pay} City Sol.${extra}`, me: publicPlayer(player) });
+    return json({ ok: true, message: `${id} paid ${pay} City Sol. Job streak ${player.jobStreak}.${extra}`, me: publicPlayer(player) });
   }
 
   // Real billboards: pay SOL from the in-app wallet, Jupiter swaps

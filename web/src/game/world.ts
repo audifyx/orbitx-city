@@ -42,6 +42,9 @@ export interface CityMe {
   party: string;
   look?: string;
   earned?: number;
+  jobStreak?: number;
+  business?: { kind: string; started: number; lastCollect: number } | null;
+  rent?: Record<string, { nextDue: number; arrears: number }>;
   bestRace?: number;
   bestHover?: number;
   holder?: boolean;
@@ -333,6 +336,30 @@ class CityWorld {
 
   async buyLot(id: string) {
     const data = await this.call("property-buy", { id });
+    this.applyDigest(data);
+    return data;
+  }
+
+  async buyBusiness(kind: string) {
+    const data = await this.call("business-buy", { kind });
+    this.applyDigest(data);
+    return data;
+  }
+
+  async collectBusiness() {
+    const data = await this.call("business-collect", {});
+    this.applyDigest(data);
+    return data;
+  }
+
+  async payRent(lot: string) {
+    const data = await this.call("rent-pay", { lot });
+    this.applyDigest(data);
+    return data;
+  }
+
+  async setBrand(lot: string, name: string, line: string, site: string) {
+    const data = await this.call("hq-brand", { lot, name, line, site });
     this.applyDigest(data);
     return data;
   }

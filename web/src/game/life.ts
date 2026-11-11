@@ -31,6 +31,12 @@ export interface LotCard {
   ownerId: string;
   ownerName: string;
   furniture: FurniturePiece[];
+  // Self-serve HQ branding, set by the owner (empty until claimed + branded).
+  brand?: { name?: string; line?: string; site?: string };
+  // Rent + utilities, for lots this player owns (null when not owned).
+  rentDue?: number | null;
+  rentBill?: number | null;
+  arrears?: number;
 }
 
 export interface LeaderRow {
