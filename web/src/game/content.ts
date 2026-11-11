@@ -146,16 +146,47 @@ export const DEFAULT_EVENTS: EventInfo[] = [
     when: "After sunset",
     detail: "Stalls south of the plaza. Press N if you want the sky to go dark.",
   },
+  {
+    id: "hall-concert",
+    title: "Plaza concert",
+    where: "Community Hall stage",
+    when: "Friday, 8:00",
+    detail: "Live set on the hall stage — the dance floor opens after. Juno's on the decks.",
+  },
+  {
+    id: "street-festival",
+    title: "Street festival",
+    where: "Market street",
+    when: "Saturday, all day",
+    detail: "Stalls along Market street, busking at the plaza corner, and the night market stays open late.",
+  },
 ];
 
 // ---- NPCs: names, roles, dialogue, patrol loops ----
 // Keyed by the citizen name in city.ts. `patrol` is a loop of small offsets
 // from the citizen's home spot — the NPC walks between them and pauses at
 // each one. `jobId` makes the NPC a job giver: the talk panel offers that
-// job for real (startJob), never a dead button.
+// job for real (startJob), never a dead button. `offer` makes the NPC a
+// trader: the talk panel shows one extra button that runs a real City Sol
+// exchange (npcOffer) — a draw (pay in, random pay back), a tip (pay in,
+// a useful line out), a quest (one-time, gated on something the player
+// already did, pays a fixed reward), or work (pay a small cost up front,
+// fixed pay for the task).
+export interface NpcOffer {
+  label: string;
+  cost: number;
+  kind: "draw" | "tip" | "quest" | "work";
+  reward?: number;
+  needPhoto?: string;
+  drawRewards?: number[];
+  done: string;
+  tips?: string[];
+}
+
 export interface NpcInfo {
   role: string;
   jobId?: string;
+  offer?: NpcOffer;
   lines: string[];
   patrol: Array<[number, number]>;
 }
@@ -278,6 +309,126 @@ export const NPC_LINES: Record<string, NpcInfo> = {
       [0, -1.5],
     ],
   },
+  Vera: {
+    role: "Usher, OrbitX Cinema",
+    offer: {
+      label: "Buy a premiere ticket — 10 City Sol",
+      cost: 10,
+      kind: "draw",
+      drawRewards: [0, 10, 20, 30],
+      done: "Ticket in hand — find a seat and enjoy the show.",
+    },
+    lines: [
+      "OrbitX Cinema — tonight's premiere is a heist film about a stolen billboard. Front row's the loudest.",
+      "A ticket's ten City Sol, and the lucky seat pays back. Some nights the house loses money. Most nights.",
+      "The screen's the biggest in the city. Sit anywhere — the projector forgives all seats except the back row.",
+    ],
+    patrol: [
+      [0, 0],
+      [1.5, 1],
+      [-1.5, 0],
+      [0, -1.5],
+    ],
+  },
+  Otis: {
+    role: "Librarian, OrbitX Library",
+    offer: {
+      label: "Ask the librarian — 5 City Sol",
+      cost: 5,
+      kind: "tip",
+      tips: [
+        "Best pay in town right now is the taxi — three fares, ninety City Sol before the streak bonus.",
+        "The coin hunt pays forty if you find all six in ninety seconds. The beacon points at the nearest coin.",
+        "Fishing pays forty-five for three catches. Wait for the bite — press E too soon and the fish count it.",
+        "Busk at the plaza corner — six beats, three City Sol a hit, five just for showing up.",
+        "The parcel run pays twenty: pick the parcel up by the bank steps, drop it at the Library door.",
+      ],
+      done: "A tip for a tip — that's the trade.",
+    },
+    lines: [
+      "OrbitX Library — quietest room in the city. The shelves hold every launch story since the fountain went in.",
+      "Five City Sol and I'll tell you something worth knowing. Librarians hear everything — the good jobs, the bad bets, the race times.",
+      "The reading tables are free. Bring a book, or just bring the gossip — both read the same here.",
+    ],
+    patrol: [
+      [0, 0],
+      [1.5, 0],
+      [-1.5, 1],
+      [0, -1.5],
+    ],
+  },
+  Remy: {
+    role: "Trainer, Harbor Gym",
+    offer: {
+      label: "Show the fountain photo — earn 20 City Sol",
+      cost: 0,
+      kind: "quest",
+      needPhoto: "fountain",
+      reward: 20,
+      done: "That's the fountain, alright — crisp light, good framing. Here's your {reward} City Sol.",
+    },
+    lines: [
+      "Harbor Gym — treadmills, bags, and a mirror that never lies. Form first, always.",
+      "Snap the fountain — good light, good framing — and bring the shot back here. Twenty City Sol for proof you were out in the city.",
+      "The pier's my morning run. Lifeguard pays for the same legs, if you'd rather earn while you run.",
+    ],
+    patrol: [
+      [0, 0],
+      [1.5, 0],
+      [-1.5, 1],
+      [0, -1.5],
+    ],
+  },
+  Wren: {
+    role: "Gardener, Sunset Park",
+    offer: {
+      label: "Plant a flower — 5 seed, 12 pay",
+      cost: 5,
+      kind: "work",
+      reward: 12,
+      done: "Planted — the bed's brighter already. The park pays {reward} City Sol for the bloom.",
+    },
+    lines: [
+      "Sunset Park — I keep the beds gold and the pond clear. The pigeons supervise, badly.",
+      "Five City Sol for a seed, and the park pays twelve when it blooms. Plant one — the city likes color.",
+      "The flower beds run the whole north path. Gold in the middle, red on the sides — that's the recipe.",
+    ],
+    patrol: [
+      [0, 0],
+      [2, 1],
+      [-2, 0],
+      [0, 2],
+    ],
+  },
+  Nadia: {
+    role: "Teller, OrbitX Bank",
+    jobId: "banker",
+    lines: [
+      "OrbitX Bank — City Sol in, City Sol out, and the books always balance. Ask me about the vault sometime.",
+      "The banker's window is open — clock in here and the window pays. Fifty a shift, before the streak.",
+      "The Library's expecting a parcel — pick it up by the steps out front and drop it at the Library door. Twenty for the walk.",
+    ],
+    patrol: [
+      [0, 0],
+      [1.5, 1],
+      [-1.5, 0],
+      [0, 1.5],
+    ],
+  },
+  Felix: {
+    role: "Arcade champion",
+    lines: [
+      "Neon Arcade — high/low, reflex light, and the coin hunt beacon. I hold the high score on all three. For now.",
+      "High/low: stake ten, win eighteen. The card doesn't care how confident you are — I learned that the expensive way.",
+      "Reflex light: wait for gold, then hit it fast. Fast hands pay more. My best was under a tenth of a second.",
+    ],
+    patrol: [
+      [0, 0],
+      [1.5, -1],
+      [-1.5, 1],
+      [0, 2],
+    ],
+  },
 };
 
 // Fallback lines for any citizen without an entry above.
@@ -351,6 +502,26 @@ export const STADIUM_FINISH_X = 191;
 export const STADIUM_BASE = 45;
 export const STADIUM_PER_SEC = 2;
 export const STADIUM_MIN = 5;
+// ---- Busking, parcel run, car wash (City Sol only, real state changes) ----
+// Busking: a rhythm set at the plaza corner — 6 beats, E on the beat,
+// 5 City Sol for showing up plus 3 per hit. Mirrors the dance floor.
+export const BUSK_SPOT = { x: 14, z: 26 };
+export const BUSK_BEATS = 6;
+export const BUSK_BEAT_MS = 800;
+export const BUSK_BASE = 5;
+export const BUSK_PER_HIT = 3;
+// Parcel run: pick up at the bank steps, deliver at the Library door.
+// Both spots sit clear of the door anchors so E answers the parcel,
+// not the door.
+export const PARCEL_PICKUP = { x: 70, z: -54 };
+export const PARCEL_DELIVER = { x: -70, z: 163 };
+export const PARCEL_REWARD = 20;
+// Car wash: hold still at the garage corner for 4 seconds, 12 City Sol.
+// 45s hose cooldown between washes; walking off cancels the wash.
+export const WASH_SPOT = { x: 74, z: 58 };
+export const WASH_MS = 4000;
+export const WASH_PAY = 12;
+export const WASH_COOLDOWN_MS = 45000;
 
 export interface CityContent {
   projects: ProjectInfo[];

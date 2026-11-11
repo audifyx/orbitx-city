@@ -18,6 +18,11 @@ import {
 } from "three";
 import type { Anchor, Art, BoardSlot, City, Collider, Lift, Zone } from "./city";
 import {
+  BUSK_BASE,
+  BUSK_BEATS,
+  BUSK_BEAT_MS,
+  BUSK_PER_HIT,
+  BUSK_SPOT,
   CASINO_COST,
   CASINO_TABLE,
   CLUB_DANCE_SPOT,
@@ -33,6 +38,9 @@ import {
   NPC_DEFAULT_LINES,
   NPC_DEFAULT_PATROL,
   NPC_LINES,
+  PARCEL_DELIVER,
+  PARCEL_PICKUP,
+  PARCEL_REWARD,
   PHOTO_REWARD,
   PHOTO_SPOTS,
   SHOP,
@@ -41,6 +49,10 @@ import {
   STADIUM_MIN,
   STADIUM_PER_SEC,
   STADIUM_START,
+  WASH_COOLDOWN_MS,
+  WASH_MS,
+  WASH_PAY,
+  WASH_SPOT,
   WISH_SPOT,
   type BillboardInfo,
   type CityContent,
@@ -207,7 +219,7 @@ export interface Snap {
   decorKind: string;
   hqIndex: number;
   banner: string;
-  talk: { name: string; role: string; line: string; index: number; total: number; jobId: string; jobName: string } | null;
+  talk: { name: string; role: string; line: string; index: number; total: number; jobId: string; jobName: string; offerLabel: string } | null;
   photos: { taken: number; spots: string[] };
   wishes: number;
 }
@@ -796,6 +808,42 @@ export function createRuntime(scene: Scene) {
     beatHit: boolean;
   }
   let dance: DanceSet | null = null;
+  // One-time NPC quests, completed (localStorage so they survive a reload).
+  const QUESTS_KEY = "orbitx-city-quests-v1";
+  function loadQuestsDone(): string[] {
+    try {
+      const raw = localStorage.getItem(QUESTS_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+  let questsDone: string[] = loadQuestsDone();
+  function saveQuestsDone() {
+    try {
+      localStorage.setItem(QUESTS_KEY, JSON.stringify(questsDone));
+    } catch {
+      // Quest completion still counts for this session.
+    }
+  }
+  // Busking: a plaza rhythm set, same shape as the dance set.
+  interface BuskSet {
+    startAt: number;
+    nextBeatAt: number;
+    lastBeatAt: number;
+    endAt: number;
+    beat: number;
+    hits: number;
+    beatHit: boolean;
+  }
+  let busk: BuskSet | null = null;
+  // Parcel run: "" = no parcel, "carried" = holding the library parcel.
+  let parcel: "" | "carried" = "";
+  // Car wash: 0 when idle, otherwise the timestamp the wash finishes.
+  let washEndsAt = 0;
+  let washReadyAt = 0;
   let tourLock = false;
   const box = new BoxGeometry(1, 1, 1);
 
@@ -1688,6 +1736,7 @@ export function createRuntime(scene: Scene) {
       total: talkLines.length,
       jobId,
       jobName: jobId ? jobTitle(jobId) : "",
+      offerLabel: info?.offer?.label ?? "",
     };
     panel = "talk";
     publish();
@@ -1876,6 +1925,96 @@ export function createRuntime(scene: Scene) {
     }
   }
 
+  // ---- Busking: a plaza rhythm set, same shape as the dance set ----
+  function startBusk() {
+    if (busk) return;
+    const now = performance.now();
+    busk = {
+      startAt: now,
+      nextBeatAt: now + BUSK_BEAT_MS,
+      lastBeatAt: 0,
+      endAt: now + BUSK_BEAT_MS * BUSK_BEATS + 600,
+      beat: 0,
+      hits: 0,
+      beatHit: false,
+    };
+    world.emote = "dance";
+    world.emoteUntil = Date.now() + BUSK_BEAT_MS * BUSK_BEATS + 1200;
+    say(`Busking — ${BUSK_BEATS} beats. Press E right on each beat!`);
+    publish();
+  }
+
+  function registerBuskBeat() {
+    if (!busk) return;
+    const now = performance.now();
+    const near = [busk.nextBeatAt, busk.lastBeatAt || busk.nextBeatAt].reduce(
+      (best, t) => Math.min(best, Math.abs(now - t)),
+      Infinity,
+    );
+    if (near <= 300 && !busk.beatHit) {
+      busk.hits += 1;
+      busk.beatHit = true;
+    }
+    publish();
+  }
+
+  function tickBusk(body: Body) {
+    if (!busk) return;
+    // Walking off the corner ends the set — no pay for a set you abandon.
+    if (Math.hypot(body.x - BUSK_SPOT.x, body.z - BUSK_SPOT.z) > 4) {
+      busk = null;
+      world.emote = "";
+      world.emoteUntil = 0;
+      say("Walked off the corner — set over.");
+      publish();
+      return;
+    }
+    const now = performance.now();
+    if (busk.beat < BUSK_BEATS && now >= busk.nextBeatAt) {
+      busk.beat += 1;
+      busk.lastBeatAt = busk.nextBeatAt;
+      busk.nextBeatAt += BUSK_BEAT_MS;
+      busk.beatHit = false;
+      publish();
+    }
+    if (now >= busk.endAt) {
+      const amount = BUSK_BASE + busk.hits * BUSK_PER_HIT;
+      const hits = busk.hits;
+      busk = null;
+      say(earn(wallet, amount, `Busking (${hits}/${BUSK_BEATS} on the beat)`));
+      publish();
+    }
+  }
+
+  // ---- Car wash: hold still at the garage corner, 4 seconds, 12 City Sol ----
+  function startWash() {
+    if (washEndsAt > 0) return;
+    if (Date.now() < washReadyAt) {
+      say(`The hose needs a breather — ${Math.ceil((washReadyAt - Date.now()) / 1000)}s left.`);
+      return;
+    }
+    washEndsAt = Date.now() + WASH_MS;
+    say("Washing the hover-car… hold still, four seconds.");
+    publish();
+  }
+
+  function tickWash(body: Body) {
+    if (!washEndsAt) return;
+    if (Math.hypot(body.x - WASH_SPOT.x, body.z - WASH_SPOT.z) > 3.5) {
+      washEndsAt = 0;
+      say("Stepped away — the wash is off. The car stays dirty.");
+      publish();
+      return;
+    }
+    if (Date.now() >= washEndsAt) {
+      washEndsAt = 0;
+      washReadyAt = Date.now() + WASH_COOLDOWN_MS;
+      burst(WASH_SPOT.x, 2.2, WASH_SPOT.z);
+      say(earn(wallet, WASH_PAY, "Hover-car wash"));
+      publish();
+    }
+  }
+
   function interact(body?: Body) {
     const who = body ?? lastBody;
     if (!who || !playing || paused || typing) return;
@@ -1892,6 +2031,19 @@ export function createRuntime(scene: Scene) {
     // not opening doors, until the set ends or they leave the hall or club.
     if (dance && (zoneAt(body)?.id === "hall" || zoneAt(body)?.id === "nightclub")) {
       registerBeat();
+      return;
+    }
+    // Same for a running busk set — E is a beat hit while the player is on
+    // the corner; walking off ends the set.
+    if (busk) {
+      if (Math.hypot(body.x - BUSK_SPOT.x, body.z - BUSK_SPOT.z) < 4) registerBuskBeat();
+      else {
+        busk = null;
+        world.emote = "";
+        world.emoteUntil = 0;
+        say("Walked off the corner — set over.");
+      }
+      publish();
       return;
     }
     // Order matters: a door / zone service point / lift call wins over a car
@@ -1966,6 +2118,29 @@ export function createRuntime(scene: Scene) {
     const npcIndex = nearestNpc(body, 3);
     if (npcIndex >= 0) {
       openTalk(npcIndex);
+      return;
+    }
+    // Parcel run: pick up at the bank steps, deliver at the Library door.
+    if (!parcel && Math.hypot(body.x - PARCEL_PICKUP.x, body.z - PARCEL_PICKUP.z) < 2.5) {
+      parcel = "carried";
+      say("Parcel collected — take it to the Library door.");
+      publish();
+      return;
+    }
+    if (parcel === "carried" && Math.hypot(body.x - PARCEL_DELIVER.x, body.z - PARCEL_DELIVER.z) < 2.5) {
+      parcel = "";
+      burst(PARCEL_DELIVER.x, 2.2, PARCEL_DELIVER.z);
+      say(earn(wallet, PARCEL_REWARD, "Parcel run (Bank → Library)"));
+      publish();
+      return;
+    }
+    // Busking at the plaza corner, then the car wash at the garage.
+    if (Math.hypot(body.x - BUSK_SPOT.x, body.z - BUSK_SPOT.z) < 2.5) {
+      startBusk();
+      return;
+    }
+    if (Math.hypot(body.x - WASH_SPOT.x, body.z - WASH_SPOT.z) < 2.5) {
+      startWash();
       return;
     }
     // Photo spots, then museum exhibits, then the fountain wish, then the
@@ -2177,6 +2352,9 @@ export function createRuntime(scene: Scene) {
     if (job === "fire") target = FIRE_SPOTS[Math.min(phase, FIRE_SPOTS.length - 1)];
     if (job === "doctor") target = anchors.find((item) => item.id === "hall") ?? null;
     if (job === "teacher") target = TEACHER_STOPS[Math.min(phase, TEACHER_STOPS.length - 1)];
+    // Parcel run (no job): the beacon points at the Library door while
+    // the player carries the parcel — same beacon as the jobs use.
+    if (!job && parcel === "carried") target = { x: PARCEL_DELIVER.x, z: PARCEL_DELIVER.z };
     if (beacon) {
       beacon.visible = !!target && !driving;
       if (target) {
@@ -2716,6 +2894,8 @@ export function createRuntime(scene: Scene) {
       tickTour(body);
       tickDance(body);
       tickSprint(body);
+      tickBusk(body);
+      tickWash(body);
     }
     // NPC patrol: walk the loop of waypoints around the home spot, pausing
     // at each stop; face the player while talking.
@@ -2935,6 +3115,12 @@ export function createRuntime(scene: Scene) {
       } else if (nearGate(body, 0, 8)) prompt = "Press E — street race";
       else if (sprint) prompt = `Sprint! Reach the gold line — ${((performance.now() - sprint.startAt) / 1000).toFixed(1)}s`;
       else if (dance) prompt = `Dance! Press E on the beat — ${dance.hits}/${DANCE_BEATS} hits, beat ${Math.min(dance.beat + 1, DANCE_BEATS)} of ${DANCE_BEATS}`;
+    else if (busk) prompt = `Busk! Press E on the beat — ${busk.hits}/${BUSK_BEATS} hits, beat ${Math.min(busk.beat + 1, BUSK_BEATS)} of ${BUSK_BEATS}`;
+    else if (washEndsAt > 0) prompt = "Washing the hover-car… hold still";
+    else if (!parcel && Math.hypot(body.x - PARCEL_PICKUP.x, body.z - PARCEL_PICKUP.z) < 2.5) prompt = "Press E — pick up a parcel for the Library";
+    else if (parcel === "carried" && Math.hypot(body.x - PARCEL_DELIVER.x, body.z - PARCEL_DELIVER.z) < 2.5) prompt = `Press E — deliver the parcel (+${PARCEL_REWARD} City Sol)`;
+    else if (Math.hypot(body.x - BUSK_SPOT.x, body.z - BUSK_SPOT.z) < 2.5) prompt = "Press E — busk at the plaza corner";
+    else if (Math.hypot(body.x - WASH_SPOT.x, body.z - WASH_SPOT.z) < 2.5) prompt = `Press E — wash a hover-car (+${WASH_PAY} City Sol)`;
       else if (nearestNpc(body, 3) >= 0) {
         const npc = npcs[nearestNpc(body, 3)];
         prompt = npc ? `Press E — talk to ${npc.name}` : "";
@@ -3951,6 +4137,84 @@ export function createRuntime(scene: Scene) {
       const next = (talk.index + 1) % talkLines.length;
       talk = { ...talk, line: talkLines[next], index: next };
       publish();
+    },
+    // Run the talking NPC's offer — a real City Sol exchange: a draw (pay
+    // in, random pay back), a tip (pay in, a useful line out), a quest
+    // (one-time, gated on a photo the player already took, fixed reward),
+    // or work (pay a small cost up front, fixed pay for the task).
+    npcOffer() {
+      if (!talk || talkNpc < 0) return;
+      const npc = npcs[talkNpc];
+      const offer = NPC_LINES[npc.name]?.offer;
+      if (!offer) return;
+      const showLine = (line: string) => {
+        talk = { ...talk!, line };
+        publish();
+      };
+      if (offer.kind === "quest") {
+        const key = `${npc.name}:${offer.needPhoto ?? "quest"}`;
+        if (questsDone.includes(key)) {
+          say("That one's done — find me again when the city has new work.");
+          return;
+        }
+        if (offer.needPhoto && !photoSpots.includes(offer.needPhoto)) {
+          const spot = PHOTO_SPOTS.find((item) => item.id === offer.needPhoto);
+          say(`Snap the ${spot?.name ?? "photo"} first, then show me. The spot's on your map.`);
+          return;
+        }
+        questsDone.push(key);
+        saveQuestsDone();
+        const amount = offer.reward ?? 0;
+        say(earn(wallet, amount, `${npc.name}'s quest`));
+        showLine(offer.done.replace("{reward}", String(amount)));
+        return;
+      }
+      if (offer.kind === "tip") {
+        if (wallet.balance < offer.cost) {
+          say(`That costs ${offer.cost} City Sol — come back richer.`);
+          return;
+        }
+        wallet.balance -= offer.cost;
+        saveWallet(wallet);
+        const tip = offer.tips?.length
+          ? offer.tips[Math.floor(Math.random() * offer.tips.length)]
+          : offer.done;
+        showLine(tip);
+        say(`Paid ${offer.cost} City Sol for the tip.`);
+        return;
+      }
+      if (offer.kind === "work") {
+        if (wallet.balance < offer.cost) {
+          say(`You need ${offer.cost} City Sol for the seed.`);
+          return;
+        }
+        wallet.balance -= offer.cost;
+        const amount = offer.reward ?? 0;
+        wallet.balance += amount;
+        saveWallet(wallet);
+        burst(npc.x, 2.2, npc.z);
+        showLine(offer.done.replace("{reward}", String(amount)));
+        say(`Planted. The park pays ${amount} City Sol for the bloom.`);
+        return;
+      }
+      // draw — a lucky seat: pay the ticket, roll a random seat reward.
+      if (wallet.balance < offer.cost) {
+        say(`A ticket costs ${offer.cost} City Sol — come back richer.`);
+        return;
+      }
+      wallet.balance -= offer.cost;
+      const table = offer.drawRewards ?? [0];
+      const roll = Math.random();
+      const reward =
+        roll < 0.4 ? (table[0] ?? 0)
+        : roll < 0.7 ? (table[1] ?? table[0] ?? 0)
+        : roll < 0.9 ? (table[2] ?? table[0] ?? 0)
+        : (table[3] ?? table[0] ?? 0);
+      wallet.balance += reward;
+      saveWallet(wallet);
+      if (reward > 0) burst(npc.x, 2.2, npc.z);
+      showLine(reward > 0 ? `Lucky seat! The house returns ${reward} City Sol.` : "No luck this time — the seat stays dark.");
+      say(reward > 0 ? `Lucky seat — ${reward} City Sol back!` : "No luck on the lucky seat.");
     },
     closeTalk() {
       talk = null;

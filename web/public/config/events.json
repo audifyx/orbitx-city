@@ -19,5 +19,19 @@
     "where": "Project District",
     "when": "Saturday, 2:00",
     "detail": "Walk the offices. Empty floors are waiting for real projects."
+  },
+  {
+    "id": "hall-concert",
+    "title": "Plaza concert",
+    "where": "Community Hall stage",
+    "when": "Friday, 8:00",
+    "detail": "Live set on the hall stage — the dance floor opens after. Juno's on the decks."
+  },
+  {
+    "id": "street-festival",
+    "title": "Street festival",
+    "where": "Market street",
+    "when": "Saturday, all day",
+    "detail": "Stalls along Market street, busking at the plaza corner, and the night market stays open late."
   }
 ]

@@ -3427,6 +3427,12 @@ export function buildCity(seed: number): City {
       { name: "Kai", color: "cyan", x: 6, z: 204 },
       { name: "Juno", color: "sunset", x: 37, z: 97 },
       { name: "Theo", color: "white", x: 20, z: -2 },
+      { name: "Vera", color: "gold", x: -74, z: -161 },
+      { name: "Otis", color: "white", x: -74, z: 163 },
+      { name: "Remy", color: "red", x: 73, z: 201 },
+      { name: "Wren", color: "cyan", x: 117, z: 209 },
+      { name: "Nadia", color: "sunset", x: 74, z: -50 },
+      { name: "Felix", color: "silver", x: 38, z: 58 },
     ],
   };
 }

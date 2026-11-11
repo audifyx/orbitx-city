@@ -71,6 +71,11 @@ function Talk({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
       <button type="button" onClick={() => rt?.talkNext()}>
         Next line
       </button>
+      {talk.offerLabel && (
+        <button type="button" onClick={() => rt?.npcOffer()}>
+          {talk.offerLabel}
+        </button>
+      )}
       {talk.jobId && (
         <button
           type="button"
