@@ -1,6 +1,8 @@
 -- OrbitX City accounts and in-app wallets.
--- Safe to run more than once. The service role is the only writer for balances and keys.
--- Apply with the Supabase SQL editor, or `supabase db push` if you use the CLI.
+-- Apply only to Supabase project supabase-blue-chair
+-- (ref okeydwkyepdusmldivpf, region us-east-1). Do not run this on any other project.
+-- Idempotent. Run 20261111120000_city.sql first. This file is second.
+-- The service role is the only writer for balances and keys.
 
 alter table public.players add column if not exists email text not null default '';
 alter table public.players add column if not exists avatar text not null default '';

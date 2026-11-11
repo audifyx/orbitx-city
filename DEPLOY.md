@@ -8,11 +8,26 @@ Vercel rebuilds when the connected branch moves. Supabase is the shared world. N
 
 ## Supabase
 
-1. Vercel project → **Storage** or **Marketplace** → **Supabase** → create or connect a project.
-2. Accept `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`. `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are accepted too. Do not copy the service role into git or into a `VITE_` name. The anon key is public. The service role is the only key that can change a balance or read a wallet secret.
-3. Supabase dashboard → **SQL Editor** → paste `supabase/schema.sql` → **Run**. If this project already had the older schema, also run `supabase/migrations/20261111140000_auth_and_wallets.sql`. Both files are safe to run again.
-4. Authentication → Providers. Turn on **Email** (password and magic link), **Google**, **Discord**, and **Twitter** (that is X). Add redirect URLs for the Vercel domain and for local play: `https://your-project.vercel.app` and `http://localhost:5173`. The site origin is what the browser sends as `redirectTo`.
-5. Redeploy. A push to the connected branch does that on its own.
+The project is **supabase-blue-chair**, ref `okeydwkyepdusmldivpf`, region **us-east-1**. It is already connected to the Vercel project. Do not create or target any other Supabase project. Vercel already has `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, the anon key, and `SUPABASE_SERVICE_ROLE_KEY`. Do not copy the service role into git or into a `VITE_` name. The anon key is public. The service role is the only key that can change a balance or read a wallet secret.
+
+Apply these files in order. Each one is safe to run again.
+
+1. `supabase/migrations/20261111120000_city.sql`
+2. `supabase/migrations/20261111140000_auth_and_wallets.sql`
+
+`supabase/schema.sql` is only a pointer. Do not paste it.
+
+Authentication → Providers, on this project only. Turn on **Email** (password and magic link), **Google**, **Discord**, and **Twitter** (that is X). Google, Discord, and Twitter also need that provider's client id and secret on the same screen.
+
+Authentication → URL Configuration. The game sends `redirectTo` and `emailRedirectTo` as `window.location.origin`, so each origin below must be allowed:
+
+- `http://localhost:5173`
+- `http://127.0.0.1:5173`
+- `https://orbitx-city-audifyxbeta-4145s-projects.vercel.app`
+
+Use the Vercel production origin as the Site URL. If that project has a different production alias, add that origin too. Preview deploys need their origin as well, or `https://*.vercel.app` if the dashboard accepts a wildcard.
+
+Redeploy after the SQL and the providers are in place. A push to the connected branch does that on its own.
 
 `https://your-project.vercel.app/api/city` should say `"supabase": true`. After the SQL has run, play once and the same URL's world reports `Supabase`. If `supabaseError` is set, the SQL has not been applied yet. Until then the game keeps the world in that one server's memory.
 
