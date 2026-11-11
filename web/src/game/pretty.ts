@@ -1,14 +1,18 @@
 import {
   CanvasTexture,
+  ConeGeometry,
   CylinderGeometry,
+  ExtrudeGeometry,
   Group,
   Mesh,
   MeshStandardMaterial,
   RepeatWrapping,
+  Shape,
   SRGBColorSpace,
   BoxGeometry,
 } from "three";
-import type { Facade } from "./city";
+import type { Facade, Face } from "./city";
+import { porchPosts, porchSlab } from "./city";
 
 export type QualityName = "low" | "medium" | "high";
 
@@ -229,6 +233,30 @@ const paints = [0, 1, 2, 3, 4, 5].map((style) => paintFacade(style));
 
 const STYLE_EMISSIVE = [0x9af6ff, 0xffc27a, 0xbfe6ff, 0xffc27a, 0x9af6ff, 0x9af6ff];
 
+// Shared roof / trim materials (one instance per colour, not per facade).
+const ROOF_MATS = [0x232830, 0x8a4a34, 0x3a4a5c, 0xe0b33a].map(
+  (color) => new MeshStandardMaterial({ color, roughness: 0.65, metalness: 0.15 }),
+);
+const GLASS_MAT = new MeshStandardMaterial({
+  color: 0x9af6ff,
+  emissive: 0x1ad8ff,
+  emissiveIntensity: 0.55,
+  roughness: 0.12,
+  metalness: 0.4,
+  transparent: true,
+  opacity: 0.45,
+});
+const GOLD_MAT = new MeshStandardMaterial({
+  color: 0xe0b33a,
+  roughness: 0.35,
+  metalness: 0.7,
+  emissive: 0x6a5208,
+  emissiveIntensity: 0.4,
+});
+const WHITE_MAT = new MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.45, metalness: 0.1 });
+const WOOD_MAT = new MeshStandardMaterial({ color: 0x7a5a3a, roughness: 0.8, metalness: 0.05 });
+const DARK_MAT = new MeshStandardMaterial({ color: 0x141820, roughness: 0.7, metalness: 0.2 });
+
 function facadeMaterial(style: number, w: number, h: number) {
   const src = paints[style % paints.length];
   const map = src.map.clone();
@@ -392,6 +420,258 @@ function addRoofKit(group: Group, x: number, z: number, w: number, d: number, h:
   group.add(beacon);
 }
 
+// ---- real-architecture kit: pitched roofs, porches, chimneys, storefronts,
+// stepped towers, side wings. One prism/mesh per feature, shared materials.
+
+// A gable roof: a triangular prism (extruded triangle) on the walls, with a
+// small overhang. Ridge runs along X when dir is n/s, along Z when e/w.
+// Returns the ridge height.
+function addGableRoof(
+  group: Group,
+  x: number,
+  z: number,
+  w: number,
+  d: number,
+  h: number,
+  dir: Face,
+  matIdx: number,
+): number {
+  const alongX = dir === "n" || dir === "s";
+  const span = (alongX ? d : w) + 0.8;
+  const ridgeLen = (alongX ? w : d) + 0.8;
+  const rise = Math.min(span * 0.32, 3.2);
+  const tri = new Shape();
+  tri.moveTo(-span / 2, 0);
+  tri.lineTo(span / 2, 0);
+  tri.lineTo(0, rise);
+  tri.closePath();
+  const geo = new ExtrudeGeometry(tri, { depth: ridgeLen, bevelEnabled: false });
+  const mesh = new Mesh(geo, ROOF_MATS[matIdx % ROOF_MATS.length]);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  const cx = x + w / 2;
+  const cz = z + d / 2;
+  if (alongX) {
+    // Extrusion (local Z) becomes world X after the 90-degree turn.
+    mesh.rotation.y = Math.PI / 2;
+    mesh.position.set(cx - ridgeLen / 2, h - 0.05, cz);
+  } else {
+    // No rotation: the triangle is already symmetric about local x = 0,
+    // so the mesh origin sits on the building centre. (The old code put
+    // cx - span / 2 here, shifting the whole roof half a span west and
+    // leaving the east half of the building roofless.)
+    mesh.position.set(cx, h - 0.05, cz - ridgeLen / 2);
+  }
+  group.add(mesh);
+  return rise;
+}
+
+// A hip roof: a four-sided pyramid whose base matches the walls.
+function addHipRoof(
+  group: Group,
+  x: number,
+  z: number,
+  w: number,
+  d: number,
+  h: number,
+  matIdx: number,
+): number {
+  const rise = Math.min(Math.min(w, d) * 0.28, 3);
+  const mesh = new Mesh(new ConeGeometry(1, 1, 4), ROOF_MATS[matIdx % ROOF_MATS.length]);
+  mesh.rotation.y = Math.PI / 4;
+  mesh.scale.set((w + 0.8) / Math.SQRT2, rise, (d + 0.8) / Math.SQRT2);
+  mesh.position.set(x + w / 2, h + rise / 2 - 0.05, z + d / 2);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  return rise;
+}
+
+// A front porch: slab, canopy, and two posts over the door.
+function addPorch(group: Group, f: Facade) {
+  const slab = porchSlab(f);
+  const slabMesh = new Mesh(box, WOOD_MAT);
+  slabMesh.position.set(slab.x, 0.09, slab.z);
+  slabMesh.scale.set(slab.w, 0.18, slab.d);
+  slabMesh.receiveShadow = true;
+  group.add(slabMesh);
+  const canopy = new Mesh(box, ROOF_MATS[(f.roofMat ?? 0) % ROOF_MATS.length]);
+  canopy.position.set(slab.x, 3.05, slab.z);
+  canopy.scale.set(slab.w + 0.4, 0.14, slab.d + 0.4);
+  canopy.castShadow = true;
+  group.add(canopy);
+  for (const p of porchPosts(f)) {
+    const post = new Mesh(box, WHITE_MAT);
+    post.position.set(p.x, 1.6, p.z);
+    post.scale.set(0.24, 2.9, 0.24);
+    post.castShadow = true;
+    group.add(post);
+  }
+}
+
+// A chimney riding the ridge (gable) or the apex (hip), proud of the roof.
+function addChimney(group: Group, f: Facade, rise: number) {
+  const cx = f.x + f.w / 2;
+  const cz = f.z + f.d / 2;
+  const mesh = new Mesh(box, ROOF_MATS[0]);
+  mesh.castShadow = true;
+  if (f.roof === "hip") {
+    mesh.position.set(cx, f.h + rise - 0.4, cz);
+  } else if (f.roofDir === "n" || f.roofDir === "s") {
+    mesh.position.set(f.x + f.w * 0.25, f.h + rise - 0.3, cz);
+  } else {
+    mesh.position.set(cx, f.h + rise - 0.3, f.z + f.d * 0.25);
+  }
+  mesh.scale.set(0.9, 2.4, 0.9);
+  group.add(mesh);
+  const cap = new Mesh(box, GOLD_MAT);
+  cap.position.set(mesh.position.x, mesh.position.y + 1.3, mesh.position.z);
+  cap.scale.set(1.15, 0.22, 1.15);
+  group.add(cap);
+}
+
+// A real shop front: glass panes + a gold sign band + a sloped awning.
+function addStorefront(group: Group, f: Facade) {
+  const face = f.face;
+  const alongX = face === "n" || face === "s";
+  const span = alongX ? f.w : f.d;
+  const paneW = Math.min(span * 0.72, 12);
+  const cx = f.x + f.w / 2;
+  const cz = f.z + f.d / 2;
+  const glass = new Mesh(box, GLASS_MAT);
+  const band = new Mesh(box, GOLD_MAT);
+  if (face === "n") {
+    glass.position.set(cx, 1.75, f.z - 0.12);
+    glass.scale.set(paneW, 3.2, 0.18);
+    band.position.set(cx, 3.65, f.z - 0.16);
+    band.scale.set(paneW, 0.9, 0.24);
+  } else if (face === "s") {
+    glass.position.set(cx, 1.75, f.z + f.d + 0.12);
+    glass.scale.set(paneW, 3.2, 0.18);
+    band.position.set(cx, 3.65, f.z + f.d + 0.16);
+    band.scale.set(paneW, 0.9, 0.24);
+  } else if (face === "w") {
+    glass.position.set(f.x - 0.12, 1.75, cz);
+    glass.scale.set(0.18, 3.2, paneW);
+    band.position.set(f.x - 0.16, 3.65, cz);
+    band.scale.set(0.24, 0.9, paneW);
+  } else {
+    glass.position.set(f.x + f.w + 0.12, 1.75, cz);
+    glass.scale.set(0.18, 3.2, paneW);
+    band.position.set(f.x + f.w + 0.16, 3.65, cz);
+    band.scale.set(0.24, 0.9, paneW);
+  }
+  group.add(glass);
+  group.add(band);
+  if (f.awning) {
+    const awn = new Mesh(box, GOLD_MAT);
+    const depth = 1.5;
+    if (face === "n") {
+      awn.position.set(cx, 4.15, f.z - depth / 2 - 0.1);
+      awn.scale.set(paneW + 1, 0.1, depth);
+      awn.rotation.x = -0.42;
+    } else if (face === "s") {
+      awn.position.set(cx, 4.15, f.z + f.d + depth / 2 + 0.1);
+      awn.scale.set(paneW + 1, 0.1, depth);
+      awn.rotation.x = 0.42;
+    } else if (face === "w") {
+      awn.position.set(f.x - depth / 2 - 0.1, 4.15, cz);
+      awn.scale.set(depth, 0.1, paneW + 1);
+      awn.rotation.z = 0.42;
+    } else {
+      awn.position.set(f.x + f.w + depth / 2 + 0.1, 4.15, cz);
+      awn.scale.set(depth, 0.1, paneW + 1);
+      awn.rotation.z = -0.42;
+    }
+    awn.castShadow = true;
+    group.add(awn);
+  }
+}
+
+// Gold trim band at the top of the walls.
+function addCornice(group: Group, f: Facade) {
+  const trim = new Mesh(box, GOLD_MAT);
+  trim.position.set(f.x + f.w / 2, f.h - 0.15, f.z + f.d / 2);
+  trim.scale.set(f.w + 0.3, 0.35, f.d + 0.3);
+  group.add(trim);
+}
+
+// A smaller box crowning the roof (the HQ's stepped top).
+function addCrownBox(group: Group, f: Facade, material: MeshStandardMaterial) {
+  const crown = f.crown;
+  if (!crown) return;
+  const cx = f.x + f.w / 2;
+  const cz = f.z + f.d / 2;
+  const mesh = new Mesh(box, material);
+  mesh.position.set(cx, f.h + crown.h / 2, cz);
+  mesh.scale.set(crown.w, crown.h, crown.d);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  const trim = new Mesh(box, GOLD_MAT);
+  trim.position.set(cx, f.h + 0.15, cz);
+  trim.scale.set(crown.w + 0.3, 0.3, crown.d + 0.3);
+  group.add(trim);
+}
+
+// Stepped tower tiers (stacked from the ground, centered on the rect).
+function addTiers(group: Group, f: Facade, material: MeshStandardMaterial) {
+  const tiers = f.tiers;
+  if (!tiers) return;
+  const cx = f.x + f.w / 2;
+  const cz = f.z + f.d / 2;
+  let y = 0;
+  tiers.forEach((tier, index) => {
+    const mesh = new Mesh(box, material);
+    mesh.position.set(cx, y + tier.h / 2, cz);
+    mesh.scale.set(tier.w, tier.h, tier.d);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+    if (index > 0) {
+      const trim = new Mesh(box, GOLD_MAT);
+      trim.position.set(cx, y, cz);
+      trim.scale.set(tier.w + 0.3, 0.35, tier.d + 0.3);
+      group.add(trim);
+    }
+    y += tier.h;
+  });
+}
+
+// A side annex (L-shaped footprint) with its own small roof.
+function addWing(group: Group, f: Facade, material: MeshStandardMaterial) {
+  const wing = f.wing;
+  if (!wing) return;
+  const wx = f.x + wing.dx;
+  const wz = f.z + wing.dz;
+  const mesh = new Mesh(box, material);
+  mesh.position.set(wx + wing.w / 2, wing.h / 2, wz + wing.d / 2);
+  mesh.scale.set(wing.w, wing.h, wing.d);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  if (wing.roof === "gable") {
+    addGableRoof(group, wx, wz, wing.w, wing.d, wing.h, wing.w >= wing.d ? "n" : "e", f.roofMat ?? 0);
+  } else if (wing.roof === "hip") {
+    addHipRoof(group, wx, wz, wing.w, wing.d, wing.h, f.roofMat ?? 0);
+  } else {
+    const cap = new Mesh(box, DARK_MAT);
+    cap.position.set(wx + wing.w / 2, wing.h + 0.1, wz + wing.d / 2);
+    cap.scale.set(wing.w + 0.2, 0.2, wing.d + 0.2);
+    group.add(cap);
+  }
+}
+
+// The roof for one facade: pitched, or the flat parapet kit. Returns the
+// ridge height (0 for a flat roof) for the chimney.
+function addRoof(group: Group, f: Facade): number {
+  if (f.roof === "gable")
+    return addGableRoof(group, f.x, f.z, f.w, f.d, f.h, f.roofDir ?? f.face, f.roofMat ?? 0);
+  if (f.roof === "hip") return addHipRoof(group, f.x, f.z, f.w, f.d, f.h, f.roofMat ?? 0);
+  if (!f.crown) addRoofKit(group, f.x, f.z, f.w, f.d, f.h);
+  return 0;
+}
+
 function solidTower(facade: Facade) {
   const group = new Group();
   const tiers = [
@@ -486,14 +766,32 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
   root.name = "pretty-city";
   const plain = new MeshStandardMaterial({ color: 0x1c2430, roughness: 0.7, metalness: 0.2, emissive: 0x12343f, emissiveIntensity: 0.25 });
   for (const facade of facades) {
-    if (facade.hero) {
+    // The central tower is the only facade that renders as the stepped
+    // solid tower. The mall and HQ are hero too but have their own
+    // enterable exteriors — previously all three rendered the same tower
+    // mesh three times, stacked on the same spot.
+    if (facade.hero && facade.id === "tower") {
       root.add(solidTower(facade));
       continue;
     }
     const material = quality === "low" ? plain : facadeMaterial(facade.style, facade.w, facade.h);
+    if (quality !== "low" && facade.tiers) {
+      // Stepped tower: the tiers ARE the building; no single flat box.
+      addTiers(root, facade, material);
+      const top = facade.tiers[facade.tiers.length - 1];
+      addRoofKit(
+        root,
+        facade.x + (facade.w - top.w) / 2,
+        facade.z + (facade.d - top.d) / 2,
+        top.w,
+        top.d,
+        facade.h,
+      );
+      if (facade.wing) addWing(root, facade, material);
+      continue;
+    }
     if (facade.enterable && facade.door) {
       root.add(hollow(facade, material));
-      if (quality !== "low") addRoofKit(root, facade.x, facade.z, facade.w, facade.d, facade.h);
     } else {
       const mesh = new Mesh(box, material);
       mesh.position.set(facade.x + facade.w / 2, facade.h / 2, facade.z + facade.d / 2);
@@ -502,8 +800,15 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
       mesh.castShadow = quality !== "low";
       mesh.receiveShadow = quality !== "low";
       root.add(mesh);
-      if (quality !== "low") addRoofKit(root, facade.x, facade.z, facade.w, facade.d, facade.h);
     }
+    if (quality === "low") continue;
+    const rise = addRoof(root, facade);
+    if (facade.porch) addPorch(root, facade);
+    if (facade.chimney) addChimney(root, facade, rise);
+    if (facade.storefront) addStorefront(root, facade);
+    if (facade.cornice) addCornice(root, facade);
+    if (facade.crown) addCrownBox(root, facade, material);
+    if (facade.wing) addWing(root, facade, material);
   }
   return root;
 }

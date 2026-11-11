@@ -149,6 +149,14 @@ function shotMode(): PlayMode | null {
     shot === "liftcall" ||
     shot === "spectate" ||
     shot === "spectate-ui" ||
+    shot === "street" ||
+    shot === "stores" ||
+    shot === "malldoor" ||
+    shot === "officedoor" ||
+    shot === "homedoor" ||
+    shot === "homefront" ||
+    shot === "streetup" ||
+    shot === "homediag" ||
     params.has("autostart")
   ) {
     return "play";

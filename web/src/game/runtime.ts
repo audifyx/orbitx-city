@@ -2308,6 +2308,82 @@ export function createRuntime(scene: Scene) {
         body.yaw = anchor.yaw;
         body.pitch = 0.08;
       }
+    } else if (shot === "street") {
+      // Residential street: 9 units back from the first home's door, on the
+      // road (the road is only 10 wide — 16 would land inside the next lot),
+      // so the house plus its neighbours fill the frame.
+      const anchor = anchors.find((item) => item.id.startsWith("home-"));
+      if (anchor) {
+        body.x = anchor.x - Math.sin(anchor.yaw) * 9;
+        body.y = 0;
+        body.z = anchor.z + Math.cos(anchor.yaw) * 9;
+        body.yaw = anchor.yaw;
+        body.pitch = 0.1;
+      }
+    } else if (shot === "stores") {
+      // The avenue looking north into downtown: storefronts on both sides,
+      // towers behind. Shop (east) and cafe (west) flank the road.
+      body.flying = false;
+      body.x = 0;
+      body.y = 0;
+      body.z = 88;
+      body.yaw = 0;
+      body.pitch = 0.1;
+      camMode = "first";
+    } else if (shot === "malldoor") {
+      // Outside the mall's west door, 1.5 units from the door anchor
+      // (41.6, 0) — inside the 3.3-unit E range. Pressing E must walk in.
+      body.flying = false;
+      body.x = 40.1;
+      body.y = 0;
+      body.z = 0;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.05;
+    } else if (shot === "officedoor") {
+      // Outside the HQ's east door, 1.5 units from the door anchor
+      // (-41.6, 0). Pressing E must walk in.
+      body.flying = false;
+      body.x = -40.1;
+      body.y = 0;
+      body.z = 0;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0.05;
+    } else if (shot === "homedoor") {
+      // Outside home-0's east door, 1.5 units from the door anchor
+      // (-149.6, -53.5). Pressing E must walk in.
+      body.flying = false;
+      body.x = -148.1;
+      body.y = 0;
+      body.z = -53.5;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0.05;
+    } else if (shot === "homefront") {
+      // Home-0 from the far edge of the road, camera pitched up so the
+      // whole house — wall to roof apex — is in frame.
+      body.flying = false;
+      body.x = -135.5;
+      body.y = 0;
+      body.z = -53.5;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0.25;
+    } else if (shot === "streetup") {
+      // Same spot as "street", pitched up like "homefront" — a control
+      // for the red mass seen in the homefront frame.
+      body.flying = false;
+      body.x = -140.6;
+      body.y = 0;
+      body.z = -53.5;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0.25;
+    } else if (shot === "homediag") {
+      // Home-0 from the road to the south-west, diagonal 3/4 view so the
+      // hip roof reads in 3D instead of edge-on.
+      body.flying = false;
+      body.x = -140;
+      body.y = 0;
+      body.z = -75;
+      body.yaw = -2.34;
+      body.pitch = 0.15;
     } else if (shot === "liftcall") {
       // Stand at the HQ lift call button in the lobby, facing the shaft.
       body.x = -93.5;

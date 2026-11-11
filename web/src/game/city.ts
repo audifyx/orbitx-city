@@ -38,6 +38,23 @@ export interface Box {
   hide?: boolean;
 }
 
+export interface Tier {
+  w: number;
+  d: number;
+  h: number;
+}
+
+/** A side annex attached to a building's flank (an L-shaped footprint). */
+export interface Wing {
+  dx: number;
+  dz: number;
+  w: number;
+  d: number;
+  h: number;
+  style: number;
+  roof: "flat" | "gable" | "hip";
+}
+
 export interface Facade {
   id: string;
   x: number;
@@ -49,6 +66,26 @@ export interface Facade {
   door: Face | "";
   enterable: boolean;
   hero: boolean;
+  /** Street-facing side — where the storefront / porch / awning sits. */
+  face: Face;
+  /** Roof shape; flat = parapet kit. gable/hip = pitched roof over the walls. */
+  roof?: "flat" | "gable" | "hip" | "stepped";
+  /** Gable ridge runs along this face's axis ("n"/"s" = ridge along X). */
+  roofDir?: Face;
+  /** Roof material: 0 charcoal, 1 terracotta, 2 slate blue, 3 gold. */
+  roofMat?: number;
+  porch?: boolean;
+  chimney?: boolean;
+  wing?: Wing;
+  /** A smaller box crowning the roof (centered), e.g. the HQ's stepped top. */
+  crown?: Tier;
+  /** Stepped tower tiers (stacked from the ground, centered on the rect). */
+  tiers?: Tier[];
+  /** Ground-floor glass storefront + sign band on the face side. */
+  storefront?: boolean;
+  awning?: boolean;
+  /** Gold trim band at the top of the walls. */
+  cornice?: boolean;
 }
 
 export interface Collider {
@@ -228,7 +265,7 @@ function col(x: number, y: number, z: number, sx: number, sy: number, sz: number
   };
 }
 
-type Face = "n" | "s" | "e" | "w";
+export type Face = "n" | "s" | "e" | "w";
 
 function emitX(
   boxes: Box[],
@@ -592,6 +629,8 @@ function addTower(boxes: Box[], cols: Collider[]) {
     door: "n",
     enterable: false,
     hero: true,
+    face: "n",
+    roof: "flat",
   });
   return y;
 }
@@ -709,10 +748,123 @@ function addYard(boxes: Box[], cols: Collider[], x0: number, z0: number, x1: num
   }
 }
 
+/** The two porch-post positions for a facade with a porch. Single source of
+ * truth: city.ts adds the post colliders, pretty.ts draws the posts. */
+export function porchPosts(f: Facade): Array<{ x: number; z: number }> {
+  const slabW = 5;
+  const depth = 2.2;
+  const cx = f.x + f.w / 2;
+  const cz = f.z + f.d / 2;
+  const o = slabW / 2 - 0.15;
+  if (f.face === "n")
+    return [
+      { x: cx - o, z: f.z - depth + 0.2 },
+      { x: cx + o, z: f.z - depth + 0.2 },
+    ];
+  if (f.face === "s")
+    return [
+      { x: cx - o, z: f.z + f.d + depth - 0.2 },
+      { x: cx + o, z: f.z + f.d + depth - 0.2 },
+    ];
+  if (f.face === "w")
+    return [
+      { x: f.x - depth + 0.2, z: cz - o },
+      { x: f.x - depth + 0.2, z: cz + o },
+    ];
+  return [
+    { x: f.x + f.w + depth - 0.2, z: cz - o },
+    { x: f.x + f.w + depth - 0.2, z: cz + o },
+  ];
+}
+
+/** The porch slab rect for a facade with a porch (center + size). */
+export function porchSlab(f: Facade): { x: number; z: number; w: number; d: number } {
+  const slabW = 5;
+  const depth = 2.2;
+  const cx = f.x + f.w / 2;
+  const cz = f.z + f.d / 2;
+  if (f.face === "n") return { x: cx, z: f.z - depth / 2, w: slabW, d: depth };
+  if (f.face === "s") return { x: cx, z: f.z + f.d + depth / 2, w: slabW, d: depth };
+  if (f.face === "w") return { x: f.x - depth / 2, z: cz, w: depth, d: slabW };
+  return { x: f.x + f.w + depth / 2, z: cz, w: depth, d: slabW };
+}
+
+/** Carve an L-shaped plan: the annex sits in a strip freed by shrinking the
+ * building rect on one flank (the strip is inside the lot by construction,
+ * since the lots are packed flush). Returns the annex box in absolute
+ * coords plus which side to shrink and by how much; the caller adjusts the
+ * main rect and derives the wing's dx/dz from the final origin. */
+function planWing(
+  rect: { x: number; z: number; w: number; d: number },
+  face: Face,
+  style: number,
+  rng: Rng,
+  minMain = 12,
+): { w: number; d: number; h: number; style: number; roof: "gable" | "flat"; absX: number; absZ: number; shrinkSide: "a" | "b"; shrink: number } | undefined {
+  const alongX = face === "n" || face === "s";
+  const depth = 4 + Math.floor(rng() * 2); // 4..5, perpendicular to the flank
+  const len = 5 + Math.floor(rng() * 4); // 5..8, along the flank
+  const h = 3.5 + rng() * 1.5;
+  const mainAlong = alongX ? rect.w : rect.d;
+  if (mainAlong - depth < minMain) return undefined;
+  const otherAlong = alongX ? rect.d : rect.w;
+  if (otherAlong - len < 2) return undefined;
+  const side: "a" | "b" = rng() < 0.5 ? "a" : "b";
+  const off = rng() * Math.max(0.5, otherAlong - len);
+  if (alongX) {
+    const wx = side === "a" ? rect.x + rect.w - depth : rect.x;
+    const wz = rect.z + off;
+    return { w: depth, d: len, h, style, roof: rng() < 0.5 ? "gable" : "flat", absX: wx, absZ: wz, shrinkSide: side, shrink: depth };
+  }
+  const wz = side === "a" ? rect.z + rect.d - depth : rect.z;
+  const wx = rect.x + off;
+  return { w: len, d: depth, h, style, roof: rng() < 0.5 ? "gable" : "flat", absX: wx, absZ: wz, shrinkSide: side, shrink: depth };
+}
+
+/** Apply a planned wing: shrink the main rect, build the Wing record
+ * (dx/dz relative to the final origin), and solid-ify the annex. */
+function applyWing(
+  planned: NonNullable<ReturnType<typeof planWing>>,
+  rect: { x: number; z: number; w: number; d: number },
+  face: Face,
+  cols: Collider[],
+): Wing {
+  const alongX = face === "n" || face === "s";
+  if (alongX) {
+    if (planned.shrinkSide === "a") rect.w -= planned.shrink;
+    else {
+      rect.x += planned.shrink;
+      rect.w -= planned.shrink;
+    }
+  } else if (planned.shrinkSide === "a") {
+    rect.d -= planned.shrink;
+  } else {
+    rect.z += planned.shrink;
+    rect.d -= planned.shrink;
+  }
+  cols.push(
+    col(planned.absX + planned.w / 2, planned.h / 2, planned.absZ + planned.d / 2, planned.w, planned.h, planned.d),
+  );
+  return {
+    dx: planned.absX - rect.x,
+    dz: planned.absZ - rect.z,
+    w: planned.w,
+    d: planned.d,
+    h: planned.h,
+    style: planned.style,
+    roof: planned.roof,
+  };
+}
+
 function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): { zones: Zone[]; anchors: Anchor[] } {
   // A separate rng stream for yards/homes so the main sequence (heights,
   // styles, street life) stays identical to before.
   const yardRng = makeRng((seed || 1) * 131 + 7);
+  // Two more isolated streams for the exterior rework: every footprint,
+  // roof, tier, porch and wing decision draws here, so the main sequence
+  // (lot positions, heights, styles, street life, car spawns) never moves.
+  const varRng = makeRng((seed || 1) * 977 + 13);
+  const homeRng = makeRng((seed || 1) * 733 + 29);
   const zones: Zone[] = [];
   const anchors: Anchor[] = [];
   let homesBuilt = 0;
@@ -757,28 +909,116 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
       // front door to a furnished living room + kitchen, not a solid slab.
       const isHome = dist > 100 && (style === 1 || style === 3) && homesBuilt < 8 && yardRng() < 0.3;
       if (isHome) {
-        const home = addHome(boxes, cols, bx, bz, bw, bd, height, face, homesBuilt);
+        // Real house footprint inside the lot: 18-23 wide, 18-22 deep, slid
+        // to one side so no two houses on a street line up. (Furnishing
+        // needs w>=18, d>=18 or the kitchen counter clips the wall.)
+        const hw = 18 + Math.floor(homeRng() * 6);
+        const hd = 18 + Math.floor(homeRng() * 5);
+        const hx = bx + Math.floor(homeRng() * Math.max(1, bw - hw + 1));
+        const hz = bz + Math.floor(homeRng() * Math.max(1, bd - hd + 1));
+        const homeH = 5 + Math.floor(homeRng() * 3); // 5..7: one or two storeys
+        const home = addHome(boxes, cols, hx, hz, hw, hd, homeH, face, homesBuilt, homeRng);
         zones.push(home.zone);
         anchors.push(home.anchor);
         homesBuilt++;
         continue;
       }
+      // Vary the footprint inside the lot (never the lot itself): shrink
+      // each side by 0-4 and slide the building to one side, so no two
+      // buildings on a street sit flush or share a size. `bx/bz/bw/bd` stay
+      // the ORIGINAL rect: the shell loop's setback decisions and the garden
+      // roll draw the main rng in exactly the original order, so the main
+      // sequence (heights, styles, street life) never moves. `fb*` is the
+      // visible building — the shell geometry and the facade record.
+      const shX = Math.floor(varRng() * 5);
+      const shZ = Math.floor(varRng() * 5);
+      const offX = Math.floor(varRng() * (shX + 1));
+      const offZ = Math.floor(varRng() * (shZ + 1));
+      let fbx = bx + offX;
+      let fbz = bz + offZ;
+      let fbw = Math.max(14, bw - shX);
+      let fbd = Math.max(14, bd - shZ);
+      // Architectural variation for this block: pitched roofs on low
+      // buildings, stepped towers above 24, storefronts downtown.
+      const downtown = dist < 110;
+      let roof: Facade["roof"] = "flat";
+      let roofMat = 0;
+      let tiers: Tier[] | undefined;
+      let storefront = false;
+      let awning = false;
+      let cornice = false;
+      let chimney = false;
+      let wing: Wing | undefined;
+      if (height > 24) {
+        roof = "stepped";
+        cornice = true;
+        const n = 2 + (varRng() < 0.45 ? 1 : 0);
+        const h0 = Math.round(height * 0.5);
+        const h1 = Math.round(height * 0.3);
+        const w1 = Math.max(8, fbw - (6 + Math.floor(varRng() * 4)));
+        const d1 = Math.max(8, fbd - (6 + Math.floor(varRng() * 4)));
+        tiers = [
+          { w: fbw, d: fbd, h: h0 },
+          { w: w1, d: d1, h: h1 },
+        ];
+        if (n === 3) {
+          tiers.push({
+            w: Math.max(8, w1 - (4 + Math.floor(varRng() * 4))),
+            d: Math.max(8, d1 - (4 + Math.floor(varRng() * 4))),
+            h: height - h0 - h1,
+          });
+        }
+      } else if (height <= 12) {
+        roof = varRng() < 0.55 ? "gable" : "hip";
+        roofMat = Math.floor(varRng() * 3);
+        chimney = varRng() < 0.5;
+        if (varRng() < 0.45) {
+          const planned = planWing({ x: fbx, z: fbz, w: fbw, d: fbd }, face, style, varRng);
+          if (planned) {
+            const rect = { x: fbx, z: fbz, w: fbw, d: fbd };
+            wing = applyWing(planned, rect, face, cols);
+            fbx = rect.x;
+            fbz = rect.z;
+            fbw = rect.w;
+            fbd = rect.d;
+          }
+        }
+        if (downtown && varRng() < 0.5) {
+          storefront = true;
+          awning = true;
+        }
+      } else {
+        cornice = true;
+        if (downtown) {
+          storefront = true;
+          awning = varRng() < 0.7;
+        }
+      }
       facades.push({
         id: `block-${x0}-${z0}`,
-        x: bx,
-        z: bz,
-        w: bw,
-        d: bd,
+        x: fbx,
+        z: fbz,
+        w: fbw,
+        d: fbd,
         h: height,
         style,
         door: "",
         enterable: false,
         hero: false,
+        face,
+        roof,
+        roofMat,
+        tiers,
+        storefront,
+        awning,
+        cornice,
+        chimney,
+        wing,
       });
-      const baseX = bx;
-      const baseZ = bz;
-      const baseW = bw;
-      const baseD = bd;
+      const baseX = fbx;
+      const baseZ = fbz;
+      const baseW = fbw;
+      const baseD = fbd;
       let y = 0;
       let guard = 0;
       while (y < height && guard < 8) {
@@ -787,39 +1027,50 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
         y = shell(
           boxes,
           cols,
-          bx,
+          fbx,
           y,
-          bz,
-          bw,
+          fbz,
+          fbw,
           slice,
-          bd,
+          fbd,
           (u, ly, f) => {
-            const len = f === "n" || f === "s" ? bw : bd;
+            const len = f === "n" || f === "s" ? fbw : fbd;
             return facadeSample(style, len)(u, ly);
           },
           "black",
         );
+        // Setback decisions run on the ORIGINAL rect so the main rng draws
+        // in exactly the original order; the visible rect mirrors the step.
         if (y < height && bw > 16 && bd > 16 && height - y > 8 && rng() > 0.35) {
           bx += 2;
           bz += 2;
           bw -= 4;
           bd -= 4;
+          fbx += 2;
+          fbz += 2;
+          fbw = Math.max(8, fbw - 4);
+          fbd = Math.max(8, fbd - 4);
         }
       }
       const roofY = y;
-      if (bw >= 12 && bd >= 12 && rng() > 0.42) {
-        const gx0 = bx + 2;
-        const gz0 = bz + 2;
-        const gw = bw - 4;
-        const gd = bd - 4;
+      // The garden roll is drawn exactly when the original code drew it;
+      // a pitched roof just means the garden is not placed.
+      const gardenRoll = bw >= 12 && bd >= 12 ? rng() : -1;
+      // No garden on a pitched roof (it would pierce the slope) or a
+      // stepped tower (the garden would overhang the top tier).
+      if (gardenRoll > 0.42 && roof !== "gable" && roof !== "hip" && roof !== "stepped") {
+        const gx0 = fbx + 2;
+        const gz0 = fbz + 2;
+        const gw = fbw - 4;
+        const gd = fbd - 4;
         put(boxes, gx0 + gw / 2, roofY + 0.2, gz0 + gd / 2, gw, 0.35, gd, "grass");
         put(boxes, gx0 + gw / 2, roofY + 0.7, gz0 + 0.4, gw, 0.7, 0.7, "hedge");
         put(boxes, gx0 + gw / 2, roofY + 0.7, gz0 + gd - 0.4, gw, 0.7, 0.7, "hedge");
         if (gw > 6) addTree(boxes, cols, gx0 + 2, gz0 + Math.max(3, gd / 2), roofY + 0.3);
       }
-      addAwning(boxes, bx, bz, bw, bd, face);
-      if (height > 18) addBalcony(boxes, bx, Math.min(12, roofY - 4), bz, bw, bd, face);
-      if (height > 22) addCrown(boxes, cols, bx + bw / 2, roofY, bz + bd / 2, bw, bd);
+      addAwning(boxes, fbx, fbz, fbw, fbd, face);
+      if (height > 18) addBalcony(boxes, fbx, Math.min(12, roofY - 4), fbz, fbw, fbd, face);
+      if (height > 22) addCrown(boxes, cols, fbx + fbw / 2, roofY, fbz + fbd / 2, fbw, fbd);
       if (height > 22 && dist > 40 && dist < 140 && rng() > 0.55) {
         addBillboard(boxes, baseX, 8, baseZ, baseW, baseD, face, Math.floor(rng() * 6));
       }
@@ -1398,6 +1649,22 @@ function addVenue(
   index = 0,
 ) {
   const style = kind === "cafe" ? 2 : kind === "hall" ? 3 : kind === "shop" ? 0 : 1;
+  // Real-store exteriors: pitched roofs, glass storefronts, awnings, gold
+  // cornices — the ground floor must read as a shop, not a blank slab.
+  const arch: Pick<Facade, "roof" | "roofMat" | "storefront" | "awning" | "cornice"> =
+    kind === "shop" || kind === "arcade"
+      ? { roof: "gable", roofMat: 2, storefront: true, awning: true, cornice: true }
+      : kind === "cafe" || kind === "market"
+        ? { roof: "hip", roofMat: 1, storefront: true, awning: true, cornice: true }
+        : kind === "hall"
+          ? { roof: "gable", roofMat: 0, storefront: false, awning: false, cornice: true }
+          : kind === "bank"
+            ? { roof: "flat", roofMat: 0, storefront: true, awning: false, cornice: true }
+            : kind === "project"
+              ? { roof: "flat", roofMat: 0, storefront: true, awning: false, cornice: true }
+              : kind === "dock"
+                ? { roof: "gable", roofMat: 2, storefront: false, awning: false, cornice: false }
+                : { roof: "flat", roofMat: 0, storefront: false, awning: false, cornice: true };
   shellOpen(
     boxes,
     cols,
@@ -1423,6 +1690,13 @@ function addVenue(
     door,
     enterable: true,
     hero: false,
+    face: door,
+    roof: arch.roof,
+    roofDir: door,
+    roofMat: arch.roofMat,
+    storefront: arch.storefront,
+    awning: arch.awning,
+    cornice: arch.cornice,
   });
   if (kind === "shop") return furnishShop(boxes, cols, x0, z0, w, d, door);
   if (kind === "cafe") return furnishCafe(boxes, cols, x0, z0, w, d, door);
@@ -1670,36 +1944,83 @@ function furnishHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   };
 }
 
-function addHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, h: number, door: Face, index: number): { zone: Zone; anchor: Anchor } {
+function addHome(
+  boxes: Box[],
+  cols: Collider[],
+  x0: number,
+  z0: number,
+  w: number,
+  d: number,
+  h: number,
+  door: Face,
+  index: number,
+  rng: Rng,
+): { zone: Zone; anchor: Anchor } {
   const style = index % 2 === 0 ? 1 : 3;
+  // A real house: pitched roof (ridge along the street), a porch over the
+  // door, a chimney, and sometimes a side annex — no two alike.
+  const roof: "gable" | "hip" = rng() < 0.6 ? "gable" : "hip";
+  const roofMat = Math.floor(rng() * 3);
+  const porch = rng() < 0.65;
+  const chimney = rng() < 0.5;
+  // The annex is carved out of the house's own rect (L-shaped plan), so the
+  // furnished interior (which needs w>=18, d>=18) stays intact.
+  let hx = x0;
+  let hz = z0;
+  let hw = w;
+  let hd = d;
+  let wing: Wing | undefined;
+  if (rng() < 0.4) {
+    const planned = planWing({ x: hx, z: hz, w: hw, d: hd }, door, style, rng, 18);
+    if (planned) {
+      const rect = { x: hx, z: hz, w: hw, d: hd };
+      wing = applyWing(planned, rect, door, cols);
+      hx = rect.x;
+      hz = rect.z;
+      hw = rect.w;
+      hd = rect.d;
+    }
+  }
   shellOpen(
     boxes,
     cols,
-    x0,
+    hx,
     0,
-    z0,
-    w,
+    hz,
+    hw,
     h,
-    d,
+    hd,
     (u, ly, face, len) => (hole(face, door, u, ly, len) ? "air" : facadeSample(style, len)(u, ly)),
     "black",
     door,
   );
-  addAwning(boxes, x0, z0, w, d, door);
-  facades.push({
+  addAwning(boxes, hx, hz, hw, hd, door);
+  const facade: Facade = {
     id: `home-${index}`,
-    x: x0,
-    z: z0,
-    w,
-    d,
+    x: hx,
+    z: hz,
+    w: hw,
+    d: hd,
     h,
     style,
     door,
     enterable: true,
     hero: false,
-  });
-  const zone = furnishHome(boxes, cols, x0, z0, w, d, door, index);
-  const anchor = doorAnchor(`home-${index}`, `Home ${index + 1}`, "hall", x0, z0, w, d, door, index);
+    face: door,
+    roof,
+    roofDir: door,
+    roofMat,
+    porch,
+    chimney,
+    wing,
+  };
+  if (porch) {
+    // Porch posts are solid; the slab is a visual-only 0.18 step.
+    for (const p of porchPosts(facade)) cols.push(col(p.x, 1.3, p.z, 0.3, 2.6, 0.3));
+  }
+  facades.push(facade);
+  const zone = furnishHome(boxes, cols, hx, hz, hw, hd, door, index);
+  const anchor = doorAnchor(`home-${index}`, `Home ${index + 1}`, "hall", hx, hz, hw, hd, door, index);
   return { zone, anchor };
 }
 
@@ -1953,6 +2274,10 @@ function addMegaMall(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: 
     door: "w",
     enterable: true,
     hero: true,
+    face: "w",
+    roof: "flat",
+    cornice: true,
+    storefront: true,
   });
   // Ground floor: stone finish, ceiling slab is the mezzanine (built below).
   put(boxes, x0 + w / 2, 0.08, z0 + d / 2, w - 2.4, 0.08, d - 2.4, "stone");
@@ -2095,6 +2420,11 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
     door: "e",
     enterable: true,
     hero: true,
+    face: "e",
+    roof: "flat",
+    cornice: true,
+    storefront: true,
+    crown: { w: 40, d: 40, h: 3 },
   });
   // Ground floor: lobby, double-height void over the north strip (z 5..29).
   put(boxes, x0 + w / 2, 0.08, z0 + d / 2, w - 2.4, 0.08, d - 2.4, "cream");
@@ -2235,20 +2565,22 @@ function addHarbor(boxes: Box[], cols: Collider[]) {
 
 function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; boards: BoardSlot[]; zones: Zone[] } {
   const zones = [
-    addVenue(boxes, cols, 7, 43, 22, 22, 16, "w", "shop"),
-    addVenue(boxes, cols, -29, 43, 22, 22, 14, "e", "cafe"),
-    addVenue(boxes, cols, 43, 79, 22, 22, 18, "w", "hall"),
-    addVenue(boxes, cols, 79, -65, 22, 22, 16, "w", "bank"),
-    addVenue(boxes, cols, 79, 43, 22, 22, 14, "w", "garage"),
-    addVenue(boxes, cols, 43, 43, 22, 22, 12, "w", "arcade"),
-    addVenue(boxes, cols, -29, 79, 22, 22, 12, "n", "market"),
+    // Real-store heights: one or two storeys, not 12-18m slabs. (Interiors
+    // are ground-floor only; the ceiling sits at 3.6 either way.)
+    addVenue(boxes, cols, 7, 43, 22, 22, 8, "w", "shop"),
+    addVenue(boxes, cols, -29, 43, 22, 22, 7, "e", "cafe"),
+    addVenue(boxes, cols, 43, 79, 22, 22, 10, "w", "hall"),
+    addVenue(boxes, cols, 79, -65, 22, 22, 10, "w", "bank"),
+    addVenue(boxes, cols, 79, 43, 22, 22, 7, "w", "garage"),
+    addVenue(boxes, cols, 43, 43, 22, 22, 8, "w", "arcade"),
+    addVenue(boxes, cols, -29, 79, 22, 22, 7, "n", "market"),
   ];
   addHarbor(boxes, cols);
-  zones.push(addVenue(boxes, cols, -8, 212, 16, 14, 10, "n", "dock"));
+  zones.push(addVenue(boxes, cols, -8, 212, 16, 14, 7, "n", "dock"));
 
   const projectZs = [-65, -137, 43, 79];
   projectZs.forEach((z0, index) => {
-    const h = [22, 30, 18, 26][index];
+    const h = [18, 26, 14, 20][index];
     zones.push(addVenue(boxes, cols, -101, z0, 22, 22, h, "e", "project", index));
   });
   addPark(boxes, cols, -101, -101, -79, -79);
@@ -2399,7 +2731,15 @@ export function cityMapModel(seed: number): CityMapModel {
     minZ: -190,
     maxZ: 258,
     roads: [...CENTERS],
-    blocks: city.facades.map((f) => ({ x: f.x, z: f.z, w: f.w, d: f.d, style: f.style, hero: f.hero })),
+    blocks: [
+      ...city.facades.map((f) => ({ x: f.x, z: f.z, w: f.w, d: f.d, style: f.style, hero: f.hero })),
+      // Side annexes get their own minimap rect so the map matches the world.
+      ...city.facades.flatMap((f) =>
+        f.wing
+          ? [{ x: f.x + f.wing.dx, z: f.z + f.wing.dz, w: f.wing.w, d: f.wing.d, style: f.wing.style, hero: false }]
+          : [],
+      ),
+    ],
     plaza: { x: -29, z: -29, w: 58, d: 58 },
     tower: { x: -16, z: -31, w: 32, d: 32 },
     harbor: { x: -50, z: 198, w: 100, d: 48 },
