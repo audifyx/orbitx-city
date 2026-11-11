@@ -117,7 +117,7 @@ export interface RailPoint {
 export interface Anchor {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "lift";
+  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "lift" | "cinema" | "library" | "gym" | "park";
   x: number;
   y: number;
   z: number;
@@ -172,7 +172,7 @@ export interface CarSpawn {
 export interface Zone {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office";
+  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "cinema" | "library" | "gym" | "park";
   slot: number;
   minX: number;
   maxX: number;
@@ -1664,7 +1664,13 @@ function addVenue(
               ? { roof: "flat", roofMat: 0, storefront: true, awning: false, cornice: true }
               : kind === "dock"
                 ? { roof: "gable", roofMat: 2, storefront: false, awning: false, cornice: false }
-                : { roof: "flat", roofMat: 0, storefront: false, awning: false, cornice: true };
+                : kind === "cinema"
+                  ? { roof: "gable", roofMat: 2, storefront: true, awning: true, cornice: true }
+                  : kind === "library"
+                    ? { roof: "hip", roofMat: 1, storefront: true, awning: false, cornice: true }
+                    : kind === "gym"
+                      ? { roof: "flat", roofMat: 0, storefront: true, awning: true, cornice: true }
+                      : { roof: "flat", roofMat: 0, storefront: false, awning: false, cornice: true };
   shellOpen(
     boxes,
     cols,
@@ -1702,6 +1708,9 @@ function addVenue(
   if (kind === "cafe") return furnishCafe(boxes, cols, x0, z0, w, d, door);
   if (kind === "hall") return furnishHall(boxes, cols, x0, z0, w, d, door);
   if (kind === "project") return furnishOffice(boxes, cols, x0, z0, w, d, door, index);
+  if (kind === "cinema") return furnishCinema(boxes, cols, x0, z0, w, d, door);
+  if (kind === "library") return furnishLibrary(boxes, cols, x0, z0, w, d, door);
+  if (kind === "gym") return furnishGym(boxes, cols, x0, z0, w, d, door);
   return furnishSpot(boxes, cols, x0, z0, w, d, door, kind);
 }
 
@@ -1749,6 +1758,366 @@ function furnishSpot(
     signY: 2.35,
     signZ: back.z + (door === "n" ? -0.55 : door === "s" ? 0.55 : 0),
     signRot: back.rot,
+  };
+}
+
+// ---- new venues: cinema, library, gym (park is outdoor, below) ----
+
+// Cinema: big glowing screen on the wall opposite the door, four rows of
+// five red seats facing it, red carpet aisle, concession counter by the door.
+function furnishCinema(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "black");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  const screen = opposite(door, x0, z0, w, d, 1.5);
+  const alongX = door === "n" || door === "s";
+  // Screen: black frame, white face, cyan glow strip along its base. The
+  // white face sits on the room side of the frame (east for a west-wall
+  // screen, north for a south-wall screen).
+  if (alongX) {
+    put(boxes, screen.x, 2.1, screen.z, 11, 3.2, 0.25, "black");
+    put(boxes, screen.x, 2.1, screen.z + (door === "n" ? -0.12 : 0.12), 10, 2.7, 0.12, "white");
+    put(boxes, screen.x, 0.62, screen.z + (door === "n" ? -0.14 : 0.14), 10.4, 0.18, 0.12, "cyanhot");
+  } else {
+    put(boxes, screen.x, 2.1, screen.z, 0.25, 3.2, 11, "black");
+    put(boxes, screen.x + (door === "e" ? 0.12 : -0.12), 2.1, screen.z, 0.12, 2.7, 10, "white");
+    put(boxes, screen.x + (door === "e" ? 0.14 : -0.14), 0.62, screen.z, 0.12, 0.18, 10.4, "cyanhot");
+  }
+  // Four seat rows facing the screen, with a walkable aisle between rows.
+  // Four seats per row (not five): the end seats would crowd the corners
+  // where the concession counter sits, leaving no standable service point.
+  const rowXs = alongX ? null : [cx - 6.5, cx - 3, cx + 0.5, cx + 4];
+  const rowZs = alongX ? [cz - 6.5, cz - 3, cz + 0.5, cz + 4] : null;
+  const seatAt = [cz - 4.5, cz - 1.5, cz + 1.5, cz + 4.5];
+  const seatAtX = [cx - 4.5, cx - 1.5, cx + 1.5, cx + 4.5];
+  for (let r = 0; r < 4; r++) {
+    if (alongX) {
+      const z = rowZs![r];
+      for (const x of seatAtX) {
+        put(boxes, x, 0.45, z, 1.4, 0.45, 1.1, "red");
+        put(boxes, x, 0.9, z + (door === "n" ? 0.5 : -0.5), 1.4, 0.9, 0.25, "red");
+      }
+      cols.push(col(cx, 0.6, z, 11, 1.2, 1.4));
+    } else {
+      const x = rowXs![r];
+      for (const z of seatAt) {
+        put(boxes, x, 0.45, z, 1.1, 0.45, 1.4, "red");
+        put(boxes, x + (door === "w" ? 0.5 : -0.5), 0.9, z, 0.25, 0.9, 1.4, "red");
+      }
+      cols.push(col(x, 0.6, cz, 1.4, 1.2, 11));
+    }
+  }
+  // Red carpet runner from the door to the screen, down the middle aisle.
+  if (alongX) put(boxes, cx, 0.145, cz, 2.4, 0.05, d - 6, "red");
+  else put(boxes, cx, 0.145, cz, w - 6, 0.05, 2.4, "red");
+  // Concession counter by the door (east corner for door e/w, north for n/s).
+  const cc = door === "e" ? { x: x0 + w - 3.2, z: z0 + 3.2 } : door === "w" ? { x: x0 + 3.2, z: z0 + d - 3.2 } : door === "n" ? { x: x0 + 3.2, z: z0 + 3.2 } : { x: x0 + w - 3.2, z: z0 + d - 3.2 };
+  put(boxes, cc.x, 0.55, cc.z, 3.4, 1.05, 1.2, "wood");
+  cols.push(col(cc.x, 0.55, cc.z, 3.4, 1.05, 1.2));
+  put(boxes, cc.x, 1.15, cc.z, 3.6, 0.12, 1.35, "stone");
+  put(boxes, cc.x - 1, 1.35, cc.z, 0.45, 0.35, 0.45, "gold");
+  put(boxes, cc.x + 1, 1.35, cc.z, 0.45, 0.35, 0.45, "red");
+  put(boxes, cc.x, 1.35, cc.z, 0.45, 0.35, 0.45, "warm");
+  // "Now showing" board on the wall beside the screen.
+  const board = door === "e" ? { x: x0 + 1.35, z: cz + 6.5, rot: Math.PI / 2 } : door === "w" ? { x: x0 + w - 1.35, z: cz - 6.5, rot: -Math.PI / 2 } : door === "n" ? { x: cx + 6.5, z: z0 + d - 1.35, rot: Math.PI } : { x: cx - 6.5, z: z0 + 1.35, rot: 0 };
+  roomSign("cinema-now", board.x, 2.2, board.z, board.rot, 4.2, 1.7, ["NOW SHOWING", "OrbitX Nights"], "Tonight 8pm · free seats");
+  // Service point at the concession counter (not the front row — the old
+  // opposite(door, 4.1) point sat inside the front-row seat collider).
+  // 2.5 clear of the counter face: 2.0 was still inside its 0.4 margin.
+  const serviceX = cc.x + (door === "e" ? -2.5 : door === "w" ? 2.5 : 0);
+  const serviceZ = cc.z + (door === "n" ? -2.5 : door === "s" ? 2.5 : 0);
+  // Zone sign on a side wall, never over the screen.
+  const signPos =
+    door === "e" || door === "w"
+      ? { x: door === "e" ? cx - 6 : cx + 6, z: z0 + 1.35, rot: 0 }
+      : { x: x0 + 1.35, z: door === "n" ? cz - 6 : cz + 6, rot: Math.PI / 2 };
+  return {
+    id: "cinema",
+    name: "OrbitX Cinema",
+    kind: "cinema",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX,
+    serviceZ,
+    signX: signPos.x,
+    signY: 2.35,
+    signZ: signPos.z,
+    signRot: signPos.rot,
+  };
+}
+
+// Library: tall bookshelves along both side walls, two reading tables with
+// lamps, armchairs, and a librarian desk by the door.
+function furnishLibrary(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  const alongX = door === "n" || door === "s";
+  const bookCols: Mat[] = ["cyan", "gold", "red", "white", "warm", "cyan", "red", "gold"];
+  // Shelves along the two walls perpendicular to the door axis: north/south
+  // walls when the door is east/west, east/west walls when it is north/south.
+  const shelfRuns = alongX
+    ? [
+        { x: x0 + 1.9, z: cz - 5.5, sx: 0.7, sz: 8 },
+        { x: x0 + 1.9, z: cz + 5.5, sx: 0.7, sz: 8 },
+        { x: x0 + w - 1.9, z: cz - 5.5, sx: 0.7, sz: 8 },
+        { x: x0 + w - 1.9, z: cz + 5.5, sx: 0.7, sz: 8 },
+      ]
+    : [
+        { x: cx - 5.5, z: z0 + 1.9, sx: 8, sz: 0.7 },
+        { x: cx + 5.5, z: z0 + 1.9, sx: 8, sz: 0.7 },
+        { x: cx - 5.5, z: z0 + d - 1.9, sx: 8, sz: 0.7 },
+        { x: cx + 5.5, z: z0 + d - 1.9, sx: 8, sz: 0.7 },
+      ];
+  for (const s of shelfRuns) {
+    put(boxes, s.x, 1.2, s.z, Math.max(s.sx, 0.7), 2.4, Math.max(s.sz, 0.7), "wood");
+    cols.push(col(s.x, 1.2, s.z, Math.max(s.sx, 0.7), 2.4, Math.max(s.sz, 0.7)));
+    for (let level = 0; level < 2; level++) {
+      const y = level === 0 ? 0.85 : 1.85;
+      const n = 6;
+      for (let i = 0; i < n; i++) {
+        const t = (i - (n - 1) / 2) / ((n - 1) / 2);
+        // Books sit proud of the shelf face (toward the room) so they read
+        // as books, not as wood — a book centered on the shelf is buried.
+        const bx = alongX ? s.x + (s.x < cx ? 0.45 : -0.45) : s.x + t * 3.4;
+        const bz = alongX ? s.z + t * 3.4 : s.z + (s.z < cz ? 0.45 : -0.45);
+        put(boxes, bx, y, bz, alongX ? 0.5 : 0.55, 0.55, alongX ? 0.55 : 0.5, bookCols[(i + level * 3) % bookCols.length]);
+      }
+    }
+  }
+  // Two reading tables in the middle, each with a warm lamp.
+  for (const tz of [cz - 3.4, cz + 3.4]) {
+    put(boxes, cx, 0.95, tz, 4.2, 0.14, 1.9, "wood");
+    put(boxes, cx, 0.45, tz, 0.5, 0.9, 0.5, "black");
+    cols.push(col(cx, 0.55, tz, 4.2, 1.0, 1.9));
+    put(boxes, cx - 1.2, 1.25, tz, 0.35, 0.4, 0.35, "warm");
+    put(boxes, cx + 1.2, 1.25, tz, 0.35, 0.4, 0.35, "warm");
+    for (const side of [-1, 1]) {
+      const ax = cx + side * 2.9;
+      put(boxes, ax, 0.38, tz, 1.1, 0.45, 1.1, "red");
+      cols.push(col(ax, 0.38, tz, 1.1, 0.45, 1.1));
+      put(boxes, ax + (side < 0 ? -0.55 : 0.55), 0.85, tz, 0.2, 0.7, 1.1, "red");
+    }
+  }
+  // Librarian desk by the door, offset to the side so it never blocks the
+  // doorway (the old opposite(door, w-4.6) spot sat in the door's path).
+  const deskPos =
+    door === "e" ? { x: x0 + w - 3, z: z0 + 5, sx: 1.2, sz: 3.4 }
+    : door === "w" ? { x: x0 + 3, z: z0 + d - 5, sx: 1.2, sz: 3.4 }
+    : door === "n" ? { x: x0 + 5, z: z0 + 3, sx: 3.4, sz: 1.2 }
+    : { x: x0 + w - 5, z: z0 + d - 3, sx: 3.4, sz: 1.2 };
+  put(boxes, deskPos.x, 0.55, deskPos.z, deskPos.sx, 1.05, deskPos.sz, "stone");
+  cols.push(col(deskPos.x, 0.55, deskPos.z, deskPos.sx, 1.05, deskPos.sz));
+  put(boxes, deskPos.x, 1.15, deskPos.z, deskPos.sx + 0.2, 0.12, deskPos.sz + 0.2, "wood");
+  put(boxes, deskPos.x, 1.45, deskPos.z, 0.4, 0.5, 0.4, "gold");
+  // Framed painting on the back wall, clear of the zone sign and shelves.
+  const paintPos =
+    door === "e" ? { x: x0 + 1.3, z: cz - 5, rot: Math.PI / 2 }
+    : door === "w" ? { x: x0 + w - 1.3, z: cz + 5, rot: -Math.PI / 2 }
+    : door === "n" ? { x: cx + 5, z: z0 + d - 1.3, rot: Math.PI }
+    : { x: cx - 5, z: z0 + 1.3, rot: 0 };
+  voxelPainting(boxes, paintPos.x, 1.9, paintPos.z, paintPos.rot, 2.2, 1.5);
+  // Zone sign on the door wall, past the door hole (never over the screen
+  // wall or the painting).
+  const signPos =
+    door === "e" ? { x: x0 + w - 1.35, z: cz + 5.5, rot: -Math.PI / 2 }
+    : door === "w" ? { x: x0 + 1.35, z: cz - 5.5, rot: Math.PI / 2 }
+    : door === "n" ? { x: cx - 5.5, z: z0 + 1.35, rot: 0 }
+    : { x: cx + 5.5, z: z0 + 1.35, rot: 0 };
+  // Service point at the librarian desk (the front of it, not inside it).
+  const serviceX = deskPos.x + (door === "e" ? -2 : door === "w" ? 2 : 0);
+  const serviceZ = deskPos.z + (door === "n" ? 2 : door === "s" ? -2 : 0);
+  return {
+    id: "library",
+    name: "OrbitX Library",
+    kind: "library",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX,
+    serviceZ,
+    signX: signPos.x,
+    signY: 2.35,
+    signZ: signPos.z,
+    signRot: signPos.rot,
+  };
+}
+
+// Gym: treadmill row, bench presses, dumbbell rack, punching bag, mats,
+// mirror wall, and a front desk by the door.
+function furnishGym(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "black");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  const alongX = door === "n" || door === "s";
+  const back = opposite(door, x0, z0, w, d, 1.4);
+  // Mirror wall on the back wall (opposite the door).
+  if (alongX) put(boxes, back.x, 1.8, back.z, 8, 2.4, 0.15, "cyan");
+  else put(boxes, back.x, 1.8, back.z, 0.15, 2.4, 8, "cyan");
+  // Treadmill row along the east wall (door n/s) or north wall (door e/w).
+  const treadBase = alongX ? { x: x0 + w - 3.4, zs: [cz - 6, cz, cz + 6] } : { x: 0, zs: [] as number[] };
+  if (alongX) {
+    for (const tz of treadBase.zs) {
+      put(boxes, treadBase.x, 0.28, tz, 1.3, 0.5, 2.6, "black");
+      put(boxes, treadBase.x, 1.0, tz - 1.15, 0.35, 1.1, 0.9, "black");
+      put(boxes, treadBase.x, 1.35, tz - 1.15, 0.2, 0.35, 0.7, "cyanhot");
+      cols.push(col(treadBase.x, 0.6, tz, 1.3, 1.2, 2.6));
+    }
+  } else {
+    for (const tx of [cx - 6, cx, cx + 6]) {
+      put(boxes, tx, 0.28, z0 + 3.4, 2.6, 0.5, 1.3, "black");
+      put(boxes, tx - 1.15, 1.0, z0 + 3.4, 0.9, 1.1, 0.35, "black");
+      put(boxes, tx - 1.15, 1.35, z0 + 3.4, 0.7, 0.35, 0.2, "cyanhot");
+      cols.push(col(tx, 0.6, z0 + 3.4, 2.6, 1.2, 1.3));
+    }
+  }
+  // Two bench presses in the middle.
+  for (const bz of [cz - 3.2, cz + 3.2]) {
+    put(boxes, cx - 3, 0.35, bz, 2.6, 0.45, 1.0, "stone");
+    cols.push(col(cx - 3, 0.35, bz, 2.6, 0.45, 1.0));
+    put(boxes, cx - 4.4, 0.6, bz, 0.18, 1.1, 0.18, "gray");
+    put(boxes, cx - 1.6, 0.6, bz, 0.18, 1.1, 0.18, "gray");
+    put(boxes, cx - 3, 1.18, bz, 3.4, 0.14, 0.14, "gold");
+    put(boxes, cx - 4.7, 1.18, bz, 0.35, 0.35, 0.35, "black");
+    put(boxes, cx - 1.3, 1.18, bz, 0.35, 0.35, 0.35, "black");
+  }
+  // Dumbbell rack along the west wall (door n/s) or south wall (door e/w).
+  if (alongX) {
+    const rx = x0 + 2.1;
+    for (const rz of [cz - 4, cz + 4]) {
+      put(boxes, rx, 0.55, rz, 1.0, 1.0, 5.4, "wood");
+      cols.push(col(rx, 0.55, rz, 1.0, 1.0, 5.4));
+      for (let i = 0; i < 4; i++) {
+        put(boxes, rx, 1.15, rz - 2 + i * 1.35, 0.5, 0.3, 0.5, "gold");
+      }
+    }
+  } else {
+    const rz = z0 + d - 2.1;
+    for (const rx of [cx - 4, cx + 4]) {
+      put(boxes, rx, 0.55, rz, 5.4, 1.0, 1.0, "wood");
+      cols.push(col(rx, 0.55, rz, 5.4, 1.0, 1.0));
+      for (let i = 0; i < 4; i++) {
+        put(boxes, rx - 2 + i * 1.35, 1.15, rz, 0.5, 0.3, 0.5, "gold");
+      }
+    }
+  }
+  // Punching bag hanging by the back wall + red training mats.
+  const bag = alongX ? { x: cx + 6.5, z: back.z - (door === "n" ? 1.6 : -1.6) } : { x: back.x - (door === "w" ? 1.6 : -1.6), z: cz + 6.5 };
+  put(boxes, bag.x, 3.1, bag.z, 0.12, 0.7, 0.12, "gray");
+  put(boxes, bag.x, 1.85, bag.z, 0.85, 2.2, 0.85, "black");
+  put(boxes, bag.x, 2.95, bag.z, 0.95, 0.18, 0.95, "red");
+  cols.push(col(bag.x, 1.85, bag.z, 0.85, 2.2, 0.85));
+  const matX = alongX ? cx + 5.5 : cx - 5.5;
+  const matZ = alongX ? cz + 6 : cz - 6;
+  put(boxes, matX, 0.15, matZ, alongX ? 5 : 6, 0.06, alongX ? 6 : 5, "red");
+  // Front desk by the door, offset to the side so it never blocks the
+  // doorway (the old opposite(door, w-4.6) spot sat in the door's path).
+  const deskPos =
+    door === "e" ? { x: x0 + w - 3, z: z0 + 5, sx: 1.2, sz: 3.4 }
+    : door === "w" ? { x: x0 + 3, z: z0 + d - 5, sx: 1.2, sz: 3.4 }
+    : door === "n" ? { x: x0 + 5, z: z0 + 3, sx: 3.4, sz: 1.2 }
+    : { x: x0 + w - 5, z: z0 + d - 3, sx: 3.4, sz: 1.2 };
+  put(boxes, deskPos.x, 0.55, deskPos.z, deskPos.sx, 1.05, deskPos.sz, "wood");
+  cols.push(col(deskPos.x, 0.55, deskPos.z, deskPos.sx, 1.05, deskPos.sz));
+  put(boxes, deskPos.x, 1.15, deskPos.z, deskPos.sx + 0.2, 0.12, deskPos.sz + 0.2, "gold");
+  // Service point at the front desk; sign on a side wall, never over the
+  // mirror wall.
+  const serviceX = deskPos.x + (door === "e" ? -2 : door === "w" ? 2 : 0);
+  const serviceZ = deskPos.z + (door === "n" ? 2 : door === "s" ? -2 : 0);
+  const signPos =
+    door === "n" || door === "s"
+      ? { x: x0 + w - 1.35, z: door === "n" ? cz + 5 : cz - 5, rot: -Math.PI / 2 }
+      : { x: door === "e" ? cx - 5 : cx + 5, z: z0 + 1.35, rot: 0 };
+  return {
+    id: "gym",
+    name: "Harbor Gym",
+    kind: "gym",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX,
+    serviceZ,
+    signX: signPos.x,
+    signY: 2.35,
+    signZ: signPos.z,
+    signRot: signPos.rot,
+  };
+}
+
+// Sunset Park: an open waterfront green space — pond with a stone rim,
+// crossing stone paths, benches, trees, lamps, flower beds, gold gate
+// bollards. No walls or roof: the zone is the lawn itself.
+function addSunsetPark(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number): Zone {
+  const cx = x0 + w / 2;
+  const cz = z0 + d / 2;
+  put(boxes, cx, 0.08, cz, w - 1, 0.14, d - 1, "grass");
+  // Stone cross paths.
+  put(boxes, cx, 0.17, cz, w - 2, 0.05, 2.2, "stone");
+  put(boxes, cx, 0.17, cz, 2.2, 0.05, d - 2, "stone");
+  // Pond with a stone rim, west of center; the rim keeps players out.
+  const px = cx - 9;
+  const pz = cz - 1;
+  disc(boxes, px, 0.22, pz, 5.2, 0.3, "stone");
+  disc(boxes, px, 0.36, pz, 4.5, 0.22, "water");
+  cols.push({ minX: px - 5.2, maxX: px + 5.2, minY: 0, maxY: 1, minZ: pz - 5.2, maxZ: pz + 5.2 });
+  // Benches facing the pond + along the paths.
+  addBench(boxes, cols, px + 7.5, pz - 3, true);
+  addBench(boxes, cols, px + 7.5, pz + 3, true);
+  addBench(boxes, cols, cx + 8, cz - 6.5, false);
+  addBench(boxes, cols, cx + 8, cz + 6.5, false);
+  addBench(boxes, cols, cx - 18, cz + 6.5, false);
+  // Trees and lamps, clear of the paths and the pond.
+  addTree(boxes, cols, x0 + 6, z0 + 5, 0.1);
+  addTree(boxes, cols, x0 + w - 6, z0 + 5, 0.1);
+  addTree(boxes, cols, x0 + 6, z0 + d - 5, 0.1);
+  addTree(boxes, cols, x0 + w - 6, z0 + d - 5, 0.1);
+  addTree(boxes, cols, cx + 16, cz - 8, 0.1);
+  addTree(boxes, cols, cx - 20, cz - 8, 0.1);
+  addLamp(boxes, cx - 12, cz - 7);
+  addLamp(boxes, cx + 12, cz - 7);
+  addLamp(boxes, cx - 12, cz + 7);
+  addLamp(boxes, cx + 12, cz + 7);
+  // Flower beds along the north path.
+  for (const fx of [cx - 16, cx - 8, cx + 4, cx + 16]) {
+    for (let i = 0; i < 3; i++) {
+      put(boxes, fx - 0.8 + i * 0.8, 0.35, z0 + 2.6, 0.5, 0.4, 0.5, i === 1 ? "gold" : "red");
+    }
+  }
+  // Gold gate bollards flanking the north entrance.
+  for (const bx of [cx - 3, cx + 3]) {
+    put(boxes, bx, 0.35, z0 - 1, 0.5, 0.7, 0.5, "gold");
+    cols.push(col(bx, 0.35, z0 - 1, 0.5, 0.7, 0.5));
+  }
+  // Posts under the freestanding gate sign (the sign plane floats at
+  // y 1.55..3.25, so it needs legs).
+  for (const px of [cx - 1.8, cx + 1.8]) {
+    put(boxes, px, 0.85, z0 - 0.2, 0.16, 1.7, 0.16, "black");
+  }
+  return {
+    id: "park",
+    name: "Sunset Park",
+    kind: "park",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX: cx,
+    serviceZ: cz,
+    signX: cx,
+    signY: 2.4,
+    signZ: z0 - 0.2,
+    signRot: Math.PI,
   };
 }
 
@@ -2574,7 +2943,18 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     addVenue(boxes, cols, 79, 43, 22, 22, 7, "w", "garage"),
     addVenue(boxes, cols, 43, 43, 22, 22, 8, "w", "arcade"),
     addVenue(boxes, cols, -29, 79, 22, 22, 7, "n", "market"),
+    // New venues: the two empty lots in the reserved west strip (inset 2
+    // from the lot edges so the corner traffic lights stay clear), plus the
+    // waterfront pair east of the harbor (empty grass, no lots/roads/hills).
+    addVenue(boxes, cols, -99, -171, 20, 20, 9, "e", "cinema"),
+    addVenue(boxes, cols, -99, 153, 20, 20, 8, "e", "library"),
+    addVenue(boxes, cols, 60, 206, 26, 22, 8, "n", "gym"),
   ];
+  zones.push(addSunsetPark(boxes, cols, 94, 204, 54, 26));
+  // Stone promenade linking the z=180 road to the gym + park, so the
+  // waterfront venues are reachable on foot, not across bare grass.
+  put(boxes, 103, 0.1, 201, 94, 0.06, 4, "stone");
+  put(boxes, 73, 0.1, 192.5, 6, 0.06, 15, "stone");
   addHarbor(boxes, cols);
   zones.push(addVenue(boxes, cols, -8, 212, 16, 14, 7, "n", "dock"));
 
@@ -2602,6 +2982,12 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     { id: "arcade", name: "Neon Arcade", kind: "arcade", x: 41.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
     { id: "market", name: "Night Market", kind: "market", x: -18, y: 0, z: 77.6, yaw: Math.PI, slot: 0 },
     { id: "dock", name: "Harbor Office", kind: "dock", x: 0, y: 0, z: 210.6, yaw: Math.PI, slot: 0 },
+    // New venue doors: doorAnchor puts the anchor just outside the door,
+    // facing in (walk-in is E at the anchor).
+    doorAnchor("cinema", "OrbitX Cinema", "cinema", -99, -171, 20, 20, "e"),
+    doorAnchor("library", "OrbitX Library", "library", -99, 153, 20, 20, "e"),
+    doorAnchor("gym", "Harbor Gym", "gym", 60, 206, 26, 22, "n"),
+    doorAnchor("park", "Sunset Park", "park", 94, 204, 54, 26, "n"),
   ];
   projectZs.forEach((z0, index) => {
     anchors.push({

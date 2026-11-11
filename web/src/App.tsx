@@ -766,11 +766,15 @@ const MAP_LABELS: Record<string, string> = {
   market: "Market",
   hall: "Hall",
   dock: "Dock",
+  cinema: "Cinema",
+  library: "Library",
+  gym: "Gym",
+  park: "Park",
 };
 
 // Label priority: the plaza core gets its preferred spot first; the z=54
 // row (Shop/Cafe/Arcade/Garage) is the crowded one, so the order matters.
-const MAP_LABEL_PRIORITY = ["shop", "cafe", "hall", "dock", "bank", "market", "arcade", "garage"];
+const MAP_LABEL_PRIORITY = ["shop", "cafe", "hall", "dock", "bank", "market", "arcade", "garage", "cinema", "library", "gym", "park"];
 
 // Job board — single source of truth for the base pay the server pays
 // (api/city.js JOBS, plus the +5%-per-streak scaling in scaledPay).
