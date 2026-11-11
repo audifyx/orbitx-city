@@ -548,7 +548,7 @@ export function createRuntime(scene: Scene) {
   // Mini-games. A game and a job never run together: starting one while
   // the other is active is refused, so the server-side job slot
   // (job-start/earn) is never clobbered mid-job.
-  let miniGame: "" | "coinhunt" | "fishing" = "";
+  let miniGame: "" | "coinhunt" | "fishing" | "shootout" | "treasure" = "";
   const COIN_SPOTS = [
     { x: 0, z: -20 },
     { x: 20, z: -8 },
@@ -573,6 +573,56 @@ export function createRuntime(scene: Scene) {
   let fishMisses = 0;
   let fishEndsAt = 0;
   let fishBobber: Mesh | null = null;
+  // Batch 2 jobs. Bus: a 4-stop route with a 2s boarding dwell at each
+  // stop. Fire: three smoke reports, a 3s dwell at each fire. Doctor: a
+  // 3-patient clinic at the Community Hall, a 3s dwell per patient.
+  // Teacher: a 3-stop field trip (library, park, fountain), instant stops.
+  const BUS_STOPS = [
+    { x: 10, z: 17.6, label: "Board riders at the Jobs board" },
+    { x: 0, z: 46, label: "Board riders at the north stop" },
+    { x: 41.6, z: 90, label: "Board riders at the hall stop" },
+    { x: 0, z: 210.6, label: "Drop the last riders at the harbor" },
+  ] as const;
+  const FIRE_SPOTS = [
+    { x: 18, z: 72, label: "Put out the fire at the north avenue" },
+    { x: -18, z: -72, label: "Put out the fire at the south avenue" },
+    { x: 72, z: 90, label: "Put out the fire at the east avenue" },
+  ] as const;
+  const FIRE_DONE = 3;
+  const TEACHER_STOPS = [
+    { x: -77.6, z: 163, label: "Meet the class at the Library" },
+    { x: 121, z: 217, label: "Outdoor lesson in Sunset Park" },
+    { x: 0, z: 12, label: "Dismiss the class at the fountain" },
+  ] as const;
+  let fireMeshes: Mesh[] = [];
+  // Basketball shootout: a permanent hoop on the north edge of Sunset
+  // Park, free-throw line 8 units south of it. 5 shots; the aim meter
+  // pings 0-100 and E shoots — land it in the green (40-60) to score.
+  // 3 makes of 5 pays.
+  const HOOP = { x: 121, z: 207 };
+  const SHOOT_SPOT = { x: 121, z: 215 };
+  const SHOOT_SHOTS = 5;
+  const SHOOT_WIN = 3;
+  const SHOOT_GREEN_LO = 40;
+  const SHOOT_GREEN_HI = 60;
+  let shootState: "off" | "aim" = "off";
+  let shootMeter = 0;
+  let shootMade = 0;
+  let shootTaken = 0;
+  // Treasure hunt: 5 chests at landmarks, 2 minutes, beacon to the
+  // nearest. Each chest found drops a clue to the next one.
+  const TREASURE_SPOTS = [
+    { x: 0, z: 240, clue: "Next: where the grass meets the water, under the park lights." },
+    { x: 121, z: 217, clue: "Next: where the quiet shelves are — the Library door." },
+    { x: -77.6, z: 163, clue: "Next: behind the big screen — the Cinema door." },
+    { x: -77.6, z: -161, clue: "Next: at the feet of the tower that says ORBITX." },
+    { x: 0, z: -8, clue: "" },
+  ] as const;
+  const TREASURE_TOTAL = 5;
+  const TREASURE_TIME_MS = 120000;
+  let treasureTaken: boolean[] = [];
+  let treasureEndsAt = 0;
+  let treasureMeshes: Mesh[] = [];
   let chatScope: "global" | "near" = "global";
   let timeName: "sunset" | "night" | "day" = "sunset";
   let profileId = "";
@@ -1152,10 +1202,44 @@ export function createRuntime(scene: Scene) {
       root.add(mesh);
       return mesh;
     });
+    // Fire spots are positioned every frame in tickJobs (unlike the litter
+    // meshes, which never get a position) so each fire burns at its report.
+    fireMeshes = FIRE_SPOTS.map(() => {
+      const mesh = new Mesh(box, MATERIALS.red);
+      mesh.scale.set(0.7, 1.1, 0.7);
+      mesh.visible = false;
+      root.add(mesh);
+      return mesh;
+    });
+    treasureMeshes = TREASURE_SPOTS.map(() => {
+      const mesh = new Mesh(box, GOLD);
+      mesh.scale.set(0.55, 0.35, 0.55);
+      mesh.visible = false;
+      root.add(mesh);
+      return mesh;
+    });
     fishBobber = new Mesh(box, MATERIALS.cyanhot);
     fishBobber.scale.set(0.3, 0.3, 0.3);
     fishBobber.visible = false;
     root.add(fishBobber);
+    // Basketball court: a permanent hoop at the north edge of Sunset Park
+    // plus the free-throw line. The shootout plays here, E to shoot.
+    const hoopPole = new Mesh(box, MATERIALS.black);
+    hoopPole.scale.set(0.3, 3.6, 0.3);
+    hoopPole.position.set(HOOP.x, 1.8, HOOP.z);
+    root.add(hoopPole);
+    const hoopBoard = new Mesh(box, MATERIALS.white);
+    hoopBoard.scale.set(1.8, 1.2, 0.12);
+    hoopBoard.position.set(HOOP.x, 3.2, HOOP.z);
+    root.add(hoopBoard);
+    const hoopRim = new Mesh(box, GOLD);
+    hoopRim.scale.set(0.9, 0.08, 0.9);
+    hoopRim.position.set(HOOP.x, 2.9, HOOP.z + 0.6);
+    root.add(hoopRim);
+    const ftLine = new Mesh(box, MATERIALS.white);
+    ftLine.scale.set(2.4, 0.03, 0.3);
+    ftLine.position.set(SHOOT_SPOT.x, 0.03, SHOOT_SPOT.z);
+    root.add(ftLine);
     localBody = makePerson(wallet.color, wallet.hat);
     paintPerson(localBody, true);
     localBody.visible = false;
@@ -1364,6 +1448,12 @@ export function createRuntime(scene: Scene) {
     if (id === "mail") return "Mail carrier";
     if (id === "lifeguard") return "Lifeguard";
     if (id === "cleaner") return "Street cleaner";
+    if (id === "bus") return "Bus driver";
+    if (id === "fire") return "Firefighter";
+    if (id === "doctor") return "Doctor";
+    if (id === "teacher") return "Teacher";
+    if (id === "shootout") return "Basketball shootout";
+    if (id === "treasure") return "Treasure hunt";
     return "City guide";
   }
 
@@ -1392,6 +1482,15 @@ export function createRuntime(scene: Scene) {
     if (miniGame === "fishing") {
       if (fishState === "bite") return "Fishing — BITE! Press E to strike";
       return `Fishing — ${fishCatches} of ${FISH_CATCHES} catches · ${fishMisses} miss${fishMisses === 1 ? "" : "es"}`;
+    }
+    if (miniGame === "shootout") {
+      if (shootState !== "aim") return "Basketball — press E to shoot";
+      return `Basketball — ${shootMade} made · shot ${Math.min(shootTaken + 1, SHOOT_SHOTS)} of ${SHOOT_SHOTS} · aim ${Math.round(shootMeter)}`;
+    }
+    if (miniGame === "treasure") {
+      const left = Math.max(0, Math.ceil((treasureEndsAt - Date.now()) / 1000));
+      const got = treasureTaken.filter(Boolean).length;
+      return `Treasure hunt — ${got} of ${TREASURE_TOTAL} chests · ${left}s left`;
     }
     if (job === "courier" && phase === 0) return "Pick up the glowing package in front of the fountain";
     if (job === "courier") return "Drop the package at OrbitX Shop";
@@ -1425,6 +1524,13 @@ export function createRuntime(scene: Scene) {
       const left = LITTER_DONE - phase;
       return left > 1 ? `Sweep the plaza — ${left} litter spots left` : "Sweep the plaza — one litter spot left";
     }
+    if (job === "bus") return BUS_STOPS[Math.min(phase, BUS_STOPS.length - 1)].label;
+    if (job === "fire") {
+      const left = FIRE_DONE - phase;
+      return left > 1 ? `Put out the fires — ${left} reports left` : "Put out the fires — one report left";
+    }
+    if (job === "doctor") return `Clinic at the hall — patient ${Math.min(phase + 1, 3)} of 3`;
+    if (job === "teacher") return TEACHER_STOPS[Math.min(phase, TEACHER_STOPS.length - 1)].label;
     const stop = tourStops[world.online ? world.mission : tourStep];
     if (stop) return stop.text;
     return "City tour complete — pick up a job";
@@ -1838,8 +1944,16 @@ export function createRuntime(scene: Scene) {
       fishPress();
       return;
     }
+    if (miniGame === "shootout") {
+      shootPress();
+      return;
+    }
     if (!job && !miniGame && onPier(body)) {
       startFishing();
+      return;
+    }
+    if (!job && !miniGame && nearCourt(body)) {
+      startShootout();
       return;
     }
     if (raceNext < 0 && nearGate(body, 0, 8)) {
@@ -2059,6 +2173,10 @@ export function createRuntime(scene: Scene) {
     }
     if (job === "lifeguard") target = LIFEGUARD_POSTS[Math.min(phase, 2)];
     if (job === "cleaner") target = LITTER_SPOTS[Math.min(phase, LITTER_SPOTS.length - 1)];
+    if (job === "bus") target = BUS_STOPS[Math.min(phase, BUS_STOPS.length - 1)];
+    if (job === "fire") target = FIRE_SPOTS[Math.min(phase, FIRE_SPOTS.length - 1)];
+    if (job === "doctor") target = anchors.find((item) => item.id === "hall") ?? null;
+    if (job === "teacher") target = TEACHER_STOPS[Math.min(phase, TEACHER_STOPS.length - 1)];
     if (beacon) {
       beacon.visible = !!target && !driving;
       if (target) {
@@ -2083,32 +2201,57 @@ export function createRuntime(scene: Scene) {
     for (let i = 0; i < litterMeshes.length; i++) {
       litterMeshes[i].visible = job === "cleaner" && i >= phase;
     }
+    // Fires burn only while the firefighter job runs; put-out fires stay
+    // out until the next shift. Each fire is positioned at its report
+    // (and flickers) while it burns.
+    for (let i = 0; i < fireMeshes.length; i++) {
+      fireMeshes[i].visible = job === "fire" && i >= phase;
+      if (fireMeshes[i].visible) {
+        fireMeshes[i].position.set(FIRE_SPOTS[i].x, 0.6 + Math.sin(clock * 6 + i * 2) * 0.12, FIRE_SPOTS[i].z);
+      }
+    }
     if (!target || paused) return;
     const reachDist = job === "courier" && phase === 0 ? 5.2 : job === "courier" ? 6 : driving ? 4.2 : 2.8;
     let reach = Math.hypot(body.x - target.x, body.z - target.z) < reachDist;
     if (job === "courier" && phase === 1 && atShop(body)) reach = true;
     // Dwell jobs: leaving the spot resets the hold. Standing still inside
     // the radius counts up; the prompt shows the seconds left.
-    const dwellJob = job === "lifeguard" || job === "cleaner";
+    const dwellJob = job === "lifeguard" || job === "cleaner" || job === "bus" || job === "fire" || job === "doctor";
     if (dwellJob && !reach) dwell = 0;
     if (!reach) return;
     if (dwellJob) {
       dwell += dt;
-      const need = job === "lifeguard" ? 3 : 2.5;
+      const need = job === "bus" ? 2 : job === "cleaner" ? 2.5 : 3;
       const left = Math.max(0, need - dwell);
-      holdPrompt = job === "lifeguard"
-        ? `Scanning the water… hold still (${Math.ceil(left)}s)`
-        : `Sweeping… hold still (${Math.ceil(left)}s)`;
+      holdPrompt =
+        job === "lifeguard" ? `Scanning the water… hold still (${Math.ceil(left)}s)`
+        : job === "cleaner" ? `Sweeping… hold still (${Math.ceil(left)}s)`
+        : job === "bus" ? `Boarding riders… hold still (${Math.ceil(left)}s)`
+        : job === "fire" ? `Putting out the fire… hold still (${Math.ceil(left)}s)`
+        : `Treating the patient… hold still (${Math.ceil(left)}s)`;
       if (dwell < need) return;
       dwell = 0;
       if (job === "lifeguard") {
         phase += 1;
         if (phase >= 3) void finishJob("lifeguard");
         else say("Post scanned. Next post up the pier.");
-      } else {
+      } else if (job === "cleaner") {
         phase += 1;
         if (phase >= LITTER_DONE) void finishJob("cleaner");
         else say(`Spot swept. ${LITTER_DONE - phase} to go.`);
+      } else if (job === "bus") {
+        phase += 1;
+        if (phase >= BUS_STOPS.length) void finishJob("bus");
+        else say("Riders aboard. Next stop.");
+      } else if (job === "fire") {
+        burst(target.x, 1, target.z);
+        phase += 1;
+        if (phase >= FIRE_DONE) void finishJob("fire");
+        else say("Fire out. Next report.");
+      } else {
+        phase += 1;
+        if (phase >= 3) void finishJob("doctor");
+        else say("Patient treated. Next one.");
       }
       return;
     }
@@ -2134,6 +2277,10 @@ export function createRuntime(scene: Scene) {
       phase += 1;
       if (phase >= 3) void finishJob("guide");
       else say("Checkpoint reached.");
+    } else if (job === "teacher") {
+      phase += 1;
+      if (phase >= 3) void finishJob("teacher");
+      else say("Stop done. Next stop on the trip.");
     } else if (job === "barista" || job === "vendor") {
       void finishJob(job);
     } else if (job === "security") {
@@ -2205,6 +2352,77 @@ export function createRuntime(scene: Scene) {
     publish();
   }
 
+  function nearCourt(body: Body) {
+    return Math.hypot(body.x - SHOOT_SPOT.x, body.z - SHOOT_SPOT.z) < 12;
+  }
+
+  // Basketball shootout: 5 shots from the free-throw line. The aim meter
+  // sweeps 0-100; E shoots, and a shot in the green (40-60) scores. 3
+  // makes of 5 pays — fewer than 3 and the rim wins, no pay.
+  function startShootout(at?: Body) {
+    if (job) {
+      say("Finish your job first — one gig at a time.");
+      return;
+    }
+    if (miniGame) return;
+    const body = at ?? lastBody;
+    if (!body || !nearCourt(body)) {
+      say("Head to the Sunset Park court, then press E to shoot.");
+      return;
+    }
+    miniGame = "shootout";
+    shootState = "aim";
+    shootMeter = 0;
+    shootMade = 0;
+    shootTaken = 0;
+    panel = "";
+    void world.jobStart("shootout").catch((err: unknown) => say(err instanceof Error ? err.message : "The city held the ball."));
+    say("Shootout — 5 shots. Press E when the meter is in the green.");
+    publish();
+  }
+
+  function shootPress() {
+    if (miniGame !== "shootout" || shootState !== "aim") return;
+    shootTaken += 1;
+    const made = shootMeter >= SHOOT_GREEN_LO && shootMeter <= SHOOT_GREEN_HI;
+    if (made) {
+      shootMade += 1;
+      burst(HOOP.x, 3, HOOP.z + 0.6);
+      say(`Swish! ${shootMade} of ${SHOOT_SHOTS} made.`);
+    } else {
+      say(`Off the rim — ${shootMade} of ${SHOOT_SHOTS} made.`);
+    }
+    publish();
+    if (shootTaken >= SHOOT_SHOTS) {
+      shootState = "off";
+      if (shootMade >= SHOOT_WIN) {
+        say(`${shootMade} of ${SHOOT_SHOTS} — the shootout pays ${world.online ? "through the city" : "50 City Sol"}.`);
+        void finishGame("shootout");
+      } else {
+        miniGame = "";
+        say(`${shootMade} of ${SHOOT_SHOTS} — the rim wins. No pay this time.`);
+        publish();
+      }
+    }
+  }
+
+  // Treasure hunt: 5 chests at landmarks, 2 minutes, beacon to the
+  // nearest. Each chest found drops a clue to the next one.
+  function startTreasureHunt() {
+    if (job) {
+      say("Finish your job first — one gig at a time.");
+      return;
+    }
+    if (miniGame) return;
+    miniGame = "treasure";
+    treasureTaken = TREASURE_SPOTS.map(() => false);
+    treasureEndsAt = Date.now() + TREASURE_TIME_MS;
+    panel = "";
+    void world.jobStart("treasure").catch((err: unknown) => say(err instanceof Error ? err.message : "The city held the map."));
+    say("Treasure hunt — 5 chests, 2 minutes. First clue: buried where ships dock, at the end of the pier.");
+    publish();
+  }
+
   function recast() {
     fishState = "waiting";
     fishBiteAt = Date.now() + 3000 + Math.random() * 5000;
@@ -2228,6 +2446,8 @@ export function createRuntime(scene: Scene) {
     miniGame = "";
     if (fishBobber) fishBobber.visible = false;
     for (const mesh of coinMeshes) mesh.visible = false;
+    for (const mesh of treasureMeshes) mesh.visible = false;
+    shootState = "off";
     const ok = await pay(id);
     if (!ok) say("The city held the prize — try the game again.");
     publish();
@@ -2341,6 +2561,60 @@ export function createRuntime(scene: Scene) {
       holdPrompt = "Waiting for a bite…";
       return;
     }
+    if (miniGame === "treasure") {
+      let nearest: { x: number; z: number } | null = null;
+      let nearestD = Infinity;
+      for (let i = 0; i < TREASURE_SPOTS.length; i++) {
+        const spot = TREASURE_SPOTS[i];
+        const mesh = treasureMeshes[i];
+        if (!mesh) continue;
+        mesh.visible = !treasureTaken[i];
+        mesh.position.set(spot.x, 0.35, spot.z);
+        if (treasureTaken[i]) continue;
+        const d = Math.hypot(body.x - spot.x, body.z - spot.z);
+        if (d < nearestD) {
+          nearestD = d;
+          nearest = spot;
+        }
+        if (d < 2.8 && !paused) {
+          treasureTaken[i] = true;
+          mesh.visible = false;
+          burst(spot.x, 1, spot.z);
+          const got = treasureTaken.filter(Boolean).length;
+          if (got >= TREASURE_TOTAL) {
+            say("Last chest! The hunt pays.");
+            void finishGame("treasure");
+            return;
+          }
+          const clue = TREASURE_SPOTS[i].clue;
+          say(clue ? `Chest ${got} of ${TREASURE_TOTAL}. Clue: ${clue}` : `Chest ${got} of ${TREASURE_TOTAL}.`);
+          publish();
+        }
+      }
+      if (Date.now() > treasureEndsAt) {
+        for (const mesh of treasureMeshes) mesh.visible = false;
+        miniGame = "";
+        say("Time up — the treasure stays buried. No pay this time.");
+        publish();
+        return;
+      }
+      if (beacon && nearest && !paused) {
+        beacon.visible = true;
+        beacon.position.set(nearest.x, 1.2 + Math.sin(clock * 3) * 0.2, nearest.z);
+        beacon.rotation.y = clock;
+      }
+      return;
+    }
+    if (miniGame === "shootout" && shootState === "aim") {
+      // The meter sweeps 0-100 on a sine — no extra state to track, and
+      // the green window (40-60) passes twice per sweep.
+      shootMeter = 50 + 50 * Math.sin(clock * 1.6);
+      const inGreen = shootMeter >= SHOOT_GREEN_LO && shootMeter <= SHOOT_GREEN_HI;
+      holdPrompt = inGreen
+        ? `GREEN — press E to shoot! (${Math.round(shootMeter)})`
+        : `Aim ${Math.round(shootMeter)} — press E in the green (40–60)`;
+      return;
+    }
     // No game running: leave holdPrompt alone — tickJobs may have set a
     // dwell prompt (scan/sweep) for the active job.
   }
@@ -2386,7 +2660,7 @@ export function createRuntime(scene: Scene) {
   let tourStep = 0;
 
   async function pay(id: string) {
-    const amounts: Record<string, number> = { courier: 45, taxi: 90, guide: 60, mechanic: 55, photographer: 40, promoter: 50, dock: 65, dj: 55, banker: 50, barista: 45, vendor: 55, security: 75, mail: 70, lifeguard: 65, cleaner: 55, coinhunt: 40, fishing: 45 };
+    const amounts: Record<string, number> = { courier: 45, taxi: 90, guide: 60, mechanic: 55, photographer: 40, promoter: 50, dock: 65, dj: 55, banker: 50, barista: 45, vendor: 55, security: 75, mail: 70, lifeguard: 65, cleaner: 55, bus: 80, fire: 75, doctor: 70, teacher: 60, coinhunt: 40, fishing: 45, shootout: 50, treasure: 45 };
     // A hotel rest pays +10% on top of the job (min 1 City Sol) — the
     // same bonus whether the pay comes from the local wallet or the server.
     const base = amounts[id] ?? 0;
@@ -2982,6 +3256,56 @@ export function createRuntime(scene: Scene) {
       body.z = -16;
       body.yaw = 0;
       body.pitch = 0.1;
+    } else if (shot === "bus") {
+      job = "bus";
+      phase = 0;
+      void world.jobStart("bus");
+      body.x = 10;
+      body.y = 0;
+      body.z = 17.6;
+      body.yaw = 0;
+      body.pitch = 0.05;
+    } else if (shot === "fire") {
+      job = "fire";
+      phase = 0;
+      void world.jobStart("fire");
+      body.x = 18;
+      body.y = 0;
+      body.z = 72;
+      body.yaw = 0;
+      body.pitch = 0.05;
+    } else if (shot === "doctor") {
+      job = "doctor";
+      phase = 0;
+      void world.jobStart("doctor");
+      body.x = 41.6;
+      body.y = 0;
+      body.z = 90;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.05;
+    } else if (shot === "teacher") {
+      job = "teacher";
+      phase = 0;
+      void world.jobStart("teacher");
+      body.x = -77.6;
+      body.y = 0;
+      body.z = 163;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0.05;
+    } else if (shot === "shootout") {
+      body.x = 121;
+      body.y = 0;
+      body.z = 215;
+      body.yaw = Math.PI;
+      body.pitch = 0.05;
+      startShootout(body);
+    } else if (shot === "treasure") {
+      startTreasureHunt();
+      body.x = 0;
+      body.y = 0;
+      body.z = 240;
+      body.yaw = 0;
+      body.pitch = 0.05;
     } else if (shot === "coinhunt") {
       startCoinHunt();
       body.x = 0;
@@ -3864,6 +4188,12 @@ export function createRuntime(scene: Scene) {
     },
     startFishing() {
       startFishing();
+    },
+    startShootout() {
+      startShootout();
+    },
+    startTreasureHunt() {
+      startTreasureHunt();
     },
     leaveRace() {
       raceNext = -1;

@@ -305,6 +305,12 @@ function Arcade({ rt }: { rt: Runtime | null }) {
       <h3>Fishing</h3>
       <p>Stand on the harbor pier and press E to cast. 3 catches pays 45 City Sol. Press E too soon, or miss a bite, and the fish count it — 3 misses and the haul is gone.</p>
       <button type="button" onClick={() => rt?.startFishing()}>Cast a line</button>
+      <h3>Basketball shootout</h3>
+      <p>Five shots from the free-throw line at the Sunset Park court. Time the meter and press E in the green. 3 makes pays 50 City Sol.</p>
+      <button type="button" onClick={() => rt?.startShootout()}>Shoot hoops</button>
+      <h3>Treasure hunt</h3>
+      <p>Five chests buried around the city — pier, park, library, cinema, tower. Find them all in 2 minutes — pays 45 City Sol. The beacon points at the nearest chest; each find drops a clue to the next.</p>
+      <button type="button" onClick={() => rt?.startTreasureHunt()}>Start treasure hunt</button>
     </div>
   );
 }
