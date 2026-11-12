@@ -569,7 +569,8 @@ const VEHICLE_PRICES = {
   "atv-trail": 1500,
   "atv-quad": 2600,
   "board-street": 150,
-  "board-long": 350
+  "board-long": 350,
+  "boat-ferry": 2500
 };
 
 const VEHICLE_COLORS = {
@@ -824,6 +825,14 @@ const VEHICLE_COLORS = {
     "lime",
     "black",
     "pink"
+  ],
+  "boat-ferry": [
+    "white",
+    "cyan",
+    "blue",
+    "gold",
+    "red",
+    "black"
   ]
 };
 
@@ -860,7 +869,8 @@ const VEHICLE_DEFAULT_COLORS = {
   "atv-trail": "green",
   "atv-quad": "orange",
   "board-street": "black",
-  "board-long": "sunset"
+  "board-long": "sunset",
+  "boat-ferry": "white"
 };
 
 const VEHICLE_NAMES = {
@@ -896,7 +906,8 @@ const VEHICLE_NAMES = {
   "atv-trail": "Trail Boss ATV",
   "atv-quad": "Mud King 4x4",
   "board-street": "Orbit Deck",
-  "board-long": "Cruiser Longboard"
+  "board-long": "Cruiser Longboard",
+  "boat-ferry": "Orbit Ferry"
 };
 
 // --- Home furniture (furniture shop + Edit Home) ------------------------

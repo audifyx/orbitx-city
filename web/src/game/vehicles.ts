@@ -39,7 +39,7 @@ import { GOLD, MATERIALS } from "./materials";
 // Types
 // ---------------------------------------------------------------------------
 
-export type VehicleKind = "car" | "flying" | "bike" | "atv" | "skateboard";
+export type VehicleKind = "car" | "flying" | "bike" | "atv" | "skateboard" | "boat";
 
 /** 0-10 display stats. Physics mapping lives in driveParamsFor(). */
 export interface VehicleStats {
@@ -1290,6 +1290,34 @@ const BOARDS: VehicleDef[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Boats — one ferry, free at every strait dock, buyable for 2,500 City Sol.
+// A boat is NOT built by the car BodyPlan (a hull is not a sedan): it has
+// its own builder below (buildBoat), with y=0 at the waterline. The plan
+// below only carries the footprint (length / width) the runtime reads for
+// collision (carBlocks / otherCarHit) and the display stats.
+// ---------------------------------------------------------------------------
+
+const BOATS: VehicleDef[] = [
+  def({
+    id: "boat-ferry",
+    name: "Orbit Ferry",
+    brand: "Orbit",
+    kind: "boat",
+    fly: false,
+    blurb: "A proper little ferry. Board free at any dock, sail the straits — no roads needed.",
+    price: 2500,
+    stats: { speed: 3, accel: 4, handling: 6, seats: 4 },
+    plan: plan({
+      length: 4.4, width: 1.9, bodyY: -0.3, bodyH: 0.55,
+      hoodLen: 0, cabinX: 0, cabinLen: 0, cabinH: 0, cabinW: 0,
+    }),
+    wheels: [],
+    colors: ["white", "cyan", "blue", "gold", "red", "black"],
+    defaultColor: "white",
+  }),
+];
+
+// ---------------------------------------------------------------------------
 // Catalog — Tesla (all Elon cars)
 // Sourced Nov 2026: the current lineup is Model 3, Model Y, Model S,
 // Model X and Cybertruck, plus the Cybercab robotaxi (in service in Austin
@@ -1502,6 +1530,7 @@ export const VEHICLES: VehicleDef[] = [
   ...BIKES,
   ...ATVS,
   ...BOARDS,
+  ...BOATS,
 ];
 
 export const VEHICLE_IDS: string[] = VEHICLES.map((v) => v.id);
@@ -1572,6 +1601,11 @@ export const CAR_SHOP: CarShopSection[] = [
     title: "Skateboards",
     blurb: "Stand up, push to go. The cheapest way to move in the city.",
     ids: BOARDS.map((v) => v.id),
+  },
+  {
+    title: "Boats",
+    blurb: "Sail the straits between the cities. Free ferries wait at every dock — or buy your own and it moors at the home south dock.",
+    ids: BOATS.map((v) => v.id),
   },
 ];
 
@@ -1673,6 +1707,71 @@ export function dirtPaintHex(hex: number, dirt: number): number {
 }
 
 /**
+ * Build a THREE.Group for a boat. Local y=0 IS the waterline: the hull
+ * sits below it, the deck and seats above it. The runtime parks the group
+ * at WATER_SURFACE_Y, so no hover math applies. Front of the boat is +X,
+ * same as the cars. The outboard prop is named "prop" so drive()'s spin
+ * loop turns it while the boat moves.
+ */
+function buildBoat(v: VehicleDef, color?: string): Group {
+  const group = new Group();
+  group.rotation.order = "YXZ";
+  const box = new BoxGeometry(1, 1, 1);
+  const paints: MeshStandardMaterial[] = [];
+  const paint = new MeshStandardMaterial({
+    color: paintHex(color ?? v.defaultColor),
+    emissive: 0x12141c,
+    emissiveIntensity: 0.28,
+    roughness: 0.35,
+    metalness: 0.45,
+  });
+  paints.push(paint);
+  const add = (material: Material, x: number, y: number, z: number, sx: number, sy: number, sz: number, rz = 0) => {
+    const mesh = new Mesh(box, material);
+    mesh.position.set(x, y, z);
+    mesh.scale.set(sx, sy, sz);
+    if (rz) mesh.rotation.z = rz;
+    group.add(mesh);
+    return mesh;
+  };
+  // Hull: main slab below the waterline + a raked bow (nose up).
+  add(paint, 0, -0.32, 0, 3.6, 0.55, 1.7);
+  add(paint, 1.95, -0.12, 0, 1.1, 0.45, 1.45, 0.35);
+  // Gold rub stripe along each side, just above the waterline.
+  add(GOLD, 0, -0.08, 0.86, 3.6, 0.08, 0.06);
+  add(GOLD, 0, -0.08, -0.86, 3.6, 0.08, 0.06);
+  // Stern transom + deck.
+  add(partMaterial("dark", paint), -1.85, -0.15, 0, 0.18, 0.6, 1.6);
+  add(partMaterial("white", paint), 0, 0.02, 0, 3.3, 0.12, 1.5);
+  // Gunwale rails along both sides.
+  add(paint, 0, 0.14, 0.78, 3.4, 0.14, 0.1);
+  add(paint, 0, 0.14, -0.78, 3.4, 0.14, 0.1);
+  // Bench seats (white) fore and aft of the console.
+  add(partMaterial("white", paint), 0.55, 0.22, 0, 0.5, 0.18, 1.3);
+  add(partMaterial("white", paint), -0.75, 0.22, 0, 0.5, 0.18, 1.3);
+  // Center console + glass windshield.
+  add(partMaterial("dark", paint), 1.0, 0.35, 0, 0.5, 0.5, 0.9);
+  add(partMaterial("glass", paint), 1.28, 0.62, 0, 0.08, 0.35, 0.85);
+  // Bow light.
+  add(partMaterial("headlight", paint), 2.2, 0.1, 0, 0.12, 0.12, 0.3);
+  // Outboard motor on the transom + the spinning prop.
+  add(partMaterial("dark", paint), -2.05, 0.05, 0, 0.45, 0.7, 0.5);
+  const prop = add(partMaterial("chrome", paint), -2.32, -0.35, 0, 0.1, 0.5, 0.08);
+  prop.name = "prop";
+
+  group.userData.paints = paints;
+  group.userData.vehicleId = v.id;
+  group.userData.kind = v.kind;
+  group.userData.fly = v.fly;
+  group.userData.maxAltitude = 0;
+  group.userData.length = v.plan.length;
+  group.userData.width = v.plan.width;
+  group.userData.wheelR = 0;
+  return group;
+}
+}
+
+/**
  * Build a THREE.Group for a catalog vehicle.
  * @param id Vehicle id from VEHICLES.
  * @param color Paint key (see VEHICLE_COLORS) or "#rrggbb". Defaults to the
@@ -1687,6 +1786,7 @@ export function dirtPaintHex(hex: number, dirt: number): number {
 export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial<VehicleMods> | null; wear?: Partial<VehicleWear> | null }): Group {
   const v = getVehicle(id);
   if (!v) throw new Error(`Unknown vehicle ${id}`);
+  if (v.kind === "boat") return buildBoat(v, color);
   const mods = normalizeMods(opts?.mods);
   const wear = normalizeWear(opts?.wear);
   const p = v.plan;
@@ -1969,6 +2069,14 @@ export function driveParamsFor(id: string, opts?: { mods?: Partial<VehicleMods> 
     base.maxSpeed *= 0.85;
   }
   if (v.id === "bike-dirt") base.offroad = true;
+  if (v.kind === "boat") {
+    // Boats sail at ~12 u/s (speed 3 -> 7 + 3*1.7 = 12.1), reverse slowly,
+    // lean gently into turns. Climb stays 0: a boat never flies, and the
+    // runtime parks it at WATER_SURFACE_Y instead of hover + altitude.
+    base.reverse = -3;
+    base.lean = 0.12;
+    base.hover = 0;
+  }
   if (v.kind === "skateboard") {
     base.maxSpeed = 5 + s.speed * 0.8;
     base.accel = 0; // push impulse only — see WIRING.md drive() edit.
