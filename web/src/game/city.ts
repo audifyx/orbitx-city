@@ -120,7 +120,7 @@ export interface RailPoint {
 export interface Anchor {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "carshop" | "arcade" | "market" | "dock" | "mall" | "office" | "offices" | "lift" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "fire" | "police" | "hospital" | "emergency";
+  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "carshop" | "arcade" | "market" | "dock" | "mall" | "office" | "offices" | "lift" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "fire" | "police" | "hospital" | "emergency" | "grocery";
   x: number;
   y: number;
   z: number;
@@ -175,7 +175,7 @@ export interface CarSpawn {
 export interface Zone {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "carshop" | "arcade" | "market" | "dock" | "mall" | "office" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "fire" | "police" | "hospital" | "emergency";
+  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "carshop" | "arcade" | "market" | "dock" | "mall" | "office" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "fire" | "police" | "hospital" | "emergency" | "grocery";
   slot: number;
   minX: number;
   maxX: number;
@@ -1505,6 +1505,11 @@ function reservedPlot(x0: number, x1: number, z0: number, z1: number) {
     [7, 29, 43, 65],
     [-29, -7, 43, 65],
     [43, 65, 79, 101],
+    // Grocery lot (2026-11-12): the grid block south of the OrbitX Shop,
+    // east of the Night Market, west of the Community Hall — a generated
+    // block used to stand here (block-7-79). Reserved so the grocery
+    // store owns the lot, like the market and hall lots beside it.
+    [7, 29, 79, 101],
     [79, 101, -65, -43],
     [79, 101, 43, 65],
     [43, 65, 43, 65],
@@ -1662,6 +1667,97 @@ function furnishShop(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
     id: "shop",
     name: "OrbitX Shop",
     kind: "shop",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX: service.x,
+    serviceZ: service.z,
+    signX: back.x + (door === "w" ? -0.55 : door === "e" ? 0.55 : 0),
+    signY: 2.35,
+    signZ: back.z + (door === "n" ? -0.55 : door === "s" ? 0.55 : 0),
+    signRot: back.rot,
+  };
+}
+
+// OrbitX Grocery (door north): two stocked aisle rows with a center
+// walkway from the door to the checkout, a produce island, a fridge row
+// on the east wall, and the checkout counter on the back (south) wall.
+// The zone service point sits in front of the counter — E there opens
+// the grocery panel. Same finish as the shop (white/gold, beams,
+// windows, plants) so the store reads as one family with it.
+function furnishGrocery(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "cream");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  wallpaperWalls(boxes, x0, z0, w, d, door, "white", "gold");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  doorWallWindows(boxes, x0, z0, w, d, door, "red");
+  const back = opposite(door, x0, z0, w, d, 2.4);
+  const counterAlongX = door === "n" || door === "s";
+  // Checkout counter on the back wall + stone top + gold till.
+  put(boxes, back.x, 0.55, back.z, counterAlongX ? 7.2 : 1.15, 1.05, counterAlongX ? 1.15 : 7.2, "wood");
+  cols.push(col(back.x, 0.55, back.z, counterAlongX ? 7.2 : 1.15, 1.05, counterAlongX ? 1.15 : 7.2));
+  put(boxes, back.x, 1.15, back.z, counterAlongX ? 7.4 : 1.25, 0.12, counterAlongX ? 1.25 : 7.4, "stone");
+  put(boxes, back.x, 1.55, back.z, 0.35, 0.55, 0.35, "gold");
+  // Two aisle rows, each split at the center walkway (x = cx) so the
+  // door-to-counter path stays open. Goods on two levels per shelf.
+  const goods: Mat[] = ["cyan", "gold", "red", "white", "warm", "cyan"];
+  for (const z of [z0 + 5.5, z0 + 11.5]) {
+    for (const [sx0, sw] of [[x0 + 3, 6.5], [x0 + w - 9.5, 6.5]] as Array<[number, number]>) {
+      const sx = sx0 + sw / 2;
+      put(boxes, sx, 1.2, z, sw, 2.4, 0.7, "wood");
+      cols.push(col(sx, 1.2, z, sw, 2.4, 0.7));
+      put(boxes, sx, 2.45, z, sw, 0.12, 0.78, "stone");
+      for (let level = 0; level < 2; level++) {
+        const y = level === 0 ? 0.95 : 1.95;
+        for (let i = 0; i < 3; i++) {
+          put(boxes, sx - sw / 2 + 1.1 + i * 2.1, y, z, 0.55, 0.5, 0.45, goods[(i + level * 2) % goods.length]);
+        }
+      }
+    }
+  }
+  // Produce island west of the walkway, in front of the second aisle:
+  // low stand with green + red + warm fruit on top.
+  const px = cx - 5.5;
+  const pz = z0 + 14.5;
+  put(boxes, px, 0.5, pz, 3.2, 1.0, 1.6, "wood");
+  cols.push(col(px, 0.5, pz, 3.2, 1.0, 1.6));
+  put(boxes, px, 1.05, pz, 3.4, 0.12, 1.8, "stone");
+  const fruit: Mat[] = ["leaves", "red", "warm", "leavesDark"];
+  for (let i = 0; i < 4; i++) {
+    put(boxes, px - 1.2 + i * 0.8, 1.35, pz, 0.45, 0.45, 0.45, fruit[i % fruit.length]);
+  }
+  // Fridge row on the east wall: three tall white units with cyan glass
+  // fronts, clear of the counter end-caps.
+  for (let i = 0; i < 3; i++) {
+    const fz = z0 + 5.5 + i * 3.6;
+    const fx = x0 + w - 2.4;
+    put(boxes, fx, 1.2, fz, 1.0, 2.4, 2.8, "white");
+    cols.push(col(fx, 1.2, fz, 1.0, 2.4, 2.8));
+    put(boxes, fx - 0.55, 1.45, fz, 0.1, 1.5, 2.2, "cyan");
+  }
+  // End-cap units flanking the counter on the back wall.
+  for (const side of [-1, 1]) {
+    const ex = back.x + side * 7.5;
+    put(boxes, ex, 1.2, back.z, 1.0, 2.4, 2.6, "wood");
+    cols.push(col(ex, 1.2, back.z, 1.0, 2.4, 2.6));
+    for (let level = 0; level < 2; level++) {
+      const y = level === 0 ? 0.95 : 1.95;
+      put(boxes, ex, y, back.z - 0.6, 0.4, 0.5, 0.45, goods[(side + 2 + level) % goods.length]);
+      put(boxes, ex, y, back.z + 0.6, 0.4, 0.5, 0.45, goods[(side + 3 + level) % goods.length]);
+    }
+  }
+  const mat = opposite(door, x0, z0, w, d, 4.2);
+  put(boxes, mat.x, 0.145, mat.z, counterAlongX ? 3.2 : 2.2, 0.05, counterAlongX ? 2.2 : 3.2, "gold");
+  const service = opposite(door, x0, z0, w, d, 4.1);
+  return {
+    id: "grocery",
+    name: "OrbitX Grocery",
+    kind: "grocery",
     slot: 0,
     minX: x0 + 1.15,
     maxX: x0 + w - 1.15,
@@ -1885,7 +1981,7 @@ function addVenue(
   // Real-store exteriors: pitched roofs, glass storefronts, awnings, gold
   // cornices — the ground floor must read as a shop, not a blank slab.
   const arch: Pick<Facade, "roof" | "roofMat" | "storefront" | "awning" | "cornice"> =
-    kind === "shop" || kind === "arcade" || kind === "carshop"
+    kind === "shop" || kind === "arcade" || kind === "carshop" || kind === "grocery"
       ? { roof: "gable", roofMat: 2, storefront: true, awning: true, cornice: true }
       : kind === "cafe" || kind === "market"
         ? { roof: "hip", roofMat: 1, storefront: true, awning: true, cornice: true }
@@ -1946,6 +2042,7 @@ function addVenue(
     cornice: arch.cornice,
   });
   if (kind === "shop") return furnishShop(boxes, cols, x0, z0, w, d, door);
+  if (kind === "grocery") return furnishGrocery(boxes, cols, x0, z0, w, d, door);
   if (kind === "cafe") return furnishCafe(boxes, cols, x0, z0, w, d, door);
   if (kind === "hall") return furnishHall(boxes, cols, x0, z0, w, d, door);
   if (kind === "project") return furnishOffice(boxes, cols, x0, z0, w, d, door, index);
@@ -4802,6 +4899,12 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     addVenue(boxes, cols, 210, -80, 26, 22, 8, "w", "carshop"),
     addVenue(boxes, cols, 43, 43, 22, 22, 8, "w", "arcade"),
     addVenue(boxes, cols, -29, 79, 22, 22, 7, "n", "market"),
+    // GROCERY (2026-11-12): OrbitX Grocery, the lot south of the shop
+    // (7,79,22,22, door north onto the z=72 road) — between the Night
+    // Market and the Community Hall, a two-minute walk from the plaza
+    // fountain. The lot is reserved in reservedPlot, so the generated
+    // block that used to stand here is gone.
+    addVenue(boxes, cols, 7, 79, 22, 22, 8, "n", "grocery"),
     // New venues: the two empty lots in the reserved west strip (inset 2
     // from the lot edges so the corner traffic lights stay clear), plus the
     // waterfront pair east of the harbor (empty grass, no lots/roads/hills).
@@ -4872,6 +4975,10 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     doorAnchor("carshop", "OrbitX Motors", "carshop", 210, -80, 26, 22, "w"),
     { id: "arcade", name: "Neon Arcade", kind: "arcade", x: 41.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
     { id: "market", name: "Night Market", kind: "market", x: -18, y: 0, z: 77.6, yaw: Math.PI, slot: 0 },
+    // GROCERY: OrbitX Grocery door (north wall of the 7,79 lot). E here
+    // walks the player in; E at the checkout counter opens the grocery
+    // panel. Anchor: id "grocery", (18, 77.6), yaw π.
+    doorAnchor("grocery", "OrbitX Grocery", "grocery", 7, 79, 22, 22, "n"),
     { id: "dock", name: "Harbor Office", kind: "dock", x: 0, y: 0, z: 210.6, yaw: Math.PI, slot: 0 },
     // New venue doors: doorAnchor puts the anchor just outside the door,
     // facing in (walk-in is E at the anchor).
