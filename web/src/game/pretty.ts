@@ -417,7 +417,7 @@ function addWall(
 // colliders (pushWallColliders, untouched) still block walking through.
 // Upper floors of office towers get proud glass curtain bands instead of
 // holes: one wide pane + rails per face per row.
-// `glaze` is false on low quality (walls stay as they were, no glass).
+// `glaze` is true for facades that opted into the pass (facade.glass).
 
 interface WallOpening {
   a0: number;
@@ -1163,9 +1163,10 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
     }
     if (facade.enterable && facade.door) {
       // Glazing is visual only: the colliders are untouched, so the walls
-      // still block walking through except at the door. Low quality skips
-      // the glass (walls stay as they were).
-      root.add(hollow(facade, material, quality !== "low" && !!facade.glass));
+      // still block walking through except at the door. It runs at every
+      // quality — touch defaults to low, and the glass is the point of the
+      // pass, so it must show on the user's phone too.
+      root.add(hollow(facade, material, !!facade.glass));
     } else {
       const mesh = new Mesh(box, material);
       mesh.position.set(facade.x + facade.w / 2, facade.h / 2, facade.z + facade.d / 2);
