@@ -817,6 +817,33 @@ function sanitizeFurnitureMap(raw) {
   }
   return out;
 }
+// --- Car customization / wear / garage upgrades (vehicles.ts, mirrored) --
+// Same rule as the vehicle catalog: duplicated from the TS source, the
+// server is the price authority — a client-sent price is never trusted.
+// Regenerate from vehicles.ts whenever the CARS prices change.
+const CUSTOM_PAINT_PRICE = 150;
+const CUSTOM_PAINTS = {
+  "matte-black": 1, chrome: 1, "rose-gold": 1, "pearl-pink": 1,
+  mint: 1, "midnight-purple": 1, lava: 1, ice: 1,
+};
+const RIM_PRICES = { stock: 0, sport: 200, chrome: 250, gold: 300, black: 150 };
+const SPOILER_PRICES = { none: 0, lip: 180, gt: 320, drag: 450, delete: 0 };
+const NEON_COLORS = ["cyan", "pink", "gold", "green", "purple", "red"];
+const NEON_PRICE = 220;
+const TINT_PRICES = [0, 80, 140, 200];
+const ENGINE_PRICES = [0, 600, 1400, 2600];
+const TIRE_PRICES = [0, 350, 800];
+// Garage upgrades live INSIDE the per-server homes JSON (save.homes.garage
+// = { slots, workshop, showroom }) — no new DB column: homes is already a
+// TEXT JSON column on player_saves and parseSave/rowFromSave round-trip
+// it. Per-home, per-server by construction.
+const GARAGE_BASE_SLOTS = 3;
+const GARAGE_SLOT_PRICES = [800, 1800, 3200];
+const GARAGE_WORKSHOP_PRICE = 1500;
+const GARAGE_SHOWROOM_PRICE = 2500;
+// A home workshop does your own work: 25% off wash + repair, and it
+// unlocks the advanced tuning (Stage 3 engine, Race tires).
+const WORKSHOP_DISCOUNT = 0.25;
 
 // --- Home catalog (homes.ts HOMES, mirrored) ------------------------------
 // Same rule as vehicles: duplicated from the TS catalog, server is the
@@ -1436,14 +1463,126 @@ function sanitizeHomes(homes) {
     homes: list.map(sanitizeOwnedHome),
     furniture: sanitizeFurnitureMap(homes?.furniture),
     furnitureOwned: sanitizeFurnitureOwned(homes?.furnitureOwned),
+    garage: sanitizeGarage(homes?.garage),
   };
+}
+
+// --- CARS: per-vehicle mods / wear / garage upgrades ----------------------
+// Mirrors of the vehicles.ts helpers — the server re-validates everything
+// the client sends, so the rules live here too (prices above).
+const DEFAULT_MODS = { rims: "stock", spoiler: "none", neon: null, tint: 0, engine: 0, tires: 0 };
+const DEFAULT_GARAGE_UPGRADES = { slots: 0, workshop: false, showroom: false };
+
+function normalizeMods(mods) {
+  const m = mods && typeof mods === "object" ? mods : {};
+  return {
+    rims: m.rims in RIM_PRICES ? m.rims : "stock",
+    spoiler: m.spoiler in SPOILER_PRICES ? m.spoiler : "none",
+    neon: typeof m.neon === "string" && NEON_COLORS.includes(m.neon) ? m.neon : null,
+    tint: Number.isFinite(m.tint) ? Math.max(0, Math.min(3, Math.floor(m.tint))) : 0,
+    engine: Number.isFinite(m.engine) ? Math.max(0, Math.min(3, Math.floor(m.engine))) : 0,
+    tires: Number.isFinite(m.tires) ? Math.max(0, Math.min(2, Math.floor(m.tires))) : 0,
+  };
+}
+
+function normalizeWear(wear) {
+  const clamp = (n) => (Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0);
+  return { dirt: clamp(wear?.dirt), damage: clamp(wear?.damage) };
+}
+
+function normalizeGarage(g) {
+  const x = g && typeof g === "object" ? g : {};
+  return {
+    slots: Number.isFinite(x.slots) ? Math.max(0, Math.min(3, Math.floor(x.slots))) : 0,
+    workshop: !!x.workshop,
+    showroom: !!x.showroom,
+  };
+}
+
+function sanitizeGarage(g) {
+  return normalizeGarage(g);
+}
+
+/** The garage upgrades on a save — read from save.homes.garage. */
+function garageOf(save) {
+  const homes = save.homes && typeof save.homes === "object" ? save.homes : { homeServer: 0, homes: [] };
+  return normalizeGarage(homes.garage);
+}
+
+function setGarage(save, garage) {
+  const homes = save.homes && typeof save.homes === "object" ? save.homes : { homeServer: 0, homes: [] };
+  save.homes = { ...homes, garage: normalizeGarage(garage) };
+}
+
+/** Owned-car cap for a garage level: 3 base + 2 per slots tier (max 9). */
+function garageCap(garage) {
+  return GARAGE_BASE_SLOTS + normalizeGarage(garage).slots * 2;
+}
+
+function garageUpgradePrice(upgrade, garage) {
+  const g = normalizeGarage(garage);
+  if (upgrade === "slots") return g.slots >= 3 ? null : GARAGE_SLOT_PRICES[g.slots];
+  if (upgrade === "workshop") return g.workshop ? null : GARAGE_WORKSHOP_PRICE;
+  if (upgrade === "showroom") return g.showroom ? null : GARAGE_SHOWROOM_PRICE;
+  return null;
+}
+
+/** Price of one mod change, or null when the (mod, value) pair is invalid. */
+function modPrice(mod, value) {
+  if (mod === "paint") return typeof value === "string" && value in CUSTOM_PAINTS ? CUSTOM_PAINT_PRICE : null;
+  if (mod === "rims") return typeof value === "string" && value in RIM_PRICES ? RIM_PRICES[value] : null;
+  if (mod === "spoiler") return typeof value === "string" && value in SPOILER_PRICES ? SPOILER_PRICES[value] : null;
+  if (mod === "neon") {
+    if (value === null) return 0;
+    return typeof value === "string" && NEON_COLORS.includes(value) ? NEON_PRICE : null;
+  }
+  if (mod === "tint") {
+    const level = Math.floor(Number(value));
+    return Number.isInteger(level) && level >= 0 && level <= 3 ? TINT_PRICES[level] : null;
+  }
+  if (mod === "engine") {
+    const level = Math.floor(Number(value));
+    return Number.isInteger(level) && level >= 0 && level <= 3 ? ENGINE_PRICES[level] : null;
+  }
+  if (mod === "tires") {
+    const level = Math.floor(Number(value));
+    return Number.isInteger(level) && level >= 0 && level <= 2 ? TIRE_PRICES[level] : null;
+  }
+  return null;
+}
+
+/** Wash: 30 + dirt (30-130). Repair: 50 + 2 per damage point (50-250). */
+function washCost(dirt) {
+  return 30 + Math.max(0, Math.min(100, Math.round(Number(dirt) || 0)));
+}
+function repairCost(damage) {
+  return 50 + Math.max(0, Math.min(100, Math.round(Number(damage) || 0))) * 2;
+}
+
+/** Wear accumulation: ~1 dirt per 60 units driven, 4 damage per crash. */
+function accumulateWear(wear, distance, crashes) {
+  const d = Math.max(0, Math.min(100, wear.dirt + Math.floor(Math.max(0, distance) / 60)));
+  const g = Math.max(0, Math.min(100, wear.damage + Math.max(0, Math.floor(crashes)) * 4));
+  return { dirt: d, damage: g };
 }
 
 function sanitizeVehicles(vehicles) {
   if (!Array.isArray(vehicles)) return [];
   return vehicles
     .filter((v) => v && typeof v.id === "string")
-    .map((v) => ({ id: v.id, color: String(v.color || "") }));
+    .map((v) => {
+      // Shape stays `{ id, color }` for a stock, clean car (older
+      // clients + the rental test deep-compare that shape); mods/wear
+      // ride along only when they differ from stock, so nothing is
+      // lost and nothing breaks.
+      const out = { id: v.id, color: String(v.color || "") };
+      const mods = normalizeMods(v.mods);
+      if (JSON.stringify(mods) !== JSON.stringify(DEFAULT_MODS)) out.mods = mods;
+      const wear = normalizeWear(v);
+      if (wear.dirt > 0) out.dirt = wear.dirt;
+      if (wear.damage > 0) out.damage = wear.damage;
+      return out;
+    });
 }
 
 // --- Garage rentals (car rental, 0.5 City Sol/day) ----------------------
@@ -1500,6 +1639,7 @@ function publicPlayer(player) {
     rent: player.rent || {},
     homeServer: player.homeServer ?? null,
     homes: sanitizeHomes(player.homes),
+    garage: sanitizeGarage(player.homes?.garage),
     vehicles: sanitizeVehicles(player.vehicles),
     activeVehicle: player.activeVehicle || null,
     rental: sanitizeRental(player.rental),
@@ -2802,6 +2942,14 @@ async function buyCar(save, body) {
     return { ok: true, message: "Already yours. Equipped.", me: publicPlayer(save) };
   }
   if (save.balance < price) return { ok: false, message: "Not enough City Sol.", status: 400 };
+  // Garage parking: 3 cars fit to start, +2 per slots tier (max 9).
+  // Cars already owned are never taken away — an over-cap garage (bought
+  // before the CARS expansion) just cannot buy another car until it is
+  // expanded. Rentals do not count toward owned parking.
+  const garage = garageOf(save);
+  if (vehicles.length >= garageCap(garage)) {
+    return { ok: false, message: `Your garage is full (${vehicles.length}/${garageCap(garage)} cars) — upgrade it for more parking.`, status: 400 };
+  }
   // City Sol only: no burn, no burned increment — a vehicle is a
   // purchase, not a burn event.
   save.balance -= price;
@@ -2827,6 +2975,150 @@ async function selectCar(save, body) {
   save.activeVehicle = id;
   await saveSave(save);
   return { ok: true, me: publicPlayer(save) };
+}
+
+// --- CARS: customize / wash / repair / garage upgrades / wear sync -------
+// All City Sol only, per-car, per-server. Mods + wear live on the owned
+// vehicle entry inside save.vehicles (no new DB column); garage upgrades
+// live on save.homes.garage (see the constants block above).
+async function customizeCar(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Unknown server.", status: 400 };
+  const id = String(body.id || "");
+  const vehicles = Array.isArray(save.vehicles) ? save.vehicles : [];
+  const entry = vehicles.find((v) => v.id === id);
+  if (!entry) return { ok: false, message: "You don't own that car yet.", status: 400 };
+  const mod = String(body.mod || "");
+  const value = body.value === undefined ? null : body.value;
+  const price = modPrice(mod, value);
+  if (price == null) return { ok: false, message: "That mod is not available.", status: 400 };
+  const mods = normalizeMods(entry.mods);
+  const garage = garageOf(save);
+  // Engine / tires are bought in order, one stage at a time; the top
+  // stage needs the home workshop (advanced tuning).
+  if (mod === "engine") {
+    const level = Math.floor(Number(value));
+    if (level !== mods.engine + 1) {
+      return { ok: false, message: level <= mods.engine ? "That stage is already fitted." : "Buy the stages in order.", status: 400 };
+    }
+    if (level === 3 && !garage.workshop) {
+      return { ok: false, message: "Stage 3 needs your home workshop — upgrade the garage first.", status: 400 };
+    }
+  }
+  if (mod === "tires") {
+    const level = Math.floor(Number(value));
+    if (level !== mods.tires + 1) {
+      return { ok: false, message: level <= mods.tires ? "Those tires are already fitted." : "Buy the tire levels in order.", status: 400 };
+    }
+    if (level === 2 && !garage.workshop) {
+      return { ok: false, message: "Race tires need your home workshop — upgrade the garage first.", status: 400 };
+    }
+  }
+  // Paint: premium paints only — the shop colours are free, and repainting
+  // to one of them goes through buy-car (already-owned = repaint).
+  if (mod === "paint") {
+    const colors = VEHICLE_COLORS[id] || [];
+    if (colors.includes(value)) {
+      return { ok: false, message: "That paint is free in the shop — premium paints only here.", status: 400 };
+    }
+    if (entry.color === value) return { ok: false, message: "Already that colour.", status: 400 };
+  }
+  if (mod === "rims" && mods.rims === value) return { ok: false, message: "Those rims are already fitted.", status: 400 };
+  if (mod === "spoiler" && mods.spoiler === value) return { ok: false, message: "That spoiler is already fitted.", status: 400 };
+  if (mod === "neon" && mods.neon === value) return { ok: false, message: value === null ? "No underglow fitted." : "That underglow is already fitted.", status: 400 };
+  if (mod === "tint" && mods.tint === Math.floor(Number(value))) return { ok: false, message: "That tint is already fitted.", status: 400 };
+  if (save.balance < price) return { ok: false, message: "Not enough City Sol.", status: 400 };
+  // City Sol only: no burn, no burned increment — a mod is a purchase.
+  save.balance -= price;
+  if (mod === "paint") entry.color = String(value);
+  else if (mod === "rims") mods.rims = value;
+  else if (mod === "spoiler") mods.spoiler = value;
+  else if (mod === "neon") mods.neon = value;
+  else if (mod === "tint") mods.tint = Math.floor(Number(value));
+  else if (mod === "engine") mods.engine = Math.floor(Number(value));
+  else if (mod === "tires") mods.tires = Math.floor(Number(value));
+  entry.mods = mods;
+  save.vehicles = vehicles;
+  await saveSave(save);
+  const label = mod === "paint" ? `Premium paint` : mod === "neon" ? (value === null ? "Underglow removed" : "Neon underglow") : mod;
+  return { ok: true, message: price === 0 ? `${label} fitted — free.` : `${label} fitted for ${price} City Sol.`, me: publicPlayer(save) };
+}
+
+async function washCar(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Unknown server.", status: 400 };
+  const id = String(body.id || "");
+  const vehicles = Array.isArray(save.vehicles) ? save.vehicles : [];
+  const entry = vehicles.find((v) => v.id === id);
+  if (!entry) return { ok: false, message: "You don't own that car yet.", status: 400 };
+  const wear = normalizeWear(entry);
+  if (wear.dirt <= 0) return { ok: false, message: "Already clean.", status: 400 };
+  const garage = garageOf(save);
+  const cost = Math.round(washCost(wear.dirt) * (garage.workshop ? 1 - WORKSHOP_DISCOUNT : 1));
+  if (save.balance < cost) return { ok: false, message: "Not enough City Sol.", status: 400 };
+  save.balance -= cost;
+  entry.dirt = 0;
+  save.vehicles = vehicles;
+  await saveSave(save);
+  return { ok: true, message: `Washed clean for ${cost} City Sol.`, me: publicPlayer(save) };
+}
+
+async function repairCar(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Unknown server.", status: 400 };
+  const id = String(body.id || "");
+  const vehicles = Array.isArray(save.vehicles) ? save.vehicles : [];
+  const entry = vehicles.find((v) => v.id === id);
+  if (!entry) return { ok: false, message: "You don't own that car yet.", status: 400 };
+  const wear = normalizeWear(entry);
+  if (wear.damage <= 0) return { ok: false, message: "No damage to fix.", status: 400 };
+  const garage = garageOf(save);
+  const cost = Math.round(repairCost(wear.damage) * (garage.workshop ? 1 - WORKSHOP_DISCOUNT : 1));
+  if (save.balance < cost) return { ok: false, message: "Not enough City Sol.", status: 400 };
+  save.balance -= cost;
+  entry.damage = 0;
+  save.vehicles = vehicles;
+  await saveSave(save);
+  return { ok: true, message: `Repaired for ${cost} City Sol.`, me: publicPlayer(save) };
+}
+
+async function upgradeGarage(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Unknown server.", status: 400 };
+  const upgrade = String(body.upgrade || "");
+  const garage = garageOf(save);
+  const price = garageUpgradePrice(upgrade, garage);
+  if (price == null) return { ok: false, message: "That upgrade is already owned — or maxed out.", status: 400 };
+  if (save.balance < price) return { ok: false, message: "Not enough City Sol.", status: 400 };
+  save.balance -= price;
+  if (upgrade === "slots") garage.slots += 1;
+  else if (upgrade === "workshop") garage.workshop = true;
+  else if (upgrade === "showroom") garage.showroom = true;
+  setGarage(save, garage);
+  await saveSave(save);
+  const label = upgrade === "slots" ? `Parking expanded — ${garageCap(garage)} cars now fit` : upgrade === "workshop" ? "Workshop installed" : "Showroom installed";
+  return { ok: true, message: `${label} for ${price} City Sol.`, me: publicPlayer(save) };
+}
+
+// Client-attested wear: the client reports how far it drove and how many
+// crashes since the last sync; the server applies the same accumulateWear
+// rule and clamps the report, so a tampered client can only dirty its own
+// car (wear only ever hurts the car — it cannot mint money).
+async function syncVehicleWear(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Unknown server.", status: 400 };
+  const id = String(body.id || "");
+  const vehicles = Array.isArray(save.vehicles) ? save.vehicles : [];
+  const entry = vehicles.find((v) => v.id === id);
+  if (!entry) return { ok: false, message: "You don't own that car yet.", status: 400 };
+  const distance = Math.max(0, Math.min(5000, Number(body.distance) || 0));
+  const crashes = Math.max(0, Math.min(25, Math.floor(Number(body.crashes) || 0)));
+  const wear = accumulateWear(normalizeWear(entry), distance, crashes);
+  entry.dirt = wear.dirt;
+  entry.damage = wear.damage;
+  save.vehicles = vehicles;
+  await saveSave(save);
+  return { ok: true, vehicle: sanitizeVehicles([entry])[0], me: publicPlayer(save) };
 }
 
 // --- Garage rentals (0.5 City Sol/day, paid up front) ------------------
@@ -2858,6 +3150,7 @@ async function overlaySaveGarage(player, body, me) {
   if (!save) return me;
   me.vehicles = sanitizeVehicles(save.vehicles);
   me.activeVehicle = save.activeVehicle || null;
+  me.garage = sanitizeGarage(save.homes?.garage);
   me.rental = sanitizeRental(await liveRental(save));
   return me;
 }
@@ -3915,7 +4208,7 @@ export async function POST(request) {
 
   // Garage — per-server cars (vehicles.ts). The save is this server's own.
   // Rentals live on the same save (save.rental, not save.vehicles).
-  if (op === "buy-car" || op === "select-car" || op === "rent-car" || op === "rental-status" || op === "return-rental") {
+  if (op === "buy-car" || op === "select-car" || op === "rent-car" || op === "rental-status" || op === "return-rental" || op === "customize-car" || op === "wash-car" || op === "repair-car" || op === "upgrade-garage" || op === "sync-vehicle-wear") {
     const server = parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Unknown server." }, 400);
     // Rental-status is a read: never mint a save for it. The other garage
@@ -3932,7 +4225,12 @@ export async function POST(request) {
     else if (op === "select-car") result = await selectCar(save, body);
     else if (op === "rent-car") result = await rentCar(save, body);
     else if (op === "rental-status") result = await rentalStatusOp(save);
-    else result = await returnRental(save, body);
+    else if (op === "return-rental") result = await returnRental(save, body);
+    else if (op === "customize-car") result = await customizeCar(save, body);
+    else if (op === "wash-car") result = await washCar(save, body);
+    else if (op === "repair-car") result = await repairCar(save, body);
+    else if (op === "upgrade-garage") result = await upgradeGarage(save, body);
+    else result = await syncVehicleWear(save, body);
     if (result.ok) await mirrorBalance(player, save);
     return json(result, result.ok ? 200 : result.status || 400);
   }
