@@ -5855,6 +5855,16 @@ export function createRuntime(scene: Scene) {
     }
     // OrbitX Line: the train runs whether or not anyone rides.
     stepTrain(dt);
+    window.__ORBITX_LINE = {
+      x: Math.round(trainState.x * 10) / 10,
+      dir: trainState.dir,
+      at: TRAIN_STATIONS[trainState.at]?.name ?? "",
+      next: TRAIN_STATIONS[trainState.next]?.name ?? "",
+      speed: Math.round(trainState.speed * 10) / 10,
+      stopped: trainState.stopped,
+      dwell: Math.round(trainState.dwell * 10) / 10,
+      riding: ridingTrain,
+    };
     const now = performance.now();
     for (const [id, remote] of remotes) {
       if (now - remote.seen > 8000) {
@@ -9922,6 +9932,17 @@ declare global {
       atStop: string;
       nextStop: string;
       speed: number;
+      riding: boolean;
+    };
+    /** OrbitX Line ground-train debug state (read-only snapshot). */
+    __ORBITX_LINE?: {
+      x: number;
+      dir: number;
+      at: string;
+      next: string;
+      speed: number;
+      stopped: boolean;
+      dwell: number;
       riding: boolean;
     };
   }
