@@ -656,7 +656,10 @@ function furnishStateBlock(
   const rugT = big ? T * 0.3 : T * 0.52;
   {
     const p = blockRoomPoint(door, x0, z0, w, d, S / 2, rugT);
-    stateRug(city, p.x, p.z, 0, Math.min(6, S - 6), Math.min(4, T - 6), accent);
+    // Rug base 0.06: the room floor slab tops out at 0.12, and a rug at
+    // base 0 has its top flush with the floor (z-fight). Base 0.06 puts
+    // the rug bottom on the floor, top at 0.18.
+    stateRug(city, p.x, p.z, 0.06, Math.min(6, S - 6), Math.min(4, T - 6), accent);
   }
 
   // Back piece on the wall opposite the door (the door lane ends here).
@@ -677,7 +680,9 @@ function furnishStateBlock(
     rcol(S / 2, backT, backW, 0.45, 0.9, 1.1);
     rput(S / 2, backT, 0.7, 1.2, 0.5, 0.7, "gold");
   } else if (kind === "hall") {
-    rput(S / 2, backT, Math.min(9, S - 4), 0.06, 0.12, 2.2, "wood");
+    // Low wooden dais at the back. Centre y 0.18 so it sits ON the floor
+    // (floor top 0.12) — at 0.06 its top was flush with the floor (z-fight).
+    rput(S / 2, backT, Math.min(9, S - 4), 0.18, 0.12, 2.2, "wood");
     rput(S / 2, T - 1.4, Math.min(9, S - 4), 1.7, 1.6, 0.1, accent);
   } else {
     rput(S / 2, backT, backW, 0.55, 1.05, 1.15, kind === "hotel" ? "stone" : "wood");
@@ -834,7 +839,8 @@ function furnishStateLandmark(city: City, state: StateDef): Zone {
   stateWallpaperWall(city, false, x0 + 0.55, x0 + 0.62, z0 + 1.25, z0 + d - 1.25, 0, "white", "gold");
   stateWallpaperWall(city, false, x0 + w - 0.55, x0 + w - 0.62, z0 + 1.25, z0 + d - 1.25, 0, "white", "gold");
   stateCeiling(city, x0, z0, w, d);
-  stateRug(city, cx, cz, 0, 20, 20, "gold");
+  // Rug base 0.06 so it sits on the plaza slab (top 0.12), not flush with it.
+  stateRug(city, cx, cz, 0.06, 20, 20, "gold");
   // Fountain colliders (base + pillar): walk around the centrepiece.
   pushCol(city, cx, 0.5, cz, 8, 1, 8);
   pushCol(city, cx, 1.8, cz, 1.2, 1.6, 1.2);
@@ -965,7 +971,8 @@ function furnishStateService(
   }
   stateCeiling(city, x0, z0, w, d);
   const rugMat: Mat = kind === 0 ? "red" : kind === 1 ? "black" : "white";
-  stateRug(city, mx, mz + 0.8, 0, 5, 2.6, rugMat);
+  // Rug base 0.06 so it sits on the wood floor (top 0.12), not flush with it.
+  stateRug(city, mx, mz + 0.8, 0.06, 5, 2.6, rugMat);
   const plantX = door === "e" ? x0 + 17.5 : x0 + 2.5;
   if (kind === 0) {
     // Fire: engine truck + gear lockers + hose rack + brass pole + benches.

@@ -1306,7 +1306,8 @@ function rectHitsMega(x0: number, z0: number, x1: number, z1: number) {
 function addRoads(boxes: Box[]) {
   put(boxes, 0, -0.55, 0, 760, 1.1, 760, "grass");
   put(boxes, 0, 0.02, 0, 400, 0.04, 400, "sidewalk");
-  put(boxes, 0, 0.045, 0, 58, 0.05, 58, "plaza");
+  // (No plaza slab here — addPlaza owns the 58x58 plaza slab. A second
+  // identical slab here used to z-fight with it, top 0.070.)
 
   const nsBlock: Array<[number, number]> = CENTERS.map((c) => [c - HALF, c + HALF]);
   const plazaBlock: Array<[number, number]> = [[-31, 31]];
@@ -1439,6 +1440,14 @@ function addRoads(boxes: Box[]) {
   }
 }
 
+/** The OrbitX Line ground train runs the z=33 road (x -144..144), 2.5 wide.
+ * A street-tree canopy is r=2 (spans ~2.5 from the trunk) — a tree planted
+ * beside the z=36 road overhangs the track, so the train runs under its
+ * branches. Skip any tree whose canopy would reach the track. */
+function treeOverhangsTrain(x: number, z: number): boolean {
+  return z > 29 && z < 37 && x > -147 && x < 147;
+}
+
 function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng) {
   let lampI = 0;
   for (const cx of CENTERS) {
@@ -1450,7 +1459,7 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng) {
         if (inMega(x, z)) continue;
         lampI++;
         if (lampI % 2 === 0) addLamp(boxes, x, z);
-        else if (rng() > 0.55) addTree(boxes, cols, x, z, 0);
+        else if (rng() > 0.55 && !treeOverhangsTrain(x, z)) addTree(boxes, cols, x, z, 0);
       }
     }
   }
@@ -1462,7 +1471,7 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng) {
         if (Math.abs(x) < 32 && Math.abs(z) < 32) continue;
         if (inMega(x, z)) continue;
         if (rng() > 0.5) addLamp(boxes, x, z);
-        if (rng() > 0.72) addTree(boxes, cols, x, z, 0);
+        if (rng() > 0.72 && !treeOverhangsTrain(x, z)) addTree(boxes, cols, x, z, 0);
       }
     }
   }
@@ -2737,11 +2746,13 @@ function buildCarShopLot(boxes: Box[], cols: Collider[]) {
   for (const bx of [187.5, 195.5, 203.5, 208.5]) {
     put(boxes, bx, 0.1, -62, 0.15, 0.05, 3.4, "white");
   }
-  // Gold outline around the bought-car bay (202, -69).
+  // Gold outline around the bought-car bay (202, -69). The side strips
+  // stop short of the end strips (2.7, not 3.0) so the corners do not
+  // overlap and z-fight — same rectangle, clean corners.
   put(boxes, 202, 0.1, -70.5, 4.6, 0.05, 0.15, "gold");
   put(boxes, 202, 0.1, -67.5, 4.6, 0.05, 0.15, "gold");
-  put(boxes, 199.7, 0.1, -69, 0.15, 0.05, 3.0, "gold");
-  put(boxes, 204.3, 0.1, -69, 0.15, 0.05, 3.0, "gold");
+  put(boxes, 199.7, 0.1, -69, 0.15, 0.05, 2.7, "gold");
+  put(boxes, 204.3, 0.1, -69, 0.15, 0.05, 2.7, "gold");
   // Pylon at the street corner (186, -76.5): black pillar, gold cap,
   // cyan band — the lot marker.
   put(boxes, 186, 1.5, -76.5, 0.7, 3.0, 0.7, "black");
