@@ -18,6 +18,7 @@ import {
   type Scene,
 } from "three";
 import type { Anchor, Art, BoardSlot, City, Collider, Lift, Zone } from "./city";
+import { TRAIN_LINE_Z, TRAIN_STATIONS, trainTrackY } from "./city";
 import {
   BUSK_BASE,
   BUSK_BEATS,
@@ -343,6 +344,8 @@ export interface Snap {
   /** Bumps each time a store venue opens the Shop on its tab, so opening
    * the same store twice still switches the tab (App syncs on this). */
   shopStoreNonce: number;
+  /** Riding the OrbitX Line train (board at a station, E to get off). */
+  ridingTrain: boolean;
   indoors: string;
   /** CRAZY: "pool" | "hottub" while the player is in the water, else null. */
   swimming: "pool" | "hottub" | null;
@@ -1246,6 +1249,25 @@ export function createRuntime(scene: Scene) {
   let driving = false;
   let carIndex = -1;
   let carSpeed = 0;
+  // OrbitX Line — the rideable ground-level train (route, stations and
+  // profile live in city.ts). The train advances in after() whether or
+  // not anyone rides; while riding, the engine calls rideTrain() instead
+  // of tick(), and the rider's body follows the train.
+  let trainGroup: Group | null = null;
+  const trainDoors: { mesh: Mesh; closedX: number; openDir: number }[] = [];
+  const TRAIN_CRUISE = 10;
+  const TRAIN_ACCEL = 4;
+  const TRAIN_DWELL = 6;
+  const TRAIN_TERMINAL_DWELL = 9;
+  let trainState = { x: TRAIN_STATIONS[0].x, dir: 1, at: 0, next: 1, speed: 0, dwell: 2, stopped: true };
+  let trainDoorOpen = 0;
+  let ridingTrain = false;
+  // True while the player stands in a zone whose floor is below the street
+  // (the underground station). The engine's ground clamp and fall-safety
+  // only apply outdoors, so this is what lets the player walk at y=-6.
+  let inBelowGrade = false;
+  const trainNose = new Vector3(1, 0, 0);
+  const trainDir = new Vector3();
   let chaseYaw = 0;
   let chasePitch = 0.18;
   let stickX = 0;
@@ -1877,6 +1899,10 @@ export function createRuntime(scene: Scene) {
     scene.add(root);
     boards.clear();
     cars.length = 0;
+    if (trainGroup) {
+      trainGroup = null;
+      trainDoors.length = 0;
+    }
     ownedCarIndex = -1;
     // The garage groups live under root too — drop them with it, and
     // clear the signature so the next sync rebuilds them on the new root.
@@ -2334,6 +2360,10 @@ export function createRuntime(scene: Scene) {
     driving = false;
     carIndex = -1;
     carSpeed = 0;
+    ridingTrain = false;
+    trainState = { x: TRAIN_STATIONS[0].x, dir: 1, at: 0, next: 1, speed: 0, dwell: 2, stopped: true };
+    trainDoorOpen = 0;
+    inBelowGrade = false;
     holdGas = false;
     holdBrake = false;
     holdJump = false;
@@ -2406,6 +2436,7 @@ export function createRuntime(scene: Scene) {
     for (const slot of next.boards) mountBoard(slot);
     for (const item of next.art) mountArt(item);
     buildLiftCabs();
+    buildTrain();
     // No stray parked cars: the only car spawned from the city list is the
     // player's own car (index 0, in their paint). Bought cars spawn on the
     // OrbitX Motors forecourt via spawnActiveCar above — cars are bought
@@ -2569,6 +2600,7 @@ export function createRuntime(scene: Scene) {
       flyingCar: driving && carIndex >= 0 && !!driveParams && driveParams.climb > 0,
       carFlying: driving && carIndex >= 0 && !!(cars[carIndex] && (cars[carIndex].alt > 0 || cars[carIndex].autoAlt != null)),
       ridingBoard: driving && carIndex >= 0 && !!driveParams && driveParams.pushToGo,
+      ridingTrain,
       indoors: insideName,
       swimming: swimPool,
       onRooftop,
@@ -3402,6 +3434,19 @@ export function createRuntime(scene: Scene) {
       exitCar(body);
       return;
     }
+    // OrbitX Line: E gets off (only while stopped) or boards the stopped
+    // train. Boarding beats doors and cars — the platform has neither.
+    if (ridingTrain) {
+      if (trainStopped()) alightTrain(body);
+      else say("Hold on — the train is moving. You can get off at the next stop.");
+      publish();
+      return;
+    }
+    if (trainStopped() && nearTrainBoard(body)) {
+      boardTrain(body);
+      publish();
+      return;
+    }
     // A running dance set eats E as a beat hit — the player is on the floor,
     // not opening doors, until the set ends or they leave the hall or club.
     if (dance && (zoneAt(body)?.id === "hall" || zoneAt(body)?.id === "nightclub")) {
@@ -3751,6 +3796,181 @@ export function createRuntime(scene: Scene) {
     body.vy = 0;
   }
 
+  // ---- OrbitX Line: the rideable train ----
+  function trainStopped() {
+    return !!trainGroup && trainState.stopped;
+  }
+
+  // Close enough to board the stopped train: within 6 units of its centre
+  // in the horizontal plane, and with the player's feet near the train's
+  // floor — so a player on the concourse above the underground train (6
+  // units up, through the floor) cannot board through the slab.
+  function nearTrainBoard(body: Body) {
+    if (!trainStopped()) return false;
+    const dx = body.x - trainState.x;
+    const dz = body.z - TRAIN_LINE_Z;
+    if (Math.hypot(dx, dz) >= 6) return false;
+    return Math.abs(body.y - (trainTrackY(trainState.x) + 0.35)) < 2;
+  }
+
+  function boardTrain(body: Body) {
+    ridingTrain = true;
+    body.flying = false;
+    body.vy = 0;
+    body.x = trainState.x;
+    body.z = TRAIN_LINE_Z;
+    body.y = trainTrackY(trainState.x) + 0.35;
+    body.yaw = trainState.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+    triggerHaptic("door");
+    say("Riding the OrbitX Line — free. Press E to get off at the next stop.");
+  }
+
+  function alightTrain(body: Body) {
+    const station = TRAIN_STATIONS[trainState.at];
+    ridingTrain = false;
+    body.x = station.board.x;
+    body.y = station.board.y;
+    body.z = station.board.z;
+    body.yaw = Math.PI;
+    body.vy = 0;
+    body.flying = false;
+    triggerHaptic("door");
+    say(`Off at ${station.name}${station.underground ? " — Underground" : ""}.`);
+  }
+
+  // Called from the engine frame loop instead of tick() while riding: the
+  // train itself advances once per frame in after() — this only carries
+  // the rider with it (never advances the train, or substeps would run it
+  // up to 5x fast).
+  function rideTrain(_dt: number, body: Body) {
+    body.x = trainState.x;
+    body.z = TRAIN_LINE_Z;
+    body.y = trainTrackY(trainState.x) + 0.35;
+    body.vy = 0;
+    body.flying = false;
+    body.yaw = trainState.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+  }
+
+  // The train's own motion: cruise between stations, ease to a stop at
+  // each one, dwell with the doors open, reverse at the termini. Runs in
+  // after() once per frame, in orbit mode too, so the line is alive in
+  // the menu background.
+  function stepTrain(dt: number) {
+    if (!trainGroup) return;
+    if (trainState.stopped) {
+      trainState.dwell -= dt;
+      if (trainState.dwell <= 0) trainState.stopped = false;
+    } else {
+      const target = TRAIN_STATIONS[trainState.next].x;
+      const dist = Math.abs(target - trainState.x);
+      if (dist < 0.15) {
+        trainState.x = target;
+        trainState.speed = 0;
+        trainState.stopped = true;
+        trainState.at = trainState.next;
+        trainState.dwell =
+          trainState.next === 0 || trainState.next === TRAIN_STATIONS.length - 1 ? TRAIN_TERMINAL_DWELL : TRAIN_DWELL;
+        let next = trainState.at + trainState.dir;
+        if (next < 0 || next >= TRAIN_STATIONS.length) {
+          trainState.dir *= -1;
+          next = trainState.at + trainState.dir;
+        }
+        trainState.next = next;
+      } else {
+        // Never faster than the speed that still stops in time.
+        const allowed = Math.sqrt(2 * TRAIN_ACCEL * dist);
+        const want = Math.min(TRAIN_CRUISE, allowed);
+        if (trainState.speed < want) trainState.speed = Math.min(want, trainState.speed + TRAIN_ACCEL * dt);
+        else trainState.speed = Math.max(want, trainState.speed - TRAIN_ACCEL * dt);
+        trainState.x += trainState.dir * trainState.speed * dt;
+      }
+    }
+    const x = trainState.x;
+    const y = trainTrackY(x);
+    const slope = (trainTrackY(x + 1) - trainTrackY(x - 1)) / 2;
+    trainGroup.position.set(x, y, TRAIN_LINE_Z);
+    trainDir.set(trainState.dir, slope, 0).normalize();
+    trainGroup.quaternion.setFromUnitVectors(trainNose, trainDir);
+    // Doors slide open while stopped at a station, closed while moving.
+    const target = trainState.stopped ? 1 : 0;
+    trainDoorOpen += (target - trainDoorOpen) * Math.min(1, dt * 3);
+    if (Math.abs(target - trainDoorOpen) < 0.01) trainDoorOpen = target;
+    for (const door of trainDoors) door.mesh.position.x = door.closedX + door.openDir * trainDoorOpen * 0.5;
+  }
+
+  // The train itself: three cars, windows, gold stripe, sliding doors on
+  // both sides of every car (the platform side flips when the train
+  // reverses), headlights forward, taillights behind. Origin at the
+  // railhead, forward = +X. Station labels float over the platforms.
+  function buildTrain() {
+    if (trainGroup) {
+      root.remove(trainGroup);
+      trainGroup = null;
+    }
+    trainDoors.length = 0;
+    const group = new Group();
+    const unitBox = new BoxGeometry(1, 1, 1);
+    const paint = new MeshStandardMaterial({
+      color: 0xf4f6fa,
+      emissive: 0x12141c,
+      emissiveIntensity: 0.28,
+      roughness: 0.35,
+      metalness: 0.45,
+    });
+    const glass = new MeshStandardMaterial({
+      color: 0xbfe6ff,
+      emissive: 0x3d7fa8,
+      emissiveIntensity: 0.55,
+      roughness: 0.12,
+      metalness: 0.35,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const dark = new MeshStandardMaterial({ color: 0x111318, roughness: 0.5, metalness: 0.5 });
+    const headlamp = new MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff6d8, emissiveIntensity: 1.4, roughness: 0.2 });
+    const taillamp = new MeshStandardMaterial({ color: 0xff4b5c, emissive: 0xaa1830, emissiveIntensity: 0.8, roughness: 0.3 });
+    const add = (material: Material, x: number, y: number, z: number, sx: number, sy: number, sz: number) => {
+      const mesh = new Mesh(unitBox, material);
+      mesh.position.set(x, y, z);
+      mesh.scale.set(sx, sy, sz);
+      group.add(mesh);
+      return mesh;
+    };
+    for (const cx of [-7.1, 0, 7.1]) {
+      add(paint, cx, 1.45, 0, 6.6, 2.3, 2.4);
+      add(dark, cx, 2.72, 0, 6.7, 0.25, 2.5);
+      add(MATERIALS.cyan, cx, 2.6, 0, 6.7, 0.06, 0.5);
+      for (const side of [-1, 1]) {
+        add(GOLD, cx, 1.02, side * 1.21, 6.6, 0.14, 0.06);
+        add(glass, cx, 1.85, side * 1.21, 5.6, 0.75, 0.06);
+        for (const dx of [-1.8, 1.8]) {
+          for (const half of [-1, 1]) {
+            const closedX = cx + dx + half * 0.28;
+            const mesh = add(dark, closedX, 1.3, side * 1.22, 0.55, 1.9, 0.08);
+            trainDoors.push({ mesh, closedX, openDir: half });
+          }
+          add(GOLD, cx + dx, 2.32, side * 1.22, 1.3, 0.08, 0.1);
+        }
+      }
+      for (const bx of [-2.2, 2.2]) add(dark, cx + bx, 0.08, 0, 1.4, 0.36, 1.6);
+    }
+    for (const jx of [-3.55, 3.55]) add(dark, jx, 1.45, 0, 0.5, 1.9, 1.8);
+    add(glass, 10.45, 1.85, 0, 0.08, 0.8, 2.0);
+    add(headlamp, 10.45, 0.9, 0.7, 0.1, 0.25, 0.4);
+    add(headlamp, 10.45, 0.9, -0.7, 0.1, 0.25, 0.4);
+    add(taillamp, -10.45, 0.9, 0.7, 0.1, 0.25, 0.4);
+    add(taillamp, -10.45, 0.9, -0.7, 0.1, 0.25, 0.4);
+    add(GOLD, 10.45, 1.02, 0, 0.08, 0.14, 2.0);
+    root.add(group);
+    trainGroup = group;
+    for (const station of TRAIN_STATIONS) {
+      const tag = makeLabel(`${station.name} Station`);
+      tag.position.set(station.x, station.y + 3.4, station.board.z);
+      root.add(tag);
+    }
+    stepTrain(0);
+  }
+
   function moveAxes(keys: Set<string>) {
     if (Math.hypot(stickX, stickY) > 0.15) return { f: stickY, s: stickX };
     const forward = (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0);
@@ -4074,7 +4294,7 @@ export function createRuntime(scene: Scene) {
 
   function consumeLook(body: Body) {
     if (lookX === 0 && lookY === 0) return;
-    if (driving) {
+    if (driving || ridingTrain) {
       chaseYaw += lookX;
       chasePitch += lookY;
       chasePitch = Math.max(-0.2, Math.min(0.7, chasePitch));
@@ -5430,6 +5650,8 @@ export function createRuntime(scene: Scene) {
         if (cab) cab.doorTarget = 0;
       }
     }
+    // OrbitX Line: the train runs whether or not anyone rides.
+    stepTrain(dt);
     const now = performance.now();
     for (const [id, remote] of remotes) {
       if (now - remote.seen > 8000) {
@@ -5474,7 +5696,7 @@ export function createRuntime(scene: Scene) {
     }
     const emoteNow = Date.now() < world.emoteUntil ? world.emote : "";
     if (localBody) {
-      localBody.visible = camMode !== "first" && !driving && !spectator;
+      localBody.visible = camMode !== "first" && !driving && !ridingTrain && !spectator;
       const lift = applyEmote(localBody, emoteNow, Math.PI - body.yaw);
       localBody.position.set(body.x, body.y + lift, body.z);
       paintPerson(localBody, true);
@@ -5520,6 +5742,9 @@ export function createRuntime(scene: Scene) {
     if (playing && !paused && !opts.orbit && !spectator) {
       const zone = zoneAt(body);
       insideName = zone?.id ?? "";
+      // A zone whose floor is below the street (the underground station)
+      // is the only place the player may stand under y=0.
+      inBelowGrade = !!zone && zone.minY !== undefined && zone.minY < 0;
       if (insideName && insideName !== prevInsideName) triggerHaptic("door");
       prevInsideName = insideName;
       if (zone?.id === "project-0" && world.mintSet && !world.me?.holder && !driving) {
@@ -5567,6 +5792,12 @@ export function createRuntime(scene: Scene) {
       else if (decorating && lot) prompt = "Decorate — place, rotate, or remove. X closes it.";
       else if (driving && nearGate(body, 0, 8)) prompt = "Press E — hover time trial";
       else if (driving) prompt = "Press E to get out";
+      else if (ridingTrain)
+        prompt = trainState.stopped
+          ? `Press E — get off at ${TRAIN_STATIONS[trainState.at].name}`
+          : `Riding the OrbitX Line — next stop ${TRAIN_STATIONS[trainState.next].name}`;
+      else if (trainState.stopped && nearTrainBoard(body))
+        prompt = `Press E — board the train to ${TRAIN_STATIONS[trainState.next].name} (free)`;
       else if (nearOwnBed(body)) prompt = energy >= 100 ? "Your bed — fully rested" : "Press E — sleep in your bed (energy back to 100)";
       else if (zone && nearService(body, zone)) {
         prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "grocery" ? "Press E — buy food at OrbitX Grocery" : zone.kind === "garage" ? "Press E to open the garage" : zone.kind === "carshop" ? "Press E — buy a car at OrbitX Motors" : isDeptKind(zone.kind as string) ? `Press E — ${zoneTitle(zone)}` : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zone.kind === "restaurant" ? `Press E — order at ${zoneTitle(zone)}` : zone.kind === "gym" ? "Press E — gym desk · work out" : zoneTitle(zone);
@@ -5835,6 +6066,34 @@ export function createRuntime(scene: Scene) {
     }
     const focusY = body.y + 1.35;
     hands.visible = false;
+    if (ridingTrain) {
+      // Chase the train from behind and above (or from the cab in
+      // first-person): the rider watches the city — and the tunnel —
+      // go by. The look offset (chaseYaw/chasePitch) works like driving.
+      const tx = trainState.x;
+      const ty = trainTrackY(tx);
+      const dir = trainState.dir;
+      if (camMode === "first") {
+        camera.position.set(tx + dir * 8.5, ty + 2.1, TRAIN_LINE_Z);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(tx + dir * 30, ty + 1.2 - chasePitch * 2.2, TRAIN_LINE_Z);
+        return true;
+      }
+      const yaw = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+      const lookYaw = yaw + chaseYaw;
+      const dist = (camMode === "far" ? 20 : 15) * camZoom;
+      const desired = {
+        x: tx + Math.sin(lookYaw) * dist * -1,
+        y: ty + 5.5 + chasePitch * 1.6,
+        z: TRAIN_LINE_Z - Math.cos(lookYaw) * dist * -1,
+      };
+      const pulled = pullCamera({ x: tx, y: ty + 1.3, z: TRAIN_LINE_Z }, desired);
+      const smoothed = smoothCamera(new Vector3(pulled.x, Math.max(ty + 1.4, pulled.y), pulled.z), dt);
+      camera.position.copy(smoothed);
+      camera.up.set(0, 1, 0);
+      camera.lookAt(tx, ty + 1.2, TRAIN_LINE_Z);
+      return true;
+    }
     if (!driving && camMode === "first") {
       camera.position.set(body.x, body.y + 1.62, body.z);
       camera.up.set(0, 1, 0);
@@ -8390,14 +8649,16 @@ export function createRuntime(scene: Scene) {
     colsNear,
     blocks: carBlocks,
     driving: () => driving,
+    ridingTrain: () => ridingTrain,
     paused: () => paused,
     typing: () => typing,
     stickActive: () => Math.hypot(stickX, stickY) > 0.15,
     jumpHeld: () => holdJump,
     downHeld: () => holdDown,
-    indoors: () => "",
+    indoors: () => (inBelowGrade ? insideName : ""),
     moveAxes,
     drive,
+    rideTrain,
     after,
     interact,
     say,
@@ -8439,6 +8700,12 @@ export function createRuntime(scene: Scene) {
         }
         // Ground vehicle: step out of the car first, then fly the player.
         exitCar(who);
+      }
+      // Riding the train: no flying off a moving train — get off first.
+      if (ridingTrain) {
+        say("Get off the train first — press E at the next stop.");
+        publish();
+        return;
       }
       who.flying = !who.flying;
       who.vy = 0;

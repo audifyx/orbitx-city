@@ -252,6 +252,7 @@ const EMPTY: Snap = {
   flyingCar: false,
   carFlying: false,
   ridingBoard: false,
+  ridingTrain: false,
   indoors: "",
   swimming: null,
   onRooftop: null,

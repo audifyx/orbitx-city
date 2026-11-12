@@ -788,6 +788,7 @@ export function createGame(
       while (left > 0.0001) {
         const step = Math.min(0.05, left);
         if (runtime.driving()) runtime.drive(step, player, keys, carHit);
+        else if (runtime.ridingTrain()) runtime.rideTrain(step, player);
         else tick(step);
         left -= step;
       }
@@ -854,10 +855,10 @@ export function createGame(
       look.set(player.x + sy * cp, player.y + 1.62 + sp, player.z - cy * cp);
       camera.up.set(0, 1, 0);
       camera.lookAt(look);
-      const label = runtime.driving() ? "DRIVING" : player.flying ? "FLYING" : isWater(player.x, player.z) ? "SWIMMING" : "WALKING";
+      const label = runtime.driving() ? "DRIVING" : runtime.ridingTrain() ? "RIDING" : player.flying ? "FLYING" : isWater(player.x, player.z) ? "SWIMMING" : "WALKING";
       pushStatus(statusFor(label), now);
     } else {
-      const label = runtime.driving() ? "DRIVING" : "WALKING";
+      const label = runtime.driving() ? "DRIVING" : runtime.ridingTrain() ? "RIDING" : "WALKING";
       pushStatus(statusFor(label), now);
     }
     // Debug hook (same family as __ORBITX_READY / __ORBITX_SNAP): live
