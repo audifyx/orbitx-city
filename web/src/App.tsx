@@ -642,8 +642,12 @@ export default function App() {
             {snap.others + 1} in the city · {snap.camLabel} · {snap.lookName}
             {snap.universe ? ` · ${snap.universe.name} · ${snap.universe.isHome ? "Home" : "Visitor"}` : ""}
           </span>
-          <Minimap me={snap.me} people={snap.people} seed={seed} />
         </div>
+      )}
+      {/* Minimap lives outside the HUD so it can be dragged anywhere and
+          does not bloat the HUD block. Same visibility as the HUD. */}
+      {!menu && !snap.hideHud && (
+        <Minimap me={snap.me} people={snap.people} seed={seed} touch={snap.touch} />
       )}
       {!menu && snap.prompt && !snap.hideHud ? <p className="prompt">{snap.prompt}</p> : null}
       {!menu && !snap.hideHud && (
@@ -1833,9 +1837,64 @@ function fallbackUniverses(): Universe[] {
   }));
 }
 
-function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"]; seed: number }) {
+// Minimap: 132px (was 168 — smaller, but still big enough to read the
+// roads, the player dot, and the venue labels). Draggable — the player can
+// put it anywhere on screen; the spot persists in localStorage.
+const MINIMAP_SIZE = 132;
+const MINIMAP_STORAGE_KEY = "orbitx-minimap-pos";
+
+type MinimapPos = { x: number; y: number };
+
+function clampMinimapPos(pos: MinimapPos): MinimapPos {
+  return {
+    x: Math.max(0, Math.min(pos.x, window.innerWidth - MINIMAP_SIZE)),
+    y: Math.max(0, Math.min(pos.y, window.innerHeight - MINIMAP_SIZE)),
+  };
+}
+
+function minimapDefaultPos(touch: boolean): MinimapPos {
+  const x = Math.max(0, window.innerWidth - MINIMAP_SIZE - 10);
+  // Touch: bottom-right, above the pad-buttons (~176px tall). Desktop:
+  // bottom-right corner, nothing else lives there.
+  const bottom = touch ? 190 : 12;
+  return { x, y: Math.max(0, window.innerHeight - MINIMAP_SIZE - bottom) };
+}
+
+function loadMinimapPos(touch: boolean): MinimapPos {
+  try {
+    const raw = localStorage.getItem(MINIMAP_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<MinimapPos>;
+      if (typeof parsed.x === "number" && typeof parsed.y === "number" && isFinite(parsed.x) && isFinite(parsed.y)) {
+        return clampMinimapPos({ x: parsed.x, y: parsed.y });
+      }
+    }
+  } catch {
+    // Corrupt or unavailable storage — fall through to the default spot.
+  }
+  return minimapDefaultPos(touch);
+}
+
+function Minimap({ me, people, seed, touch }: { me: Snap["me"]; people: Snap["people"]; seed: number; touch: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const dragRef = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
+  const [pos, setPos] = useState<MinimapPos>(() => loadMinimapPos(touch));
+  const posRef = useRef(pos);
+  const [dragging, setDragging] = useState(false);
   const model = useMemo(() => cityMapModel(seed), [seed]);
+
+  // Keep the latest position in a ref so the drag-end save always has the
+  // final spot, even if the pointer-up lands between renders.
+  useEffect(() => {
+    posRef.current = pos;
+  }, [pos]);
+
+  // Keep a saved spot on screen after a resize / rotation.
+  useEffect(() => {
+    const onResize = () => setPos((p) => clampMinimapPos(p));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   useEffect(() => {
     const canvas = ref.current;
     const ctx = canvas?.getContext("2d");
@@ -1987,7 +2046,47 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
     ctx.arc(mx, mz, 5.5, 0, Math.PI * 2);
     ctx.stroke();
   }, [me, people, model]);
-  return <canvas ref={ref} className="minimap" width={168} height={168} />;
+  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Capture can throw for synthetic pointers — the move handler still
+      // tracks while the pointer stays over the map.
+    }
+    dragRef.current = { px: event.clientX, py: event.clientY, ox: pos.x, oy: pos.y };
+    setDragging(true);
+  };
+  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    setPos(clampMinimapPos({ x: drag.ox + event.clientX - drag.px, y: drag.oy + event.clientY - drag.py }));
+  };
+  const endDrag = () => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    setDragging(false);
+    try {
+      localStorage.setItem(MINIMAP_STORAGE_KEY, JSON.stringify(posRef.current));
+    } catch {
+      // Storage unavailable (private mode) — the spot just does not persist.
+    }
+  };
+  return (
+    <div
+      className={`minimap-wrap${dragging ? " dragging" : ""}`}
+      style={{ left: pos.x, top: pos.y }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      aria-label="Minimap — drag to move it"
+      title="Drag to move the minimap"
+    >
+      <span className="minimap-grip" aria-hidden="true">⋮⋮</span>
+      <canvas ref={ref} className="minimap" width={MINIMAP_SIZE} height={MINIMAP_SIZE} />
+    </div>
+  );
 }
 
 function Phone({ snap, rt, onLogout }: { snap: Snap; rt: Runtime | null; onLogout: () => void }) {

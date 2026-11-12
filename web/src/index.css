@@ -646,10 +646,39 @@ body {
 }
 
 .minimap {
-  width: 168px;
-  height: 168px;
-  margin-top: 6px;
+  display: block;
+  width: 132px;
+  height: 132px;
   border: 1px solid #7ef6ff;
+}
+
+/* Draggable minimap shell — positioned by the component (left/top), the
+   spot persists in localStorage. Whole map is the drag handle. */
+.minimap-wrap {
+  position: fixed;
+  z-index: 5;
+  display: block;
+  line-height: 0;
+  touch-action: none;
+  cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.minimap-wrap.dragging {
+  cursor: grabbing;
+}
+
+.minimap-grip {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  z-index: 1;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 11px;
+  line-height: 1;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
 }
 
 .phone h3 {
@@ -855,23 +884,44 @@ body.touch .touch-ui {
     font-size: 32px;
   }
 
+  /* Top actions: a 2-row thumb grid instead of a horizontal scroll strip,
+     so all 11 buttons are visible at once with no sideways scrolling.
+     Buttons are thumb-sized (44px). The bar is ~104px tall + safe-area,
+     so the HUD below it starts at safe-area + 112px. */
   .actions {
     left: 0;
     right: 0;
     top: 0;
     max-width: none;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    justify-content: flex-start;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 4px;
-    padding: 4px 6px;
+    padding: 6px;
+    padding-top: max(6px, env(safe-area-inset-top));
     background: rgba(0, 0, 0, 0.72);
+    justify-content: stretch;
+  }
+
+  .actions button {
+    min-height: 44px;
+    padding: 6px 2px;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    line-height: 1.15;
+    white-space: normal;
+    text-align: center;
   }
 
   .hud {
-    top: 52px;
+    top: calc(env(safe-area-inset-top) + 112px);
     max-width: calc(100vw - 16px);
     font-size: 13px;
+  }
+
+  /* The "N in the city · cam · look" line is secondary while driving —
+     hide it on phones to keep the HUD compact. Balance + objective stay. */
+  .hud .quiet {
+    display: none;
   }
 
   .prompt {
@@ -947,7 +997,29 @@ body.touch .touch-ui {
 }
 
 @media (orientation: landscape) and (max-height: 520px) {
+  /* Landscape phones are short — one scrollable actions row again so the
+     top chrome stays ~48px instead of ~104px. HUD sits just below it. */
+  .actions {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    justify-content: flex-start;
+    gap: 4px;
+    padding: 4px 6px;
+    padding-top: max(4px, env(safe-area-inset-top));
+  }
+
+  .actions button {
+    min-height: 40px;
+    padding: 6px 10px;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    line-height: normal;
+    white-space: nowrap;
+  }
+
   .hud {
+    top: calc(env(safe-area-inset-top) + 56px);
     max-width: 34vw;
     font-size: 12px;
     padding: 4px 8px;
