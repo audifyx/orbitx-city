@@ -193,7 +193,6 @@ export interface ShopCatalogItem {
   value: string;
   price: number;
 }
-}
 
 export interface Snap {
   playing: boolean;
