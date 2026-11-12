@@ -199,6 +199,7 @@ const EMPTY: Snap = {
   flying: false,
   flyingCar: false,
   carFlying: false,
+  ridingBoard: false,
   indoors: "",
   prompt: "",
   balance: 0,
@@ -864,7 +865,7 @@ export default function App() {
           {snap.driving ? (
             <div className="drive-buttons">
               <Hold label="Brake" onDown={() => gameRef.current?.runtime.hold("brake", true)} onUp={() => gameRef.current?.runtime.hold("brake", false)} />
-              <Hold label="Gas" onDown={() => { triggerHaptic("tap"); gameRef.current?.runtime.hold("gas", true); }} onUp={() => gameRef.current?.runtime.hold("gas", false)} />
+              <Hold label={snap.ridingBoard ? "Push" : "Gas"} onDown={() => { triggerHaptic("tap"); gameRef.current?.runtime.hold("gas", true); }} onUp={() => gameRef.current?.runtime.hold("gas", false)} />
             </div>
           ) : null}
         </div>

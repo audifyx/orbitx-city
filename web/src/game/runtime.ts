@@ -223,6 +223,8 @@ export interface Snap {
   flyingCar: boolean;
   /** The driven car is airborne or auto-taking-off / auto-landing. */
   carFlying: boolean;
+  /** Riding a skateboard (pushToGo) — the Gas button relabels to Push. */
+  ridingBoard: boolean;
   indoors: string;
   prompt: string;
   balance: number;
@@ -811,6 +813,9 @@ export function createRuntime(scene: Scene) {
   // Per-vehicle drive params, cached on enterCar.
   let driveParams: DriveParams | null = null;
   let prevW = false;
+  // Skateboard push cadence: seconds until the next push impulse may fire
+  // while the push control is held (see drive()).
+  let pushCooldown = 0;
   // Steering input, smoothed (drive() eases toward the target instead of
   // taking the raw binary stick/key value).
   let steerSm = 0;
@@ -1889,6 +1894,7 @@ export function createRuntime(scene: Scene) {
       flying: flyFlag,
       flyingCar: driving && carIndex >= 0 && !!driveParams && driveParams.climb > 0,
       carFlying: driving && carIndex >= 0 && !!(cars[carIndex] && (cars[carIndex].alt > 0 || cars[carIndex].autoAlt != null)),
+      ridingBoard: driving && carIndex >= 0 && !!driveParams && driveParams.pushToGo,
       indoors: insideName,
       prompt,
       balance: wallet.balance,
@@ -2837,6 +2843,11 @@ export function createRuntime(scene: Scene) {
     carIndex = index;
     carSpeed = 0;
     steerSm = 0;
+    // A board entered while Gas is already held must still push — reset
+    // the push edge/cooldown or the first push is swallowed (wNow is
+    // already true, so the old edge-detect never fired).
+    prevW = false;
+    pushCooldown = 0;
     chaseYaw = 0;
     chasePitch = 0.22;
     body.flying = false;
@@ -2857,7 +2868,7 @@ export function createRuntime(scene: Scene) {
     // names a key a phone does not have, so the player never learned
     // that Jump climbs the car.
     if (driveParams && driveParams.climb > 0) say(touch ? FLY_CONTROLS.touchNote : FLY_CONTROLS.note);
-    else if (kind === "skateboard") say("Tap W to push.");
+    else if (kind === "skateboard") say(touch ? "Hold Gas to push." : "Hold W to push.");
     else say("Press E to get out.");
     if (!droveQuest && world.online) {
       droveQuest = true;
@@ -2938,8 +2949,18 @@ export function createRuntime(scene: Scene) {
     const stickActive = Math.hypot(stickX, stickY) > 0.15;
     const wNow = keys.has("KeyW") || holdGas || (stickActive && stickY > 0.5);
     if (params.pushToGo) {
-      // Skateboard: W is a tap-to-push impulse, not held throttle.
-      if (wNow && !prevW) carSpeed = Math.min(carSpeed + 3, params.maxSpeed);
+      // Skateboard: a push is an impulse, not held throttle — but holding
+      // the push control must KEEP pushing (one impulse every 0.45s), or
+      // the board rolls ~1 unit and stops. Before, holding Gas fired
+      // exactly ONE impulse and the board coasted to a stop in ~1s, so a
+      // player holding Gas went nowhere — it read as "didn't get it".
+      // Tapping still pushes once per tap (the cooldown is shorter than
+      // a tap-release cycle), so push-and-glide survives.
+      pushCooldown -= dt;
+      if (wNow && pushCooldown <= 0) {
+        carSpeed = Math.min(carSpeed + 3, params.maxSpeed);
+        pushCooldown = 0.45;
+      }
     } else if (f < 0 && carSpeed > 0.5) {
       // S brakes while rolling forward — strong decel toward a stop, and
       // reverse only engages once the car is nearly stopped. (Before, S

@@ -1647,7 +1647,10 @@ export function driveParamsFor(id: string): DriveParams {
     base.steer = 2.4;
     base.reverse = 0;
     base.lean = 0.15;
-    base.drag = 2.2;
+    // Glide, not a dead stop: drag 1.2 (was 2.2) so a push carries ~2.5
+    // units and the cruise between pushes (0.45s cadence) is smooth.
+    // At 2.2 a single push died in ~1s and the board felt broken.
+    base.drag = 1.2;
     base.pushToGo = true;
     base.hover = 0.04;
   }
