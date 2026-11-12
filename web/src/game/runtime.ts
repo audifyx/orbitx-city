@@ -2274,6 +2274,22 @@ export function createRuntime(scene: Scene) {
     world.stop();
     if (isPlay) await world.start(readAccount()?.name || wallet.name);
     if (world.online) applyMe();
+    // Autostart / deep-link sessions skip the menu, so no universe was
+    // ever picked — without a default, every per-server read (My
+    // Properties, Home-panel ownership, CRIB bills) falls back to the
+    // local branch with server 0 and sees nothing the player owns.
+    // Mirror the menu default: the player's home universe if they have
+    // one, else Universe 1. The join at the end of begin() then loads
+    // that universe's save, exactly as a menu pick would.
+    if (world.online && !currentUniverse) {
+      const home = Number(world.me?.homes?.homeServer || 0);
+      currentUniverse = home >= 1 && home <= 5 ? home : 1;
+      try {
+        localStorage.setItem("orbitx-universe", String(currentUniverse));
+      } catch {
+        // The selection still applies for this session.
+      }
+    }
     // Load the mission chain up front (not only when the panel opens) so
     // the chat / drive / job / daily / buy hooks can advance it.
     if (world.online) void loadMissions();
