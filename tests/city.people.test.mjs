@@ -199,3 +199,86 @@ test("people: rent out a home, collect weekly rent, end the lease", async () => 
   assert.equal(props.rentals[0].homeId, "home-ny-02");
   assert.equal(Array.isArray(props.relationships), true);
 });
+
+test("people: party invite needs Accept, then leave, then decline", async () => {
+  const host = await guest("PartyHost");
+  const guestPlayer = await guest("PartyGuest");
+
+  // The invite lands in the guest's inbox (kind "party") — nobody joins
+  // until they answer it.
+  const invited = await call("party-invite", { id: guestPlayer.id }, host.token);
+  assert.equal(invited.ok, true, invited.message);
+  assert.match(invited.message, /Invite sent/);
+  const inbox = await call("me", {}, guestPlayer.token);
+  assert.equal(inbox.me.inbox.length, 1, "one party invite in the inbox");
+  assert.equal(inbox.me.inbox[0].kind, "party");
+  assert.equal(inbox.me.inbox[0].id, host.id);
+  // The invite alone does not put anyone in a party.
+  assert.equal(inbox.me.party, "");
+
+  // Accepting joins the same party as the host, and clears the invite.
+  const joined = await call("party-accept", { id: host.id }, guestPlayer.token);
+  assert.equal(joined.ok, true, joined.message);
+  assert.equal(joined.party.members.length, 2, "host + guest in the party");
+  assert.deepEqual(joined.party.members.map((m) => m.id).sort(), [host.id, guestPlayer.id].sort());
+  const afterJoin = await call("me", {}, guestPlayer.token);
+  assert.equal(afterJoin.me.inbox.length, 0, "invite cleared on accept");
+  assert.equal(afterJoin.me.party, joined.party.id);
+
+  // Leaving drops the guest; the host stays in the party.
+  const left = await call("party-leave", {}, guestPlayer.token);
+  assert.equal(left.ok, true, left.message);
+  assert.equal(left.party, null);
+  const hostMe = await call("me", {}, host.token);
+  assert.equal(hostMe.me.party, joined.party.id, "host is still in the party");
+
+  // A second invite can be declined instead — the inbox clears and
+  // nobody joins.
+  const invitedAgain = await call("party-invite", { id: guestPlayer.id }, host.token);
+  assert.equal(invitedAgain.ok, true, invitedAgain.message);
+  const declined = await call("decline-request", { id: host.id, kind: "party" }, guestPlayer.token);
+  assert.equal(declined.ok, true, declined.message);
+  const afterDecline = await call("me", {}, guestPlayer.token);
+  assert.equal(afterDecline.me.inbox.length, 0, "declined invite leaves the inbox");
+  assert.equal(afterDecline.me.party, "", "declining never joins the party");
+
+  // Accepting an invite that is gone (already declined) fails cleanly.
+  const stale = await call("party-accept", { id: host.id }, guestPlayer.token);
+  assert.equal(stale.ok, false);
+});
+
+test("people: accepting a friend request keeps a party invite from the same player", async () => {
+  const host = await guest("DualHost");
+  const guestPlayer = await guest("DualGuest");
+
+  // One player sends BOTH a friend request and a party invite.
+  const asked = await call("friend-ask", { id: guestPlayer.id }, host.token);
+  assert.equal(asked.ok, true, asked.message);
+  const invited = await call("party-invite", { id: guestPlayer.id }, host.token);
+  assert.equal(invited.ok, true, invited.message);
+  const before = await call("me", {}, guestPlayer.token);
+  assert.equal(before.me.inbox.length, 2, "friend request + party invite in the inbox");
+
+  // Accepting the friend request drops ONLY the friend request — the
+  // party invite stays until it is answered. (First draft dropped both.)
+  const accepted = await call("friend-accept", { id: host.id }, guestPlayer.token);
+  assert.equal(accepted.ok, true, accepted.message);
+  assert.equal(accepted.me.friends.some((f) => f.id === host.id), true, "they are friends now");
+  assert.equal(accepted.me.inbox.length, 1, "party invite survives the friend accept");
+  assert.equal(accepted.me.inbox[0].kind, "party");
+
+  // And the party invite can still be accepted afterwards.
+  const joined = await call("party-accept", { id: host.id }, guestPlayer.token);
+  assert.equal(joined.ok, true, joined.message);
+  assert.equal(joined.party.members.length, 2);
+
+  // Declining a friend request drops only that request, never a party
+  // invite from the same player.
+  const host2 = await guest("DualHost2");
+  await call("friend-ask", { id: guestPlayer.id }, host2.token);
+  await call("party-invite", { id: guestPlayer.id }, host2.token);
+  const declined = await call("decline-request", { id: host2.id, kind: "friend" }, guestPlayer.token);
+  assert.equal(declined.ok, true, declined.message);
+  assert.equal(declined.me.inbox.length, 1, "declining the friend request keeps the party invite");
+  assert.equal(declined.me.inbox[0].kind, "party");
+});
