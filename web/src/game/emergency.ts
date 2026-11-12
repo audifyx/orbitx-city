@@ -593,7 +593,7 @@ function deptPropsFire(parts: CityParts, cx: number, cz: number): void {
   solidBox(parts, cx - 7.5, 3.0, cz + 4.5, 0.4, 6, 0.4, "gold");
 }
 
-function deptPropsPolice(parts: CityParts, cx: number, cz: number): void {
+function deptPropsPolice(parts: CityParts, cx: number, cz: number, door: Face): void {
   // Patrol desk row with screens + holding cells at the back wall.
   for (const dx of [-4, 0]) {
     solidBox(parts, cx + dx, 0.55, cz + 3, 3, 0.9, 1.2, "wood");
@@ -603,8 +603,10 @@ function deptPropsPolice(parts: CityParts, cx: number, cz: number): void {
     box(parts, cx + bx, 1.6, cz - 4.5, 0.25, 3.2, 0.25, "black");
   }
   solidBox(parts, cx - 4.5, 0.4, cz - 4.5, 4.5, 0.5, 1.0, "red");
-  // Evidence lockers along the side wall.
-  solidBox(parts, cx + 7.5, 1.1, cz - 1, 0.8, 2.2, 4, "gray");
+  // Evidence lockers along the side wall — on the wall OPPOSITE the door,
+  // so they never block the door gap (west police has an east door).
+  const lockerX = door === "e" ? cx - 7.5 : cx + 7.5;
+  solidBox(parts, lockerX, 1.1, cz - 1, 0.8, 2.2, 4, "gray");
 }
 
 function deptPropsHospital(parts: CityParts, cx: number, cz: number): void {
@@ -804,7 +806,7 @@ export function buildDepartment(
 
   // Interior props per kind + the district's extra prop.
   if (kind === "fire") deptPropsFire(parts, cx, cz);
-  else if (kind === "police") deptPropsPolice(parts, cx, cz);
+  else if (kind === "police") deptPropsPolice(parts, cx, cz, face);
   else if (kind === "hospital") deptPropsHospital(parts, cx, cz);
   else deptPropsEmergency(parts, cx, cz);
   deptExtraProp(parts, district, bx0, bz0, face);
