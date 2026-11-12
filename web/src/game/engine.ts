@@ -24,6 +24,7 @@ import { buildCity, type City, type Mat, type RailPoint, type ShipPath } from ".
 import { MATERIALS } from "./materials";
 import { createRuntime, wantsTouch, type Body, type Runtime } from "./runtime";
 import { bridgeGateFor, stateById } from "./states";
+import { isWater, WATER_SURFACE_Y } from "./water";
 import { createMoveSmoother } from "./movement";
 import { applyDayNightLighting, applyEnvironment, applyGraphicsPreset, upgradeMaterials, type GraphicsQuality } from "./graphics";
 import { mountPretty, setPrettyNight, type QualityName } from "./pretty";
@@ -40,11 +41,22 @@ declare global {
     __ORBITX_FPS?: number;
     __ORBITX_DRAWS?: number;
     __ORBITX_BOXES?: number;
+    __ORBITX_PLAYER?: { x: number; y: number; z: number; yaw: number; swimming: boolean; flying: boolean };
   }
 }
 
 const RADIUS = 0.28;
 const HEIGHT = 1.7;
+
+// Swim speed (u/s): slower than the 5.2 walk, fast enough that the
+// 230-unit west/east strait takes ~50s and the 330-unit south strait ~75s.
+// No drowning — a normal crossing is always survivable (no stamina meter,
+// no death); the swimmer just strokes across.
+const SWIM_SPEED = 4.5;
+/** Sink/rise rate (u/s) easing the player to/from the water surface. */
+const SWIM_SINK_RATE = 4;
+/** Climb-out rate (u/s) easing the player from the surface back to y=0. */
+const SWIM_CLIMB_RATE = 3.5;
 
 function makeShip(body: Material, glass: Material, hot: Material) {
   const g = new Group();
@@ -350,12 +362,18 @@ export function createGame(
     const shift = keys.has("ShiftLeft") || keys.has("ShiftRight") || runtime.downHeld();
     const ctrl = keys.has("ControlLeft") || keys.has("ControlRight");
     const space = keys.has("Space") || runtime.jumpHeld();
+    // Swimming (water.ts): on foot, not flying, and x/z over a strait.
+    // Driving never swims — tick() never runs while driving — and flying
+    // above the water never swims either. The swimmer sinks to the surface
+    // (feet at WATER_SURFACE_Y, head above water) and strokes at swim speed
+    // using the same WASD / touch-stick input as walking.
+    const swimming = !player.flying && isWater(player.x, player.z);
     // FOOD: hunger that matters — well fed you run fast, starving you
     // crawl; stamina adds up to +10%. On foot only, never while flying
     // (a flying body has no legs to be tired).
     // CRIB: energy moves the legs — Rested (>= 70) runs 15% faster,
     // Exhausted (0) walks at 65%. Flying is untouched.
-    const baseSpeed = player.flying ? (ctrl ? 28 : 14) : shift ? 1.6 : ctrl ? 8.5 : 5.2;
+    const baseSpeed = player.flying ? (ctrl ? 28 : 14) : swimming ? SWIM_SPEED : shift ? 1.6 : ctrl ? 8.5 : 5.2;
     const speed = player.flying ? baseSpeed : baseSpeed * runtime.speedMult() * runtime.energyFactor();
     const sin = Math.sin(player.yaw);
     const cos = Math.cos(player.yaw);
@@ -364,15 +382,38 @@ export function createGame(
       const pitchCos = Math.cos(player.pitch);
       player.vy = pitchSin * f * speed + (space ? 12 : 0) - (shift ? 12 : 0);
       move((sin * pitchCos * f + cos * s) * speed * dt, player.vy * dt, (-cos * pitchCos * f + sin * s) * speed * dt);
+    } else if (swimming) {
+      // No gravity, no jump, no fall: ease y to the surface and move
+      // horizontally with dy=0 so move()'s "ny < 0 → y = 0" ground clamp
+      // never fires. Colliders still apply (the bridge-deck rails at
+      // z=±11.4 block; the deck slab itself is visual-only, so the swimmer
+      // passes under it — steer around a rail if you hit one).
+      player.vy = 0;
+      const dy = WATER_SURFACE_Y - player.y;
+      player.y += Math.max(-SWIM_SINK_RATE * dt, Math.min(SWIM_SINK_RATE * dt, dy));
+      move((sin * f + cos * s) * speed * dt, 0, (-cos * f + sin * s) * speed * dt);
+      player.onGround = true;
     } else {
-      if (space && player.onGround) {
-        player.vy = 8.6;
+      // Climbing out: for a few frames after the x/z leaves the water the
+      // player is still below y=0. Ease up to shore level instead of
+      // letting the ground clamp pop them 1 unit — smooth, no teleport.
+      // (Indoors the ground is -200, so only ease outdoors.)
+      if (player.y < 0 && !runtime.indoors()) {
+        player.vy = 0;
+        player.y = Math.min(0, player.y + SWIM_CLIMB_RATE * dt);
+        player.onGround = player.y >= 0;
+        move((sin * f + cos * s) * speed * dt, 0, (-cos * f + sin * s) * speed * dt);
+        if (player.y >= 0) player.onGround = overlaps(player.x, player.y - 0.04, player.z) || player.y <= 0.001;
+      } else {
+        if (space && player.onGround) {
+          player.vy = 8.6;
+          player.onGround = false;
+        }
+        player.vy = Math.max(-50, player.vy - 28 * dt);
         player.onGround = false;
+        move((sin * f + cos * s) * speed * dt, player.vy * dt, (-cos * f + sin * s) * speed * dt);
+        player.onGround = overlaps(player.x, player.y - 0.04, player.z) || player.y <= 0.001;
       }
-      player.vy = Math.max(-50, player.vy - 28 * dt);
-      player.onGround = false;
-      move((sin * f + cos * s) * speed * dt, player.vy * dt, (-cos * f + sin * s) * speed * dt);
-      player.onGround = overlaps(player.x, player.y - 0.04, player.z) || player.y <= 0.001;
     }
     // Magic bridge hop (states.ts): stepping into a gate rect teleports on
     // foot to the paired landing, facing onward. Landings sit outside the
@@ -381,7 +422,11 @@ export function createGame(
     // slow frame. Driving players do not hop here — tick() never runs while
     // driving and the car is owned by runtime.drive (no clean car hook in
     // engine), so a driver steps out (E) and walks through.
-    const gate = bridgeGateFor(player.x, player.z);
+    // A swimmer never hops: the state-side gate rects sit INSIDE the water
+    // (e.g. west gate b at x -554..-550, z -8..8), so an unguarded hop would
+    // teleport a mid-strait swimmer back home. The home-side gates are on
+    // dry land outside the water and still hop as before.
+    const gate = swimming ? null : bridgeGateFor(player.x, player.z);
     if (gate) {
       const gateKey = `${gate.bridgeId}:${gate.side}`;
       if (clock - (lastBridgeHop.get(gateKey) ?? -10) > 1.5) {
@@ -838,12 +883,15 @@ export function createGame(
       look.set(player.x + sy * cp, player.y + 1.62 + sp, player.z - cy * cp);
       camera.up.set(0, 1, 0);
       camera.lookAt(look);
-      const label = runtime.driving() ? "DRIVING" : player.flying ? "FLYING" : "WALKING";
+      const label = runtime.driving() ? "DRIVING" : player.flying ? "FLYING" : isWater(player.x, player.z) ? "SWIMMING" : "WALKING";
       pushStatus(statusFor(label), now);
     } else {
       const label = runtime.driving() ? "DRIVING" : "WALKING";
       pushStatus(statusFor(label), now);
     }
+    // Debug hook (same family as __ORBITX_READY / __ORBITX_SNAP): live
+    // player position + swim state for the test rig and the merge check.
+    window.__ORBITX_PLAYER = { x: player.x, y: player.y, z: player.z, yaw: player.yaw, swimming: isWater(player.x, player.z) && !player.flying && !runtime.driving(), flying: player.flying };
 
     if (quality === "high") composer.render();
     else renderer.render(scene, camera);
