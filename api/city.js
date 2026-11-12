@@ -1954,7 +1954,7 @@ async function officeDirectory(serverId = 1) {
   });
 }
 
-async function claimOffice(player, body) {
+async function claimOffice(player, save, body) {
   // Which universe this claim lives on. Old clients send no server —
   // pre-multiverse claims are universe 1.
   const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
@@ -1984,12 +1984,16 @@ async function claimOffice(player, body) {
   if (taken) {
     return { ok: false, message: `${suite.name} is already claimed by ${taken.project} until ${taken.until}.`, status: 400 };
   }
-  if (player.balance < price) {
+  if (save.balance < price) {
     return { ok: false, message: `Not enough City Sol — ${suite.name} for ${officeTermLabel(termDays)} costs ${price} City Sol.`, status: 400 };
   }
-  // City Sol only: deduct from the stored balance and persist it, exactly
-  // like the shop spend op. The in-game "burned" counter is untouched —
-  // offices do not burn anything, and there is no SOL/ORBITX involved.
+  // City Sol only: the lease deducts from THIS universe's save — the
+  // per-server balance is authoritative (same pattern as the district
+  // office claims, buy-car and buy-home). The global players balance is
+  // mirrored by the same amount for back-compat: old clients read it,
+  // and the lease reply's `me` comes from the save. The in-game
+  // "burned" counter is untouched — offices do not burn anything, and
+  // there is no SOL/ORBITX involved.
   const start = todayISO();
   const claim = {
     suite: suite.id,
@@ -2006,18 +2010,22 @@ async function claimOffice(player, body) {
     claimed_at: new Date().toISOString(),
   };
   const prevHomeServer = player.homeServer ?? null;
+  save.balance -= price;
   player.balance -= price;
   // Claiming an office makes this universe the player's home universe
   // (latest home wins) — players.home_server.
   player.homeServer = server;
+  await saveSave(save);
   await savePlayer(player);
   try {
     await saveOfficeClaim(claim);
   } catch {
     // The claim did not land — refund the City Sol rather than leave the
     // player poorer with no office.
+    save.balance += price;
     player.balance += price;
     player.homeServer = prevHomeServer;
+    await saveSave(save);
     await savePlayer(player);
     return { ok: false, message: "The claim did not save. Your City Sol was refunded — try again.", status: 500 };
   }
@@ -2942,16 +2950,22 @@ export async function POST(request) {
     return json(payload, status || 200);
   };
   // Tower office leases — City Sol only. No SOL, no ORBITX, no burn:
-  // the claim functions above deduct from the stored City Sol balance.
-  const officeReply = async (result) => {
+  // the claim functions deduct from the stored City Sol balance.
+  const officeReply = async (result, save) => {
     const { status, ...payload } = result;
-    if (result.ok) payload.me = publicPlayer(player);
+    if (result.ok) payload.me = publicPlayer(save || player);
     return json(payload, status || 200);
   };
   if (op === "radio-list") return radioReply(await radioList());
   if (op === "radio-upload-url") return radioReply(await radioUploadUrl(player, body));
   if (op === "radio-register") return radioReply(await radioRegister(player, body));
-  if (op === "office-claim") return officeReply(await claimOffice(player, body));
+  if (op === "office-claim") {
+    const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
+    const save = (await saveKey(player.id, server)) || freshSave(player, server);
+    syncSaveIdentity(save, player);
+    return officeReply(await claimOffice(player, save, body), save);
+  }
   if (op === "office-claims") {
     const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
@@ -3234,6 +3248,14 @@ export async function POST(request) {
       savePlayer,
       addEvent,
       burnOf,
+      // Per-server money: property buys and rent in live.js load the
+      // save for the request's universe through these (same store the
+      // city.js ops use). A ctx without them falls back to the global
+      // player row, as before.
+      loadSave: saveKey,
+      persistSave: saveSave,
+      newSave: freshSave,
+      syncSave: syncSaveIdentity,
     },
     player,
     op,

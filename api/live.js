@@ -87,6 +87,85 @@ function lotKey(server, id) {
   return `${server}:${id}`;
 }
 
+// --- Per-server money (fix-server) ---------------------------------------
+// Property buys and rent deduct from the player's save on this universe;
+// the global players row is mirrored by the same amount for back-compat
+// (old clients read it, the leaderboard ranks on it, and the digest's
+// `me` is the global row). The save is authoritative. When the caller
+// passes no save loaders (memory-tier tests), the global player is the
+// money holder, exactly as before.
+async function moneySave(ctx, player, server) {
+  if (ctx._moneySave && ctx._moneySaveServer === server) return ctx._moneySave;
+  let save = null;
+  if (ctx.loadSave) {
+    try {
+      save = await ctx.loadSave(player.id, server);
+    } catch {
+      save = null;
+    }
+  }
+  if (!save && ctx.newSave) {
+    try {
+      save = ctx.newSave(player, server);
+    } catch {
+      save = null;
+    }
+  }
+  if (save && ctx.syncSave) {
+    try {
+      ctx.syncSave(save, player);
+    } catch {
+      // Identity sync never fails the op.
+    }
+  }
+  ctx._moneySave = save;
+  ctx._moneySaveServer = server;
+  return save;
+}
+
+async function persistMoney(ctx, player) {
+  if (ctx._moneySave && ctx.persistSave) await ctx.persistSave(ctx._moneySave);
+  if (ctx.savePlayer) await ctx.savePlayer(player);
+}
+
+// Rent map keys are namespaced by universe: "2:loft" is Universe 2's bill
+// for the loft, so owning the same lot on two universes never shares one
+// rent entry. Pre-migration keys were bare lot ids; those belong to
+// Universe 1 and are moved to the namespaced key on first read.
+function rentKey(server, lotId) {
+  return `${server}:${lotId}`;
+}
+
+function rentEntry(rent, server, lotId) {
+  if (!rent || typeof rent !== "object") return null;
+  const key = rentKey(server, lotId);
+  if (rent[key] && typeof rent[key] === "object") return rent[key];
+  if (server === 1 && rent[lotId] && typeof rent[lotId] === "object") {
+    rent[key] = rent[lotId];
+    delete rent[lotId];
+    return rent[key];
+  }
+  return null;
+}
+
+// The lot id a rent-map key belongs to on this universe, or null when the
+// key is another universe's bill (or malformed).
+function rentLotId(key, server) {
+  const prefix = `${server}:`;
+  if (key.startsWith(prefix)) return key.slice(prefix.length);
+  if (server === 1 && !key.includes(":")) return key;
+  return null;
+}
+
+function arrearsOn(rent, server) {
+  if (!rent || typeof rent !== "object") return 0;
+  let sum = 0;
+  for (const [key, entry] of Object.entries(rent)) {
+    if (rentLotId(key, server) != null) sum += Number(entry?.arrears || 0);
+  }
+  return sum;
+}
+
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 function ensureStore(ctx) {
@@ -325,12 +404,12 @@ async function persistNote(ctx, id, note) {
   }
 }
 
-function catalog(store, player, server = 1) {
+function catalog(store, player, server = 1, rentMap) {
   return LOTS.map((lot) => {
     const saved = store.lots.get(lotKey(server, lot.id));
     let ownerName = saved?.ownerName || "";
     if (saved?.ownerId && saved.ownerId === player?.id && player.name) ownerName = player.name;
-    const rent = player?.rent?.[lot.id];
+    const rent = rentEntry(rentMap || player?.rent || {}, server, lot.id);
     return {
       id: lot.id,
       zone: lot.zone,
@@ -355,32 +434,42 @@ function rentState(player) {
   return player.rent;
 }
 
-function totalArrears(player) {
-  return Object.values(rentState(player)).reduce((sum, entry) => sum + Number(entry?.arrears || 0), 0);
-}
-
 // Charge weekly rent + utilities for every owned lot whose bill is due.
 // Returns { charged, arrearsAdded, touched } so the caller can save + message.
-// Only lots on this universe are billed — rent is per (player, universe).
-function applyRent(player, store, server = 1) {
+// Only lots on this universe are billed — rent is per (player, universe),
+// keyed "server:lotId" on the per-server save's rent map (the global
+// players balance is mirrored, see moneySave above).
+async function applyRent(ctx, player, store, server = 1) {
+  const save = await moneySave(ctx, player, server);
+  const holder = save || player;
   const now = Date.now();
   let charged = 0;
   let arrearsAdded = 0;
   let touched = false;
-  const rent = rentState(player);
+  const rent = rentState(holder);
   if (store?.lots) {
     // Lots bought before rent existed get a grace week, never a back-bill.
     for (const lot of store.lots.values()) {
       if (Number(lot.server ?? 1) !== server) continue;
-      if (lot.ownerId === player.id && !rent[lot.id]) {
-        rent[lot.id] = { nextDue: now + RENT_WEEK_MS, arrears: 0 };
+      if (lot.ownerId === player.id && !rentEntry(rent, server, lot.id)) {
+        rent[rentKey(server, lot.id)] = { nextDue: now + RENT_WEEK_MS, arrears: 0 };
         touched = true;
       }
     }
   }
-  for (const [lotId, entry] of Object.entries(rent)) {
+  const seen = new Set();
+  for (const [key, entry] of Object.entries(rent)) {
+    const lotId = rentLotId(key, server);
+    if (lotId == null || seen.has(lotId)) continue; // another universe's bill
+    seen.add(lotId);
     const lot = lotById(lotId);
     if (!lot || !entry || typeof entry !== "object") continue;
+    // Migrate a legacy bare key onto the namespaced key.
+    const namespaced = rentKey(server, lotId);
+    if (key !== namespaced) {
+      rent[namespaced] = entry;
+      delete rent[key];
+    }
     let nextDue = Number(entry.nextDue || 0);
     if (!nextDue) {
       entry.nextDue = now + RENT_WEEK_MS;
@@ -392,7 +481,8 @@ function applyRent(player, store, server = 1) {
     // after 4 unpaid bills. The due date waits at that bill until the
     // player pays, so a returning player is never wiped out.
     while (now >= nextDue) {
-      if (player.balance >= bill) {
+      if (holder.balance >= bill) {
+        if (save) save.balance -= bill;
         player.balance -= bill;
         charged += bill;
         nextDue += RENT_WEEK_MS;
@@ -546,12 +636,12 @@ async function digest(ctx, player, store, server = 1) {
       if (Number(lot.server ?? 1) === server && lot.ownerId === player.id) lot.ownerName = player.name;
     }
   }
-  const rent = applyRent(player, store, server);
-  if (rent.charged || rent.arrearsAdded || rent.touched) await ctx.savePlayer(player);
+  const rent = await applyRent(ctx, player, store, server);
+  if (rent.charged || rent.arrearsAdded || rent.touched) await persistMoney(ctx, player);
   const leaders = leadersFrom(await leaderRows(ctx, store));
   return {
     ok: true,
-    lots: catalog(store, player, server),
+    lots: catalog(store, player, server, ctx._moneySave?.rent ?? player.rent),
     leaders,
     daily: viewDaily(player),
     race: raceView(store, player),
@@ -573,23 +663,32 @@ async function buyLot(ctx, player, store, id, server = 1) {
   if (saved?.ownerId) {
     return fail(saved.ownerId === player.id ? "You already own this." : `${saved.ownerName || "Someone"} already owns this.`);
   }
-  const owed = totalArrears(player);
+  // Per-server money: the price deducts from this universe's save, and
+  // the global players balance is mirrored for back-compat. The burn
+  // counter goes on both — the global one feeds the leaderboard.
+  const save = await moneySave(ctx, player, server);
+  const holder = save || player;
+  const owed = arrearsOn(holder.rent, server);
   if (owed > 0) return fail(`Pay your arrears first — you owe ${owed} City Sol. See Property.`);
-  if (player.balance < lot.price) return fail("Not enough City Sol.");
+  if (holder.balance < lot.price) return fail("Not enough City Sol.");
   const burned = ctx.burnOf(lot.price);
+  if (save) {
+    save.balance -= lot.price;
+    save.burned += burned;
+  }
   player.balance -= lot.price;
   player.burned += burned;
   const next = { id: lot.id, server, ownerId: player.id, ownerName: player.name, furniture: [], brand: {} };
   // First weekly bill lands 7 days after purchase — a grace week.
-  rentState(player)[lot.id] = { nextDue: Date.now() + RENT_WEEK_MS, arrears: 0 };
+  rentState(holder)[rentKey(server, lot.id)] = { nextDue: Date.now() + RENT_WEEK_MS, arrears: 0 };
   await persistLot(ctx, next, server);
-  await ctx.savePlayer(player);
+  await persistMoney(ctx, player);
   return {
     ok: true,
     message: `Bought ${lot.name} for ${lot.price} City Sol. Burned ${burned}. First rent + utilities (${rentBill(lot)}) is due in 7 days.`,
     burned,
     includeMe: true,
-    lots: catalog(store, player, server),
+    lots: catalog(store, player, server, holder.rent),
   };
 }
 
@@ -599,7 +698,8 @@ async function saveFurniture(ctx, player, store, body, server = 1) {
   hit.saved.furniture = cleanFurniture(body.furniture);
   hit.saved.ownerName = player.name;
   await persistLot(ctx, hit.saved, server);
-  return { ok: true, message: "Furniture saved.", lots: catalog(store, player, server) };
+  const save = await moneySave(ctx, player, server);
+  return { ok: true, message: "Furniture saved.", lots: catalog(store, player, server, save?.rent ?? player.rent) };
 }
 
 async function setNote(ctx, player, store, body, server = 1) {
@@ -665,22 +765,33 @@ async function collectBusiness(ctx, player, store) {
 }
 
 async function payRent(ctx, player, store, lotId, server = 1) {
-  const rent = rentState(player);
-  const ids = lotId === "all" ? Object.keys(rent) : [String(lotId || "")];
+  const save = await moneySave(ctx, player, server);
+  const holder = save || player;
+  const rent = rentState(holder);
+  // "all" pays only this universe's arrears — another universe's bills
+  // are not this request's business.
+  const ids =
+    lotId === "all"
+      ? Object.keys(rent)
+          .map((key) => rentLotId(key, server))
+          .filter((id) => id != null)
+      : [String(lotId || "")];
   let owed = 0;
-  for (const id of ids) owed += Number(rent[id]?.arrears || 0);
+  for (const id of ids) owed += Number(rentEntry(rent, server, id)?.arrears || 0);
   if (owed <= 0) return fail("Nothing owed. Rent is current.");
-  if (player.balance < owed) return fail(`You owe ${owed} City Sol and hold ${player.balance}. Earn a little first.`);
+  if (holder.balance < owed) return fail(`You owe ${owed} City Sol and hold ${holder.balance}. Earn a little first.`);
+  if (save) save.balance -= owed;
   player.balance -= owed;
   for (const id of ids) {
-    if (rent[id]) rent[id].arrears = 0;
+    const entry = rentEntry(rent, server, id);
+    if (entry) entry.arrears = 0;
   }
-  await ctx.savePlayer(player);
+  await persistMoney(ctx, player);
   return {
     ok: true,
     message: `Paid ${owed} City Sol of arrears. Rent is current.`,
     includeMe: true,
-    lots: catalog(store, player, server),
+    lots: catalog(store, player, server, holder.rent),
   };
 }
 
@@ -696,12 +807,13 @@ async function setBrand(ctx, player, store, body, server = 1) {
   };
   hit.saved.brand = brand;
   await persistLot(ctx, hit.saved, server);
+  const save = await moneySave(ctx, player, server);
   return {
     ok: true,
     message: `This office is now ${brand.name}.`,
     brand,
     includeMe: true,
-    lots: catalog(store, player, server),
+    lots: catalog(store, player, server, save?.rent ?? player.rent),
   };
 }
 
