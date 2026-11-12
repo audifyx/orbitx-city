@@ -1451,6 +1451,79 @@ async function saveSave(save) {
   memory().saves.set(`${save.playerId || save.id}:${save.serverId}`, save);
 }
 
+// --- One balance, one ledger -------------------------------------------
+// The per-(player, universe) save is the ONLY City Sol balance. The
+// global players row is a back-compat mirror of the universe the player
+// is currently in — the save is authoritative, and every op that moves
+// City Sol moves it on the save and mirrors it to the global row, so
+// the two can never disagree again.
+//
+// Before this fix the HUD read the global row (digest/sync `me`) while
+// buy-car / buy-home / office-claim read the save, and a save minted at
+// START_BALANCE never inherited the player's wealth — so a player with
+// 9,810 City Sol was told "not enough" for a 90-Sol lot.
+
+async function hasAnySave(playerId) {
+  for (const serverId of SERVERS) {
+    if (await saveKey(playerId, serverId)) return true;
+  }
+  return false;
+}
+
+// Load the save for (player, server), minting it if it does not exist —
+// and reconciling the balance so a pre-fix save never strands the
+// player's wealth in the global row. Pass { mint: false } for heartbeats
+// (me/sync), which load and reconcile but never mint a save.
+async function ensureSave(player, server, { mint = true } = {}) {
+  let save = await saveKey(player.id, server);
+  if (!save) {
+    if (!mint) return null;
+    save = freshSave(player, server);
+    // First universe: the player's pre-multiverse wealth moves into it.
+    // Any later universe starts at START_BALANCE — the same money is
+    // never minted twice.
+    if (!(await hasAnySave(player.id))) {
+      save.balance = Number(player.balance || 0);
+      player.homeServer = server;
+    }
+    syncSaveIdentity(save, player);
+    await saveSave(save);
+    await savePlayer(player);
+    return save;
+  }
+  syncSaveIdentity(save, player);
+  // Reconcile an existing save: if this is the player's home universe
+  // (or they have no home universe yet) and the save holds less than the
+  // global row, the wealth was stranded by the old mint — move it in.
+  // Gated by homeServer so it can only ever happen on one universe.
+  if ((player.homeServer == null || player.homeServer === server) && save.balance < player.balance) {
+    save.balance = Number(player.balance || 0);
+    if (player.homeServer == null) player.homeServer = server;
+    await saveSave(save);
+    await savePlayer(player);
+  }
+  return save;
+}
+
+// Mirror this universe's save balance onto the legacy global row.
+async function mirrorBalance(player, save) {
+  if (!save) return;
+  const next = Number(save.balance || 0);
+  if (Number(player.balance) !== next) {
+    player.balance = next;
+    await savePlayer(player);
+  }
+}
+
+// The universe an op belongs to: an explicit server in the body, else
+// the player's home universe, else Universe 1.
+function currentServerFor(body, player) {
+  const fromBody = body && body.server != null && body.server !== "" ? parseServerId(body.server) : null;
+  if (fromBody) return fromBody;
+  if (isServerId(player.homeServer)) return player.homeServer;
+  return 1;
+}
+
 async function touchSave(save) {
   save.lastSeen = Date.now();
   await saveSave(save);
@@ -2011,7 +2084,7 @@ async function claimOffice(player, save, body) {
   };
   const prevHomeServer = player.homeServer ?? null;
   save.balance -= price;
-  player.balance -= price;
+  player.balance = save.balance;
   // Claiming an office makes this universe the player's home universe
   // (latest home wins) — players.home_server.
   player.homeServer = server;
@@ -2023,7 +2096,7 @@ async function claimOffice(player, save, body) {
     // The claim did not land — refund the City Sol rather than leave the
     // player poorer with no office.
     save.balance += price;
-    player.balance += price;
+    player.balance = save.balance;
     player.homeServer = prevHomeServer;
     await saveSave(save);
     await savePlayer(player);
@@ -2139,6 +2212,7 @@ async function claimDistrictOffice(player, save, body) {
   };
   const prevHomeServer = player.homeServer ?? null;
   save.balance -= price;
+  player.balance = save.balance;
   await saveSave(save);
   player.homeServer = server;
   await savePlayer(player);
@@ -2148,6 +2222,7 @@ async function claimDistrictOffice(player, save, body) {
     // The claim did not land — refund the City Sol rather than leave the
     // player poorer with no office.
     save.balance += price;
+    player.balance = save.balance;
     await saveSave(save);
     player.homeServer = prevHomeServer;
     await savePlayer(player);
@@ -2283,31 +2358,39 @@ function lobbiesFor(people) {
   return rooms;
 }
 
-async function spendItem(player, itemId) {
+async function spendItem(player, save, itemId) {
   const item = CATALOG[itemId];
   if (!item) return { ok: false, message: "That item is not for sale." };
+  // Cosmetics are identity: equipping writes to the global row AND the
+  // save, so the item shows up on every universe. City Sol is the
+  // save's money: the check and the deduction use this universe's save.
   if (player.owned.includes(itemId)) {
-    if (item.kind === "color") player.color = item.value;
-    if (item.kind === "hat") player.hat = item.value;
-    if (item.kind === "car") player.car = item.value;
-    if (item.kind === "trail") player.trail = item.value;
+    if (item.kind === "color") { player.color = item.value; save.color = item.value; }
+    if (item.kind === "hat") { player.hat = item.value; save.hat = item.value; }
+    if (item.kind === "car") { player.car = item.value; save.car = item.value; }
+    if (item.kind === "trail") { player.trail = item.value; save.trail = item.value; }
     await savePlayer(player);
-    return { ok: true, message: "Already yours. Equipped.", me: publicPlayer(player) };
+    await saveSave(save);
+    return { ok: true, message: "Already yours. Equipped.", me: publicPlayer(save) };
   }
-  if (player.balance < item.price) return { ok: false, message: "Not enough City Sol." };
+  if (save.balance < item.price) return { ok: false, message: "Not enough City Sol." };
   const burned = burnOf(item.price);
-  player.balance -= item.price;
+  save.balance -= item.price;
+  save.burned += burned;
   player.burned += burned;
   player.owned.push(itemId);
-  if (item.kind === "color") player.color = item.value;
-  if (item.kind === "hat") player.hat = item.value;
-  if (item.kind === "car") player.car = item.value;
-  if (item.kind === "trail") player.trail = item.value;
+  save.owned = [...(player.owned || [])];
+  if (item.kind === "color") { player.color = item.value; save.color = item.value; }
+  if (item.kind === "hat") { player.hat = item.value; save.hat = item.value; }
+  if (item.kind === "car") { player.car = item.value; save.car = item.value; }
+  if (item.kind === "trail") { player.trail = item.value; save.trail = item.value; }
   await savePlayer(player);
+  await saveSave(save);
+  await mirrorBalance(player, save);
   return {
     ok: true,
     message: `Spent ${item.price} City Sol. Burned ${burned}. Burned total ${player.burned}.`,
-    me: publicPlayer(player),
+    me: publicPlayer(save),
   };
 }
 
@@ -2380,6 +2463,7 @@ async function buyHome(player, save, body) {
     return { ok: false, message: `Not enough City Sol — this home is ${price}.`, status: 400 };
   }
   save.balance -= price;
+  player.balance = save.balance;
   homes.homes.push({
     homeId,
     server,
@@ -2391,10 +2475,8 @@ async function buyHome(player, save, body) {
   homes.homeServer = server; // buying here makes this server their home server
   save.homes = homes;
   await saveSave(save);
-  if (player.homeServer !== server) {
-    player.homeServer = server;
-    await savePlayer(player);
-  }
+  if (player.homeServer !== server) player.homeServer = server;
+  await savePlayer(player);
   return { ok: true, home: homeId, price, server, me: publicPlayer(save) };
 }
 
@@ -2473,7 +2555,7 @@ async function advanceMission(player, save, body) {
     save.earned = Number(save.earned || 0) + paid;
   }
   await saveSave(save);
-  await savePlayer(player);
+  await mirrorBalance(player, save);
   return {
     ok: true,
     message: paid
@@ -2499,6 +2581,7 @@ async function buskOp(player, save) {
   save.balance += BUSK_PAY;
   save.earned = Number(save.earned || 0) + BUSK_PAY;
   await saveSave(save);
+  await mirrorBalance(player, save);
   return { ok: true, message: `Busked for the crowd — paid ${BUSK_PAY} City Sol.`, paid: BUSK_PAY, me: publicPlayer(save) };
 }
 
@@ -2519,6 +2602,7 @@ async function photoOp(player, save, body) {
   save.balance += PHOTO_PAY;
   save.earned = Number(save.earned || 0) + PHOTO_PAY;
   await saveSave(save);
+  await mirrorBalance(player, save);
   return { ok: true, message: `Photo of ${place} — paid ${PHOTO_PAY} City Sol.`, paid: PHOTO_PAY, place, me: publicPlayer(save) };
 }
 
@@ -2850,7 +2934,12 @@ export async function POST(request) {
     return json({ ok: false, message: "External wallet connect is not used. Each account has an in-app wallet." }, 410);
   }
 
-  if (op === "me") return json({ ok: true, me: publicPlayer(player) });
+  // The HUD reads the save's balance: the save is the money authority.
+  // A heartbeat loads and reconciles but never mints a save.
+  if (op === "me") {
+    const save = await ensureSave(player, currentServerFor(body, player), { mint: false });
+    return json({ ok: true, me: publicPlayer(save || player) });
+  }
 
   // Multiverse — one save per (player, universe). Joining and travelling
   // are FREE: no City Sol, no burn, no ORBITX anywhere in this.
@@ -2880,13 +2969,9 @@ export async function POST(request) {
     if ((await activeCount(server)) >= MULTIVERSE_CAP) {
       return json({ ok: false, message: `Universe ${server} is full — 150/150 players. Pick another universe.` }, 409);
     }
-    let save = await saveKey(player.id, server);
-    let isNewSave = false;
-    if (!save) {
-      save = freshSave(player, server);
-      isNewSave = true;
-    }
-    syncSaveIdentity(save, player);
+    const hadSave = !!(await saveKey(player.id, server));
+    const save = await ensureSave(player, server);
+    const isNewSave = !hadSave;
     await touchSave(save);
     return json({
       ok: true,
@@ -2900,33 +2985,44 @@ export async function POST(request) {
   }
 
   if (op === "spend") {
-    const result = await spendItem(player, String(body.item || ""));
+    const save = await ensureSave(player, currentServerFor(body, player));
+    const result = await spendItem(player, save, String(body.item || ""));
     return json(result, result.ok ? 200 : 400);
   }
 
   if (op === "job-start") {
     const id = String(body.job || "");
     if (!JOBS[id]) return json({ ok: false, message: "Unknown job." }, 400);
-    player.job = { id, started: Date.now() };
-    await savePlayer(player);
-    return json({ ok: true, me: publicPlayer(player) });
+    const save = await ensureSave(player, currentServerFor(body, player));
+    save.job = { id, started: Date.now() };
+    await saveSave(save);
+    return json({ ok: true, me: publicPlayer(save) });
   }
 
   if (op === "earn") {
     const id = String(body.job || "");
-    const pay = scaledPay(id, player.jobStreak);
+    const save = await ensureSave(player, currentServerFor(body, player));
+    const pay = scaledPay(id, save.jobStreak);
     if (!pay) return json({ ok: false, message: "Unknown job." }, 400);
-    if (!player.job || player.job.id !== id) return json({ ok: false, message: "Start that job first." }, 400);
-    if (Date.now() - Number(player.job.started) < JOB_MS) {
+    if (!save.job || save.job.id !== id) return json({ ok: false, message: "Start that job first." }, 400);
+    if (Date.now() - Number(save.job.started) < JOB_MS) {
       return json({ ok: false, message: "Finish the route. The city checks the clock." }, 400);
     }
-    player.balance += pay;
+    save.balance += pay;
+    save.job = null;
+    save.jobStreak = Number(save.jobStreak || 0) + 1;
+    save.earned = Number(save.earned || 0) + pay;
+    // Keep the legacy global job fields in step so old clients that read
+    // them do not see a stale job. noteEarn also credits the global
+    // `earned` total (the leaderboard reads it).
     player.job = null;
-    player.jobStreak = Number(player.jobStreak || 0) + 1;
-    const bonus = noteEarn(player, id, pay);
+    player.jobStreak = save.jobStreak;
+    const bonus = noteEarn(player, id, pay, save);
+    await saveSave(save);
+    await mirrorBalance(player, save);
     await savePlayer(player);
     const extra = bonus ? ` Quest paid ${bonus} City Sol.` : "";
-    return json({ ok: true, message: `${id} paid ${pay} City Sol. Job streak ${player.jobStreak}.${extra}`, me: publicPlayer(player) });
+    return json({ ok: true, message: `${id} paid ${pay} City Sol. Job streak ${save.jobStreak}.${extra}`, me: publicPlayer(save) });
   }
 
   // Real billboards: pay SOL from the in-app wallet, Jupiter swaps
@@ -2962,8 +3058,7 @@ export async function POST(request) {
   if (op === "office-claim") {
     const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
-    const save = (await saveKey(player.id, server)) || freshSave(player, server);
-    syncSaveIdentity(save, player);
+    const save = await ensureSave(player, server);
     return officeReply(await claimOffice(player, save, body), save);
   }
   if (op === "office-claims") {
@@ -2986,11 +3081,9 @@ export async function POST(request) {
   if (op === "buy-car" || op === "select-car") {
     const server = parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Unknown server." }, 400);
-    let save = await saveKey(player.id, server);
-    if (!save && op === "buy-car") save = freshSave(player, server);
-    if (!save) return json({ ok: false, message: "You don't own that car yet." }, 400);
-    syncSaveIdentity(save, player);
+    const save = await ensureSave(player, server);
     const result = op === "buy-car" ? await buyCar(save, body) : await selectCar(save, body);
+    if (result.ok) await mirrorBalance(player, save);
     return json(result, result.ok ? 200 : result.status || 400);
   }
 
@@ -2999,16 +3092,14 @@ export async function POST(request) {
   if (op === "buy-home") {
     const server = parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Pick a server (1-5) first." }, 400);
-    const save = (await saveKey(player.id, server)) || freshSave(player, server);
-    syncSaveIdentity(save, player);
+    const save = await ensureSave(player, server);
     const result = await buyHome(player, save, body);
     return json(result, result.ok ? 200 : result.status || 400);
   }
   if (op === "home-status") {
     const server = parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Pick a server (1-5) first." }, 400);
-    const save = await saveKey(player.id, server);
-    if (save) syncSaveIdentity(save, player);
+    const save = await ensureSave(player, server, { mint: false });
     const homes = save?.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
     const mine = (homes.homes || []).filter((h) => h.server === server).map(sanitizeOwnedHome);
     return json({
@@ -3030,8 +3121,7 @@ export async function POST(request) {
   if (op === "district-office-claim") {
     const server = parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
-    const save = (await saveKey(player.id, server)) || freshSave(player, server);
-    syncSaveIdentity(save, player);
+    const save = await ensureSave(player, server);
     return districtReply(await claimDistrictOffice(player, save, body), save);
   }
   if (op === "district-office-claims") {
@@ -3039,23 +3129,20 @@ export async function POST(request) {
     if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
     const district = String(body.district || "");
     if (!DISTRICT_IDS.includes(district)) return json({ ok: false, message: "Unknown district." }, 400);
-    const save = await saveKey(player.id, server);
-    if (save) syncSaveIdentity(save, player);
+    const save = await ensureSave(player, server, { mint: false });
     const offices = await districtOfficeDirectory(district, server, await readOfficeClaims(server));
     return districtReply({ ok: true, district, server, offices }, save);
   }
   if (op === "district-office-release") {
     const server = parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
-    const save = await saveKey(player.id, server);
-    if (save) syncSaveIdentity(save, player);
+    const save = await ensureSave(player, server, { mint: false });
     return districtReply(await releaseDistrictOffice(player, body), save);
   }
   if (op === "district-office-status") {
     const server = parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
-    const save = await saveKey(player.id, server);
-    if (save) syncSaveIdentity(save, player);
+    const save = await ensureSave(player, server, { mint: false });
     const claims = await readOfficeClaims(server);
     const mine = claims
       .filter((row) => row.owner_id === player.id && row.until >= todayISO())
@@ -3166,6 +3253,9 @@ export async function POST(request) {
   }
 
   if (op === "sync") {
+    // The HUD reads the save's balance. A heartbeat loads and reconciles
+    // but never mints a save.
+    const syncSave = await ensureSave(player, currentServerFor(body, player), { mint: false });
     const state = sanitizeState(player, body.state || {});
     if (body.ghost || body.state?.ghost) ensureGhost();
     await writePresence(state);
@@ -3184,7 +3274,7 @@ export async function POST(request) {
     }
     return json({
       ok: true,
-      me: publicPlayer(player),
+      me: publicPlayer(syncSave || player),
       people,
       chat: chat.slice(-40),
       bookings: await readBookings(),
@@ -3204,21 +3294,28 @@ export async function POST(request) {
   }
 
   if (op === "mission") {
+    const save = await ensureSave(player, currentServerFor(body, player));
     const step = Number(body.step);
-    if (step !== player.mission) return json({ ok: false, message: "That stop is out of order." }, 400);
-    if (!MISSIONS[step]) return json({ ok: true, message: "City tour complete.", me: publicPlayer(player) });
-    if (player.missionAt && Date.now() - Number(player.missionAt) < 3000) {
+    if (step !== save.mission) return json({ ok: false, message: "That stop is out of order." }, 400);
+    if (!MISSIONS[step]) return json({ ok: true, message: "City tour complete.", me: publicPlayer(save) });
+    if (save.missionAt && Date.now() - Number(save.missionAt) < 3000) {
       return json({ ok: false, message: "Stay at the stop a moment." }, 400);
     }
     const reward = MISSIONS[step].pay;
-    player.mission += 1;
-    player.missionAt = Date.now();
-    player.balance += reward;
+    save.mission += 1;
+    save.missionAt = Date.now();
+    save.balance += reward;
+    // Keep the legacy global tour step in step so old clients that read
+    // it do not see a stale tour.
+    player.mission = save.mission;
+    player.missionAt = save.missionAt;
+    await saveSave(save);
+    await mirrorBalance(player, save);
     await savePlayer(player);
     return json({
       ok: true,
       message: `Tour stop ${step + 1} paid ${reward} City Sol.`,
-      me: publicPlayer(player),
+      me: publicPlayer(save),
     });
   }
 
@@ -3227,8 +3324,7 @@ export async function POST(request) {
   if (op === "mission-list" || op === "mission-step" || op === "busk" || op === "photo") {
     const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
-    const save = (await saveKey(player.id, server)) || freshSave(player, server);
-    syncSaveIdentity(save, player);
+    const save = await ensureSave(player, server);
     if (op === "mission-list") return json(await missionListOp(player, save));
     const result =
       op === "mission-step"
@@ -3251,10 +3347,11 @@ export async function POST(request) {
       // Per-server money: property buys and rent in live.js load the
       // save for the request's universe through these (same store the
       // city.js ops use). A ctx without them falls back to the global
-      // player row, as before.
+      // player row, as before. newSave is ensureSave, so a save minted
+      // from live.js is seeded and reconciled the same way.
       loadSave: saveKey,
       persistSave: saveSave,
-      newSave: freshSave,
+      newSave: ensureSave,
       syncSave: syncSaveIdentity,
     },
     player,
@@ -3266,7 +3363,10 @@ export async function POST(request) {
     const payload = { ...live };
     delete payload.status;
     if (payload.includeMe) {
-      payload.me = publicPlayer(player);
+      // The HUD reads the save's balance. The digest already minted /
+      // reconciled the save via moneySave, so load (never mint) here.
+      const meSave = await ensureSave(player, currentServerFor(body, player), { mint: false });
+      payload.me = publicPlayer(meSave || player);
       delete payload.includeMe;
     }
     return json(payload, status);

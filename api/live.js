@@ -97,16 +97,21 @@ function lotKey(server, id) {
 async function moneySave(ctx, player, server) {
   if (ctx._moneySave && ctx._moneySaveServer === server) return ctx._moneySave;
   let save = null;
-  if (ctx.loadSave) {
+  if (ctx.newSave) {
     try {
-      save = await ctx.loadSave(player.id, server);
+      // newSave is ensureSave (async): it mints a fresh save AND
+      // reconciles an existing one. Route every load through it — a
+      // pre-fix save that never inherited the player's wealth (global
+      // 10,000,000, save 0) must be reconciled here too, or property-buy
+      // / rent / business / arcade / daily would still say "not enough
+      // City Sol" while the HUD (which reconciles) shows the wealth.
+      save = await ctx.newSave(player, server);
     } catch {
       save = null;
     }
-  }
-  if (!save && ctx.newSave) {
+  } else if (ctx.loadSave) {
     try {
-      save = ctx.newSave(player, server);
+      save = await ctx.loadSave(player.id, server);
     } catch {
       save = null;
     }
@@ -126,6 +131,14 @@ async function moneySave(ctx, player, server) {
 async function persistMoney(ctx, player) {
   if (ctx._moneySave && ctx.persistSave) await ctx.persistSave(ctx._moneySave);
   if (ctx.savePlayer) await ctx.savePlayer(player);
+}
+
+// Mirror the money save's balance onto the global player row (one
+// balance, one ledger). Call after any op that moves money on the save
+// so the two never disagree. The save is authoritative; the global row
+// is a mirror.
+function mirrorSave(ctx, player) {
+  if (ctx._moneySave) player.balance = Number(ctx._moneySave.balance) || 0;
 }
 
 // Rent map keys are namespaced by universe: "2:loft" is Universe 2's bill
@@ -206,7 +219,11 @@ export function ensureDaily(player) {
   return player.daily;
 }
 
-export function touchQuest(player, id, amount = 1) {
+// The daily quests live on the global player (one day, one streak), but
+// the 12 City Sol a completed quest pays goes to `money` — the save for
+// the universe the player is on — so the HUD (which reads the save)
+// shows it. Defaults to the player for callers with no save.
+export function touchQuest(player, id, amount = 1, money = null) {
   const daily = ensureDaily(player);
   const quest = daily.quests.find((item) => item.id === id);
   if (!quest) return 0;
@@ -214,15 +231,16 @@ export function touchQuest(player, id, amount = 1) {
   daily.progress[id] = have;
   if (have >= quest.need && !daily.paid[id]) {
     daily.paid[id] = true;
-    player.balance += 12;
+    const holder = money || player;
+    holder.balance += 12;
     return 12;
   }
   return 0;
 }
 
-export function noteEarn(player, jobId, pay) {
+export function noteEarn(player, jobId, pay, money = null) {
   player.earned = Number(player.earned || 0) + pay;
-  if (jobId === "courier") return touchQuest(player, "courier", 1);
+  if (jobId === "courier") return touchQuest(player, "courier", 1, money);
   return 0;
 }
 
@@ -637,7 +655,11 @@ async function digest(ctx, player, store, server = 1) {
     }
   }
   const rent = await applyRent(ctx, player, store, server);
-  if (rent.charged || rent.arrearsAdded || rent.touched) await persistMoney(ctx, player);
+  if (rent.charged || rent.arrearsAdded || rent.touched) {
+    // One ledger: the save is authoritative, the global row its mirror.
+    mirrorSave(ctx, player);
+    await persistMoney(ctx, player);
+  }
   const leaders = leadersFrom(await leaderRows(ctx, store));
   return {
     ok: true,
@@ -682,6 +704,9 @@ async function buyLot(ctx, player, store, id, server = 1) {
   // First weekly bill lands 7 days after purchase — a grace week.
   rentState(holder)[rentKey(server, lot.id)] = { nextDue: Date.now() + RENT_WEEK_MS, arrears: 0 };
   await persistLot(ctx, next, server);
+  // Keep the one-ledger invariant: the save is authoritative, the global
+  // row is its mirror (same as every other money op in this file).
+  mirrorSave(ctx, player);
   await persistMoney(ctx, player);
   return {
     ok: true,
@@ -728,16 +753,27 @@ async function hostEvent(ctx, player, store, body, server = 1) {
   return { ok: true, message: `Event posted at ${info.where}.`, event: info };
 }
 
-async function buyBusiness(ctx, player, store, kind) {
+async function buyBusiness(ctx, player, store, kind, server = 1) {
   const spec = BUSINESSES[kind];
   if (!spec) return fail("That business is not on the market.");
   if (player.business) return fail(`You already run the ${BUSINESSES[player.business.kind]?.name || "business"}. One business per player.`);
-  if (player.balance < spec.price) return fail(`Not enough City Sol. A ${spec.name} costs ${spec.price}.`);
+  // Per-server money: the price comes from this universe's save, and the
+  // global row is mirrored for back-compat. The save (not the global) is
+  // what the HUD shows — so this is the buy that used to say "not enough
+  // City Sol" when the global was 10,060 and the save was 0.
+  const save = await moneySave(ctx, player, server);
+  const holder = save || player;
+  if (holder.balance < spec.price) return fail(`Not enough City Sol. A ${spec.name} costs ${spec.price}.`);
   const burned = ctx.burnOf(spec.price);
+  if (save) {
+    save.balance -= spec.price;
+    save.burned += burned;
+  }
   player.balance -= spec.price;
   player.burned += burned;
   player.business = { kind, started: Date.now(), lastCollect: Date.now() };
-  await ctx.savePlayer(player);
+  mirrorSave(ctx, player);
+  await persistMoney(ctx, player);
   return {
     ok: true,
     message: `You run the ${spec.name}. It earns ${spec.rate} City Sol a minute, up to ${spec.cap} uncollected. Collect it from the Jobs panel.`,
@@ -746,15 +782,24 @@ async function buyBusiness(ctx, player, store, kind) {
   };
 }
 
-async function collectBusiness(ctx, player, store) {
+async function collectBusiness(ctx, player, store, server = 1) {
   if (!player.business) return fail("You do not run a business yet. See the Jobs panel.");
   const spec = BUSINESSES[player.business.kind];
   if (!spec) return fail("That business closed down. Tell the city.");
   const amount = businessAccrued(player.business);
   if (amount <= 0) return fail("Nothing to collect yet. It earns every minute.");
+  // Per-server money: the payout lands in this universe's save, and the
+  // global row is mirrored for back-compat. The business itself stays
+  // global (one business per player); its payout goes to the universe
+  // the player is collecting from. The payout is business income, not
+  // "earned", so the earned total is untouched (the original did not
+  // count it either).
+  const save = await moneySave(ctx, player, server);
+  if (save) save.balance += amount;
   player.balance += amount;
   player.business.lastCollect = Date.now();
-  await ctx.savePlayer(player);
+  mirrorSave(ctx, player);
+  await persistMoney(ctx, player);
   return {
     ok: true,
     message: `Collected ${amount} City Sol from the ${spec.name}.`,
@@ -786,6 +831,8 @@ async function payRent(ctx, player, store, lotId, server = 1) {
     const entry = rentEntry(rent, server, id);
     if (entry) entry.arrears = 0;
   }
+  // One ledger: the save is authoritative, the global row its mirror.
+  mirrorSave(ctx, player);
   await persistMoney(ctx, player);
   return {
     ok: true,
@@ -856,7 +903,7 @@ function startLobby(store, player) {
   };
 }
 
-async function hitGate(ctx, player, store, body) {
+async function hitGate(ctx, player, store, body, server = 1) {
   const race = player.race;
   if (!race || race.done || race.next < 0) return fail("You are not in a live race.");
   if (Date.now() < Number(race.startedAt || 0)) return fail("Wait for the countdown.");
@@ -881,7 +928,9 @@ async function hitGate(ctx, player, store, body) {
   if (race.kind === "hover") {
     if (!player.bestHover || timeMs < player.bestHover) player.bestHover = timeMs;
   } else if (!player.bestRace || timeMs < player.bestRace) player.bestRace = timeMs;
-  const bonus = touchQuest(player, "race", 1);
+  // Per-server money: the race quest bonus lands in this universe's save.
+  const save = await moneySave(ctx, player, server);
+  const bonus = touchQuest(player, "race", 1, save);
   store.raceLobby.results.push({ id: player.id, name: player.name, timeMs, kind: race.kind });
   const still = store.raceLobby.players.some((item) => {
     const bag = store.volatile.get(item.id);
@@ -889,7 +938,8 @@ async function hitGate(ctx, player, store, body) {
   });
   if (!still) store.raceLobby.phase = "done";
   remember(player, store);
-  await ctx.savePlayer(player);
+  mirrorSave(ctx, player);
+  await persistMoney(ctx, player);
   const seconds = (timeMs / 1000).toFixed(2);
   return {
     ok: true,
@@ -899,26 +949,44 @@ async function hitGate(ctx, player, store, body) {
   };
 }
 
-function stake(player) {
-  if (player.balance < STAKE) return "Not enough City Sol. The arcade stake is 10 City Sol.";
+// The arcade stakes this universe's save (the save is the money
+// authority); the global row is mirrored for back-compat. Returns the
+// burned amount, or an error string.
+function stake(save, player) {
+  const holder = save || player;
+  if (holder.balance < STAKE) return "Not enough City Sol. The arcade stake is 10 City Sol.";
   const burned = Math.max(1, Math.round(STAKE * 0.25));
+  if (save) {
+    save.balance -= STAKE;
+    save.burned += burned;
+  }
   player.balance -= STAKE;
   player.burned += burned;
   return burned;
 }
 
-async function playHighLow(ctx, player, store, body) {
+// A payout lands in this universe's save; the global row is mirrored
+// (mirrorSave does the mirroring, call it before persistMoney).
+function payOut(save, player, amount) {
+  if (!amount) return;
+  if (save) save.balance += amount;
+  player.balance += amount;
+}
+
+async function playHighLow(ctx, player, store, body, server = 1) {
   const pending = player.arcade?.kind === "highlow" ? player.arcade : null;
   if (!pending) {
-    const burned = stake(player);
+    const save = await moneySave(ctx, player, server);
+    const burned = stake(save, player);
     if (typeof burned === "string") return fail(burned);
     const shown = 1 + Math.floor(Math.random() * 10);
     let next = 1 + Math.floor(Math.random() * 10);
     if (next === shown) next = shown === 10 ? 9 : shown + 1;
     player.arcade = { kind: "highlow", shown, next, token: `${Date.now().toString(36)}` };
-    touchQuest(player, "arcade", 1);
+    touchQuest(player, "arcade", 1, save);
     remember(player, store);
-    await ctx.savePlayer(player);
+    mirrorSave(ctx, player);
+    await persistMoney(ctx, player);
     return {
       ok: true,
       message: `Play money. Staked ${STAKE} City Sol. Burned ${burned}. The card is ${shown}. Higher or lower?`,
@@ -932,10 +1000,12 @@ async function playHighLow(ctx, player, store, body) {
   if (!guess) return fail("Pick higher or lower.");
   const win = guess === "high" ? pending.next > pending.shown : pending.next < pending.shown;
   const payout = win ? 18 : 0;
-  player.balance += payout;
+  const save = await moneySave(ctx, player, server);
+  payOut(save, player, payout);
   player.arcade = null;
   remember(player, store);
-  await ctx.savePlayer(player);
+  mirrorSave(ctx, player);
+  await persistMoney(ctx, player);
   return {
     ok: true,
     message: win
@@ -948,15 +1018,17 @@ async function playHighLow(ctx, player, store, body) {
   };
 }
 
-async function armReflex(ctx, player, store) {
+async function armReflex(ctx, player, store, server = 1) {
   if (player.arcade?.kind === "reflex") return fail("Hit the light you already armed.");
-  const burned = stake(player);
+  const save = await moneySave(ctx, player, server);
+  const burned = stake(save, player);
   if (typeof burned === "string") return fail(burned);
   const goAt = Date.now() + 700 + Math.floor(Math.random() * 1400);
   player.arcade = { kind: "reflex", goAt, token: `${Date.now().toString(36)}` };
-  touchQuest(player, "arcade", 1);
+  touchQuest(player, "arcade", 1, save);
   remember(player, store);
-  await ctx.savePlayer(player);
+  mirrorSave(ctx, player);
+  await persistMoney(ctx, player);
   return {
     ok: true,
     message: `Play money. Staked ${STAKE} City Sol. Burned ${burned}. Wait for the light.`,
@@ -966,7 +1038,7 @@ async function armReflex(ctx, player, store) {
   };
 }
 
-async function hitReflex(ctx, player, store, body) {
+async function hitReflex(ctx, player, store, body, server = 1) {
   const pending = player.arcade?.kind === "reflex" ? player.arcade : null;
   if (!pending) return fail("Arm the light first.");
   if (String(body.token || "") !== pending.token) return fail("That light is not yours.");
@@ -983,9 +1055,11 @@ async function hitReflex(ctx, player, store, body) {
   } else if (dt >= 0) {
     message = `Play money. ${dt} ms. Too slow. No payout.`;
   }
-  player.balance += payout;
+  const save = await moneySave(ctx, player, server);
+  payOut(save, player, payout);
   remember(player, store);
-  await ctx.savePlayer(player);
+  mirrorSave(ctx, player);
+  await persistMoney(ctx, player);
   return { ok: true, message, payout, ms: dt, includeMe: true };
 }
 
@@ -1036,8 +1110,8 @@ export async function handleLive(ctx, player, op, body) {
   }
   if (op === "property-buy") return buyLot(ctx, player, store, String(body.id || ""), server);
   if (op === "property-save") return saveFurniture(ctx, player, store, body, server);
-  if (op === "business-buy") return buyBusiness(ctx, player, store, String(body.kind || ""));
-  if (op === "business-collect") return collectBusiness(ctx, player, store);
+  if (op === "business-buy") return buyBusiness(ctx, player, store, String(body.kind || ""), server);
+  if (op === "business-collect") return collectBusiness(ctx, player, store, server);
   if (op === "rent-pay") return payRent(ctx, player, store, String(body.lot || "all"), server);
   if (op === "hq-brand") return setBrand(ctx, player, store, body, server);
   if (op === "hq-note") return setNote(ctx, player, store, body, server);
@@ -1052,7 +1126,7 @@ export async function handleLive(ctx, player, op, body) {
     return startLobby(store, player);
   }
   if (op === "race-start") return startLobby(store, player);
-  if (op === "race-hit") return hitGate(ctx, player, store, body);
+  if (op === "race-hit") return hitGate(ctx, player, store, body, server);
   if (op === "race-leave") {
     store.raceLobby.players = store.raceLobby.players.filter((item) => item.id !== player.id);
     player.race = null;
@@ -1066,8 +1140,15 @@ export async function handleLive(ctx, player, op, body) {
     const reward = 15 + Math.min(Number(daily.streak) || 0, 6) * 5;
     daily.streak = Number(daily.streak || 0) + 1;
     daily.claimed = true;
+    // Per-server money: the daily payout lands in this universe's save.
+    // The streak itself stays on the global player (one day, one streak).
+    // The payout is a login bonus, not "earned", so the earned total is
+    // untouched (the original did not count it either).
+    const save = await moneySave(ctx, player, server);
+    if (save) save.balance += reward;
     player.balance += reward;
-    await ctx.savePlayer(player);
+    mirrorSave(ctx, player);
+    await persistMoney(ctx, player);
     return {
       ok: true,
       message: `Login streak ${daily.streak}. Claimed ${reward} City Sol.`,
@@ -1078,8 +1159,11 @@ export async function handleLive(ctx, player, op, body) {
   if (op === "quest-ping") {
     const id = String(body.id || "");
     if (!CLIENT_QUESTS.has(id)) return fail("That quest is counted by the server.");
-    const bonus = touchQuest(player, id, 1);
-    await ctx.savePlayer(player);
+    // Per-server money: the quest payout lands in this universe's save.
+    const save = await moneySave(ctx, player, server);
+    const bonus = touchQuest(player, id, 1, save);
+    mirrorSave(ctx, player);
+    await persistMoney(ctx, player);
     return {
       ok: true,
       message: bonus ? `Quest paid ${bonus} City Sol.` : "Quest noted.",
@@ -1087,8 +1171,8 @@ export async function handleLive(ctx, player, op, body) {
       includeMe: true,
     };
   }
-  if (op === "arcade-play") return playHighLow(ctx, player, store, body);
-  if (op === "arcade-arm") return armReflex(ctx, player, store);
-  if (op === "arcade-hit") return hitReflex(ctx, player, store, body);
+  if (op === "arcade-play") return playHighLow(ctx, player, store, body, server);
+  if (op === "arcade-arm") return armReflex(ctx, player, store, server);
+  if (op === "arcade-hit") return hitReflex(ctx, player, store, body, server);
   return null;
 }
