@@ -812,7 +812,6 @@ export function createRuntime(scene: Scene) {
   let ownedCarIndex = -1;
   // Per-vehicle drive params, cached on enterCar.
   let driveParams: DriveParams | null = null;
-  let prevW = false;
   // Skateboard push cadence: seconds until the next push impulse may fire
   // while the push control is held (see drive()).
   let pushCooldown = 0;
@@ -1683,7 +1682,6 @@ export function createRuntime(scene: Scene) {
     holdBrake = false;
     ownedCarIndex = -1;
     driveParams = null;
-    prevW = false;
     prevLocal = { x: 0, z: 0, set: false };
     prevInsideName = "";
     insideName = "";
@@ -2844,9 +2842,8 @@ export function createRuntime(scene: Scene) {
     carSpeed = 0;
     steerSm = 0;
     // A board entered while Gas is already held must still push — reset
-    // the push edge/cooldown or the first push is swallowed (wNow is
-    // already true, so the old edge-detect never fired).
-    prevW = false;
+    // the push cooldown or the first push is swallowed (the cooldown was
+    // still counting down from the last ride).
     pushCooldown = 0;
     chaseYaw = 0;
     chasePitch = 0.22;
@@ -2969,7 +2966,6 @@ export function createRuntime(scene: Scene) {
     } else {
       carSpeed += f * params.accel * boost * dt;
     }
-    prevW = wNow;
     carSpeed *= 1 - params.drag * dt;
     // Coasting ends: extra drag with no throttle, and a full stop below
     // 0.3 u/s instead of a crawl that never dies. (Boards keep their
