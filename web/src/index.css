@@ -635,6 +635,33 @@ body {
   letter-spacing: 0.04em;
 }
 
+/* CRIB: the energy meter — small, next to the balance. Black text on the
+   gold bar, white label on black, so the contrast rule holds either way. */
+.hud .energy-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.hud .energy-label {
+  color: #ffffff;
+  letter-spacing: 0.04em;
+}
+
+.hud .energy-bar {
+  display: block;
+  height: 6px;
+  background: #22262e;
+  border: 1px solid #555a66;
+}
+
+.hud .energy-bar i {
+  display: block;
+  height: 100%;
+  background: #e0b33a;
+}
+
 .hud em {
   color: #d7f4ff;
   font-style: normal;

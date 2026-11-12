@@ -2,6 +2,7 @@ import { accountToken, readAccount } from "../auth";
 import { connectLive } from "./live";
 import type { OwnedVehicle, GarageUpgrades } from "./vehicles";
 import type { OwnedHome } from "./homes";
+import type { CribState } from "./crib";
 import {
   EMPTY_LEADERS,
   EMPTY_RACE,
@@ -66,6 +67,8 @@ export interface CityMe {
     // CARS expansion — garage upgrades on this universe's save.
     garage?: GarageUpgrades;
   };
+  // CRIB (home life) — per (player, server); the server is the authority.
+  crib?: CribState;
   friends: { id: string; name: string }[];
   inbox: { id: string; name: string }[];
   party: string;
@@ -388,6 +391,78 @@ class CityWorld {
 
   async radioList() {
     return this.call("radio-list", {});
+  }
+
+  // CRIB (home life) — City Sol only, per (player, server). Every op
+  // returns the fresh `me` (with `me.crib`) on success, same as buy-home.
+  async cribStatus(server: number) {
+    return this.call("crib-status", { server });
+  }
+
+  async cribPayBill(home: string, server: number) {
+    const data = await this.call("crib-pay-bill", { home, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async cribSleep(home: string, server: number) {
+    const data = await this.call("crib-sleep", { home, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async cribEnergy(energy: number, server: number) {
+    const data = await this.call("crib-energy", { energy, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async cribBuyPet(kind: string, server: number) {
+    const data = await this.call("crib-buy-pet", { kind, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async cribFeedPet(server: number) {
+    const data = await this.call("crib-feed-pet", { server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async cribBuyFood(item: string, qty: number, server: number) {
+    const data = await this.call("crib-buy-food", { item, qty, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async cribEat(item: string, server: number) {
+    const data = await this.call("crib-eat", { item, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async cribUpgrade(home: string, server: number) {
+    const data = await this.call("crib-upgrade", { home, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async cribDecor(home: string, server: number, patch: { wall?: string; floor?: string; light?: string }) {
+    const data = await this.call("crib-decor", { home, server, ...patch });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async cribLights(home: string, server: number, on: boolean) {
+    const data = await this.call("crib-lights", { home, server, on });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async cribTv(home: string, server: number, on: boolean) {
+    const data = await this.call("crib-tv", { home, server, on });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
   }
 
   async radioUploadUrl(name: string, size: number) {

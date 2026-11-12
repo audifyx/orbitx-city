@@ -139,6 +139,17 @@ import {
   type RaceCard,
 } from "./life";
 import { createLifeView } from "./lifeview";
+import { createCribView } from "./cribview";
+import {
+  bedSpot,
+  cribBillAmount,
+  cribForHome,
+  energyLabel,
+  energySpeedFactor,
+  CRIB_DRAIN_ACTIVE_MS,
+  CRIB_DRAIN_IDLE_MS,
+  type CribState,
+} from "./crib";
 import {
   joinProximity as joinProximityVoice,
   joinVoice,
@@ -345,6 +356,9 @@ export interface Snap {
   prompt: string;
   balance: number;
   burned: number;
+  /** CRIB: energy 0-100 (drains while playing, sleep restores it). */
+  energy: number;
+  energyLabel: string;
   owned: string[];
   color: string;
   hat: string;
@@ -1249,6 +1263,19 @@ export function createRuntime(scene: Scene) {
   let playing = false;
   let flyFlag = false;
   let prompt = "";
+  // CRIB (home life): energy 0-100. The client is the drain authority —
+  // it ticks down while playing and syncs to the server every 30 s; the
+  // server is the persistence authority (sleep / eat return fresh me).
+  // applyMe only ever adopts the server value on first load or when it
+  // jumps UP (slept or ate on another session) — adopting a lagging
+  // server value every heartbeat would undo the local drain.
+  let energy = 100;
+  let energyLoaded = false;
+  let energyDrainAcc = 0;
+  let energySyncAt = 0;
+  let energyAnnounced0 = false;
+  let lastEnergyPos = { x: 0, z: 0 };
+  let cribView: ReturnType<typeof createCribView> | null = null;
   let notice = "";
   let noticeUntil = 0;
   let job = "";
@@ -1952,6 +1979,19 @@ export function createRuntime(scene: Scene) {
         carrying = null;
       }
       rebuildCrazy();    }
+    // CRIB: adopt the server's energy on first load, or when it jumps up
+    // (slept / ate on another session). Never adopt a lagging value — the
+    // client drains locally and syncs up every 30 s.
+    const nextCrib = (me as CityMe).crib;
+    if (nextCrib && typeof nextCrib.energy === "number") {
+      const serverEnergy = Math.max(0, Math.min(100, Math.round(nextCrib.energy)));
+      if (!energyLoaded) {
+        energy = serverEnergy;
+        energyLoaded = true;
+      } else if (serverEnergy > energy + 5) {
+        energy = serverEnergy;
+      }
+    }
     wallet.name = me.name;
     saveWallet(wallet);
     // Homes or cars may have changed on the server — re-park the garages.
@@ -2426,6 +2466,7 @@ export function createRuntime(scene: Scene) {
       mountSign(zone);
     }
     life = createLifeView(root, zones, anchors);
+    cribView = createCribView(root);
     for (let i = 0; i < 40; i++) {
       const mesh = new Mesh(box, i % 2 ? GOLD : MATERIALS.cyanhot);
       mesh.visible = false;
@@ -2493,6 +2534,8 @@ export function createRuntime(scene: Scene) {
       prompt,
       balance: wallet.balance,
       burned: wallet.burned,
+      energy: Math.round(energy),
+      energyLabel: energyLabel(energy),
       owned: [...wallet.owned],
       wardrobe,
       fits: wardrobe.fits,
@@ -3332,6 +3375,14 @@ export function createRuntime(scene: Scene) {
         say("Walked off the corner — set over.");
       }
       publish();
+      return;
+    }
+    // CRIB: E by your own bed sleeps (energy back to 100). The bed is
+    // away from the home's service point, so this never steals the
+    // home-panel E — but it must still win over a car parked outside.
+    const bedHomeId = nearOwnBed(body);
+    if (bedHomeId) {
+      void sleepInBed(bedHomeId);
       return;
     }
     // Order matters: a door / zone service point / lift call wins over a car
@@ -5402,6 +5453,7 @@ export function createRuntime(scene: Scene) {
       else if (decorating && lot) prompt = "Decorate — place, rotate, or remove. X closes it.";
       else if (driving && nearGate(body, 0, 8)) prompt = "Press E — hover time trial";
       else if (driving) prompt = "Press E to get out";
+      else if (nearOwnBed(body)) prompt = energy >= 100 ? "Your bed — fully rested" : "Press E — sleep in your bed (energy back to 100)";
       else if (zone && nearService(body, zone)) {
         prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "grocery" ? "Press E — buy food at OrbitX Grocery" : zone.kind === "garage" ? "Press E to open the garage" : zone.kind === "carshop" ? "Press E — buy a car at OrbitX Motors" : isDeptKind(zone.kind as string) ? `Press E — ${zoneTitle(zone)}` : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zone.kind === "restaurant" ? `Press E — order at ${zoneTitle(zone)}` : zone.kind === "gym" ? "Press E — gym desk · work out" : zoneTitle(zone);
       } else if (zone && nearExitDoor(body, zone)) {
@@ -5473,6 +5525,51 @@ export function createRuntime(scene: Scene) {
       homeFurniture: Object.values(homeFurniture).flat().map((piece) => ({ kind: piece.item, x: piece.x, z: piece.z, rot: piece.rot })),
       ghost,
     });
+    // CRIB: energy drains while playing (1 per 15 s moving, 1 per 60 s
+    // idle); sleep in your own bed restores it. The client owns the
+    // drain and syncs it to the server every 30 s.
+    const stepMoved = Math.hypot(body.x - lastEnergyPos.x, body.z - lastEnergyPos.z);
+    if (playing && !paused && !spectator) {
+      const active = stepMoved > 0.001;
+      lastEnergyPos = { x: body.x, z: body.z };
+      if (energy > 0) {
+        energyDrainAcc += dt;
+        const threshold = active ? CRIB_DRAIN_ACTIVE_MS / 1000 : CRIB_DRAIN_IDLE_MS / 1000;
+        if (energyDrainAcc >= threshold) {
+          energyDrainAcc = 0;
+          energy = Math.max(0, energy - 1);
+          if (energy === 0 && !energyAnnounced0) {
+            energyAnnounced0 = true;
+            say("Exhausted — you're running on empty. Sleep in your own bed.");
+            triggerHaptic("error");
+          }
+          publish();
+        }
+      }
+      if (energy > 0) energyAnnounced0 = false;
+      if (world.online && currentUniverse && Date.now() - energySyncAt > 30000) {
+        energySyncAt = Date.now();
+        void world.cribEnergy(Math.round(energy), currentUniverse).catch(() => {});
+      }
+    }
+    // CRIB 3D layer: decor, tiers, lights veil, TV glow, door notices,
+    // and the pet following you around your own home.
+    if (cribView) {
+      const crib = world.me?.crib ?? null;
+      const own = ownHomeAt(body);
+      const notices = (crib?.homes ?? [])
+        .filter((h) => h.bills.overdue)
+        .map((h) => homeById(h.homeId))
+        .filter((h): h is NonNullable<ReturnType<typeof homeById>> => !!h);
+      cribView.sync({
+        currentHome: own?.home ?? null,
+        currentCrib: own?.crib ?? null,
+        pet: crib?.pet ?? null,
+        insideOwnHome: !!own,
+        notices,
+      });
+      cribView.tick(dt, body.x, body.z, body.yaw, stepMoved > 0.001);
+    }
     let tookCamera = false;
     if (!opts.orbit && (playing || localBody)) {
       tookCamera = placeCamera(camera, body, dt);
@@ -7046,6 +7143,261 @@ export function createRuntime(scene: Scene) {
     return { ok: true as const, homeServer: localHomes.homeServer, mine: localHomes.homes.filter((h) => h.server === server), rentals: [] as PeopleRental[], party: null as PeopleParty | null, guests: [] as PeopleGuest[], relationships: [] as PeopleRelationship[] };
   }
 
+  // CRIB (home life) — the owned state home the player is standing in,
+  // if any, with its server crib state. The bed spot comes from crib.ts
+  // (same placement as the static furnishing), so the sleep prompt and
+  // the pet anchor agree on where the bed is.
+  function ownHomeAt(body: Body): { home: NonNullable<ReturnType<typeof homeById>>; crib: ReturnType<typeof cribForHome> } | null {
+    const zone = zoneAt(body);
+    if (!zone || !zone.id.startsWith("home-")) return null;
+    const home = homeById(zone.id);
+    if (!home) return null;
+    const server = currentUniverse ?? 0;
+    const owned =
+      localHomes.homes.some((h) => h.homeId === home.id && h.server === server) ||
+      (world.me?.homes?.homes ?? []).some((h) => h.homeId === home.id && h.server === server);
+    if (!owned) return null;
+    return { home, crib: cribForHome(world.me?.crib, home.id) };
+  }
+
+  function nearOwnBed(body: Body): string | null {
+    const own = ownHomeAt(body);
+    if (!own) return null;
+    const bed = bedSpot(own.home);
+    return Math.hypot(body.x - bed.x, body.z - bed.z) < 2.5 ? own.home.id : null;
+  }
+
+  // Sleep in your own bed: energy back to 100, Rested. Online it is a
+  // server op (the save is the authority); offline it is local only.
+  async function sleepInBed(homeId: string) {
+    if (world.online && currentUniverse) {
+      try {
+        const data = await world.cribSleep(homeId, currentUniverse);
+        energy = 100;
+        energyAnnounced0 = false;
+        applyMe();
+        triggerHaptic("success");
+        publish();
+        say(String(data.message || "You slept like a rock — energy 100, Rested."));
+        return String(data.message || "Rested.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not sleep.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+    }
+    energy = 100;
+    energyAnnounced0 = false;
+    publish();
+    say("You slept like a rock — energy 100. (Saved on this device only.)");
+    return "Rested.";
+  }
+
+  // CRIB ops for the App panels. Online they hit the server (buy-home
+  // pattern: world call + applyMe + publish + say); offline they need a
+  // sign-in, except sleep (local) and status (local read).
+  async function cribStatus(): Promise<{ ok: boolean; crib: CribState; message?: string }> {
+    if (world.online && currentUniverse) {
+      try {
+        const data = await world.cribStatus(currentUniverse);
+        const crib = (data.crib as CribState | undefined) ?? (data.me as CityMe | undefined)?.crib;
+        if (crib) {
+          if (!energyLoaded) {
+            energy = Math.max(0, Math.min(100, Math.round(crib.energy)));
+            energyLoaded = true;
+          } else if (crib.energy > energy + 5) energy = crib.energy;
+          return { ok: true, crib };
+        }
+        return { ok: false, message: "Could not load home life.", crib: world.me?.crib ?? { energy, pet: null, food: {}, homes: [] } };
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : "Could not load home life.", crib: world.me?.crib ?? { energy, pet: null, food: {}, homes: [] } };
+      }
+    }
+    // Offline: bills computed locally from the local save (same formula
+    // as the server); paying needs a sign-in.
+    const server = currentUniverse ?? 0;
+    const now = Date.now();
+    const homes = localHomes.homes
+      .filter((h) => h.server === server)
+      .map((h) => {
+        const dueAt = Number(h.boughtAt || now) + 7 * 86400000;
+        const overdue = now > dueAt;
+        return {
+          homeId: h.homeId,
+          tier: 0,
+          tierName: "Apartment",
+          decor: { wall: "cream", floor: "wood", light: "warm" },
+          lightsOn: true,
+          tvOn: false,
+          bills: { homeId: h.homeId, amount: cribBillAmount(h.price), dueAt, paidUntil: dueAt, overdue, lightsOff: overdue },
+        };
+      });
+    return { ok: true, crib: { energy, pet: null, food: {}, homes } };
+  }
+
+  function cribNeedsSignIn(message = "Sign in to use home life — crib progress lives on your account.") {
+    say(message);
+    triggerHaptic("error");
+    return message;
+  }
+
+  async function cribPayBill(homeId: string) {
+    if (!world.online || !currentUniverse) return cribNeedsSignIn();
+    try {
+      const data = await world.cribPayBill(homeId, currentUniverse);
+      applyMe();
+      triggerHaptic("success");
+      publish();
+      say(String(data.message || "Bills paid."));
+      return String(data.message || "Bills paid.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not pay the bills.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+  }
+
+  async function cribBuyPet(kind: string) {
+    if (!world.online || !currentUniverse) return cribNeedsSignIn();
+    try {
+      const data = await world.cribBuyPet(kind, currentUniverse);
+      applyMe();
+      triggerHaptic("success");
+      publish();
+      say(String(data.message || "Pet adopted."));
+      return String(data.message || "Pet adopted.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not adopt that pet.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+  }
+
+  async function cribFeedPet() {
+    if (!world.online || !currentUniverse) return cribNeedsSignIn();
+    try {
+      const data = await world.cribFeedPet(currentUniverse);
+      applyMe();
+      triggerHaptic("success");
+      publish();
+      say(String(data.message || "Fed."));
+      return String(data.message || "Fed.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not feed your pet.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+  }
+
+  async function cribBuyFood(item: string, qty = 1) {
+    if (!world.online || !currentUniverse) return cribNeedsSignIn();
+    try {
+      const data = await world.cribBuyFood(item, qty, currentUniverse);
+      applyMe();
+      triggerHaptic("success");
+      publish();
+      say(String(data.message || "Bought."));
+      return String(data.message || "Bought.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not buy that food.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+  }
+
+  async function cribEat(item: string) {
+    if (!world.online || !currentUniverse) return cribNeedsSignIn();
+    try {
+      const data = await world.cribEat(item, currentUniverse);
+      const crib = (data.crib as CribState | undefined) ?? (data.me as CityMe | undefined)?.crib;
+      if (crib && typeof crib.energy === "number") energy = Math.max(0, Math.min(100, Math.round(crib.energy)));
+      applyMe();
+      triggerHaptic("success");
+      publish();
+      say(String(data.message || "Eaten."));
+      return String(data.message || "Eaten.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not eat that.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+  }
+
+  async function cribUpgrade(homeId: string) {
+    if (!world.online || !currentUniverse) return cribNeedsSignIn();
+    try {
+      const data = await world.cribUpgrade(homeId, currentUniverse);
+      applyMe();
+      triggerHaptic("success");
+      publish();
+      say(String(data.message || "Upgraded."));
+      return String(data.message || "Upgraded.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not upgrade.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+  }
+
+  async function cribDecor(homeId: string, patch: { wall?: string; floor?: string; light?: string }) {
+    if (!world.online || !currentUniverse) return cribNeedsSignIn();
+    try {
+      const data = await world.cribDecor(homeId, currentUniverse, patch);
+      applyMe();
+      triggerHaptic("success");
+      publish();
+      say(String(data.message || "Redecorated."));
+      return String(data.message || "Redecorated.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not redecorate.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+  }
+
+  async function cribLights(homeId: string, on: boolean) {
+    if (!world.online || !currentUniverse) return cribNeedsSignIn();
+    try {
+      const data = await world.cribLights(homeId, currentUniverse, on);
+      applyMe();
+      publish();
+      say(String(data.message || (on ? "Lights on." : "Lights off.")));
+      return String(data.message || "Done.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not switch the lights.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+  }
+
+  async function cribTv(homeId: string, on: boolean) {
+    if (!world.online || !currentUniverse) {
+      const message = cribNeedsSignIn();
+      return { ok: false as const, on, message };
+    }
+    try {
+      const data = await world.cribTv(homeId, currentUniverse, on);
+      applyMe();
+      publish();
+      say(String(data.message || (on ? "TV on." : "TV off.")));
+      return { ok: true as const, on, message: String(data.message || "") };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not switch the TV.";
+      say(message);
+      triggerHaptic("error");
+      return { ok: false as const, on, message };
+    }
+  }
+
   // Everything the player owns on the CURRENT universe, for the HUD's
   // "My Props" panel. One server round-trip (my-properties); offline the
   // local save only knows homes and its owned-lot list, so offices come
@@ -8020,6 +8372,22 @@ export function createRuntime(scene: Scene) {
     radioList,
     radioUploadUrl,
     radioRegister,
+    // CRIB (home life) — energy speed factor for the engine, plus the
+    // Home / Shop panel ops. Energy >= 70 runs 15% faster, 0 runs slow.
+    energyFactor() {
+      return energySpeedFactor(energy);
+    },
+    cribStatus,
+    cribPayBill,
+    cribSleep: sleepInBed,
+    cribBuyPet,
+    cribFeedPet,
+    cribBuyFood,
+    cribEat,
+    cribUpgrade,
+    cribDecor,
+    cribLights,
+    cribTv,
     cycleCamera() {
       triggerHaptic("tap");
       const index = CAMS.indexOf(camMode);

@@ -353,8 +353,10 @@ export function createGame(
     // FOOD: hunger that matters — well fed you run fast, starving you
     // crawl; stamina adds up to +10%. On foot only, never while flying
     // (a flying body has no legs to be tired).
+    // CRIB: energy moves the legs — Rested (>= 70) runs 15% faster,
+    // Exhausted (0) walks at 65%. Flying is untouched.
     const baseSpeed = player.flying ? (ctrl ? 28 : 14) : shift ? 1.6 : ctrl ? 8.5 : 5.2;
-    const speed = player.flying ? baseSpeed : baseSpeed * runtime.speedMult();
+    const speed = player.flying ? baseSpeed : baseSpeed * runtime.speedMult() * runtime.energyFactor();
     const sin = Math.sin(player.yaw);
     const cos = Math.cos(player.yaw);
     if (player.flying) {

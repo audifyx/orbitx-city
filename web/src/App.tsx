@@ -73,6 +73,17 @@ import {
   crazyOf,
   plantStageLive,
 } from "./game/crazy";
+import {
+  CRIB_FLOORS,
+  CRIB_FOODS,
+  CRIB_LIGHTS,
+  CRIB_PETS,
+  CRIB_WALLS,
+  billDaysLeft,
+  cribForHome,
+  nextTier,
+  type CribState,
+} from "./game/crib";
 import { triggerHaptic } from "./game/haptics";
 import { STORES, WARDROBE_CATALOG, WARDROBE_KINDS, fitSummary, kindLabel, wardrobeItem, type SavedFit, type StoreId } from "./game/wardrobe";
 
@@ -250,6 +261,8 @@ const EMPTY: Snap = {
   prompt: "",
   balance: 0,
   burned: 0,
+  energy: 100,
+  energyLabel: "Rested",
   owned: [],
   wardrobe: { outfit: "", shoes: "", chain: "", watch: "", glasses: "", hair: "" },
   fits: [],
@@ -611,6 +624,16 @@ export default function App() {
       // The panel keeps the last good CRAZY data.
     }
   }  const [officeProject, setOfficeProject] = useState("");
+  // CRIB (home life): bills, sleep, pets, upgrades, decor, working stuff.
+  const [crib, setCrib] = useState<CribState | null>(null);
+  const [cribMsg, setCribMsg] = useState("");
+  const refreshCrib = async () => {
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    const res = await rt.cribStatus();
+    if (res.ok) setCrib(res.crib);
+    else setCribMsg(String(res.message || ""));
+  };
   const [officeLogo, setOfficeLogo] = useState("");
   const [officeSite, setOfficeSite] = useState("");
   const [chatText, setChatText] = useState("");
@@ -733,6 +756,8 @@ export default function App() {
     setMyPropsMsg("");
     setMyProps(null);
     refreshMyProps();
+    // CRIB: bills ride with the properties list (overdue = lights off).
+    void refreshCrib();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panel]);
 
@@ -784,8 +809,10 @@ export default function App() {
     if (panel !== "home") return;
     setHomeMsg("");
     setCrazyMsg("");
+    setCribMsg("");
     refreshHome();
     void refreshCrazy();
+    void refreshCrib();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panel]);
 
@@ -1138,6 +1165,10 @@ export default function App() {
           </div>
           {snap.hunger === 0 ? <span className="starving-chip">STARVING — eat something! You run slow.</span> : null}
           {snap.foodFed ? <span>Satisfied — job pay +10%</span> : null}
+          <span className="energy-chip" title={snap.energyLabel === "Rested" ? "Rested — +15% speed, +10% job pay" : snap.energyLabel === "Exhausted" ? "Exhausted — slow. Sleep in your own bed." : "Energy drains as you play — sleep in your own bed to restore it."}>
+            <span className="energy-label">ENERGY {snap.energy} · {snap.energyLabel}</span>
+            <span className="energy-bar"><i style={{ width: `${Math.max(0, Math.min(100, snap.energy))}%` }} /></span>
+          </span>
           {snap.flying || snap.carFlying ? <span className="flying-chip">FLYING</span> : null}
           {snap.holder ? <span>HOLDER</span> : null}
           {snap.voiceProvider && snap.voiceProvider !== "off" ? (
@@ -1576,6 +1607,69 @@ export default function App() {
                   );
                 })}
                 <p className="quiet">Cooking needs a home on this server — buy one from the Home panel, then cook at your kitchen counter.</p>
+                <h3>Home life — pets &amp; food</h3>
+                <p className="muted">City Sol only. A pet follows you around your own home — feed it pet food (or any food) to keep it happy. Food goes straight into your fridge at home.</p>
+                {crib?.pet ? (
+                  <article>
+                    <div>
+                      <b>Your {CRIB_PETS[crib.pet.kind]?.name ?? "pet"}</b>
+                      <span>{crib.pet.happy ? "Happy — fed and trotting along." : "Sad — unfed. Feed it and it perks right up."}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const rt = gameRef.current?.runtime;
+                        if (!rt) return;
+                        setCribMsg(await rt.cribFeedPet());
+                        await refreshCrib();
+                      }}
+                    >
+                      Feed pet
+                    </button>
+                  </article>
+                ) : (
+                  Object.entries(CRIB_PETS).map(([kind, pet]) => (
+                    <article key={kind}>
+                      <div>
+                        <b>Adopt a {pet.name}</b>
+                        <span>{pet.price} City Sol · {pet.blurb}</span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={snap.balance < pet.price}
+                        onClick={async () => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          setCribMsg(await rt.cribBuyPet(kind));
+                          await refreshCrib();
+                        }}
+                      >
+                        {snap.balance < pet.price ? "Not enough City Sol" : `Adopt — ${pet.price} City Sol`}
+                      </button>
+                    </article>
+                  ))
+                )}
+                {Object.entries(CRIB_FOODS).map(([key, food]) => (
+                  <article key={key}>
+                    <div>
+                      <b>{food.name}</b>
+                      <span>{food.price} City Sol{key === "petfood" ? " · for your pet" : ` · eat it from your fridge (+${food.energy} energy)`} · you own {crib?.food?.[key] ?? 0}</span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={snap.balance < food.price}
+                      onClick={async () => {
+                        const rt = gameRef.current?.runtime;
+                        if (!rt) return;
+                        setCribMsg(await rt.cribBuyFood(key, 1));
+                        await refreshCrib();
+                      }}
+                    >
+                      Buy — {food.price} City Sol
+                    </button>
+                  </article>
+                ))}
+                {cribMsg ? <p>{cribMsg}</p> : null}
               </div>
             )}
             {/* FOOD: gym — work out for stamina. Higher stamina runs
@@ -2157,7 +2251,30 @@ export default function App() {
                       <b>{row.name}</b>
                       <span>{row.where}</span>
                       <span>{row.detail}</span>
+                      {row.kind === "home" && cribForHome(crib, row.key)?.bills ? (
+                        <span>
+                          {(() => {
+                            const bill = cribForHome(crib, row.key)!.bills;
+                            return bill.overdue
+                              ? `BILLS OVERDUE — ${bill.amount} City Sol · lights are off`
+                              : `Bills ${bill.amount} City Sol · due in ${Math.max(0, billDaysLeft(bill))} day${billDaysLeft(bill) === 1 ? "" : "s"}`;
+                          })()}
+                        </span>
+                      ) : null}
                     </div>
+                    {row.kind === "home" && cribForHome(crib, row.key)?.bills.overdue ? (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          setMyPropsMsg(await rt.cribPayBill(row.key));
+                          await refreshCrib();
+                        }}
+                      >
+                        Pay bills
+                      </button>
+                    ) : null}
                     {row.anchor ? (
                       <button
                         type="button"
@@ -2893,6 +3010,28 @@ export default function App() {
             <FeaturePanel snap={{ ...snap, panel: panel as PanelName | "" }} rt={gameRef.current?.runtime ?? null} />
             {panel === "home" && (() => {
               const zoneId = snap.indoors || "";
+              const toggleTv = async () => {
+                const rt = gameRef.current?.runtime;
+                const homeCrib = cribForHome(crib, zoneId);
+                if (!rt || !homeCrib) return;
+                const turningOn = !homeCrib.tvOn;
+                const res = await rt.cribTv(zoneId, turningOn);
+                if (res.ok && turningOn) {
+                  let tracks = radioTracks;
+                  if (!tracks.length) {
+                    const list = await rt.radioList();
+                    const got = (list as { tracks?: RadioTrack[] }).tracks || [];
+                    if (Array.isArray(got) && got.length) {
+                      tracks = got as RadioTrack[];
+                      setRadioTracks(tracks);
+                    }
+                  }
+                  if (tracks.length) playRadio(tracks[0]);
+                  else setRadioMsg("No radio tracks yet — upload one from the Radio panel.");
+                } else if (res.ok) stopRadio();
+                setCribMsg(res.message);
+                await refreshCrib();
+              };
               const mineList = (
                 <>
                   {homeMine.length ? <h3>Your homes on this universe{homeServer ? ` — Server ${homeServer}` : ""}</h3> : null}
@@ -2901,6 +3040,8 @@ export default function App() {
                     const rental = snap.cityPeople.rentals.find((r) => r.homeId === h.homeId);
                     const partyHere = snap.cityPeople.party?.homeId === h.homeId;
                     const guestsHere = snap.cityPeople.guests.filter((g) => g.homeId === h.homeId).length;
+                    const homeCrib = cribForHome(crib, h.homeId);
+                    const bill = homeCrib?.bills;
                     return (
                       <article key={`${h.homeId}:${h.server}`}>
                         <div>
@@ -2917,6 +3058,13 @@ export default function App() {
                               {guestsHere} guest{guestsHere === 1 ? "" : "s"} hanging out here
                             </span>
                           ) : null}
+                          {bill ? (
+                            <span>
+                              {bill.overdue
+                                ? `BILLS OVERDUE — ${bill.amount} City Sol · lights are off`
+                                : `Bills ${bill.amount} City Sol · due in ${Math.max(0, billDaysLeft(bill))} day${billDaysLeft(bill) === 1 ? "" : "s"}`}
+                            </span>
+                          ) : null}
                         </div>
                         <button
                           type="button"
@@ -2927,11 +3075,25 @@ export default function App() {
                         >
                           Garage
                         </button>
+                        {bill?.overdue ? (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const rt = gameRef.current?.runtime;
+                              if (!rt) return;
+                              setCribMsg(await rt.cribPayBill(h.homeId));
+                              await refreshCrib();
+                            }}
+                          >
+                            Pay bills — {bill.amount} City Sol
+                          </button>
+                        ) : null}
                       </article>
                     );
                   })}
                   {homeMsg ? <p>{homeMsg}</p> : null}
                   {homeMine.length ? <button type="button" onClick={() => open("kitchen")}>Cook in your kitchen</button> : null}
+                  {cribMsg ? <p>{cribMsg}</p> : null}
                 </>
               );
               if (!zoneId.startsWith("home-")) {
@@ -3048,12 +3210,16 @@ export default function App() {
                   )}
                   {peopleMsg ? <p>{peopleMsg}</p> : null}
                 </>
-              );              return (
+              );              const homeCrib = owned ? cribForHome(crib, zoneId) : null;
+              const next = homeCrib ? nextTier(homeCrib.tier) : null;
+              const foodEntries = Object.entries(CRIB_FOODS).filter(([key]) => (crib?.food?.[key] ?? 0) > 0);
+              return (
                 <div className="list">
                   <article>
                     <div>
                       <b>{home.name}</b>
                       <span>{price} City Sol · {owned ? "Yours on this universe" : "Not owned yet"}</span>
+                      {homeCrib ? <span>{homeCrib.tierName} · lights {homeCrib.bills.lightsOff ? "off — bills due" : homeCrib.lightsOn ? "on" : "off"}</span> : null}
                     </div>
                     <button
                       type="button"
@@ -3068,6 +3234,7 @@ export default function App() {
                           setHomeServer(res.homeServer);
                         }
                         void refreshCrazy();
+                        await refreshCrib();
                       }}
                     >
                       {owned ? "Owned" : afford ? `Buy — ${price} City Sol` : "Not enough City Sol"}
@@ -3265,7 +3432,183 @@ export default function App() {
                       </div>
                     );
                   })() : null}
-                  {mineList}                </div>
+                  {owned && homeCrib ? (
+                    <>
+                      <h3>Bills — rent + lights, weekly</h3>
+                      <article>
+                        <div>
+                          <b>{homeCrib.bills.overdue ? "Bills overdue" : "Next bill"}</b>
+                          <span>
+                            {homeCrib.bills.overdue
+                              ? `${homeCrib.bills.amount} City Sol overdue — the lights are cut off until you pay. A notice is on your door.`
+                              : `${homeCrib.bills.amount} City Sol · due in ${Math.max(0, billDaysLeft(homeCrib.bills))} day${billDaysLeft(homeCrib.bills) === 1 ? "" : "s"}`}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={snap.balance < homeCrib.bills.amount}
+                          onClick={async () => {
+                            const rt = gameRef.current?.runtime;
+                            if (!rt) return;
+                            setCribMsg(await rt.cribPayBill(zoneId));
+                            await refreshCrib();
+                          }}
+                        >
+                          Pay bills — {homeCrib.bills.amount} City Sol
+                        </button>
+                      </article>
+                      <h3>Sleep + energy — {snap.energy} · {snap.energyLabel}</h3>
+                      <p className="muted">Energy drains as you play. Sleeping in your own bed restores it to 100 — Rested means +15% speed and +10% job pay. At 0 you are Exhausted and slow.</p>
+                      <article>
+                        <div>
+                          <b>Sleep in your bed</b>
+                          <span>Energy back to 100, Rested. Stand by the bed and press E, or sleep here.</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const rt = gameRef.current?.runtime;
+                            if (!rt) return;
+                            setCribMsg(await rt.cribSleep(zoneId));
+                            await refreshCrib();
+                          }}
+                        >
+                          Sleep
+                        </button>
+                      </article>
+                      <h3>Home upgrades — {homeCrib.tierName}</h3>
+                      {next ? (
+                        <article>
+                          <div>
+                            <b>Upgrade to a {next.name}</b>
+                            <span>{next.price} City Sol · {next.blurb}</span>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={snap.balance < next.price}
+                            onClick={async () => {
+                              const rt = gameRef.current?.runtime;
+                              if (!rt) return;
+                              setCribMsg(await rt.cribUpgrade(zoneId));
+                              await refreshCrib();
+                            }}
+                          >
+                            Upgrade — {next.price} City Sol
+                          </button>
+                        </article>
+                      ) : (
+                        <p className="muted">Penthouse — the top tier. Chandelier, gold trim, a balcony over the city.</p>
+                      )}
+                      <h3>Walls &amp; floors</h3>
+                      <p className="muted">Paint, flooring and lighting for this home — bought per change, applied the moment you pay.</p>
+                      {([
+                        ["wall", CRIB_WALLS],
+                        ["floor", CRIB_FLOORS],
+                        ["light", CRIB_LIGHTS],
+                      ] as const).map(([key, table]) => (
+                        <article key={key}>
+                          <div>
+                            <b>{key === "wall" ? "Walls" : key === "floor" ? "Flooring" : "Lighting"} — {table[homeCrib.decor[key] as keyof typeof table]?.name ?? homeCrib.decor[key]}</b>
+                            <span>
+                              {Object.entries(table).map(([optKey, opt]) => (
+                                <button
+                                  key={optKey}
+                                  type="button"
+                                  disabled={homeCrib.decor[key] === optKey || snap.balance < opt.price}
+                                  onClick={async () => {
+                                    const rt = gameRef.current?.runtime;
+                                    if (!rt) return;
+                                    setCribMsg(await rt.cribDecor(zoneId, { [key]: optKey }));
+                                    await refreshCrib();
+                                  }}
+                                >
+                                  {homeCrib.decor[key] === optKey ? `✓ ${opt.name}` : `${opt.name} — ${opt.price}`}
+                                </button>
+                              ))}
+                            </span>
+                          </div>
+                        </article>
+                      ))}
+                      <h3>Working stuff</h3>
+                      <article>
+                        <div>
+                          <b>Lights</b>
+                          <span>{homeCrib.bills.lightsOff ? "Cut off — pay this week's bills first." : homeCrib.lightsOn ? "On — the house is lit." : "Off — it's dark in here."}</span>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!homeCrib.lightsOn && homeCrib.bills.lightsOff}
+                          onClick={async () => {
+                            const rt = gameRef.current?.runtime;
+                            if (!rt) return;
+                            setCribMsg(await rt.cribLights(zoneId, !homeCrib.lightsOn));
+                            await refreshCrib();
+                          }}
+                        >
+                          {homeCrib.lightsOn ? "Turn off" : "Turn on"}
+                        </button>
+                      </article>
+                      <article>
+                        <div>
+                          <b>TV</b>
+                          <span>{homeCrib.tvOn ? "On — the radio is playing through it." : "Off — turn it on and the radio plays."}</span>
+                        </div>
+                        <button type="button" onClick={toggleTv}>
+                          {homeCrib.tvOn ? "Turn off" : "Turn on"}
+                        </button>
+                      </article>
+                      <h3>Fridge</h3>
+                      {foodEntries.length ? (
+                        foodEntries.map(([key, food]) => (
+                          <article key={key}>
+                            <div>
+                              <b>{food.name} × {crib?.food?.[key] ?? 0}</b>
+                              <span>{key === "petfood" ? "Pet food — for your pet, not you." : `Eat it here (+${food.energy} energy).`}</span>
+                            </div>
+                            {key === "petfood" ? null : (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const rt = gameRef.current?.runtime;
+                                  if (!rt) return;
+                                  setCribMsg(await rt.cribEat(key));
+                                  await refreshCrib();
+                                }}
+                              >
+                                Eat
+                              </button>
+                            )}
+                          </article>
+                        ))
+                      ) : (
+                        <p className="muted">Your fridge is empty — buy food in the Shop and it lands here.</p>
+                      )}
+                      {crib?.pet ? (
+                        <>
+                          <h3>Your pet</h3>
+                          <article>
+                            <div>
+                              <b>{CRIB_PETS[crib.pet.kind]?.name ?? "Pet"}</b>
+                              <span>{crib.pet.happy ? "Happy — fed and following you around the house." : "Sad — unfed and lagging behind. Feed it."}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const rt = gameRef.current?.runtime;
+                                if (!rt) return;
+                                setCribMsg(await rt.cribFeedPet());
+                                await refreshCrib();
+                              }}
+                            >
+                              Feed pet
+                            </button>
+                          </article>
+                        </>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {mineList}
+                </div>
               );
             })()}
             {panel === "menu" && (
