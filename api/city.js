@@ -915,6 +915,7 @@ function missionPublic(mission, progress, unlocked) {
 }
 
 const LOBBIES = [
+  { id: "nearby", name: "Nearby (proximity)" },
   { id: "plaza", name: "Plaza" },
   { id: "district", name: "Project District" },
   { id: "hq-0", name: "OrbitX HQ" },

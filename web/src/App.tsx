@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
 import type { AdOrder, MyPropertyClaim, PanelName, RadioTrack, Runtime, Snap } from "./game/runtime";
 import { PHOTO_LANDMARKS } from "./game/runtime";
+import { PROXIMITY_RANGE, PROXIMITY_ROOM } from "./game/voice";
 import { loadLooks } from "./game/avatar";
 import { OFFICE_SUITES, adUsdPrice } from "./game/content";
 import { parseSeed } from "./game/seed";
@@ -790,6 +791,12 @@ export default function App() {
           <strong>CITY SOL {snap.balance}</strong>
           {snap.flying || snap.carFlying ? <span className="flying-chip">FLYING</span> : null}
           {snap.holder ? <span>HOLDER</span> : null}
+          {snap.voiceProvider && snap.voiceProvider !== "off" ? (
+            <span>
+              Voice {snap.voiceProximity ? "nearby" : "lobby"}
+              {snap.muted ? " · Muted" : snap.speaking ? " ●" : ""}
+            </span>
+          ) : null}
           <span>Burned {snap.burned}</span>
           <span>{snap.jobTitle ? `${snap.jobTitle} — ${snap.objective}` : snap.objective}</span>
           {snap.eventLabel ? <span>{snap.eventLabel}</span> : null}
@@ -808,6 +815,7 @@ export default function App() {
           <button type="button" onClick={() => open("missions")}>Missions</button>
           <button type="button" onClick={() => open("ads")}>Ads</button>
           <button type="button" onClick={() => open("radio")}>Radio</button>
+          <button type="button" onClick={() => open("voice")}>Voice</button>
           <button type="button" onClick={() => open("offices")}>Offices</button>
           <button type="button" onClick={() => open("myprops")}>My Props</button>
           <button type="button" onClick={() => open("multiverse")}>Multiverse</button>
@@ -889,6 +897,7 @@ export default function App() {
                 {panel === "missions" && "Missions"}
                 {panel === "ads" && "Book a billboard"}
                 {panel === "radio" && "Radio"}
+                {panel === "voice" && "Voice chat"}
                 {panel === "offices" && "OrbitX Tower offices"}
                 {panel === "myprops" && "My Properties"}
                 {panel === "garage" && "OrbitX Motors"}
@@ -1845,6 +1854,7 @@ export default function App() {
                 gameRef.current?.start(parseSeed(seedText || "1"), "orbit");
               });
             }} />}
+            {panel === "voice" && <VoicePanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             <FeaturePanel snap={{ ...snap, panel: panel as PanelName | "" }} rt={gameRef.current?.runtime ?? null} />
             {panel === "home" && (() => {
               const zoneId = snap.indoors || "";
@@ -2442,6 +2452,65 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
         ⋮⋮
       </span>
       <canvas ref={ref} className="minimap" width={MINIMAP_SIZE} height={MINIMAP_SIZE} />
+    </div>
+  );
+}
+
+// Proximity voice chat: talk to players standing near you — no lobby
+// to join, just walk up to someone. Free, peer-to-peer, nothing recorded.
+function VoicePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
+  const online = snap.server !== "This device";
+  const nearby = snap.people
+    .map((person) => ({ ...person, distance: Math.hypot(person.x - snap.me.x, person.z - snap.me.z) }))
+    .filter((person) => person.distance <= PROXIMITY_RANGE)
+    .sort((a, b) => a.distance - b.distance);
+  return (
+    <div className="list">
+      <p>
+        {snap.voiceProximity
+          ? `Proximity voice on (${snap.voiceProvider || "connecting"}) — you can hear players within ${PROXIMITY_RANGE} units, and they can hear you. Walk away and they fade out.`
+          : "Proximity voice is off. Join to talk to players standing near you — no lobby to join, just walk up to someone."}
+      </p>
+      {snap.voiceError ? <p>{snap.voiceError}</p> : null}
+      {!online ? <p>Voice needs the online city.</p> : null}
+      <div className="days">
+        {snap.voiceProximity ? (
+          <button type="button" onClick={() => rt?.leaveLobby()}>Leave voice</button>
+        ) : (
+          <button type="button" onClick={() => rt?.joinProximity()}>Join proximity voice</button>
+        )}
+        <button type="button" className={snap.muted ? "on" : ""} onClick={() => rt?.setMuted(!snap.muted)}>Mute</button>
+        <button type="button" className={snap.deafened ? "on" : ""} onClick={() => rt?.setDeafened(!snap.deafened)}>Deafen</button>
+        <button type="button" className={snap.pushToTalk ? "on" : ""} onClick={() => rt?.setPushToTalk(!snap.pushToTalk)}>Push to talk</button>
+      </div>
+      <p>
+        Your mic: {snap.muted ? "Muted" : snap.pushToTalk ? "Push to talk — hold the button below to talk" : snap.speaking ? "Live — speaking" : "Live"}
+      </p>
+      {snap.pushToTalk ? (
+        <Hold label="Hold to talk" onDown={() => rt?.setTalking(true)} onUp={() => rt?.setTalking(false)} />
+      ) : null}
+      <h3>Near you now</h3>
+      {nearby.length === 0 ? <span>No one in voice range right now. Walk up to a player and they will show up here.</span> : null}
+      {nearby.map((person) => (
+        <article key={person.id}>
+          <div>
+            <b>{person.name} {person.speaking ? "●" : ""}</b>
+            <span>{Math.round(person.distance)} units away · {person.lobby === PROXIMITY_ROOM ? "proximity" : person.lobby || "in the street"}</span>
+          </div>
+          <label>
+            Volume
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              defaultValue={1}
+              onChange={(event) => rt?.setVolume(person.id, Number(event.target.value))}
+            />
+          </label>
+        </article>
+      ))}
+      <p>Free — voice is a core social feature, not a purchase. Audio is peer-to-peer; nothing is recorded or stored.</p>
     </div>
   );
 }
