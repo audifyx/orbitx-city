@@ -14,6 +14,7 @@ export interface NetState {
   lobby?: string;
   look?: string;
   holder?: boolean;
+  clothes?: Record<string, string>;
 }
 
 export interface ChatLine {

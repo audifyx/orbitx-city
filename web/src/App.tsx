@@ -952,24 +952,73 @@ export default function App() {
             {panel === "shop" && (
               <div className="list">
                 <p>Balance {snap.balance} · Burned total {snap.burned}</p>
-                {snap.shop.map((item) => {
-                  const part = gameRef.current?.runtime.quote(item.price) ?? Math.round(item.price * 0.25);
-                  const owned = snap.owned.includes(item.id);
-                  return (
-                    <article key={item.id}>
-                      <div>
-                        <b>{item.name}</b>
-                        <span>{item.price} City Sol · burns {part}</span>
+                {(() => {
+                  // Clothes worn right now, from the `worn:<slot>:<value>`
+                  // markers in `owned` (api/city.js setWorn).
+                  const worn: Record<string, string> = {};
+                  for (const entry of snap.owned) {
+                    if (!entry.startsWith("worn:")) continue;
+                    const [, slot, value] = entry.split(":");
+                    if (slot && value) worn[slot] = value;
+                  }
+                  const wearing = snap.shop
+                    .filter((item) => item.kind === "clothes" && item.slot && worn[item.slot] === item.value)
+                    .map((item) => item.name);
+                  const sections: { title: string; kind: string }[] = [
+                    { title: "Clothes", kind: "clothes" },
+                    { title: "Suits", kind: "color" },
+                    { title: "Hats", kind: "hat" },
+                    { title: "Cars", kind: "car" },
+                    { title: "Trails", kind: "trail" },
+                  ];
+                  return sections.map(({ title, kind }) => {
+                    const items = snap.shop.filter((item) => item.kind === kind);
+                    if (!items.length) return null;
+                    return (
+                      <div key={kind}>
+                        <h3>{title}</h3>
+                        {kind === "clothes" && (
+                          <p className="muted">{wearing.length ? `Wearing now: ${wearing.join(", ")}` : "Wearing now: your usual outfit."}</p>
+                        )}
+                        {items.map((item) => {
+                          const part = gameRef.current?.runtime.quote(item.price) ?? Math.round(item.price * 0.25);
+                          const owned = snap.owned.includes(item.id);
+                          const isClothes = item.kind === "clothes" && item.slot;
+                          const equipped = isClothes && item.slot ? worn[item.slot] === item.value : false;
+                          return (
+                            <article key={item.id}>
+                              <div>
+                                <b>{item.name}{equipped ? " — worn" : ""}</b>
+                                <span>{item.price} City Sol · burns {part}</span>
+                              </div>
+                              {isClothes && item.slot ? (
+                                owned ? (
+                                  equipped ? (
+                                    <button type="button" onClick={() => gameRef.current?.runtime.unequipClothes(item.slot as string)}>
+                                      Unequip
+                                    </button>
+                                  ) : (
+                                    <button type="button" onClick={() => gameRef.current?.runtime.equipClothes(item.id)}>
+                                      Equip
+                                    </button>
+                                  )
+                                ) : (
+                                  <button type="button" onClick={() => gameRef.current?.runtime.buy(item.id)}>
+                                    Buy
+                                  </button>
+                                )
+                              ) : (
+                                <button type="button" onClick={() => gameRef.current?.runtime.buy(item.id)}>
+                                  {owned ? "Equip" : "Buy"}
+                                </button>
+                              )}
+                            </article>
+                          );
+                        })}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => gameRef.current?.runtime.buy(item.id)}
-                      >
-                        {owned ? "Equip" : "Buy"}
-                      </button>
-                    </article>
-                  );
-                })}
+                    );
+                  });
+                })()}
                 <h3>Furniture — for your own home</h3>
                 <p className="muted">
                   Buy it here, then stand inside a home you own and press X (Edit Home) to place it where you want it. City Sol only — no burn.
@@ -1032,8 +1081,7 @@ export default function App() {
                     </article>
                   );
                 })}
-                <p className="muted">Food is City Sol only. Hunger drains slowly while you play — eat to stay full. At 0 hunger you only walk slower; nothing else happens.</p>
-              </div>
+                <p className="muted">Food is City Sol only. Hunger drains slowly while you play — eat to stay full. At 0 hunger you only walk slower; nothing else happens.</p>              </div>
             )}
             {panel === "missions" && (
               <div className="list">

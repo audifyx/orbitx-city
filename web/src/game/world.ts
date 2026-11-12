@@ -28,6 +28,9 @@ export interface CityPerson {
   emote: string;
   lobby: string;
   look?: string;
+  // Clothes worn right now, per slot (shirt / pants / shoes / outfit /
+  // glasses) — derived server-side from the `worn:` markers in owned.
+  clothes?: Record<string, string>;
 }
 
 export interface CityMe {
@@ -39,6 +42,9 @@ export interface CityMe {
   color: string;
   hat: string;
   car: string;
+  // Clothes worn right now, per slot — the client renders them from
+  // this (authoritative) or from the `worn:` markers in `owned`.
+  clothes?: Record<string, string>;
   // GTA expansion — per-(player, universe) save fields (server agent owns
   // the ops; the client only mirrors what the server returns).
   vehicles?: OwnedVehicle[];
@@ -289,6 +295,7 @@ class CityWorld {
     return data;
   }
 
+<<<<<<< HEAD
   // Home furniture — shop + Edit Home (per-server homes, City Sol only).
   async furnitureList(server: number) {
     return this.call("furniture-list", { server });
@@ -308,6 +315,14 @@ class CityWorld {
 
   async furnitureSell(item: string, server: number) {
     const data = await this.call("furniture-sell", { item, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  // Clothes: equip an owned piece (id "" = take the slot off). The
+  // server validates ownership and returns the updated `me`.
+  async clothes(slot: string, id: string) {
+    const data = await this.call("clothes", { slot, id });
     if (data.me) this.me = data.me as CityMe;
     return data;
   }

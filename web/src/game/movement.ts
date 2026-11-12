@@ -40,7 +40,8 @@ import {
   Vector3,
   type Material,
 } from "three";
-import type { Look } from "./avatar";
+import type { Clothes, Look } from "./avatar";
+import { SHOES_COLORS } from "./avatar";
 
 /** Handle returned by makeWalker/ensureWalker. Keep one per person. */
 export interface WalkerHandle {
@@ -177,6 +178,23 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
   legR.name = "walkLegR";
   legR.position.set(0.13, 0.5, 0);
   legR.add(makeLimb(legMaterial, 0.24, 0.5, 0.32, -0.25));
+
+  // Shoes from the clothes shop: a box on the bottom of each leg pivot
+  // so the shoe swings with the foot instead of floating static under
+  // the body. dressPerson stores the worn clothes on group.userData;
+  // a group with no clothes (NPCs, pre-dress bodies) gets no shoes.
+  const clothes = (group.userData as { clothes?: Clothes } | undefined)?.clothes;
+  const shoeColor = clothes?.shoes ? SHOES_COLORS[clothes.shoes] : undefined;
+  if (shoeColor) {
+    const shoeMat = outfitMaterial(shoeColor);
+    for (const leg of [legL, legR]) {
+      const shoe = new Mesh(UNIT_BOX, shoeMat);
+      shoe.scale.set(0.26, 0.12, 0.42);
+      shoe.position.set(0, -0.47, 0.04);
+      shoe.castShadow = true;
+      leg.add(shoe);
+    }
+  }
 
   // Arms: the avatar has none — add them. Pivots at shoulder height,
   // boxes hang 0.6 below so the swing reads from across the plaza.

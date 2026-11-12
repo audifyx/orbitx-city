@@ -63,7 +63,7 @@ import {
 } from "./content";
 import { burnAmount, earn, loadWallet, saveWallet, spend } from "./economy";
 import { createNet, type ChatLine, type NetAdapter, type NetState } from "./net";
-import { allLooks, dressPerson, loadLooks, lookById, lookName, looksReady } from "./avatar";
+import { allLooks, clothesFromOwned, dressPerson, loadLooks, lookById, lookName, looksReady, type Clothes } from "./avatar";
 import { GOLD, MATERIALS } from "./materials";
 import { accountToken, readAccount } from "../auth";
 import { world, type CityMe } from "./world";
@@ -208,15 +208,16 @@ export interface MissionCard {
 }
 
 // Shop catalog item — same shape as content.ts ShopItem, plus the "trail"
-// kind the server sells (a glowing ring under the avatar). The canonical
-// 22-item catalog lives in SHOP_CATALOG below (fix-client); it mirrors
-// api/city.js CATALOG, which is the price authority.
+// kind the server sells (a glowing ring under the avatar) and the
+// "clothes" kind (shirts, pants, shoes, outfits, glasses — see
+// avatar.ts; `slot` is the clothes slot the item fills).
 export interface ShopCatalogItem {
   id: string;
-  kind: "color" | "car" | "hat" | "trail";
+  kind: "color" | "car" | "hat" | "trail" | "clothes";
   name: string;
   value: string;
   price: number;
+  slot?: "shirt" | "pants" | "shoes" | "outfit" | "glasses";
 }
 
 export type ActiveRental = { id: string; color: string; days: number; daysLeft: number; expiresAt: number };
@@ -392,7 +393,7 @@ const COLORS: Record<string, number> = {
 // never a flat 20/step.
 const TOUR_PAY = [15, 20, 20, 25, 30, 80];
 
-// Shop — the canonical 22 items, City Sol, mirroring api/city.js CATALOG
+// Shop — the canonical 36 items, City Sol, mirroring api/city.js CATALOG
 // (the server is the price authority; this list is display + the offline
 // price check). content.ts SHOP only carries 13 of these and has
 // hat-visor's value wrong ("cap" — the server grants "visor"), so the
@@ -420,6 +421,23 @@ const SHOP_CATALOG: ShopCatalogItem[] = [
   { id: "hat-headphones", kind: "hat", name: "Headphones", value: "headphones", price: 45 },
   { id: "trail-neon", kind: "trail", name: "Neon trail", value: "neon", price: 50 },
   { id: "trail-gold", kind: "trail", name: "Gold trail", value: "gold", price: 75 },
+  // Clothes — buying equips; switching is the Equip button on an owned
+  // piece, taking off is Unequip. One worn piece per slot; an outfit
+  // overrides shirt + pants while worn. Prices mirror api/city.js.
+  { id: "clothes-tee-red", kind: "clothes", name: "Red tee", value: "tee-red", price: 30, slot: "shirt" },
+  { id: "clothes-tee-gold", kind: "clothes", name: "Gold tee", value: "tee-gold", price: 35, slot: "shirt" },
+  { id: "clothes-hoodie-black", kind: "clothes", name: "Black hoodie", value: "hoodie-black", price: 80, slot: "shirt" },
+  { id: "clothes-jacket-denim", kind: "clothes", name: "Denim jacket", value: "jacket-denim", price: 120, slot: "shirt" },
+  { id: "clothes-jacket-leather", kind: "clothes", name: "Leather jacket", value: "jacket-leather", price: 140, slot: "shirt" },
+  { id: "clothes-jeans-blue", kind: "clothes", name: "Blue jeans", value: "jeans-blue", price: 60, slot: "pants" },
+  { id: "clothes-pants-black", kind: "clothes", name: "Black pants", value: "pants-black", price: 55, slot: "pants" },
+  { id: "clothes-shorts-white", kind: "clothes", name: "White shorts", value: "shorts-white", price: 40, slot: "pants" },
+  { id: "clothes-sneakers-white", kind: "clothes", name: "White sneakers", value: "sneakers-white", price: 70, slot: "shoes" },
+  { id: "clothes-boots-brown", kind: "clothes", name: "Brown boots", value: "boots-brown", price: 90, slot: "shoes" },
+  { id: "clothes-suit-black", kind: "clothes", name: "Black suit", value: "suit-black", price: 200, slot: "outfit" },
+  { id: "clothes-dress-red", kind: "clothes", name: "Red dress", value: "dress-red", price: 150, slot: "outfit" },
+  { id: "clothes-tracksuit-gold", kind: "clothes", name: "Gold tracksuit", value: "tracksuit-gold", price: 100, slot: "outfit" },
+  { id: "clothes-sunglasses", kind: "clothes", name: "Sunglasses", value: "sunglasses", price: 50, slot: "glasses" },
 ];
 
 export function furnitureName(id: string): string {
@@ -4684,7 +4702,7 @@ export function createRuntime(scene: Scene) {
         continue;
       }
       const person = remote.group.children[0] as Group;
-      paintPerson(person, false, remote.state.look || "tjr", remote.state.color, remote.state.hat);
+      paintPerson(person, false, remote.state.look || "tjr", remote.state.color, remote.state.hat, remote.state.clothes);
       const blend = Math.min(1, dt * 8);
       remote.group.position.x += (remote.state.x - remote.group.position.x) * blend;
       remote.group.position.y += (remote.state.y - remote.group.position.y) * blend;
@@ -4901,6 +4919,10 @@ export function createRuntime(scene: Scene) {
         look: lookId,
         car: driving,
         skin: wallet.car,
+        // Offline peer path (BroadcastChannel / websocket): the pose is
+        // relayed as-is, so worn clothes ride along. Online the server
+        // derives them from the player row instead (sanitizeState).
+        clothes: Object.fromEntries(Object.entries(clothesFromOwned(wallet.owned))) as Record<string, string>,
         speaking: world.speaking,
         emote: Date.now() < world.emoteUntil ? world.emote : "",
         lobby: world.lobby,
@@ -4931,11 +4953,16 @@ export function createRuntime(scene: Scene) {
   }
 
   const dressed = new WeakMap<Group, string>();
-  function paintPerson(group: Group, trust: boolean, id = lookId, color = wallet.color, hat = wallet.hat) {
-    const key = `${id}|${color}|${hat}|${trust ? wallet.owned.join(",") : ""}|${looksReady()}`;
+  function paintPerson(group: Group, trust: boolean, id = lookId, color = wallet.color, hat = wallet.hat, clothes?: Clothes) {
+    // Local: clothes come from the worn markers in wallet.owned (server
+    // `me.owned` via applyMe, or the offline wallet). Remote: the
+    // presence state carries them (sanitizeState).
+    const worn: Clothes = clothes ?? (trust ? clothesFromOwned(wallet.owned) : {});
+    const clothesKey = JSON.stringify(worn);
+    const key = `${id}|${color}|${hat}|${clothesKey}|${trust ? wallet.owned.join(",") : ""}|${looksReady()}`;
     if (dressed.get(group) === key) return;
     dressed.set(group, key);
-    dressPerson(group, lookById(id), { color, hat, owned: trust ? wallet.owned : [], trustOwned: trust });
+    dressPerson(group, lookById(id), { color, hat, owned: trust ? wallet.owned : [], trustOwned: trust, clothes: worn });
     // Shop hats visor / tophat / headphones have no branch in avatar.ts
     // dressPerson, so the player (and remotes) would render no hat at all
     // for them — addHat renders them here instead. Beanie already has a
@@ -6336,6 +6363,7 @@ export function createRuntime(scene: Scene) {
   function equip(item: ShopCatalogItem) {
     if (item.kind === "color") wallet.color = item.value;
     if (item.kind === "hat") wallet.hat = item.value;
+    if (item.kind === "clothes" && item.slot) setWornLocal(item.slot, item.value);
     if (item.kind === "trail") {
       trail = item.value;
       saveTrail();
@@ -6346,6 +6374,67 @@ export function createRuntime(scene: Scene) {
     }
     saveWallet(wallet);
     if (localBody) dressed.delete(localBody);
+  }
+
+  // Clothes worn state, offline mirror of the server's `worn:<slot>:
+  // <value>` markers in `owned` (api/city.js setWorn). One worn piece
+  // per slot; value "" takes the slot off.
+  function setWornLocal(slot: string, value: string) {
+    wallet.owned = wallet.owned.filter((entry) => !entry.startsWith(`worn:${slot}:`));
+    if (value) wallet.owned.push(`worn:${slot}:${value}`);
+  }
+
+  // Switch to an owned piece of clothing (or take a slot off). Online
+  // this goes through the server's clothes op so the outfit is saved
+  // per-server and other players see it; offline it just flips the
+  // local worn marker. Returns a message for the panel.
+  async function equipClothes(id: string) {
+    const item = SHOP_CATALOG.find((entry) => entry.id === id);
+    if (!item || item.kind !== "clothes" || !item.slot) return "Unknown item.";
+    if (!wallet.owned.includes(id)) return "You don't own that yet.";
+    if (world.online) {
+      try {
+        await world.clothes(item.slot, id);
+        applyMe();
+        if (localBody) dressed.delete(localBody);
+        publish();
+        say("Equipped.");
+        return "Equipped.";
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused the change.";
+        say(message);
+        return message;
+      }
+    }
+    setWornLocal(item.slot, item.value);
+    saveWallet(wallet);
+    if (localBody) dressed.delete(localBody);
+    publish();
+    say("Equipped.");
+    return "Equipped.";
+  }
+
+  async function unequipClothes(slot: string) {
+    if (world.online) {
+      try {
+        await world.clothes(slot, "");
+        applyMe();
+        if (localBody) dressed.delete(localBody);
+        publish();
+        say("Taken off.");
+        return "Taken off.";
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused the change.";
+        say(message);
+        return message;
+      }
+    }
+    setWornLocal(slot, "");
+    saveWallet(wallet);
+    if (localBody) dressed.delete(localBody);
+    publish();
+    say("Taken off.");
+    return "Taken off.";
   }
 
   return {
@@ -6438,6 +6527,8 @@ export function createRuntime(scene: Scene) {
     buyFood,
     eatFood,
     eatBestFood,
+    equipClothes,
+    unequipClothes,
     // Walk-speed scale for the engine tick: a starving player (hunger
     // 0) walks at 60% — the only penalty hunger ever applies.
     walkSpeedScale() {
