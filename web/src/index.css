@@ -901,14 +901,19 @@ body.touch .touch-ui {
 
 /* Driving controls (touch, while driving only): big Gas / Brake hold
    buttons above the pad grid and below the minimap's touch default
-   (bottom 190px), so the right thumb holds the throttle while the left
+   (bottom 256px), so the right thumb holds the throttle while the left
    thumb steers. The parent .touch-ui is display:none unless body.touch,
-   so these never show on desktop. */
+   so these never show on desktop. Geometry (portrait, safe-area 16px):
+   the pad grid tops out at 176px from the bottom, so these sit at
+   180px (4px clear); they are 64px tall, topping out at 244px, and the
+   minimap's default bottom is 256px (12px clear). The old 112px put
+   them ON the pad grid's top row (Fly / Down, top 16px covered) and
+   ON the minimap's bottom border (2px). */
 .drive-buttons {
   position: fixed;
   z-index: 5;
   right: max(12px, env(safe-area-inset-right));
-  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 112px);
+  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 164px);
   display: flex;
   gap: 8px;
 }
@@ -1097,6 +1102,13 @@ body.touch .touch-ui {
   .pad-buttons button {
     min-height: 40px;
     padding: 6px;
+  }
+
+  /* Driving Gas/Brake sit lower in landscape: the pad grid is only 2
+     rows (~104px tall) here, so 104px clears it with a 16px gap and
+     still clears the minimap's 256px default bottom by 72px. */
+  .drive-buttons {
+    bottom: calc(max(16px, env(safe-area-inset-bottom)) + 104px);
   }
 
   .panel {

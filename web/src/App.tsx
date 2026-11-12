@@ -1880,9 +1880,12 @@ function isTouchDevice(): boolean {
 
 function minimapDefaultPos(): MinimapPos {
   const x = Math.max(0, window.innerWidth - MINIMAP_OUTER - 10);
-  // Touch: bottom-right, above the pad-buttons (~176px tall). Desktop:
-  // bottom-right corner, nothing else lives there.
-  const bottom = isTouchDevice() ? 190 : 12;
+  // Touch: bottom-right, above the pad-buttons (~176px tall) AND above
+  // the driving Gas/Brake buttons (they top out at ~244px while driving,
+  // so the map's bottom sits at 256px — 12px clear of them, 80px clear
+  // of the pad grid). Desktop: bottom-right corner, nothing else lives
+  // there.
+  const bottom = isTouchDevice() ? 256 : 12;
   return { x, y: Math.max(0, window.innerHeight - MINIMAP_OUTER - bottom) };
 }
 
