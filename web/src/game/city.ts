@@ -1641,13 +1641,15 @@ function addTrainLine(boxes: Box[], cols: Collider[]): { zones: Zone[] } {
   const FLOOR_Y = 0.12;
   // Above-grade walls: south has the street door (x=0, through the plaza
   // fence gap); west/east are solid runs either side of the track plus a
-  // lintel over it (the train's roof clears at 4.2). Deliberately NO door
-  // anchor: the player walks through the open doorway (the engine's 0.5
-  // step-up lifts them the 0.12 onto the floor) — a stepInside anchor
-  // would drop them at y=0 INSIDE the slab collider and groundY would
-  // send them through the floor to the basement.
+  // lintel over it (the train's roof clears at 4.2). A second door on the
+  // street face (z=42) opens the hall to the spawn side, so the player
+  // walks straight in from the south instead of around the building.
+  // Deliberately NO door anchor: the player walks through the open
+  // doorway (the engine's 0.5 step-up lifts them the 0.12 onto the floor)
+  // — a stepInside anchor would drop them at y=0 INSIDE the slab collider
+  // and groundY would send them through the floor to the basement.
   wallRunX(boxes, cols, BX0, BX1, FLOOR_Y, BZ0, WALL_H, "white", 0, 3.2);
-  wallRunX(boxes, cols, BX0, BX1, FLOOR_Y, BZ1, WALL_H, "white", 0, 0);
+  wallRunX(boxes, cols, BX0, BX1, FLOOR_Y, BZ1, WALL_H, "white", 0, 3.2);
   for (const wx of [BX0, BX1]) {
     wallRunZ(boxes, cols, BZ0, 31, FLOOR_Y, wx, WALL_H, "white", 0, 0);
     wallRunZ(boxes, cols, 35, BZ1, FLOOR_Y, wx, WALL_H, "white", 0, 0);
@@ -1706,6 +1708,7 @@ function addTrainLine(boxes: Box[], cols: Collider[]): { zones: Zone[] } {
   hangLights(boxes, 1, -0.18, 35, 20, 8);
   // Signs: the line name over the street door, the station name in the hall.
   roomSign("train-plaza-out", 0, 5.2, 27.3, Math.PI, 12, 1.6, ["ORBITX LINE"], "Plaza Central · Underground · Free");
+  roomSign("train-plaza-out-s", 0, 5.2, 42.7, 0, 12, 1.6, ["ORBITX LINE"], "Plaza Central · Underground · Free");
   roomSign("train-plaza-in", 1, -2.6, 41.8, Math.PI, 9, 1.2, ["PLAZA CENTRAL"], "Trains to Westgate · Eastgate · Free");
   zones.push(floorZone("train-plaza", "Plaza Central Station", "park", BX0, BZ0, 84, 14.5, -7, 1, 0, 29, 0, 2.6, 27.2, Math.PI));
   return { zones };
