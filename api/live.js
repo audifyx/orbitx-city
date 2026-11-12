@@ -66,11 +66,33 @@ const STAKE = 10;
 const GATE_RADIUS = 10;
 const GATE_GAP_MS = 700;
 
+// Lots are ownable once per universe: the properties PK is (id, server_id),
+// so the same lot can be owned on every universe independently. body.server
+// is 1–5; absent means the old client with no server concept, which plays
+// on Universe 1. An explicit out-of-range value is rejected in handleLive
+// rather than silently landing on Universe 1.
+function isServerId(n) {
+  return Number.isInteger(n) && n >= 1 && n <= 5;
+}
+
+function parseServerId(value) {
+  const n = Number(value);
+  return isServerId(n) ? n : null;
+}
+
+// In-memory lots are keyed per universe so one process can serve all five
+// without one universe's owners overwriting another's. Lot records carry
+// their server; rows written before this change read back as server 1.
+function lotKey(server, id) {
+  return `${server}:${id}`;
+}
+
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 function ensureStore(ctx) {
   const store = ctx.memory();
   if (!store.lots) store.lots = new Map();
+  if (!store.lotsLoadedServers) store.lotsLoadedServers = new Set();
   if (!store.notes) store.notes = new Map();
   if (!store.volatile) store.volatile = new Map();
   if (!store.raceLobby) {
@@ -181,16 +203,22 @@ function cleanFurniture(list) {
 // two. The database is the truth: re-read it on every call and let its rows
 // overwrite the in-memory copy. When there is no database (memory-only dev)
 // the re-read is a no-op and the in-memory lots written by persistLot stand.
-async function loadWorld(ctx) {
+// Lots are scoped per universe: the same lot id can be owned on each
+// universe independently, so rows are filtered by server_id and keyed
+// `${server}:${lotId}`.
+async function loadWorld(ctx, server = 1) {
   const store = ensureStore(ctx);
-  store.lotsLoaded = true;
   const client = ctx.sb();
   if (client) {
-    const props = await client.from("properties").select("id, owner_id, owner_name, furniture, brand");
+    const props = await client
+      .from("properties")
+      .select("id, server_id, owner_id, owner_name, furniture, brand")
+      .eq("server_id", server);
     if (!props.error && props.data) {
       for (const row of props.data) {
-        store.lots.set(row.id, {
+        store.lots.set(lotKey(server, row.id), {
           id: row.id,
+          server: Number(row.server_id ?? server),
           ownerId: row.owner_id || "",
           ownerName: row.owner_name || "",
           furniture: Array.isArray(row.furniture) ? row.furniture : [],
@@ -205,13 +233,14 @@ async function loadWorld(ctx) {
   }
   if (ctx.sql) {
     try {
-      const rows = await ctx.sql`SELECT id, owner_id, owner_name, furniture, brand FROM properties`;
+      const rows = await ctx.sql`SELECT id, server_id, owner_id, owner_name, furniture, brand FROM properties WHERE server_id = ${server}`;
       for (const row of rows) {
         const furniture = typeof row.furniture === "string" ? JSON.parse(row.furniture || "[]") : row.furniture || [];
         const brand =
           typeof row.brand === "string" ? JSON.parse(row.brand || "{}") : row.brand || {};
-        store.lots.set(row.id, {
+        store.lots.set(lotKey(server, row.id), {
           id: row.id,
+          server: Number(row.server_id ?? server),
           ownerId: row.owner_id || "",
           ownerName: row.owner_name || "",
           furniture,
@@ -233,13 +262,18 @@ async function loadWorld(ctx) {
   return store;
 }
 
-async function persistLot(ctx, lot) {
+async function persistLot(ctx, lot, server = 1) {
+  // The lot record carries its universe; the row key is (id, server_id),
+  // so buying the same lot on Universe 2 never overwrites Universe 1.
+  const serverId = Number(lot.server ?? server ?? 1);
+  const saved = { ...lot, server: serverId };
   const store = ensureStore(ctx);
-  store.lots.set(lot.id, lot);
+  store.lots.set(lotKey(serverId, lot.id), saved);
   const client = ctx.sb();
   if (client) {
     const row = {
       id: lot.id,
+      server_id: serverId,
       owner_id: lot.ownerId,
       owner_name: lot.ownerName,
       furniture: lot.furniture,
@@ -251,9 +285,9 @@ async function persistLot(ctx, lot) {
     try {
       const furniture = JSON.stringify(lot.furniture || []);
       const brand = JSON.stringify(lot.brand || {});
-      await ctx.sql`INSERT INTO properties (id, owner_id, owner_name, furniture, brand)
-        VALUES (${lot.id}, ${lot.ownerId}, ${lot.ownerName}, ${furniture}, ${brand})
-        ON CONFLICT (id) DO UPDATE SET
+      await ctx.sql`INSERT INTO properties (id, server_id, owner_id, owner_name, furniture, brand)
+        VALUES (${lot.id}, ${serverId}, ${lot.ownerId}, ${lot.ownerName}, ${furniture}, ${brand})
+        ON CONFLICT (id, server_id) DO UPDATE SET
           owner_id = EXCLUDED.owner_id,
           owner_name = EXCLUDED.owner_name,
           furniture = EXCLUDED.furniture,
@@ -262,9 +296,9 @@ async function persistLot(ctx, lot) {
       try {
         // Older schema without the brand column — furniture still saves.
         const furniture = JSON.stringify(lot.furniture || []);
-        await ctx.sql`INSERT INTO properties (id, owner_id, owner_name, furniture)
-          VALUES (${lot.id}, ${lot.ownerId}, ${lot.ownerName}, ${furniture})
-          ON CONFLICT (id) DO UPDATE SET
+        await ctx.sql`INSERT INTO properties (id, server_id, owner_id, owner_name, furniture)
+          VALUES (${lot.id}, ${serverId}, ${lot.ownerId}, ${lot.ownerName}, ${furniture})
+          ON CONFLICT (id, server_id) DO UPDATE SET
             owner_id = EXCLUDED.owner_id,
             owner_name = EXCLUDED.owner_name,
             furniture = EXCLUDED.furniture`;
@@ -291,9 +325,9 @@ async function persistNote(ctx, id, note) {
   }
 }
 
-function catalog(store, player) {
+function catalog(store, player, server = 1) {
   return LOTS.map((lot) => {
-    const saved = store.lots.get(lot.id);
+    const saved = store.lots.get(lotKey(server, lot.id));
     let ownerName = saved?.ownerName || "";
     if (saved?.ownerId && saved.ownerId === player?.id && player.name) ownerName = player.name;
     const rent = player?.rent?.[lot.id];
@@ -327,7 +361,8 @@ function totalArrears(player) {
 
 // Charge weekly rent + utilities for every owned lot whose bill is due.
 // Returns { charged, arrearsAdded, touched } so the caller can save + message.
-function applyRent(player, store) {
+// Only lots on this universe are billed — rent is per (player, universe).
+function applyRent(player, store, server = 1) {
   const now = Date.now();
   let charged = 0;
   let arrearsAdded = 0;
@@ -336,6 +371,7 @@ function applyRent(player, store) {
   if (store?.lots) {
     // Lots bought before rent existed get a grace week, never a back-bill.
     for (const lot of store.lots.values()) {
+      if (Number(lot.server ?? 1) !== server) continue;
       if (lot.ownerId === player.id && !rent[lot.id]) {
         rent[lot.id] = { nextDue: now + RENT_WEEK_MS, arrears: 0 };
         touched = true;
@@ -378,10 +414,10 @@ function lotById(id) {
   return LOTS.find((lot) => lot.id === id) || null;
 }
 
-function ownedLot(store, player, id) {
+function ownedLot(store, player, id, server = 1) {
   const lot = lotById(id);
   if (!lot) return null;
-  const saved = store.lots.get(lot.id);
+  const saved = store.lots.get(lotKey(server, lot.id));
   if (!saved || saved.ownerId !== player.id) return null;
   return { lot, saved };
 }
@@ -504,18 +540,18 @@ async function marketLine(store) {
   return line;
 }
 
-async function digest(ctx, player, store) {
+async function digest(ctx, player, store, server = 1) {
   if (player.wallet && player.name) {
     for (const lot of store.lots.values()) {
-      if (lot.ownerId === player.id) lot.ownerName = player.name;
+      if (Number(lot.server ?? 1) === server && lot.ownerId === player.id) lot.ownerName = player.name;
     }
   }
-  const rent = applyRent(player, store);
+  const rent = applyRent(player, store, server);
   if (rent.charged || rent.arrearsAdded || rent.touched) await ctx.savePlayer(player);
   const leaders = leadersFrom(await leaderRows(ctx, store));
   return {
     ok: true,
-    lots: catalog(store, player),
+    lots: catalog(store, player, server),
     leaders,
     daily: viewDaily(player),
     race: raceView(store, player),
@@ -530,10 +566,10 @@ function fail(message, status = 400) {
   return { ok: false, status, message };
 }
 
-async function buyLot(ctx, player, store, id) {
+async function buyLot(ctx, player, store, id, server = 1) {
   const lot = lotById(id);
   if (!lot) return fail("That place is not for sale.");
-  const saved = store.lots.get(lot.id);
+  const saved = store.lots.get(lotKey(server, lot.id));
   if (saved?.ownerId) {
     return fail(saved.ownerId === player.id ? "You already own this." : `${saved.ownerName || "Someone"} already owns this.`);
   }
@@ -543,41 +579,41 @@ async function buyLot(ctx, player, store, id) {
   const burned = ctx.burnOf(lot.price);
   player.balance -= lot.price;
   player.burned += burned;
-  const next = { id: lot.id, ownerId: player.id, ownerName: player.name, furniture: [], brand: {} };
+  const next = { id: lot.id, server, ownerId: player.id, ownerName: player.name, furniture: [], brand: {} };
   // First weekly bill lands 7 days after purchase — a grace week.
   rentState(player)[lot.id] = { nextDue: Date.now() + RENT_WEEK_MS, arrears: 0 };
-  await persistLot(ctx, next);
+  await persistLot(ctx, next, server);
   await ctx.savePlayer(player);
   return {
     ok: true,
     message: `Bought ${lot.name} for ${lot.price} City Sol. Burned ${burned}. First rent + utilities (${rentBill(lot)}) is due in 7 days.`,
     burned,
     includeMe: true,
-    lots: catalog(store, player),
+    lots: catalog(store, player, server),
   };
 }
 
-async function saveFurniture(ctx, player, store, body) {
-  const hit = ownedLot(store, player, String(body.id || ""));
+async function saveFurniture(ctx, player, store, body, server = 1) {
+  const hit = ownedLot(store, player, String(body.id || ""), server);
   if (!hit) return fail("You can only decorate a place you own.");
   hit.saved.furniture = cleanFurniture(body.furniture);
   hit.saved.ownerName = player.name;
-  await persistLot(ctx, hit.saved);
-  return { ok: true, message: "Furniture saved.", lots: catalog(store, player) };
+  await persistLot(ctx, hit.saved, server);
+  return { ok: true, message: "Furniture saved.", lots: catalog(store, player, server) };
 }
 
-async function setNote(ctx, player, store, body) {
+async function setNote(ctx, player, store, body, server = 1) {
   const id = String(body.project || "");
-  const hit = ownedLot(store, player, id.startsWith("hq-") ? id : `hq-${id}`);
+  const hit = ownedLot(store, player, id.startsWith("hq-") ? id : `hq-${id}`, server);
   if (!hit || hit.lot.kind !== "hq") return fail("Only the HQ owner can edit that board.");
   const text = String(body.text || "").slice(0, 180);
   await persistNote(ctx, hit.lot.id, { text, author: player.name });
   return { ok: true, message: "Announcement updated.", notes: notesView(store) };
 }
 
-async function hostEvent(ctx, player, store, body) {
+async function hostEvent(ctx, player, store, body, server = 1) {
   const id = String(body.project || "");
-  const hit = ownedLot(store, player, id.startsWith("hq-") ? id : `hq-${id}`);
+  const hit = ownedLot(store, player, id.startsWith("hq-") ? id : `hq-${id}`, server);
   if (!hit || hit.lot.kind !== "hq") return fail("Only the HQ owner can host an event there.");
   const title = String(body.title || "").trim().slice(0, 60);
   if (!title) return fail("Give the event a name.");
@@ -628,7 +664,7 @@ async function collectBusiness(ctx, player, store) {
   };
 }
 
-async function payRent(ctx, player, store, lotId) {
+async function payRent(ctx, player, store, lotId, server = 1) {
   const rent = rentState(player);
   const ids = lotId === "all" ? Object.keys(rent) : [String(lotId || "")];
   let owed = 0;
@@ -644,14 +680,14 @@ async function payRent(ctx, player, store, lotId) {
     ok: true,
     message: `Paid ${owed} City Sol of arrears. Rent is current.`,
     includeMe: true,
-    lots: catalog(store, player),
+    lots: catalog(store, player, server),
   };
 }
 
-async function setBrand(ctx, player, store, body) {
+async function setBrand(ctx, player, store, body, server = 1) {
   const id = String(body.lot || body.project || "");
   const lotId = id.startsWith("hq-") ? id : `hq-${id}`;
-  const hit = ownedLot(store, player, lotId);
+  const hit = ownedLot(store, player, lotId, server);
   if (!hit || hit.lot.kind !== "hq") return fail("Only the HQ owner can brand it.");
   const brand = {
     name: String(body.name || "").trim().slice(0, 40) || hit.lot.name,
@@ -659,13 +695,13 @@ async function setBrand(ctx, player, store, body) {
     site: String(body.site || "").trim().slice(0, 80),
   };
   hit.saved.brand = brand;
-  await persistLot(ctx, hit.saved);
+  await persistLot(ctx, hit.saved, server);
   return {
     ok: true,
     message: `This office is now ${brand.name}.`,
     brand,
     includeMe: true,
-    lots: catalog(store, player),
+    lots: catalog(store, player, server),
   };
 }
 
@@ -871,23 +907,29 @@ export function b58encode(bytes) {
 }
 
 export async function handleLive(ctx, player, op, body) {
-  const store = await loadWorld(ctx);
+  // Universe for this request: body.server 1–5, defaulting to 1 for the
+  // old client with no server concept. An explicit out-of-range value is
+  // rejected — it must never silently buy on Universe 1.
+  const rawServer = body?.server;
+  const server = rawServer == null || rawServer === "" ? 1 : parseServerId(rawServer);
+  if (!server) return fail("Pick Universe 1 to 5.");
+  const store = await loadWorld(ctx, server);
   hydrate(player, store);
   const beforeDay = player.daily?.day || "";
 
   if (op === "digest") {
-    const view = await digest(ctx, player, store);
+    const view = await digest(ctx, player, store, server);
     if ((player.daily?.day || "") !== beforeDay) await ctx.savePlayer(player);
     return view;
   }
-  if (op === "property-buy") return buyLot(ctx, player, store, String(body.id || ""));
-  if (op === "property-save") return saveFurniture(ctx, player, store, body);
+  if (op === "property-buy") return buyLot(ctx, player, store, String(body.id || ""), server);
+  if (op === "property-save") return saveFurniture(ctx, player, store, body, server);
   if (op === "business-buy") return buyBusiness(ctx, player, store, String(body.kind || ""));
   if (op === "business-collect") return collectBusiness(ctx, player, store);
-  if (op === "rent-pay") return payRent(ctx, player, store, String(body.lot || "all"));
-  if (op === "hq-brand") return setBrand(ctx, player, store, body);
-  if (op === "hq-note") return setNote(ctx, player, store, body);
-  if (op === "event-host") return hostEvent(ctx, player, store, body);
+  if (op === "rent-pay") return payRent(ctx, player, store, String(body.lot || "all"), server);
+  if (op === "hq-brand") return setBrand(ctx, player, store, body, server);
+  if (op === "hq-note") return setNote(ctx, player, store, body, server);
+  if (op === "event-host") return hostEvent(ctx, player, store, body, server);
   if (op === "race-join" || op === "race-go") {
     const kind = body.kind === "hover" ? "hover" : "street";
     const joined = armRace(store, player, kind);
