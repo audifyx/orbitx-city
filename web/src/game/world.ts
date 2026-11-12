@@ -278,6 +278,18 @@ class CityWorld {
     return this.call("ad-orders", {});
   }
 
+  async radioList() {
+    return this.call("radio-list", {});
+  }
+
+  async radioUploadUrl(name: string, size: number) {
+    return this.call("radio-upload-url", { name, size });
+  }
+
+  async radioRegister(name: string, path: string) {
+    return this.call("radio-register", { name, path });
+  }
+
   async rename(name: string, look = "") {
     const data = await this.call("profile", { name, look });
     if (data.me) this.me = data.me as CityMe;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
-import type { AdOrder, PanelName, Runtime, Snap } from "./game/runtime";
+import type { AdOrder, PanelName, RadioTrack, Runtime, Snap } from "./game/runtime";
 import { adUsdPrice } from "./game/content";
 import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
@@ -188,6 +188,15 @@ export default function App() {
   const [adOrders, setAdOrders] = useState<AdOrder[]>([]);
   const [adBusy, setAdBusy] = useState(false);
   const [adMsg, setAdMsg] = useState("");
+  // In-game radio: the playlist is shared, the sound is personal — a plain
+  // audio element on this device, never broadcast to other players.
+  const [radioTracks, setRadioTracks] = useState<RadioTrack[]>([]);
+  const [radioFile, setRadioFile] = useState<File | null>(null);
+  const [radioMsg, setRadioMsg] = useState("");
+  const [radioBusy, setRadioBusy] = useState(false);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const radioAudioRef = useRef<HTMLAudioElement | null>(null);
+  const radioInputRef = useRef<HTMLInputElement | null>(null);
   const [chatText, setChatText] = useState("");
   const [gate, setGate] = useState<"login" | "city">("login");
   const [who, setWho] = useState<Account | null>(null);
@@ -201,6 +210,32 @@ export default function App() {
       if (res.ok) setAdOrders(((res as { orders?: AdOrder[] }).orders || []) as AdOrder[]);
     });
   }, [panel]);
+
+  // Keep the radio playlist fresh while the Radio panel is open.
+  useEffect(() => {
+    if (panel !== "radio") return;
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    setRadioMsg("");
+    void rt.radioList().then((res) => {
+      if (res.ok) setRadioTracks(((res as { tracks?: RadioTrack[] }).tracks || []) as RadioTrack[]);
+      else setRadioMsg(String((res as { message?: string }).message || "Could not load the radio."));
+    });
+  }, [panel]);
+
+  // Stop the radio when the player leaves the game (back to the menu).
+  useEffect(() => {
+    if (menu) stopRadio();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menu]);
+
+  // Stop the radio when this screen goes away.
+  useEffect(() => {
+    return () => {
+      const audio = radioAudioRef.current;
+      if (audio) audio.pause();
+    };
+  }, []);
 
   // Poll an in-flight booking until it lands (live / failed / burn-pending).
   useEffect(() => {
@@ -276,6 +311,78 @@ export default function App() {
     gameRef.current?.runtime.setTyping(false);
   };
 
+  const stopRadio = () => {
+    const audio = radioAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+    }
+    setPlayingId(null);
+  };
+
+  const playRadio = (track: RadioTrack) => {
+    const audio = (radioAudioRef.current ??= new Audio());
+    if (playingId === track.id) {
+      audio.pause();
+      setPlayingId(null);
+      return;
+    }
+    audio.onended = () => setPlayingId(null);
+    audio.src = track.url;
+    audio.play().then(() => setPlayingId(track.id)).catch(() => {
+      setRadioMsg("Could not play that track.");
+      setPlayingId(null);
+    });
+  };
+
+  const uploadRadio = async () => {
+    const file = radioFile;
+    if (!file) return;
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    setRadioBusy(true);
+    setRadioMsg("Uploading…");
+    const started = await rt.radioUploadUrl(file.name, file.size);
+    const signedUrl = (started as { signedUrl?: string }).signedUrl;
+    const path = (started as { path?: string }).path;
+    if (!started.ok || !signedUrl || !path) {
+      setRadioMsg(String((started as { message?: string }).message || "Could not start the upload."));
+      setRadioBusy(false);
+      return;
+    }
+    let put: Response;
+    try {
+      put = await fetch(signedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+    } catch {
+      setRadioMsg("The upload did not go through. Check your connection and try again.");
+      setRadioBusy(false);
+      return;
+    }
+    if (!put.ok) {
+      setRadioMsg("The upload did not go through. Try again.");
+      setRadioBusy(false);
+      return;
+    }
+    const registered = await rt.radioRegister(file.name, path);
+    if (!registered.ok) {
+      setRadioMsg(String((registered as { message?: string }).message || "Could not add the track."));
+      setRadioBusy(false);
+      return;
+    }
+    setRadioMsg(String((registered as { message?: string }).message || "Added to the radio."));
+    if (Array.isArray((registered as { tracks?: RadioTrack[] }).tracks)) {
+      setRadioTracks(((registered as { tracks: RadioTrack[] }).tracks || []) as RadioTrack[]);
+    }
+    setRadioFile(null);
+    if (radioInputRef.current) radioInputRef.current.value = "";
+    setRadioBusy(false);
+  };
+
   const play = () => {
     const game = gameRef.current;
     const canvas = canvasRef.current;
@@ -336,6 +443,7 @@ export default function App() {
           <button type="button" onClick={() => open("shop")}>Shop</button>
           <button type="button" onClick={() => open("jobs")}>Jobs</button>
           <button type="button" onClick={() => open("ads")}>Ads</button>
+          <button type="button" onClick={() => open("radio")}>Radio</button>
           <button type="button" onClick={() => open("events")}>Events</button>
           <button type="button" onClick={() => open("chat")}>Chat</button>
           <button type="button" onClick={() => open("phone")}>Phone</button>
@@ -388,6 +496,7 @@ export default function App() {
                 {panel === "shop" && "OrbitX shop"}
                 {panel === "jobs" && "Jobs"}
                 {panel === "ads" && "Book a billboard"}
+                {panel === "radio" && "Radio"}
                 {panel === "events" && "Events"}
                 {panel === "chat" && "Chat"}
                 {panel === "phone" && "Phone"}
@@ -397,7 +506,7 @@ export default function App() {
               </strong>
               <button type="button" onClick={close}>Close</button>
             </header>
-            <p className="demo">Shop, jobs, property, and the arcade use City Sol only. They are not the in-app Solana wallet and cannot be cashed out.</p>
+            {panel !== "radio" && <p className="demo">Shop, jobs, property, and the arcade use City Sol only. They are not the in-app Solana wallet and cannot be cashed out.</p>}
             {panel === "shop" && (
               <div className="list">
                 <p>Balance {snap.balance} · Burned total {snap.burned}</p>
@@ -581,6 +690,67 @@ export default function App() {
                     ))}
                   </div>
                 ) : null}
+              </div>
+            )}
+            {panel === "radio" && (
+              <div className="list">
+                <p className="muted">Free. Upload a song from your phone and it joins the public radio. Only you hear what you play — the playlist is shared, the sound is yours.</p>
+                {playingId ? (
+                  <article>
+                    <div>
+                      <b>Now playing</b>
+                      <span>{radioTracks.find((item) => item.id === playingId)?.name || ""}</span>
+                    </div>
+                    <button type="button" onClick={stopRadio}>Stop</button>
+                  </article>
+                ) : null}
+                {radioTracks.length === 0 ? (
+                  <p>No tracks yet — upload the first one.</p>
+                ) : (
+                  radioTracks.map((track) => (
+                    <article key={track.id}>
+                      <div>
+                        <b>{track.name}</b>
+                        <span>by {track.uploader}</span>
+                      </div>
+                      <button type="button" onClick={() => playRadio(track)}>
+                        {playingId === track.id ? "Pause" : "Play"}
+                      </button>
+                    </article>
+                  ))
+                )}
+                <h3>Add a track</h3>
+                <label>
+                  Audio file — mp3, m4a, wav, ogg, webm, aac or flac, at most 15 MB
+                  <input
+                    ref={radioInputRef}
+                    type="file"
+                    accept="audio/*"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      if (!file) {
+                        setRadioFile(null);
+                        return;
+                      }
+                      if (!file.type.startsWith("audio/") && !/\.(mp3|m4a|wav|ogg|webm|aac|flac)$/i.test(file.name)) {
+                        setRadioFile(null);
+                        setRadioMsg("That is not an audio file (mp3, m4a, wav, ogg, webm, aac, flac).");
+                        return;
+                      }
+                      if (file.size > 15 * 1024 * 1024) {
+                        setRadioFile(null);
+                        setRadioMsg("That file is over 15 MB.");
+                        return;
+                      }
+                      setRadioFile(file);
+                      setRadioMsg(`${file.name} — ${(file.size / 1024 / 1024).toFixed(1)} MB. Press Add to radio when ready.`);
+                    }}
+                  />
+                </label>
+                <button type="button" disabled={!radioFile || radioBusy} onClick={() => void uploadRadio()}>
+                  {radioBusy ? "Uploading…" : "Add to radio"}
+                </button>
+                {radioMsg ? <p>{radioMsg}</p> : null}
               </div>
             )}
             {panel === "events" && (

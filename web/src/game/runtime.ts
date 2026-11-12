@@ -102,7 +102,7 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk" | "radio";
 
 export interface PersonCard {
   id: string;
@@ -131,6 +131,18 @@ export interface AdOrder {
   burnUrl: string;
   error: string;
   expiresAt: string;
+}
+
+// A track on the public radio. Playback is personal: the file plays on the
+// device that pressed play and is never broadcast to other players.
+export interface RadioTrack {
+  id: string;
+  name: string;
+  uploader: string;
+  uploaderId: string;
+  path: string;
+  url: string;
+  createdAt: string;
 }
 
 export interface Snap {
@@ -4039,6 +4051,34 @@ export function createRuntime(scene: Scene) {
     }
   }
 
+  // In-game radio: the playlist is shared, the sound is personal.
+  async function radioList() {
+    if (!world.online) return { ok: false as const, message: "Offline.", tracks: [] as RadioTrack[] };
+    try {
+      return await world.radioList();
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Could not load the radio.", tracks: [] as RadioTrack[] };
+    }
+  }
+
+  async function radioUploadUrl(name: string, size: number) {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      return await world.radioUploadUrl(name, size);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Could not start the upload." };
+    }
+  }
+
+  async function radioRegister(name: string, path: string) {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      return await world.radioRegister(name, path);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Could not add the track." };
+    }
+  }
+
   async function buy(id: string) {
     const item = SHOP.find((entry) => entry.id === id);
     if (!item) return "Unknown item.";
@@ -4135,6 +4175,9 @@ export function createRuntime(scene: Scene) {
     adRetryBurn,
     adRemove,
     adOrders,
+    radioList,
+    radioUploadUrl,
+    radioRegister,
     cycleCamera() {
       const index = CAMS.indexOf(camMode);
       camMode = CAMS[(index + 1) % CAMS.length];

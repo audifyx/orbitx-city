@@ -898,6 +898,117 @@ async function openAccount(account, body) {
   return { player, upgraded, chain: view };
 }
 
+// In-game radio: a public playlist anyone can add to, played personally.
+// Uploads go straight from the browser to Supabase Storage on a
+// server-issued signed URL — the file never passes through this function
+// (Vercel caps request bodies at ~4.5 MB and tracks can be up to 15 MB).
+// Free: no money, no burn, no City Sol.
+const RADIO_BUCKET = "radio";
+const RADIO_MAX_BYTES = 15 * 1024 * 1024;
+const RADIO_EXTS = new Set([".mp3", ".m4a", ".wav", ".ogg", ".webm", ".aac", ".flac"]);
+
+function radioExt(name) {
+  const lower = String(name || "").toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  return dot >= 0 ? lower.slice(dot) : "";
+}
+
+async function radioList() {
+  const client = sb();
+  if (!client) return { ok: false, message: "The city server is offline.", status: 503 };
+  const { data, error } = await client
+    .from("radio_tracks")
+    .select("id, name, uploader_id, uploader_name, storage_path, created_at")
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) {
+    noteSupabase(error.message);
+    return { ok: false, message: "Could not load the radio.", status: 500 };
+  }
+  const tracks = (data || []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    uploader: row.uploader_name || "Guest",
+    uploaderId: row.uploader_id || "",
+    path: row.storage_path,
+    url: client.storage.from(RADIO_BUCKET).getPublicUrl(row.storage_path).data.publicUrl,
+    createdAt: row.created_at,
+  }));
+  return { ok: true, tracks };
+}
+
+async function radioUploadUrl(player, body) {
+  const client = sb();
+  if (!client) return { ok: false, message: "The city server is offline.", status: 503 };
+  const name = String(body.name || body.filename || "").trim().slice(0, 80);
+  const size = Number(body.size || 0);
+  const ext = radioExt(body.name || body.filename || "");
+  if (!name) return { ok: false, message: "Name the track.", status: 400 };
+  if (!RADIO_EXTS.has(ext)) {
+    return { ok: false, message: "That is not a supported audio file (mp3, m4a, wav, ogg, webm, aac, flac).", status: 400 };
+  }
+  if (!Number.isFinite(size) || size <= 0 || size > RADIO_MAX_BYTES) {
+    return { ok: false, message: "Tracks are at most 15 MB.", status: 400 };
+  }
+  const path = `tracks/${player.id}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+  const { data, error } = await client.storage.from(RADIO_BUCKET).createSignedUploadUrl(path);
+  if (error || !data?.signedUrl) {
+    noteSupabase(error?.message || "signed upload failed");
+    return { ok: false, message: "Could not start the upload. Try again.", status: 500 };
+  }
+  return { ok: true, signedUrl: data.signedUrl, path, maxBytes: RADIO_MAX_BYTES };
+}
+
+async function radioRegister(player, body) {
+  const client = sb();
+  if (!client) return { ok: false, message: "The city server is offline.", status: 503 };
+  const name = String(body.name || "").trim().slice(0, 80);
+  const path = String(body.path || "");
+  if (!name) return { ok: false, message: "Name the track.", status: 400 };
+  // Only the player who was issued the upload URL can register that path.
+  if (!path.startsWith(`tracks/${player.id}/`)) {
+    return { ok: false, message: "That upload is not yours.", status: 400 };
+  }
+  if (!RADIO_EXTS.has(radioExt(path))) {
+    return { ok: false, message: "That is not a supported audio file.", status: 400 };
+  }
+  // Confirm the file actually landed in storage before listing it.
+  const folder = path.slice(0, path.lastIndexOf("/"));
+  const file = path.slice(path.lastIndexOf("/") + 1);
+  const { data, error } = await client.storage.from(RADIO_BUCKET).list(folder, { limit: 10, search: file });
+  if (error) {
+    noteSupabase(error.message);
+    return { ok: false, message: "Could not confirm the upload. Try again.", status: 500 };
+  }
+  if (!Array.isArray(data) || !data.some((item) => item.name === file)) {
+    return { ok: false, message: "The upload did not land. Try uploading again.", status: 400 };
+  }
+  const { data: inserted, error: insertErr } = await client
+    .from("radio_tracks")
+    .insert({ name, uploader_id: player.id, uploader_name: player.name || "Guest", storage_path: path })
+    .select("id, name, uploader_id, uploader_name, storage_path, created_at")
+    .single();
+  if (insertErr || !inserted) {
+    noteSupabase(insertErr?.message || "radio insert failed");
+    return { ok: false, message: "Could not add the track to the radio.", status: 500 };
+  }
+  const listed = await radioList();
+  return {
+    ok: true,
+    message: `"${inserted.name}" is on the radio.`,
+    track: {
+      id: inserted.id,
+      name: inserted.name,
+      uploader: inserted.uploader_name,
+      uploaderId: inserted.uploader_id,
+      path: inserted.storage_path,
+      url: client.storage.from(RADIO_BUCKET).getPublicUrl(inserted.storage_path).data.publicUrl,
+      createdAt: inserted.created_at,
+    },
+    tracks: listed.tracks || [],
+  };
+}
+
 const HEARTBEAT = new Set(["sync", "digest", "me", "board"]);
 
 export async function POST(request) {
@@ -1031,6 +1142,15 @@ export async function POST(request) {
   if (op === "ad-remove") return adReply(await adRemove(adCtx, player, body));
   if (op === "ad-orders") return adReply(await adOrdersFor(adCtx, player));
   if (op === "book") return adReply(await adBuy(adCtx, player, body));
+
+  const radioReply = async (result) => {
+    const { status, ...payload } = result;
+    if (result.ok) payload.me = publicPlayer(player);
+    return json(payload, status || 200);
+  };
+  if (op === "radio-list") return radioReply(await radioList());
+  if (op === "radio-upload-url") return radioReply(await radioUploadUrl(player, body));
+  if (op === "radio-register") return radioReply(await radioRegister(player, body));
 
   if (op === "profile") {
     const name = String(body.name || player.name).trim().slice(0, 18);
