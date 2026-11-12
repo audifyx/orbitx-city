@@ -17,15 +17,35 @@ const CATALOG = {
   "color-gold": { price: 40, kind: "color", value: "gold" },
   "color-cyan": { price: 30, kind: "color", value: "cyan" },
   "color-sunset": { price: 35, kind: "color", value: "sunset" },
+  "color-black": { price: 25, kind: "color", value: "black" },
+  // Values must be keys of the client's COLORS map (white/gold/cyan/
+  // sunset/black/red/silver) or the avatar falls back to white.
+  "color-red": { price: 25, kind: "color", value: "red" },
+  "color-silver": { price: 30, kind: "color", value: "silver" },
   "car-black": { price: 50, kind: "car", value: "black" },
   "car-white": { price: 50, kind: "car", value: "white" },
   "car-gold": { price: 80, kind: "car", value: "gold" },
   "car-cyan": { price: 60, kind: "car", value: "cyan" },
+  "car-red": { price: 55, kind: "car", value: "red" },
+  "car-silver": { price: 55, kind: "car", value: "silver" },
   "hat-cap": { price: 15, kind: "hat", value: "cap" },
   "hat-antenna": { price: 25, kind: "hat", value: "antenna" },
   "hat-crown": { price: 100, kind: "hat", value: "crown" },
-  "hat-visor": { price: 20, kind: "hat", value: "cap" },
-  "color-black": { price: 25, kind: "color", value: "black" },
+  // Was value "cap" — a second item granting the same hat as hat-cap.
+  // "visor" is its own value; the client renders it as a visor brim
+  // (any unknown hat value renders as a crown until it has a branch).
+  "hat-visor": { price: 20, kind: "hat", value: "visor" },
+  // New hats: each value is distinct and equips as its own hat. The
+  // client must add render branches for tophat / beanie / headphones
+  // in addHat (today they fall through to the crown mesh).
+  "hat-tophat": { price: 60, kind: "hat", value: "tophat" },
+  "hat-beanie": { price: 30, kind: "hat", value: "beanie" },
+  "hat-headphones": { price: 45, kind: "hat", value: "headphones" },
+  // Trails: a glowing ring under the avatar while walking. The grant
+  // sets player.trail ("none" by default); the client renders the ring
+  // in the bought colour. No other trail values exist.
+  "trail-neon": { price: 50, kind: "trail", value: "neon" },
+  "trail-gold": { price: 75, kind: "trail", value: "gold" },
 };
 
 const LOOKS = new Set([
@@ -704,6 +724,10 @@ function officeEndISO(start, termDays) {
   return date.toISOString().slice(0, 10);
 }
 
+// City tour — CANONICAL pay schedule, per step, in order:
+// plaza 15, shop 20, cafe 20, hall 25, tower 30, dock 80. The SERVER is
+// the authority: the client/offline tour must pay this exact schedule,
+// never a flat 20/step. Do not change these amounts to match the client.
 const MISSIONS = [
   { id: "plaza", pay: 15 },
   { id: "shop", pay: 20 },
@@ -712,6 +736,130 @@ const MISSIONS = [
   { id: "tower", pay: 30 },
   { id: "dock", pay: 80 },
 ];
+
+// --- Mission chain (separate from the tour above) ------------------------
+// Six missions, played in chain order: a mission unlocks only when the
+// previous one is done. Every mission has real steps and a City Sol
+// reward that pays through the server on the final step (op
+// "mission-step"). Rewards are per-server: they land in the save for the
+// player's current universe, never the global players row.
+// Step kinds — how the server checks each one:
+//   visit: client-attested, body.place must equal the step's place
+//          (same trust model as the tour — the server enforces order,
+//          a 3s step cooldown, and one-time completion).
+//   job:   VERIFIED — player.jobStreak must have advanced since the
+//          mission started (snapshot taken when progress is created).
+//   daily: VERIFIED — the daily reward must be claimed
+//          (ensureDaily(player).claimed).
+//   buy:   VERIFIED — player.owned must have grown since the mission
+//          started (snapshot taken when progress is created).
+//   chat / drive: client-attested (no server-side position/chat log to
+//          check cheaply); order + cooldown + one-time still enforced.
+// Total chain payout: 50 + 100 + 80 + 120 + 150 + 300 = 800 City Sol.
+const MISSION_CHAIN = [
+  {
+    id: "welcome",
+    name: "New in Town",
+    desc: "Find your feet in OrbitX City.",
+    reward: 50,
+    steps: [
+      { kind: "visit", place: "plaza", label: "Visit the Plaza" },
+      { kind: "visit", place: "shop", label: "Visit the OrbitX Shop" },
+      { kind: "chat", label: "Say hello in chat" },
+    ],
+  },
+  {
+    id: "first-job",
+    name: "First Shift",
+    desc: "Work the city and get paid.",
+    reward: 100,
+    steps: [
+      { kind: "job", label: "Complete a job" },
+      { kind: "job", label: "Complete a second job" },
+      { kind: "daily", label: "Claim your daily reward" },
+    ],
+  },
+  {
+    id: "fresh-fit",
+    name: "Fresh Fit",
+    desc: "Look the part, then show it off.",
+    reward: 80,
+    steps: [
+      { kind: "visit", place: "shop", label: "Visit the OrbitX Shop" },
+      { kind: "buy", label: "Buy any item from the shop" },
+      { kind: "visit", place: "cafe", label: "Visit Cafe Nova" },
+    ],
+  },
+  {
+    id: "sunday-drive",
+    name: "Sunday Drive",
+    desc: "See the city from the driver's seat.",
+    reward: 120,
+    steps: [
+      { kind: "drive", label: "Take a car for a drive" },
+      { kind: "visit", place: "tower", label: "Visit the OrbitX Tower" },
+      { kind: "visit", place: "dock", label: "Visit the Harbor" },
+    ],
+  },
+  {
+    id: "city-social",
+    name: "City Social",
+    desc: "Meet the city, then meet it again.",
+    reward: 150,
+    steps: [
+      { kind: "chat", label: "Say hello in chat" },
+      { kind: "visit", place: "hall", label: "Visit the Community Hall" },
+      { kind: "visit", place: "market", label: "Visit the Night Market" },
+    ],
+  },
+  {
+    id: "city-mogul",
+    name: "City Mogul",
+    desc: "The full loop: buy, work, collect.",
+    reward: 300,
+    steps: [
+      { kind: "buy", label: "Buy any item from the shop" },
+      { kind: "job", label: "Complete a job" },
+      { kind: "daily", label: "Claim your daily reward" },
+    ],
+  },
+];
+
+function missionById(id) {
+  return MISSION_CHAIN.find((mission) => mission.id === id) || null;
+}
+
+// Progress for one mission, stored per (player, universe) on the save
+// (save.missions[missionId]). Snapshots are taken when progress is first
+// created so job/buy steps count only work done after the mission began.
+function missionProgress(save, player, mission) {
+  if (!save.missions || typeof save.missions !== "object") save.missions = {};
+  let progress = save.missions[mission.id];
+  if (!progress || typeof progress !== "object") {
+    progress = {
+      step: 0,
+      done: false,
+      at: 0,
+      streak: Number(player.jobStreak || 0),
+      owned: Array.isArray(player.owned) ? player.owned.length : 0,
+    };
+    save.missions[mission.id] = progress;
+  }
+  return progress;
+}
+
+function missionPublic(mission, progress, unlocked) {
+  return {
+    id: mission.id,
+    name: mission.name,
+    desc: mission.desc,
+    reward: mission.reward,
+    steps: mission.steps.map((step) => step.label),
+    step: Number(progress?.step || 0),
+    done: !!progress?.done,
+    unlocked,
+  };
+}
 
 const LOBBIES = [
   { id: "plaza", name: "Plaza" },
@@ -827,6 +975,7 @@ async function ensureSchema() {
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS business TEXT NOT NULL DEFAULT '{}'`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS rent TEXT NOT NULL DEFAULT '{}'`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS home_server INTEGER`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS trail TEXT NOT NULL DEFAULT 'none'`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS earned INTEGER NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS best_race INTEGER NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS best_hover INTEGER NOT NULL DEFAULT 0`;
@@ -928,6 +1077,8 @@ async function ensureSchema() {
     daily TEXT NOT NULL DEFAULT '{}',
     mission INTEGER NOT NULL DEFAULT 0,
     mission_at INTEGER NOT NULL DEFAULT 0,
+    missions TEXT NOT NULL DEFAULT '{}',
+    trail TEXT NOT NULL DEFAULT 'none',
     homes TEXT NOT NULL DEFAULT '{"homeServer":0,"homes":[]}',
     vehicles TEXT NOT NULL DEFAULT '[]',
     active_vehicle TEXT NOT NULL DEFAULT '',
@@ -935,6 +1086,8 @@ async function ensureSchema() {
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (player_id, server_id)
   )`;
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS missions TEXT NOT NULL DEFAULT '{}'`;
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS trail TEXT NOT NULL DEFAULT 'none'`;
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS homes TEXT NOT NULL DEFAULT '{"homeServer":0,"homes":[]}'`;
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS vehicles TEXT NOT NULL DEFAULT '[]'`;
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS active_vehicle TEXT NOT NULL DEFAULT ''`;
@@ -960,6 +1113,7 @@ function freshPlayer(id, name) {
     color: "white",
     hat: "none",
     car: "black",
+    trail: "none",
     friends: [],
     inbox: [],
     job: null,
@@ -979,6 +1133,7 @@ function freshPlayer(id, name) {
     party: "",
     mission: 0,
     missionAt: 0,
+    missions: {},
     look: "tjr",
     earned: 0,
     bestRace: 0,
@@ -1029,6 +1184,7 @@ function publicPlayer(player) {
     color: player.color,
     hat: player.hat,
     car: player.car,
+    trail: player.trail || "none",
     friends: player.friends,
     inbox: player.inbox,
     party: player.party,
@@ -1059,9 +1215,10 @@ async function savePlayer(player) {
   const client = sb();
   if (client) {
     let { error } = await client.from("players").upsert(rowFromPlayer(player));
-    if (error && /look|earned|best_race|best_hover|daily|wallet|holder|email|avatar|provider|auth_user|address|job_streak|business|rent|home_server/i.test(error.message || "")) {
+    if (error && /look|earned|best_race|best_hover|daily|wallet|holder|email|avatar|provider|auth_user|address|job_streak|business|rent|home_server|trail/i.test(error.message || "")) {
       const row = rowFromPlayer(player);
       delete row.look;
+      delete row.trail;
       delete row.earned;
       delete row.best_race;
       delete row.best_hover;
@@ -1184,6 +1341,8 @@ function parseSave(row) {
   save.daily = typeof row.daily === "string" ? JSON.parse(row.daily || "null") : row.daily || null;
   save.mission = Number(row.mission || 0);
   save.missionAt = Number(row.mission_at ?? row.missionAt ?? 0);
+  save.missions = typeof row.missions === "string" ? JSON.parse(row.missions || "{}") : row.missions || {};
+  save.trail = row.trail || "none";
   save.homes = typeof row.homes === "string" ? JSON.parse(row.homes || '{"homeServer":0,"homes":[]}') : row.homes || { homeServer: 0, homes: [] };
   save.vehicles = typeof row.vehicles === "string" ? JSON.parse(row.vehicles || "[]") : row.vehicles || [];
   save.activeVehicle = row.active_vehicle || row.activeVehicle || null;
@@ -1214,6 +1373,8 @@ function rowFromSave(save) {
     daily: JSON.stringify(save.daily || {}),
     mission: Number(save.mission || 0),
     mission_at: Number(save.missionAt || 0),
+    missions: JSON.stringify(save.missions || {}),
+    trail: save.trail || "none",
     homes: JSON.stringify(save.homes || { homeServer: 0, homes: [] }),
     vehicles: JSON.stringify(save.vehicles || []),
     active_vehicle: save.activeVehicle || "",
@@ -1248,7 +1409,7 @@ async function saveSave(save) {
   const client = sb();
   if (client) {
     let { error } = await client.from("player_saves").upsert(rowFromSave(save));
-    if (error && /homes|vehicles|active_vehicle|last_seen/i.test(error.message || "")) {
+    if (error && /homes|vehicles|active_vehicle|last_seen|missions|trail/i.test(error.message || "")) {
       // Same strip-unknown-columns retry as savePlayer: a missing column
       // surfaces as an error instead of silently dropping the field.
       const row = rowFromSave(save);
@@ -1256,6 +1417,8 @@ async function saveSave(save) {
       delete row.vehicles;
       delete row.active_vehicle;
       delete row.last_seen;
+      delete row.missions;
+      delete row.trail;
       const retry = await client.from("player_saves").upsert(row);
       error = retry.error;
     }
@@ -1266,15 +1429,16 @@ async function saveSave(save) {
   if (sql) {
     await ensureSchema();
     const row = rowFromSave(save);
-    await sql`INSERT INTO player_saves (player_id, server_id, balance, burned, owned, color, hat, car, look, job, job_streak, business, rent, earned, best_race, best_hover, daily, mission, mission_at, homes, vehicles, active_vehicle, last_seen, updated_at)
-      VALUES (${row.player_id}, ${row.server_id}, ${row.balance}, ${row.burned}, ${row.owned}, ${row.color}, ${row.hat}, ${row.car}, ${row.look}, ${row.job}, ${row.job_streak}, ${row.business}, ${row.rent}, ${row.earned}, ${row.best_race}, ${row.best_hover}, ${row.daily}, ${row.mission}, ${row.mission_at}, ${row.homes}, ${row.vehicles}, ${row.active_vehicle}, ${row.last_seen}, ${row.updated_at})
+    await sql`INSERT INTO player_saves (player_id, server_id, balance, burned, owned, color, hat, car, look, job, job_streak, business, rent, earned, best_race, best_hover, daily, mission, mission_at, missions, trail, homes, vehicles, active_vehicle, last_seen, updated_at)
+      VALUES (${row.player_id}, ${row.server_id}, ${row.balance}, ${row.burned}, ${row.owned}, ${row.color}, ${row.hat}, ${row.car}, ${row.look}, ${row.job}, ${row.job_streak}, ${row.business}, ${row.rent}, ${row.earned}, ${row.best_race}, ${row.best_hover}, ${row.daily}, ${row.mission}, ${row.mission_at}, ${row.missions}, ${row.trail}, ${row.homes}, ${row.vehicles}, ${row.active_vehicle}, ${row.last_seen}, ${row.updated_at})
       ON CONFLICT (player_id, server_id) DO UPDATE SET
         balance = EXCLUDED.balance, burned = EXCLUDED.burned, owned = EXCLUDED.owned,
         color = EXCLUDED.color, hat = EXCLUDED.hat, car = EXCLUDED.car, look = EXCLUDED.look,
         job = EXCLUDED.job, job_streak = EXCLUDED.job_streak, business = EXCLUDED.business,
         rent = EXCLUDED.rent, earned = EXCLUDED.earned, best_race = EXCLUDED.best_race,
         best_hover = EXCLUDED.best_hover, daily = EXCLUDED.daily, mission = EXCLUDED.mission,
-        mission_at = EXCLUDED.mission_at, homes = EXCLUDED.homes, vehicles = EXCLUDED.vehicles,
+        mission_at = EXCLUDED.mission_at, missions = EXCLUDED.missions, trail = EXCLUDED.trail,
+        homes = EXCLUDED.homes, vehicles = EXCLUDED.vehicles,
         active_vehicle = EXCLUDED.active_vehicle, last_seen = EXCLUDED.last_seen,
         updated_at = EXCLUDED.updated_at`;
     return;
@@ -1364,6 +1528,14 @@ function syncSaveIdentity(save, player) {
   save.friends = player.friends || [];
   save.inbox = player.inbox || [];
   save.party = player.party || "";
+  // Cosmetics are identity, not per-server progress: a hat or colour
+  // bought on the global shop shows up on every universe. Without this
+  // the save keeps its own stale color/hat/car from when it was minted.
+  save.owned = player.owned || [];
+  save.color = player.color || "white";
+  save.hat = player.hat || "none";
+  save.car = player.car || "black";
+  save.trail = player.trail || "none";
   return save;
 }
 
@@ -1383,6 +1555,7 @@ function parsePlayer(row) {
     mission: Number(row.mission || 0),
     missionAt: Number(row.mission_at || row.missionAt || 0),
     look: row.look || "tjr",
+    trail: row.trail || "none",
     earned: Number(row.earned || 0),
     bestRace: Number(row.best_race || row.bestRace || 0),
     bestHover: Number(row.best_hover || row.bestHover || 0),
@@ -1422,6 +1595,7 @@ function rowFromPlayer(player) {
     mission: player.mission || 0,
     mission_at: player.missionAt || 0,
     look: player.look || "tjr",
+    trail: player.trail || "none",
     earned: player.earned || 0,
     best_race: player.bestRace || 0,
     best_hover: player.bestHover || 0,
@@ -2108,6 +2282,7 @@ async function spendItem(player, itemId) {
     if (item.kind === "color") player.color = item.value;
     if (item.kind === "hat") player.hat = item.value;
     if (item.kind === "car") player.car = item.value;
+    if (item.kind === "trail") player.trail = item.value;
     await savePlayer(player);
     return { ok: true, message: "Already yours. Equipped.", me: publicPlayer(player) };
   }
@@ -2119,6 +2294,7 @@ async function spendItem(player, itemId) {
   if (item.kind === "color") player.color = item.value;
   if (item.kind === "hat") player.hat = item.value;
   if (item.kind === "car") player.car = item.value;
+  if (item.kind === "trail") player.trail = item.value;
   await savePlayer(player);
   return {
     ok: true,
