@@ -1364,6 +1364,11 @@ function reservedPlot(x0: number, x1: number, z0: number, z1: number) {
     [79, 101, 43, 65],
     [43, 65, 43, 65],
     [-29, -7, 79, 101],
+    // Car-shop lot (spacing batch, 2026-11-11): the grid block across the
+    // x=108 road from the Hover Garage, kept clear for the dealership the
+    // car-shop builder is adding — building + forecourt, no neighbours
+    // hard against it. Do NOT build a block here.
+    [115, 137, 43, 65],
     // Mega mall + mega OrbitX office superblocks.
     [43, 101, -29, 29],
     [-101, -43, -29, 29],
@@ -3830,7 +3835,11 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     // the strip trees, canopies brush the roof edges only), casino on the
     // north strip between the lamp lines, nightclub on the waterfront
     // east of the promenade, stadium on the open grass east of the park.
-    addVenue(boxes, cols, -99, 176, 20, 20, 8, "e", "museum"),
+    // SPACING (2026-11-11): the museum sat at (-99,176) — 3 units from
+    // the library and its north 9 units on the z=180 road. It now sits at
+    // (-98,185): 12 clear of the library, flush with (not on) the road,
+    // and only its SW corner meets the Harbor Tower's north wall.
+    addVenue(boxes, cols, -98, 185, 20, 20, 8, "e", "museum"),
     addVenue(boxes, cols, -98, 126, 20, 20, 8, "e", "hotel"),
     addVenue(boxes, cols, -28, -190, 17, 20, 8, "s", "casino"),
     addVenue(boxes, cols, 172, 188, 20, 20, 8, "n", "nightclub"),
@@ -3878,7 +3887,7 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     doorAnchor("library", "OrbitX Library", "library", -99, 153, 20, 20, "e"),
     doorAnchor("gym", "Harbor Gym", "gym", 60, 206, 26, 22, "n"),
     doorAnchor("park", "Sunset Park", "park", 94, 204, 54, 26, "n"),
-    doorAnchor("museum", "OrbitX Museum", "museum", -99, 176, 20, 20, "e"),
+    doorAnchor("museum", "OrbitX Museum", "museum", -98, 185, 20, 20, "e"),
     doorAnchor("hotel", "OrbitX Hotel", "hotel", -98, 126, 20, 20, "e"),
     doorAnchor("casino", "Neon Casino", "casino", -28, -190, 17, 20, "s"),
     doorAnchor("nightclub", "Club Orbit", "nightclub", 172, 188, 20, 20, "n"),

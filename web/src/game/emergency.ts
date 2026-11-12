@@ -320,12 +320,60 @@ const DEPT_W = 18;
 const DEPT_D = 12;
 const DEPT_H = 7;
 
-/** Department placement relative to its district tower's origin. */
-const DEPT_OFFSETS: Record<DepartmentKind, { dx: number; dz: number; door: Face }> = {
-  fire: { dx: -24, dz: 8, door: "e" },
-  police: { dx: 32, dz: 8, door: "w" },
-  hospital: { dx: 5, dz: -20, door: "s" },
-  emergency: { dx: 5, dz: 32, door: "n" },
+/** Department placement relative to its district tower's origin — one row
+ * per district, because no two districts have the same free space around
+ * them. The old shared table (fire -24 / police +32 / hospital -20 /
+ * emergency +32) hugged every tower with 4-8 unit gaps, clipped aprons
+ * and helipads into the tower walls, and put buildings ON things:
+ * east fire straddled the x=180 / z=0 crossroads, west fire sat on the
+ * bridge-west deck + gate, east/west police touched the bridge decks.
+ * The per-district values below were verified against the seeded
+ * buildCity(1) geometry: every department is 18-28 from its tower, clear
+ * of the road grid (roads run to +/-184), clear of the magic-bridge decks
+ * and gates, clear of the seeded hill ring, and clear of the outer grid
+ * blocks (including the grid homes). Do NOT re-tighten these to a shared
+ * table — the constraints differ per district:
+ * - harbor: the z=180 road caps the north side (hospital max gap 8
+ *   there, so it takes the NW corner instead); seeded hills sit SW and S
+ *   of the tower, so fire/police/emergency stack on the east side.
+ * - north: the z=-180 road caps the south side, so emergency takes the
+ *   SE corner; the hill ring caps the north at dz -32.
+ * - east: the x=180 road + outer grid blocks leave no room west of the
+ *   tower, and the bridge-east deck/gate occupy the mid-east, so all
+ *   four departments sit in two open rows east of the tower.
+ * - west: mirror of east — the bridge-west deck/gate occupy the
+ *   mid-west, so fire/police take the NW/SW corners west of the tower.
+ * Doors face the tower wherever the forecourt allows; the one exception
+ * is harbor fire, whose door faces south, toward the police station,
+ * because the museum sits in its west-door apron.
+ * Gaps after the move (tower <-> department, smallest first): harbor
+ * police/emergency 18, north police/emergency 18, hospital 20-21
+ * (corner), east/west outer rows 26-28. */
+const DEPT_OFFSETS: Record<DistrictId, Record<DepartmentKind, { dx: number; dz: number; door: Face }>> = {
+  harbor: {
+    fire: { dx: 50, dz: -20, door: "s" },
+    police: { dx: 46, dz: 8, door: "w" },
+    hospital: { dx: -38, dz: -20, door: "e" },
+    emergency: { dx: 46, dz: 32, door: "w" },
+  },
+  north: {
+    fire: { dx: -38, dz: 8, door: "e" },
+    police: { dx: 46, dz: 8, door: "w" },
+    hospital: { dx: 5, dz: -32, door: "s" },
+    emergency: { dx: 46, dz: 32, door: "w" },
+  },
+  east: {
+    fire: { dx: 46, dz: -32, door: "w" },
+    police: { dx: 46, dz: 48, door: "w" },
+    hospital: { dx: 5, dz: -32, door: "s" },
+    emergency: { dx: 5, dz: 48, door: "n" },
+  },
+  west: {
+    fire: { dx: -38, dz: -32, door: "e" },
+    police: { dx: -38, dz: 32, door: "e" },
+    hospital: { dx: 5, dz: -32, door: "s" },
+    emergency: { dx: 5, dz: 48, door: "n" },
+  },
 };
 
 function box(
@@ -627,7 +675,7 @@ export function buildDepartment(
   door?: Face,
 ): DepartmentBuild {
   const info = departmentInfo(kind);
-  const off = DEPT_OFFSETS[kind];
+  const off = DEPT_OFFSETS[district.id][kind];
   const bx0 = x0 ?? district.towerX0 + off.dx;
   const bz0 = z0 ?? district.towerZ0 + off.dz;
   const face = door ?? off.door;
