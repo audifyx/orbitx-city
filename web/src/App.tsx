@@ -1906,6 +1906,12 @@ function loadMinimapPos(): MinimapPos {
 
 function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"]; seed: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  // Offscreen static layer (blocks, roads, venue labels, north marker).
+  // It used to be redrawn on every snap (5 Hz) together with the moving
+  // dots — the label-placement search alone is ~17 labels x 8 candidates
+  // x overlap checks, 5x/sec, for a picture that never changes. Now it is
+  // drawn once per model and the live effect only blits it + the dots.
+  const staticRef = useRef<HTMLCanvasElement | null>(null);
   const dragRef = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
   const [pos, setPos] = useState<MinimapPos>(() => loadMinimapPos());
   const posRef = useRef(pos);
@@ -1924,11 +1930,22 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+  // Static map layer: background, harbor, blocks, plaza, roads, venue
+  // dots + labels, north marker. Drawn once per model into the offscreen
+  // canvas. Labels only avoid each other here (not the live player dot —
+  // the dot is drawn on top with its white ring, so it stays visible if
+  // it ever sits on a label).
   useEffect(() => {
-    const canvas = ref.current;
-    const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx) return;
-    const size = canvas.width;
+    let off = staticRef.current;
+    if (!off) {
+      off = document.createElement("canvas");
+      off.width = MINIMAP_SIZE;
+      off.height = MINIMAP_SIZE;
+      staticRef.current = off;
+    }
+    const ctx = off.getContext("2d");
+    if (!ctx) return;
+    const size = off.width;
     ctx.clearRect(0, 0, size, size);
     ctx.fillStyle = "rgba(8, 12, 18, 0.72)";
     ctx.fillRect(0, 0, size, size);
@@ -1970,23 +1987,12 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
       ctx.lineTo(offX + spanX * scale, rz);
       ctx.stroke();
     }
-    // Venue dots + labels. The old down-only stacking piled the z=54 row
-    // (Shop/Cafe/Arcade/Garage sit ~4px apart at this scale) into one
-    // unreadable block, and the player marker could sit on top of "Shop".
-    // Now every label tries 8 positions around its dot (right/left/above/
-    // below + diagonals), picks the one with the least overlap against
-    // already-placed labels AND the player/other-player markers, and gets a
-    // thin leader line back to its dot when it is not adjacent.
+    // Venue dots + labels. Every label tries 8 positions around its dot
+    // (right/left/above/below + diagonals) and picks the one with the
+    // least overlap against already-placed labels, with a thin leader
+    // line back to its dot when it is not adjacent.
     ctx.font = "6px sans-serif";
-    const [mx, mz] = plot(me.x, me.z);
-    const placed: Array<{ x0: number; y0: number; x1: number; y1: number }> = [
-      // Player marker (drawn last, gold dot + white ring) — keep labels off it.
-      { x0: mx - 7, y0: mz - 7, x1: mx + 7, y1: mz + 7 },
-    ];
-    for (const person of people) {
-      const [ppx, ppz] = plot(person.x, person.z);
-      placed.push({ x0: ppx - 5, y0: ppz - 5, x1: ppx + 5, y1: ppz + 5 });
-    }
+    const placed: Array<{ x0: number; y0: number; x1: number; y1: number }> = [];
     const byId = new Map(model.venues.map((venue) => [venue.id, venue]));
     const overlapArea = (r: { x0: number; y0: number; x1: number; y1: number }) =>
       placed.reduce((sum, other) => {
@@ -2056,6 +2062,25 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
     ctx.textAlign = "center";
     ctx.fillText("N", size / 2, 10);
     ctx.textAlign = "left";
+  }, [model]);
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    const size = canvas.width;
+    ctx.clearRect(0, 0, size, size);
+    const off = staticRef.current;
+    if (off) ctx.drawImage(off, 0, 0);
+    // Fit the full extent (harbor included) — same scale as the static
+    // layer, so the dots land on the right spots.
+    const spanX = model.maxX - model.minX;
+    const spanZ = model.maxZ - model.minZ;
+    const scale = (size - 12) / Math.max(spanX, spanZ);
+    const offX = (size - spanX * scale) / 2;
+    const offZ = (size - spanZ * scale) / 2;
+    const plot = (x: number, z: number) =>
+      [offX + (x - model.minX) * scale, offZ + (z - model.minZ) * scale] as const;
+    const [mx, mz] = plot(me.x, me.z);
     // Other players.
     for (const person of people) {
       const [ppx, ppz] = plot(person.x, person.z);

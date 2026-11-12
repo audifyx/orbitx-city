@@ -271,7 +271,11 @@ export function createGame(
     const maxY = y + HEIGHT;
     const minZ = z - RADIUS;
     const maxZ = z + RADIUS;
-    const list = runtime.cols();
+    // Grid query (runtime.colsNear): the old full-list scan ran 3x per tick
+    // over ~4,500 colliders. The candidates are exactly the ones whose XZ
+    // footprint overlaps this AABB, so the 3D test below gives identical
+    // results.
+    const list = runtime.colsNear(minX, minZ, maxX, maxZ);
     for (let i = 0; i < list.length; i++) {
       const c = list[i];
       if (maxX > c.minX && minX < c.maxX && maxY > c.minY && minY < c.maxY && maxZ > c.minZ && minZ < c.maxZ) {
@@ -283,7 +287,7 @@ export function createGame(
 
   function groundY(x: number, z: number, maxY: number) {
     let top = runtime.indoors() ? -200 : 0;
-    const list = runtime.cols();
+    const list = runtime.colsNear(x - RADIUS, z - RADIUS, x + RADIUS, z + RADIUS);
     for (let i = 0; i < list.length; i++) {
       const c = list[i];
       if (x + RADIUS <= c.minX || x - RADIUS >= c.maxX || z + RADIUS <= c.minZ || z - RADIUS >= c.maxZ) continue;
@@ -328,7 +332,10 @@ export function createGame(
   }
 
   function carHit(x: number, z: number) {
-    const list = runtime.cols();
+    // Grid query: the linear test below is equivalent to the box
+    // (x-1.7, z-1.25)-(x+1.7, z+1.25) intersecting the collider's XZ
+    // footprint, so the query box is exactly that box.
+    const list = runtime.colsNear(x - 1.7, z - 1.25, x + 1.7, z + 1.25);
     for (let i = 0; i < list.length; i++) {
       const c = list[i];
       if (c.maxY < 0.5) continue;
@@ -716,6 +723,20 @@ export function createGame(
   let fpsStamp = performance.now();
   let clock = 0;
 
+  // The status line is a hidden debug-only element, but onStatus() is React
+  // setStatus — calling it every frame re-renders the whole App while the
+  // player moves (the rounded coords change almost every frame). 5 Hz is
+  // plenty for a debug line nobody sees; this kills ~55 React renders/sec.
+  let lastStatusText = "";
+  let lastStatusAt = 0;
+  function pushStatus(text: string, now: number) {
+    if (text === lastStatusText) return;
+    if (now - lastStatusAt < 200) return;
+    lastStatusText = text;
+    lastStatusAt = now;
+    onStatus(text);
+  }
+
   // Status line: for 5s after a bridge hop it shows the arrival line
   // instead of the coords (the engine cannot reach runtime's say() toast —
   // say is not on the Runtime return — so the status line is the visible
@@ -812,10 +833,10 @@ export function createGame(
       camera.up.set(0, 1, 0);
       camera.lookAt(look);
       const label = runtime.driving() ? "DRIVING" : player.flying ? "FLYING" : "WALKING";
-      onStatus(statusFor(label));
+      pushStatus(statusFor(label), now);
     } else {
       const label = runtime.driving() ? "DRIVING" : "WALKING";
-      onStatus(statusFor(label));
+      pushStatus(statusFor(label), now);
     }
 
     if (quality === "high") composer.render();
