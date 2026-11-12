@@ -254,6 +254,11 @@ const EMPTY: Snap = {
   carFlying: false,
   ridingBoard: false,
   ridingTrain: false,
+  transport: {
+    train: { at: "", next: "", stopped: false, riding: false },
+    bus: { at: "", next: "", dwelling: false, riding: false },
+    loop: { dwelling: false, riding: false },
+  },
   indoors: "",
   swimming: null,
   onRooftop: null,
@@ -1221,6 +1226,7 @@ export default function App() {
           <button type="button" onClick={() => open("voice")}>Voice</button>
           <button type="button" onClick={() => open("offices")}>Offices</button>
           <button type="button" onClick={() => open("myprops")}>My Props</button>
+          <button type="button" onClick={() => open("transport")}>Transport</button>
           <button type="button" onClick={() => open("multiverse")}>Multiverse</button>
           <button type="button" onClick={() => open("events")}>Events</button>
           <button type="button" onClick={() => open("chat")}>Chat</button>
@@ -1304,6 +1310,7 @@ export default function App() {
                 {panel === "voice" && "Voice chat"}
                 {panel === "offices" && "OrbitX Tower offices"}
                 {panel === "myprops" && "My Properties"}
+                {panel === "transport" && "Transport"}
                 {panel === "garage" && "OrbitX Motors"}
                 {panel === "homegarage" && "Your garage"}
                 {panel === "multiverse" && "Multiverse"}
@@ -2354,6 +2361,33 @@ export default function App() {
                     ) : null}
                   </article>
                 ))}
+              </div>
+            )}
+            {panel === "transport" && (
+              <div>
+                <p>Free rides — tap Ride to teleport straight onto the vehicle, stopped or moving. No waiting at the stop, no exact spot.</p>
+                <h3>OrbitX Line train</h3>
+                <p>{snap.transport.train.stopped ? `At ${snap.transport.train.at} — doors open` : `Moving — next stop ${snap.transport.train.next}`}</p>
+                {snap.transport.train.riding ? (
+                  <button type="button" onClick={() => { triggerHaptic("tap"); close(); gameRef.current?.runtime.alightTransport(); }}>Get off the train</button>
+                ) : (
+                  <button type="button" onClick={() => { triggerHaptic("tap"); close(); gameRef.current?.runtime.rideTransport("train"); }}>Ride the train (free)</button>
+                )}
+                <h3>City Loop bus</h3>
+                <p>{snap.transport.bus.dwelling ? `At ${snap.transport.bus.at} — doors open` : `On the road — next stop ${snap.transport.bus.next}`}</p>
+                {snap.transport.bus.riding ? (
+                  <button type="button" onClick={() => { triggerHaptic("tap"); close(); gameRef.current?.runtime.alightTransport(); }}>Get off the bus</button>
+                ) : (
+                  <button type="button" onClick={() => { triggerHaptic("tap"); close(); gameRef.current?.runtime.rideTransport("bus"); }}>Ride the bus (free)</button>
+                )}
+                <h3>Loop train</h3>
+                <p>{snap.transport.loop.dwelling ? "At the Loop Station — doors open" : "Running the loop — enjoy the view"}</p>
+                {snap.transport.loop.riding ? (
+                  <button type="button" onClick={() => { triggerHaptic("tap"); close(); gameRef.current?.runtime.alightTransport(); }}>Get off the loop train</button>
+                ) : (
+                  <button type="button" onClick={() => { triggerHaptic("tap"); close(); gameRef.current?.runtime.rideTransport("loop"); }}>Ride the loop train (free)</button>
+                )}
+                <p>While riding, press E / Use at a stop to step off — or open Transport again to get off right now.</p>
               </div>
             )}
             {panel === "garage" && (

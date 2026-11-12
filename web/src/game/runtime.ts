@@ -188,7 +188,7 @@ export interface TrainPose {
   dwelling: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport";
 export interface PersonCard {
   id: string;
   name: string;
@@ -361,6 +361,13 @@ export interface Snap {
   shopStoreNonce: number;
   /** Riding the OrbitX Line train (board at a station, E to get off). */
   ridingTrain: boolean;
+  /** Transport panel: live status of the three rideable vehicles, so the
+   * panel can show where each one is and whether it is stopped. */
+  transport: {
+    train: { at: string; next: string; stopped: boolean; riding: boolean };
+    bus: { at: string; next: string; dwelling: boolean; riding: boolean };
+    loop: { dwelling: boolean; riding: boolean };
+  };
   indoors: string;
   /** CRAZY: "pool" | "hottub" while the player is in the water, else null. */
   swimming: "pool" | "hottub" | null;
@@ -2638,6 +2645,21 @@ export function createRuntime(scene: Scene) {
       carFlying: driving && carIndex >= 0 && !!(cars[carIndex] && (cars[carIndex].alt > 0 || cars[carIndex].autoAlt != null)),
       ridingBoard: driving && carIndex >= 0 && !!driveParams && driveParams.pushToGo,
       ridingTrain,
+      transport: {
+        train: {
+          at: TRAIN_STATIONS[trainState.at]?.name ?? "",
+          next: TRAIN_STATIONS[trainState.next]?.name ?? "",
+          stopped: trainState.stopped,
+          riding: ridingTrain,
+        },
+        bus: {
+          at: bus.atStop?.name ?? "",
+          next: bus.nextStop()?.name ?? "",
+          dwelling: bus.dwelling,
+          riding: ridingBus,
+        },
+        loop: { dwelling: dwellingTrain() >= 0, riding: !!riding },
+      },
       indoors: insideName,
       swimming: swimPool,
       onRooftop,
@@ -4100,6 +4122,109 @@ export function createRuntime(scene: Scene) {
     }
     body.vy = 0;
     triggerHaptic("door");
+    publish();
+  }
+
+  // Transport panel: teleport onto a vehicle as a rider — no dwell
+  // window, no exact spot, no chasing it down the road. The per-frame
+  // carry (rideTrain / rideBus / the loop-train snap in after()) keeps
+  // the rider glued to the vehicle once aboard, stopped or moving.
+  // Free, same as E boarding. E / Use boarding is NOT broken (the user
+  // got on that way) — this just removes the timing problem entirely.
+  function rideTransport(kind: "train" | "bus" | "loop") {
+    const body = lastBody;
+    if (!body || !playing || paused || typing) return;
+    // Out of the car first — E boarding never boards from the driver's
+    // seat either (interact exits the car). And step off whatever
+    // vehicle you're already riding, then board the new one.
+    if (driving) exitCar(body);
+    ridingTrain = false;
+    ridingBus = false;
+    riding = null;
+    body.flying = false;
+    body.vy = 0;
+    if (kind === "train") {
+      if (!trainGroup) {
+        say("The train isn't running right now — try again in a moment.");
+        publish();
+        return;
+      }
+      boardTrain(body);
+    } else if (kind === "bus") {
+      boardBus(body);
+      // boardBus leaves the snap to the next frame's rideBus — put the
+      // body on the bus now so the teleport is instant, not a frame late.
+      body.x = bus.x;
+      body.z = bus.z;
+      body.y = 0.2;
+      body.yaw = bus.yaw;
+    } else {
+      // Loop train: prefer a dwelling train (the platform is right
+      // there), else the nearest one — the per-frame snap carries the
+      // rider either way, stopped or mid-loop.
+      let index = dwellingTrain();
+      if (index < 0) {
+        let best = -1;
+        let bestD = Infinity;
+        trainPoses.forEach((pose, i) => {
+          const d = Math.hypot(pose.x - body.x, pose.z - body.z);
+          if (d < bestD) {
+            best = i;
+            bestD = d;
+          }
+        });
+        index = best;
+      }
+      if (index < 0 || !trainPoses[index]) {
+        say("The loop train isn't running right now — try again in a moment.");
+        publish();
+        return;
+      }
+      boardLoopTrain(body, index);
+    }
+    publish();
+  }
+
+  // Get off whatever you're riding, right now — no need to wait for the
+  // next stop. Steps off onto safe ground beside the vehicle (the loop
+  // train drops you on its platform, 30 units up — never mid-air).
+  function alightTransport() {
+    const body = lastBody;
+    if (!body || !playing || paused || typing) return;
+    if (ridingTrain) {
+      if (trainStopped()) {
+        alightTrain(body);
+      } else {
+        ridingTrain = false;
+        body.x = trainState.x;
+        body.z = TRAIN_LINE_Z + 3.5;
+        body.y = trainTrackY(trainState.x) + 0.35;
+        body.yaw = Math.PI;
+        body.vy = 0;
+        body.flying = false;
+        triggerHaptic("door");
+        say("Stepped off beside the track.");
+      }
+    } else if (ridingBus) {
+      if (bus.atStop) {
+        exitBus(body);
+      } else {
+        ridingBus = false;
+        // Curb side of the bus (its right, +Z local): with the mesh
+        // rotation YXZ at PI/2 - yaw, local +Z maps to (cos yaw, sin yaw).
+        body.x = bus.x + Math.cos(bus.yaw) * 3;
+        body.z = bus.z + Math.sin(bus.yaw) * 3;
+        body.y = 0;
+        body.vy = 0;
+        body.flying = false;
+        triggerHaptic("door");
+        say("Off the bus.");
+      }
+    } else if (riding) {
+      stepOffTrain(body);
+    } else {
+      return;
+    }
     publish();
   }
 
@@ -8904,6 +9029,8 @@ export function createRuntime(scene: Scene) {
     drive,
     rideTrain,
     rideBus,
+    rideTransport,
+    alightTransport,
     after,
     interact,
     say,
