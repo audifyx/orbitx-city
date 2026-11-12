@@ -5635,15 +5635,6 @@ export function createRuntime(scene: Scene) {
         if (child.name === "wheel") child.rotation.z += bus.speed * dt * 1.4;
       }
     }
-    const busGate = bus.takeHop();
-    if (busGate) {
-      triggerHaptic("door");
-      say(
-        busGate.to === "home"
-          ? "OrbitX City — back home."
-          : `${stateById(busGate.to).name} — ${stateById(busGate.to).tagline}`,
-      );
-    }
     if (ridingBus) rideBus(dt, body);
     window.__ORBITX_BUS = {
       x: Math.round(bus.x * 10) / 10,

@@ -1,8 +1,9 @@
 // bus.ts — the OrbitX City Loop bus.
 //
 // One bus, one continuous real-time loop: home <-> New York / Los Angeles /
-// Florida over the three magic bridges. It drives the actual roads (no
-// teleport except the bridge gates, same hop every car and walker takes),
+// Florida over the three real bridges. It drives the actual roads (no
+// teleport — the bridges are continuous physical decks now, same as every
+// car and walker drives),
 // pulls up to real stops, dwells so the player can board / alight, then
 // carries on. Riding is FREE — no City Sol, no real SOL, no burn, no wallet.
 //
@@ -16,10 +17,7 @@
 // lane is x=-6.5.
 //
 // The bus itself is a waypoint follower with a capped turn rate: it slows
-// for sharp turns and for ~2.5s after a bridge hop (the return leg drives
-// back through the gate it just landed from, so hops are guarded by a 4s
-// cooldown — the same landing is 2 units clear of the opposite gate, but
-// the route forces the bus back through it).
+// for sharp turns and on tight merges past the deck lamps.
 
 import {
   BoxGeometry,
@@ -33,7 +31,7 @@ import {
 } from "three";
 import { GOLD } from "./materials";
 import type { Art, City, Mat } from "./city";
-import { bridgeGateFor, pushBox, pushCol, type BridgeGate } from "./states";
+import { pushBox, pushCol } from "./states";
 
 // ---------------------------------------------------------------------------
 // Route
@@ -148,10 +146,8 @@ export const BUS_STOP_AT: Record<number, BusStopInfo> = {
 
 export const BUS_SPEED = 18;
 export const BUS_DWELL_S = 6;
-export const BUS_HOP_COOLDOWN_S = 4;
 export const BUS_TURN_RATE = 2.4;
 export const BUS_SLOW_SPEED = 7;
-export const BUS_POST_HOP_SLOW_S = 2.5;
 export const BUS_ARRIVE_DIST = 1.2;
 /** Boarding radius from the bus centre (matches the car's 7). */
 export const BUS_BOARD_DIST = 7;
@@ -171,10 +167,7 @@ export class BusSim {
   /** The stop the bus is currently dwelling at, if any. */
   atStop: BusStopInfo | null = null;
   private dwellUntil = 0;
-  private hopCooldownUntil = 0;
-  private hoppedAt = -1e9;
   private clock = 0;
-  private justHopped: BridgeGate | null = null;
 
   constructor() {
     const start = BUS_WAYPOINTS[0];
@@ -200,10 +193,7 @@ export class BusSim {
     this.speed = 0;
     this.atStop = BUS_STOP_AT[0];
     this.dwellUntil = 8;
-    this.hopCooldownUntil = 0;
-    this.hoppedAt = -1e9;
     this.clock = 0;
-    this.justHopped = null;
   }
 
   /** The next stop the bus will reach (scanning forward from the target). */
@@ -215,16 +205,8 @@ export class BusSim {
     return null;
   }
 
-  /** Consume the gate the bus hopped through this frame (if any) so the
-   * caller can say the arrival line. */
-  takeHop(): BridgeGate | null {
-    const gate = this.justHopped;
-    this.justHopped = null;
-    return gate;
-  }
-
   /** Advance the bus. Substepped internally (max 0.05s per step) so it
-   * cannot tunnel through a 4-deep bridge gate in one frame. */
+   * cannot tunnel through a bridge deck or collider in one frame. */
   update(dt: number): void {
     let left = dt;
     while (left > 0.0001) {
@@ -265,33 +247,18 @@ export class BusSim {
     while (diff < -Math.PI) diff += 2 * Math.PI;
     const turn = Math.max(-BUS_TURN_RATE * dt, Math.min(BUS_TURN_RATE * dt, diff));
     this.yaw += turn;
-    // Speed: full speed on a straight, slow for a sharp turn and for a
-    // couple of seconds after a bridge hop (tight merges past deck lamps),
-    // and ease off as the target nears so the bus pulls up, not past it.
+    // Speed: full speed on a straight, slow for a sharp turn and on tight
+    // merges past deck lamps, and ease off as the target nears so the bus
+    // pulls up, not past it.
     let maxSpeed = BUS_SPEED;
     if (Math.abs(diff) > 0.5) maxSpeed = Math.min(maxSpeed, BUS_SLOW_SPEED);
-    if (this.clock - this.hoppedAt < BUS_POST_HOP_SLOW_S) maxSpeed = Math.min(maxSpeed, BUS_SLOW_SPEED);
     if (dist < 12) maxSpeed = Math.min(maxSpeed, Math.max(4, dist * 0.9));
     if (this.speed > maxSpeed) this.speed = Math.max(maxSpeed, this.speed - 30 * dt);
     else this.speed = Math.min(maxSpeed, this.speed + 12 * dt);
     this.x += Math.sin(this.yaw) * this.speed * dt;
     this.z += -Math.cos(this.yaw) * this.speed * dt;
-    // Bridge hop — same gate, same landing as the cars and the walking hop.
-    // Landings sit 2 units clear of the opposite gate, but the return leg
-    // drives straight back through the gate it just landed from, so a hop
-    // is guarded by a cooldown or it would ping-pong.
-    if (this.clock >= this.hopCooldownUntil) {
-      const gate = bridgeGateFor(this.x, this.z);
-      if (gate) {
-        this.x = gate.landing.x;
-        this.z = gate.landing.z;
-        this.yaw = gate.landing.yaw;
-        this.hopCooldownUntil = this.clock + BUS_HOP_COOLDOWN_S;
-        this.hoppedAt = this.clock;
-        this.speed = Math.min(this.speed, BUS_SLOW_SPEED);
-        this.justHopped = gate;
-      }
-    }
+    // No hop any more (water batch): the bridges are continuous physical
+    // decks, so the bus just drives across them like every car does.
   }
 }
 
