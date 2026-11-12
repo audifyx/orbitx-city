@@ -193,6 +193,28 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
 
   group.add(legL, legR, armL, armR);
 
+  // Character-specific arm details. dressPerson stores the character id
+  // on the group (userData.lookId), so these ride on the arm pivots and
+  // swing with the walk cycle instead of floating at the rest pose.
+  const lookId = (group.userData as { lookId?: string } | undefined)?.lookId;
+  if (lookId === "tjr") {
+    // TJR: watch + bracelet on the left wrist (from his verified photo).
+    armL.add(makeLimb(outfitMaterial("#e0b33a"), 0.18, 0.07, 0.2, -0.5));
+  } else if (lookId === "gainzy") {
+    // Gainzy: dragon tattoos on both arms (from his public avatar).
+    const tattoo = outfitMaterial("#7a1f2a");
+    const tatL = new Mesh(UNIT_BOX, tattoo);
+    tatL.scale.set(0.03, 0.4, 0.14);
+    tatL.position.set(-0.09, -0.27, 0);
+    tatL.castShadow = true;
+    armL.add(tatL);
+    const tatR = new Mesh(UNIT_BOX, tattoo);
+    tatR.scale.set(0.03, 0.4, 0.14);
+    tatR.position.set(0.09, -0.27, 0);
+    tatR.castShadow = true;
+    armR.add(tatR);
+  }
+
   const handle: WalkerHandle = {
     group,
     legL,

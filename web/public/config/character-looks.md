@@ -34,16 +34,17 @@ person's PUBLIC AVATAR instead, and the entry says so — never invent a face.
   hoodie. A bull, not a human — that is the honest version.
 
 ## Cupsy — @Cupseyy (Cupsey)
-- **CONFLICT — NOT fully established.** Reporting (Bubblemaps / CryptoBriefing /
-  LiveBitcoinNews, Nov 2026) describes Cupsey as a young male ex-Fortnite
-  player, ~235k followers, who turned $2K into ~$30M trading memecoins.
-  The account's X profile photo (pbs.twimg.com, via Instalker) shows a young
-  woman with long dark reddish-brown hair, in a car. No verified face photo
-  of the person behind the account could be established in this pass, and the
-  post imagery on the account is memes (e.g. a capybara at a desk).
-- **Build (follows the profile photo, flagged):** long dark reddish-brown
-  hair, light skin, dark jacket, pink accent to keep the Cupsy brand.
-  **This one must be confirmed with the user before launch.**
+- **DECIDED (user, 2026-11-11): Cupsy has NO face.** Faceless by design.
+  Do NOT try to match a real face, do NOT invent a face. The character
+  renders with a blank head — no eyes, no mouth, no face features at all.
+- Reporting (Bubblemaps / CryptoBriefing / LiveBitcoinNews, Nov 2026)
+  describes Cupsey as a young male ex-Fortnite player, ~235k followers,
+  who turned $2K into ~$30M trading memecoins. The account's X profile
+  photo shows a young woman with long dark reddish-brown hair, in a car.
+  No verified face photo of the person behind the account could be
+  established — and it no longer matters, because the design is faceless.
+- **Build:** faceless (no face features), long dark reddish-brown hair,
+  light skin, dark jacket, pink accent to keep the Cupsy brand.
 
 ## Cobie — @cobie (Jordan Fish)
 - **Verified:** real photo (CryptoRank persons page). British, white man.

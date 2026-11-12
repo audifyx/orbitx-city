@@ -114,6 +114,9 @@ export function dressPerson(
   look: Look,
   shop: { color: string; hat: string; owned: string[]; trustOwned: boolean },
 ) {
+  // Remember which character this group is dressed as, so the walker
+  // (movement.ts) can hang character-specific arm details on the pivots.
+  group.userData.lookId = look.id;
   for (const child of [...group.children]) {
     if (child.name === "ring" || child.name === "tag") continue;
     group.remove(child);
@@ -127,9 +130,14 @@ export function dressPerson(
   add(group, outfit, 0, 0.9, 0, 0.66, 0.78, 0.4);
   add(group, accent, 0, 1.05, 0.16, 0.28, 0.42, 0.08);
   add(group, skin, 0, 1.58, 0, 0.4, 0.4, 0.4);
-  const eyes = look.colors.eyes ?? "#1a1a1a";
-  add(group, eyes, -0.08, 1.64, 0.2, 0.07, 0.06, 0.04);
-  add(group, eyes, 0.08, 1.64, 0.2, 0.07, 0.06, 0.04);
+  // Cupsy has NO face (user decision 2026-11-11 — faceless by design).
+  // No eyes, no mouth, no face features at all. Do not match a real
+  // face, do not invent one.
+  if (look.id !== "cupsy") {
+    const eyes = look.colors.eyes ?? "#1a1a1a";
+    add(group, eyes, -0.08, 1.64, 0.2, 0.07, 0.06, 0.04);
+    add(group, eyes, 0.08, 1.64, 0.2, 0.07, 0.06, 0.04);
+  }
   if (look.accessories.beard) {
     add(group, hair, 0, 1.42, 0.2, 0.26, 0.14, 0.08);
     add(group, hair, 0, 1.5, 0.2, 0.2, 0.05, 0.05);
@@ -179,11 +187,14 @@ export function dressPerson(
     add(group, "#e0b33a", 0, 2.12, 0, 0.1, 0.22, 0.1);
     add(group, "#e0b33a", 0.16, 2.08, 0, 0.1, 0.18, 0.1);
   } else if (hat === "bullcap") {
-    // Poor Goat: red cap + big curved grey horns.
+    // Poor Goat: red cap + big curved grey horns, mustache, tongue out.
     add(group, accent, 0, 1.86, 0, 0.46, 0.14, 0.46);
     add(group, accent, 0, 1.8, 0.24, 0.36, 0.06, 0.18);
     add(group, "#9aa3ad", -0.18, 1.98, 0, 0.08, 0.3, 0.08, 0.35);
     add(group, "#9aa3ad", 0.18, 1.98, 0, 0.08, 0.3, 0.08, -0.35);
+    // Mustache + tongue out (from his black-bull public avatar).
+    add(group, "#3a3d45", 0, 1.48, 0.21, 0.24, 0.06, 0.05);
+    add(group, "#e87a8a", 0, 1.39, 0.22, 0.1, 0.12, 0.04);
   } else if (hat === "chips") {
     // Gainzy: a stack of poker chips balanced on top.
     add(group, "#f4f6fa", 0, 1.83, 0, 0.34, 0.1, 0.34);
@@ -198,13 +209,45 @@ export function dressPerson(
   }
   const extra = look.accessories.extra;
   if (extra === "glasses") {
-    add(group, "#dbe7ef", -0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
-    add(group, "#dbe7ef", 0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
-    add(group, "#dbe7ef", 0, 1.6, 0.18, 0.06, 0.03, 0.03);
+    if (look.id === "cobie") {
+      // Cobie: dark Bitcoin shades from his avatar art (not light lenses).
+      add(group, "#12141a", -0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
+      add(group, "#12141a", 0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
+      add(group, "#12141a", 0, 1.6, 0.18, 0.06, 0.03, 0.03);
+      add(group, "#e0b33a", 0.1, 1.6, 0.21, 0.05, 0.05, 0.02);
+    } else if (look.id === "hsaka") {
+      // Hsaka: black frames + purple-tinted lenses.
+      add(group, "#8a5cf6", -0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
+      add(group, "#8a5cf6", 0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
+      add(group, "#111111", 0, 1.6, 0.18, 0.06, 0.03, 0.03);
+      add(group, "#111111", 0, 1.65, 0.18, 0.3, 0.03, 0.03);
+      add(group, "#111111", -0.17, 1.6, 0.18, 0.03, 0.1, 0.03);
+      add(group, "#111111", 0.17, 1.6, 0.18, 0.03, 0.1, 0.03);
+    } else if (look.id === "murad") {
+      // Murad: black-framed glasses, smoke lenses.
+      add(group, "#3a3f4a", -0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
+      add(group, "#3a3f4a", 0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
+      add(group, "#111111", 0, 1.6, 0.18, 0.06, 0.03, 0.03);
+      add(group, "#111111", 0, 1.65, 0.18, 0.3, 0.03, 0.03);
+      add(group, "#111111", -0.17, 1.6, 0.18, 0.03, 0.1, 0.03);
+      add(group, "#111111", 0.17, 1.6, 0.18, 0.03, 0.1, 0.03);
+    } else {
+      add(group, "#dbe7ef", -0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
+      add(group, "#dbe7ef", 0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
+      add(group, "#dbe7ef", 0, 1.6, 0.18, 0.06, 0.03, 0.03);
+    }
   } else if (extra === "shades") {
     add(group, "#12141a", 0, 1.6, 0.2, 0.34, 0.1, 0.06);
   } else if (extra === "chain") {
-    add(group, "#e0b33a", 0, 1.22, 0.18, 0.36, 0.08, 0.08);
+    if (look.id === "frank") {
+      // Frank: beaded necklaces, light blue + red (his public avatar).
+      // Ansem's gold chain stays gold — this is a Frank-specific branch,
+      // not a recolor of the chain.
+      add(group, "#7ec8e3", 0, 1.26, 0.18, 0.36, 0.06, 0.08);
+      add(group, "#c1272d", 0, 1.19, 0.18, 0.36, 0.06, 0.08);
+    } else {
+      add(group, "#e0b33a", 0, 1.22, 0.18, 0.36, 0.08, 0.08);
+    }
   } else if (extra === "headset") {
     add(group, accent, 0, 1.7, 0, 0.5, 0.06, 0.12);
     add(group, "#22262e", -0.22, 1.58, 0, 0.1, 0.16, 0.12);
@@ -223,6 +266,12 @@ export function dressPerson(
     stripes.forEach((color, i) => {
       add(group, color, -0.16 + i * 0.08, 1.6, 0.2, 0.08, 0.1, 0.06);
     });
+  }
+  // Threadguy: the mic is his job (Spaces host) — his extra is the
+  // rainbow visor, so the mic branch above never fires for him.
+  if (look.id === "threadguy") {
+    add(group, "#222", 0.12, 1.35, 0.28, 0.04, 0.28, 0.04);
+    add(group, "#111", 0.12, 1.5, 0.36, 0.1, 0.1, 0.1);
   }
 }
 

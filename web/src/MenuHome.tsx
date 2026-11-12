@@ -43,7 +43,7 @@ export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogi
       <div className="menu-hero">
         <p className="menu-kicker">ORBITX · LAUNCHES DEC 5, 2026</p>
         <h1 className="menu-title">ORBITX CITY</h1>
-        <p className="menu-sub">A voxel city you can own. Twelve characters. Fifteen jobs. One economy — City Sol.</p>
+        <p className="menu-sub">A voxel city you can own. Twelve characters. Twenty jobs. One economy — City Sol.</p>
         {gate === "login" ? (
           <div className="menu-auth">
             <AuthPanel
@@ -84,8 +84,8 @@ export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogi
         )}
         <div className="menu-stats" aria-label="City numbers">
           <span><b>12</b> characters</span>
-          <span><b>15</b> jobs</span>
-          <span><b>12</b> venues</span>
+          <span><b>20</b> jobs</span>
+          <span><b>17</b> venues</span>
           <span><b>0</b> fees</span>
         </div>
       </div>
