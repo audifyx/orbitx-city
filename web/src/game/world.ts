@@ -295,7 +295,6 @@ class CityWorld {
     return data;
   }
 
-<<<<<<< HEAD
   // Home furniture — shop + Edit Home (per-server homes, City Sol only).
   async furnitureList(server: number) {
     return this.call("furniture-list", { server });
