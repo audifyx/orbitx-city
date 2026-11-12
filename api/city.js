@@ -46,6 +46,28 @@ const CATALOG = {
   // in the bought colour. No other trail values exist.
   "trail-neon": { price: 50, kind: "trail", value: "neon" },
   "trail-gold": { price: 75, kind: "trail", value: "gold" },
+  // Clothes (clothes branch): City Sol only, same spend/equip pattern as
+  // hats. `slot` is one of shirt / pants / shoes / outfit / glasses and
+  // `value` is the look key the client renders in avatar.ts
+  // (SHIRT_STYLES / PANTS_COLORS / SHOES_COLORS / OUTFIT_STYLES).
+  // Ownership is the item id in `owned`; what is WORN is a marker in the
+  // same `owned` array — `worn:<slot>:<value>` — so no new DB column is
+  // needed (see equippedClothes / setWorn below). An outfit overrides
+  // shirt + pants while worn; unequip clears the marker.
+  "clothes-tee-red": { price: 30, kind: "clothes", slot: "shirt", value: "tee-red" },
+  "clothes-tee-gold": { price: 35, kind: "clothes", slot: "shirt", value: "tee-gold" },
+  "clothes-hoodie-black": { price: 80, kind: "clothes", slot: "shirt", value: "hoodie-black" },
+  "clothes-jacket-denim": { price: 120, kind: "clothes", slot: "shirt", value: "jacket-denim" },
+  "clothes-jacket-leather": { price: 140, kind: "clothes", slot: "shirt", value: "jacket-leather" },
+  "clothes-jeans-blue": { price: 60, kind: "clothes", slot: "pants", value: "jeans-blue" },
+  "clothes-pants-black": { price: 55, kind: "clothes", slot: "pants", value: "pants-black" },
+  "clothes-shorts-white": { price: 40, kind: "clothes", slot: "pants", value: "shorts-white" },
+  "clothes-sneakers-white": { price: 70, kind: "clothes", slot: "shoes", value: "sneakers-white" },
+  "clothes-boots-brown": { price: 90, kind: "clothes", slot: "shoes", value: "boots-brown" },
+  "clothes-suit-black": { price: 200, kind: "clothes", slot: "outfit", value: "suit-black" },
+  "clothes-dress-red": { price: 150, kind: "clothes", slot: "outfit", value: "dress-red" },
+  "clothes-tracksuit-gold": { price: 100, kind: "clothes", slot: "outfit", value: "tracksuit-gold" },
+  "clothes-sunglasses": { price: 50, kind: "clothes", slot: "glasses", value: "sunglasses" },
 };
 
 // --- Grocery (OrbitX Grocery) -------------------------------------------
@@ -156,6 +178,38 @@ async function foodHungerOp(save, body) {
   save.daily.hunger = next;
   await saveSave(save);
   return { ok: true, catalog: FOOD_CATALOG, food, hunger: next, me: publicPlayer(save) };
+}
+
+// --- Clothes: what the character is wearing ---------------------------
+// Storage (no new DB column): ownership is the item id in the `owned`
+// string array (players + player_saves, already a JSON/TEXT column);
+// what is currently WORN is a marker in the SAME array,
+// `worn:<slot>:<value>` (one per slot, e.g. `worn:shirt:tee-red`).
+// The client (avatar.ts clothesFromOwned) and publicPlayer /
+// sanitizeState all derive the worn outfit from these markers, so the
+// equipped clothes survive reload and show on other players too.
+const CLOTHES_SLOTS = new Set(["shirt", "pants", "shoes", "outfit", "glasses"]);
+
+function wornMarker(slot, value) {
+  return `worn:${slot}:${value}`;
+}
+
+function equippedClothes(owned) {
+  const list = Array.isArray(owned) ? owned : [];
+  const worn = {};
+  for (const entry of list) {
+    if (typeof entry !== "string" || !entry.startsWith("worn:")) continue;
+    const [, slot, value] = entry.split(":");
+    if (slot && value && CLOTHES_SLOTS.has(slot)) worn[slot] = value;
+  }
+  return worn;
+}
+
+function setWorn(owned, slot, value) {
+  const list = Array.isArray(owned) ? owned : [];
+  const kept = list.filter((entry) => !(typeof entry === "string" && entry.startsWith(`worn:${slot}:`)));
+  if (value) kept.push(wornMarker(slot, value));
+  return kept;
 }
 
 const LOOKS = new Set([
@@ -1442,6 +1496,9 @@ function publicPlayer(player) {
     hat: player.hat,
     car: player.car,
     trail: player.trail || "none",
+    // Clothes worn right now, derived from the `worn:<slot>:<value>`
+    // markers in `owned` — the client renders them in avatar.ts.
+    clothes: equippedClothes(player.owned),
     friends: player.friends,
     inbox: player.inbox,
     party: player.party,
@@ -2659,6 +2716,10 @@ async function spendItem(player, save, itemId) {
     if (item.kind === "hat") { player.hat = item.value; save.hat = item.value; }
     if (item.kind === "car") { player.car = item.value; save.car = item.value; }
     if (item.kind === "trail") { player.trail = item.value; save.trail = item.value; }
+    if (item.kind === "clothes") {
+      player.owned = setWorn(player.owned, item.slot, item.value);
+      save.owned = [...(player.owned || [])];
+    }
     await savePlayer(player);
     await saveSave(save);
     return { ok: true, message: "Already yours. Equipped.", me: publicPlayer(save) };
@@ -2674,6 +2735,10 @@ async function spendItem(player, save, itemId) {
   if (item.kind === "hat") { player.hat = item.value; save.hat = item.value; }
   if (item.kind === "car") { player.car = item.value; save.car = item.value; }
   if (item.kind === "trail") { player.trail = item.value; save.trail = item.value; }
+  if (item.kind === "clothes") {
+    player.owned = setWorn(player.owned, item.slot, item.value);
+    save.owned = [...(player.owned || [])];
+  }
   await savePlayer(player);
   await saveSave(save);
   await mirrorBalance(player, save);
@@ -2682,6 +2747,37 @@ async function spendItem(player, save, itemId) {
     message: `Spent ${item.price} City Sol. Burned ${burned}. Burned total ${player.burned}.`,
     me: publicPlayer(save),
   };
+}
+
+// --- Clothes equip / unequip --------------------------------------------
+// Switch between owned clothes, or take a slot off (id "" = back to the
+// default look). No money moves here — the buy already happened through
+// spendItem. Writes the worn marker on the per-server save AND the
+// global player row (the same pair spendItem keeps in step), so the
+// outfit survives reload and other players see it via sanitizeState.
+async function equipClothesOp(player, save, body) {
+  const slot = String(body.slot || "");
+  if (!CLOTHES_SLOTS.has(slot)) return { ok: false, message: "Unknown clothing slot.", status: 400 };
+  const id = String(body.id || "");
+  if (!id) {
+    player.owned = setWorn(player.owned, slot, null);
+    save.owned = [...(player.owned || [])];
+    await savePlayer(player);
+    await saveSave(save);
+    return { ok: true, message: "Taken off.", me: publicPlayer(save) };
+  }
+  const item = CATALOG[id];
+  if (!item || item.kind !== "clothes" || item.slot !== slot) {
+    return { ok: false, message: "That is not a piece of clothing for that slot.", status: 400 };
+  }
+  if (!player.owned.includes(id) && !save.owned.includes(id)) {
+    return { ok: false, message: "You don't own that yet.", status: 400 };
+  }
+  player.owned = setWorn(player.owned, slot, item.value);
+  save.owned = [...(player.owned || [])];
+  await savePlayer(player);
+  await saveSave(save);
+  return { ok: true, message: "Equipped.", me: publicPlayer(save) };
 }
 
 // --- Garage (vehicles.ts catalog, mirrored — the server is the price
@@ -3443,6 +3539,12 @@ export async function POST(request) {
     return json(result, result.ok ? 200 : 400);
   }
 
+  if (op === "clothes") {
+    const save = await ensureSave(player, currentServerFor(body, player));
+    const result = await equipClothesOp(player, save, body);
+    return json(result, result.ok ? 200 : result.status || 400);
+  }
+
   if (op === "job-start") {
     const id = String(body.job || "");
     if (!JOBS[id]) return json({ ok: false, message: "Unknown job." }, 400);
@@ -3943,6 +4045,8 @@ function sanitizeState(player, raw) {
     hat: player.hat,
     car: Boolean(raw.car),
     skin: player.car,
+    // Other players render our clothes from the same worn markers.
+    clothes: equippedClothes(player.owned),
     speaking: Boolean(raw.speaking),
     emote: String(raw.emote || "").slice(0, 16),
     holder: !!player.holder,
