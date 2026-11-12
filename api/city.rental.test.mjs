@@ -25,7 +25,7 @@ function saveFor(playerId, server = 1) {
 
 test("rent-car: 2 days costs 1 City Sol, car is drivable via me.rental", async () => {
   const { token, id, balance } = await guest();
-  assert.equal(balance, 250);
+  assert.equal(balance, 60000);
 
   const tooShort = await call("rent-car", { id: "city-sedan", color: "black", days: 1, server: 1 }, token);
   assert.equal(tooShort.ok, false);
@@ -39,7 +39,7 @@ test("rent-car: 2 days costs 1 City Sol, car is drivable via me.rental", async (
   assert.equal(rented.rental.id, "city-sedan");
   assert.equal(rented.rental.days, 2);
   assert.equal(rented.rental.daysLeft, 2);
-  assert.equal(rented.me.balance, 249, "2 days at 0.5/day = 1 City Sol");
+  assert.equal(rented.me.balance, 59999, "2 days at 0.5/day = 1 City Sol");
   assert.equal(rented.me.rental.id, "city-sedan");
 
   // The rental survives as JSON (what rowFromSave stores) and is NOT an owned car.
@@ -62,7 +62,7 @@ test("rent-car: 2 days costs 1 City Sol, car is drivable via me.rental", async (
   const returned = await call("return-rental", { server: 1 }, token);
   assert.equal(returned.ok, true);
   assert.equal(returned.rental, null);
-  assert.equal(returned.me.balance, 249, "no refund — paid up front");
+  assert.equal(returned.me.balance, 59999, "no refund — paid up front");
 
   const after = await call("rental-status", { server: 1 }, token);
   assert.equal(after.ok, true);
@@ -77,7 +77,7 @@ test("rent-car: owned cars cannot be rented; expiry clears the save", async () =
   const { token, id } = await guest("Owner");
   const bought = await call("buy-car", { id: "city-compact", color: "white", server: 1 }, token);
   assert.equal(bought.ok, true, bought.message);
-  assert.equal(bought.me.balance, 30, "250 - 220 for the compact");
+  assert.equal(bought.me.balance, 59780, "60000 - 220 for the compact");
 
   const rentOwned = await call("rent-car", { id: "city-compact", days: 2, server: 1 }, token);
   assert.equal(rentOwned.ok, false);
@@ -86,7 +86,7 @@ test("rent-car: owned cars cannot be rented; expiry clears the save", async () =
   // 7 days at 0.5/day = 3 City Sol (rounds down, never over 0.5/day).
   const rented = await call("rent-car", { id: "city-sedan", days: 7, server: 1 }, token);
   assert.equal(rented.ok, true, rented.message);
-  assert.equal(rented.me.balance, 27);
+  assert.equal(rented.me.balance, 59777);
 
   // Age the rental past its paid days: the next status call clears it.
   saveFor(id, 1).rental.expiresAt = Date.now() - 1000;
@@ -94,7 +94,7 @@ test("rent-car: owned cars cannot be rented; expiry clears the save", async () =
   assert.equal(expired.ok, true);
   assert.equal(expired.rental, null);
   assert.equal(saveFor(id, 1).rental, null, "expired rental is cleared from the save");
-  assert.equal(expired.me.balance, 27, "expiry never refunds or charges");
+  assert.equal(expired.me.balance, 59777, "expiry never refunds or charges");
 });
 
 test("rent-car: insufficient balance is refused", async () => {
@@ -104,7 +104,11 @@ test("rent-car: insufficient balance is refused", async () => {
   assert.equal(first.ok, true, first.message);
   const returned = await call("return-rental", { server: 1 }, token);
   assert.equal(returned.ok, true);
+  // Drain BOTH ledgers: the Sol fix's ensureSave reconciles a save below
+  // the global row back up to the global, so draining only the save is
+  // refilled on the next op. A genuinely broke player has 0 in both.
   saveFor(id, 1).balance = 0;
+  globalThis.__orbitx.players.get(id).balance = 0;
   const rented = await call("rent-car", { id: "city-sedan", days: 2, server: 1 }, token);
   assert.equal(rented.ok, false);
   assert.match(rented.message, /Not enough City Sol/);
