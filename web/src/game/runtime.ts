@@ -3050,8 +3050,14 @@ export function createRuntime(scene: Scene) {
     const bob = Math.sin(clock * 5) * 0.05;
     car.group.position.set(car.x, params.hover + car.alt + bob, car.z);
     car.group.rotation.y = Math.PI / 2 - car.yaw;
+    // Wheels spin with the road speed. Helicopter main rotors and
+    // propellers ("rotor" / "prop" meshes, see vehicles.ts) spin while
+    // airborne or moving — the engine is on. Static when parked.
+    const spinning = car.alt > 0 || Math.abs(carSpeed) > 0.5;
     for (const child of car.group.children) {
       if (child.name === "wheel") child.rotation.z += carSpeed * dt * 1.4;
+      else if (spinning && child.name === "rotor") child.rotation.y += dt * 14;
+      else if (spinning && child.name === "prop") child.rotation.x += dt * 18;
     }
     car.group.rotation.z = -car.lean;
     body.x = car.x;

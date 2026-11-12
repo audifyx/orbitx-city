@@ -64,7 +64,10 @@ export type PartMat =
   | "tire"
   | "glow";
 
-/** One extra box part, in vehicle-local space. Front of the car is +X. */
+/** One extra box part, in vehicle-local space. Front of the car is +X.
+ * `name` is the mesh name when built — "rotor" (helicopter main rotor)
+ * and "prop" (propeller blades) are spun by drive() while airborne or
+ * moving; anything else is unnamed. */
 export interface VehiclePart {
   mat: PartMat;
   x: number;
@@ -73,6 +76,7 @@ export interface VehiclePart {
   sx: number;
   sy: number;
   sz: number;
+  name?: string;
 }
 
 /** One wheel, in vehicle-local space. Named "wheel" when built. */
@@ -143,6 +147,9 @@ export interface VehicleDef {
   fly: boolean;
   /** Max cruise altitude in world units (flying vehicles only). */
   maxAltitude?: number;
+  /** Climb rate in world units / second (flying vehicles only).
+   * Default 10. The blimp climbs gently at 4, the jet at 12. */
+  climb?: number;
   /** One line for the shop card. Black text on white, white on black. */
   blurb: string;
   /** Price in City Sol. */
@@ -574,6 +581,278 @@ const FLYING_CARS: VehicleDef[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Catalog — Planes
+// All fly (kind "flying", fly: true) on the SAME flight path as the
+// flying cars (driveParamsFor climb + the driving tick). Propellers are
+// named "prop" so drive() spins them while airborne or moving.
+// ---------------------------------------------------------------------------
+
+const PLANES: VehicleDef[] = [
+  def({
+    id: "fly-prop",
+    name: "Orbit Prop Plane",
+    brand: "Orbit",
+    kind: "flying",
+    fly: true,
+    maxAltitude: 30,
+    climb: 8,
+    blurb: "Small prop plane. Short takeoffs, low ceiling, pure fun.",
+    price: 8000,
+    stats: { speed: 7, accel: 6, handling: 6, seats: 2 },
+    plan: plan({
+      length: 4.2, width: 1.4, bodyY: 0.55, bodyH: 0.45,
+      hoodLen: 0.8, hoodH: 0.1,
+      cabinX: -0.3, cabinLen: 1.2, cabinH: 0.35, cabinW: 1.1,
+      extras: [
+        // High main wing + tail stabilizer + vertical fin.
+        { mat: "paint", x: 0.1, y: 0.92, z: 0, sx: 1.3, sy: 0.06, sz: 5.0 },
+        { mat: "paint", x: -1.9, y: 0.75, z: 0, sx: 0.7, sy: 0.05, sz: 2.2 },
+        { mat: "paint", x: -1.9, y: 1.05, z: 0, sx: 0.6, sy: 0.6, sz: 0.06 },
+        // Propeller: hub + two crossed blades (they spin, see drive()).
+        { mat: "dark", x: 2.14, y: 0.7, z: 0, sx: 0.1, sy: 0.16, sz: 0.16 },
+        { mat: "dark", x: 2.2, y: 0.7, z: 0, sx: 0.05, sy: 1.7, sz: 0.1, name: "prop" },
+        { mat: "dark", x: 2.2, y: 0.7, z: 0, sx: 0.05, sy: 0.1, sz: 1.7, name: "prop" },
+        // Wingtip nav lights: red left, cyan right.
+        { mat: "tail", x: 0.1, y: 0.92, z: 2.5, sx: 0.1, sy: 0.08, sz: 0.1 },
+        { mat: "glow", x: 0.1, y: 0.92, z: -2.5, sx: 0.1, sy: 0.08, sz: 0.1 },
+      ],
+    }),
+    wheels: [
+      { x: 1.3, z: 0, r: 0.16, w: 0.14 },
+      { x: -0.3, z: 0.62, r: 0.22, w: 0.16 },
+      { x: -0.3, z: -0.62, r: 0.22, w: 0.16 },
+    ],
+    colors: ["white", "red", "blue", "gold"],
+    defaultColor: "white",
+  }),
+  def({
+    id: "fly-jet",
+    name: "Orbit Jet",
+    brand: "Orbit",
+    kind: "flying",
+    fly: true,
+    maxAltitude: 60,
+    climb: 12,
+    blurb: "Private jet. The fastest way across the states — ceiling 60.",
+    price: 25000,
+    stats: { speed: 10, accel: 9, handling: 7, seats: 6 },
+    plan: plan({
+      length: 5.2, width: 1.6, bodyY: 0.5, bodyH: 0.42,
+      hoodLen: 1.2, hoodH: 0.08,
+      cabinX: -0.4, cabinLen: 2.2, cabinH: 0.32, cabinW: 1.2,
+      extras: [
+        // Swept low wing + tail stabilizer + vertical fin.
+        { mat: "paint", x: -0.2, y: 0.5, z: 0, sx: 1.5, sy: 0.06, sz: 5.6 },
+        { mat: "paint", x: -2.3, y: 0.7, z: 0, sx: 0.8, sy: 0.05, sz: 2.4 },
+        { mat: "paint", x: -2.3, y: 1.0, z: 0, sx: 0.7, sy: 0.7, sz: 0.06 },
+        // Twin jet engines under the wings + glowing exhausts.
+        { mat: "dark", x: -0.2, y: 0.32, z: 1.3, sx: 1.0, sy: 0.34, sz: 0.34 },
+        { mat: "dark", x: -0.2, y: 0.32, z: -1.3, sx: 1.0, sy: 0.34, sz: 0.34 },
+        { mat: "glow", x: -0.75, y: 0.32, z: 1.3, sx: 0.08, sy: 0.2, sz: 0.2 },
+        { mat: "glow", x: -0.75, y: 0.32, z: -1.3, sx: 0.08, sy: 0.2, sz: 0.2 },
+        // Gold cheatline along the fuselage.
+        { mat: "gold", x: 0, y: 0.62, z: 0, sx: 4.6, sy: 0.05, sz: 1.62 },
+      ],
+    }),
+    wheels: [
+      { x: 1.6, z: 0, r: 0.18, w: 0.14 },
+      { x: -0.4, z: 0.7, r: 0.24, w: 0.18 },
+      { x: -0.4, z: -0.7, r: 0.24, w: 0.18 },
+    ],
+    colors: ["white", "silver", "black", "midnight"],
+    defaultColor: "white",
+  }),
+  def({
+    id: "fly-stunt",
+    name: "Orbit Stunt Plane",
+    brand: "Orbit",
+    kind: "flying",
+    fly: true,
+    maxAltitude: 40,
+    climb: 11,
+    blurb: "Biplane stunt flyer. Tight turns, big wings, tiny cockpit.",
+    price: 12000,
+    stats: { speed: 9, accel: 8, handling: 9, seats: 1 },
+    plan: plan({
+      length: 3.4, width: 1.3, bodyY: 0.55, bodyH: 0.4,
+      hoodLen: 0.7, hoodH: 0.1,
+      cabinX: -0.2, cabinLen: 0.9, cabinH: 0.4, cabinW: 1.0,
+      extras: [
+        // Biplane: big upper wing + lower wing + struts between them.
+        { mat: "paint", x: 0.2, y: 0.85, z: 0, sx: 1.1, sy: 0.06, sz: 4.4 },
+        { mat: "paint", x: 0.2, y: 0.35, z: 0, sx: 1.0, sy: 0.05, sz: 3.6 },
+        { mat: "chrome", x: 0.5, y: 0.6, z: 1.2, sx: 0.06, sy: 0.5, sz: 0.06 },
+        { mat: "chrome", x: 0.5, y: 0.6, z: -1.2, sx: 0.06, sy: 0.5, sz: 0.06 },
+        { mat: "paint", x: -1.5, y: 0.7, z: 0, sx: 0.6, sy: 0.05, sz: 1.8 },
+        { mat: "paint", x: -1.5, y: 0.95, z: 0, sx: 0.5, sy: 0.5, sz: 0.06 },
+        // Dark band + propeller (spins, see drive()).
+        { mat: "dark", x: -1.2, y: 0.7, z: 0, sx: 0.5, sy: 0.06, sz: 1.32 },
+        { mat: "dark", x: 1.74, y: 0.7, z: 0, sx: 0.1, sy: 0.16, sz: 0.16 },
+        { mat: "dark", x: 1.8, y: 0.7, z: 0, sx: 0.05, sy: 1.5, sz: 0.1, name: "prop" },
+        { mat: "dark", x: 1.8, y: 0.7, z: 0, sx: 0.05, sy: 0.1, sz: 1.5, name: "prop" },
+      ],
+    }),
+    wheels: [
+      { x: 0.8, z: 0.55, r: 0.2, w: 0.14 },
+      { x: 0.8, z: -0.55, r: 0.2, w: 0.14 },
+      { x: -1.5, z: 0, r: 0.1, w: 0.1 },
+    ],
+    colors: ["red", "sunset", "lime", "white"],
+    defaultColor: "red",
+  }),
+];
+
+// ---------------------------------------------------------------------------
+// Catalog — Helicopters
+// Main rotor is named "rotor" so drive() spins it while airborne or
+// moving. Skids are the landing gear; the tiny wheels under them are the
+// landing-gear wheels the builder needs (wheelR) and read as gear.
+// ---------------------------------------------------------------------------
+
+const HELICOPTERS: VehicleDef[] = [
+  def({
+    id: "fly-heli",
+    name: "Orbit Heli",
+    brand: "Orbit",
+    kind: "flying",
+    fly: true,
+    maxAltitude: 36,
+    climb: 9,
+    blurb: "The workhorse. Rotor lift, hover anywhere, land anywhere.",
+    price: 15000,
+    stats: { speed: 5, accel: 6, handling: 8, seats: 4 },
+    plan: plan({
+      length: 3.2, width: 1.5, bodyY: 0.7, bodyH: 0.5,
+      hoodLen: 0, hoodH: 0.1,
+      cabinX: 0.3, cabinLen: 1.4, cabinH: 0.4, cabinW: 1.3,
+      extras: [
+        // Tail boom + vertical fin + a small static tail rotor (+).
+        { mat: "paint", x: -2.2, y: 0.85, z: 0, sx: 1.8, sy: 0.18, sz: 0.18 },
+        { mat: "paint", x: -3.0, y: 1.1, z: 0, sx: 0.08, sy: 0.6, sz: 0.4 },
+        { mat: "dark", x: -3.05, y: 1.1, z: 0.22, sx: 0.05, sy: 0.5, sz: 0.05 },
+        { mat: "dark", x: -3.05, y: 1.1, z: 0.22, sx: 0.5, sy: 0.05, sz: 0.05 },
+        // Rotor mast + two crossed main rotor blades (they spin).
+        { mat: "dark", x: 0, y: 1.35, z: 0, sx: 0.12, sy: 0.3, sz: 0.12 },
+        { mat: "dark", x: 0, y: 1.55, z: 0, sx: 0.28, sy: 0.05, sz: 5.4, name: "rotor" },
+        { mat: "dark", x: 0, y: 1.55, z: 0, sx: 5.4, sy: 0.05, sz: 0.28, name: "rotor" },
+        // Skids + struts.
+        { mat: "chrome", x: 0, y: 0.12, z: 0.65, sx: 2.6, sy: 0.06, sz: 0.08 },
+        { mat: "chrome", x: 0, y: 0.12, z: -0.65, sx: 2.6, sy: 0.06, sz: 0.08 },
+        { mat: "dark", x: 0.6, y: 0.3, z: 0.65, sx: 0.08, sy: 0.35, sz: 0.08 },
+        { mat: "dark", x: -0.6, y: 0.3, z: 0.65, sx: 0.08, sy: 0.35, sz: 0.08 },
+        { mat: "dark", x: 0.6, y: 0.3, z: -0.65, sx: 0.08, sy: 0.35, sz: 0.08 },
+        { mat: "dark", x: -0.6, y: 0.3, z: -0.65, sx: 0.08, sy: 0.35, sz: 0.08 },
+      ],
+    }),
+    wheels: [
+      { x: 0.6, z: 0.65, r: 0.12, w: 0.1 },
+      { x: 0.6, z: -0.65, r: 0.12, w: 0.1 },
+      { x: -0.6, z: 0.65, r: 0.12, w: 0.1 },
+      { x: -0.6, z: -0.65, r: 0.12, w: 0.1 },
+    ],
+    colors: ["white", "red", "blue", "black"],
+    defaultColor: "white",
+  }),
+  def({
+    id: "fly-rescue",
+    name: "Orbit Rescue Heli",
+    brand: "Orbit",
+    kind: "flying",
+    fly: true,
+    maxAltitude: 40,
+    climb: 9,
+    blurb: "Search and rescue. Bigger cabin, searchlight, red and white.",
+    price: 20000,
+    stats: { speed: 6, accel: 6, handling: 8, seats: 6 },
+    plan: plan({
+      length: 3.6, width: 1.6, bodyY: 0.72, bodyH: 0.55,
+      hoodLen: 0, hoodH: 0.1,
+      cabinX: 0.2, cabinLen: 1.8, cabinH: 0.45, cabinW: 1.4,
+      extras: [
+        // Tail boom + fin + static tail rotor (+).
+        { mat: "paint", x: -2.5, y: 0.9, z: 0, sx: 1.8, sy: 0.2, sz: 0.2 },
+        { mat: "paint", x: -3.3, y: 1.15, z: 0, sx: 0.08, sy: 0.65, sz: 0.45 },
+        { mat: "dark", x: -3.35, y: 1.15, z: 0.24, sx: 0.05, sy: 0.55, sz: 0.05 },
+        { mat: "dark", x: -3.35, y: 1.15, z: 0.24, sx: 0.55, sy: 0.05, sz: 0.05 },
+        // Bigger rotor mast + crossed blades (they spin).
+        { mat: "dark", x: 0, y: 1.45, z: 0, sx: 0.14, sy: 0.3, sz: 0.14 },
+        { mat: "dark", x: 0, y: 1.65, z: 0, sx: 0.3, sy: 0.05, sz: 6.0, name: "rotor" },
+        { mat: "dark", x: 0, y: 1.65, z: 0, sx: 6.0, sy: 0.05, sz: 0.3, name: "rotor" },
+        // Rescue stripe + nose searchlight.
+        { mat: "white", x: 0, y: 0.9, z: 0, sx: 2.8, sy: 0.06, sz: 1.62 },
+        { mat: "tail", x: -0.5, y: 0.95, z: 0, sx: 1.2, sy: 0.06, sz: 1.62 },
+        { mat: "glow", x: 1.7, y: 0.6, z: 0, sx: 0.15, sy: 0.15, sz: 0.15 },
+        // Skids + struts.
+        { mat: "chrome", x: 0, y: 0.12, z: 0.7, sx: 2.9, sy: 0.06, sz: 0.08 },
+        { mat: "chrome", x: 0, y: 0.12, z: -0.7, sx: 2.9, sy: 0.06, sz: 0.08 },
+        { mat: "dark", x: 0.7, y: 0.3, z: 0.7, sx: 0.08, sy: 0.35, sz: 0.08 },
+        { mat: "dark", x: -0.7, y: 0.3, z: 0.7, sx: 0.08, sy: 0.35, sz: 0.08 },
+        { mat: "dark", x: 0.7, y: 0.3, z: -0.7, sx: 0.08, sy: 0.35, sz: 0.08 },
+        { mat: "dark", x: -0.7, y: 0.3, z: -0.7, sx: 0.08, sy: 0.35, sz: 0.08 },
+      ],
+    }),
+    wheels: [
+      { x: 0.7, z: 0.7, r: 0.12, w: 0.1 },
+      { x: 0.7, z: -0.7, r: 0.12, w: 0.1 },
+      { x: -0.7, z: 0.7, r: 0.12, w: 0.1 },
+      { x: -0.7, z: -0.7, r: 0.12, w: 0.1 },
+    ],
+    colors: ["red", "white", "orange"],
+    defaultColor: "red",
+  }),
+];
+
+// ---------------------------------------------------------------------------
+// Catalog — Airships
+// The blimp is a big, slow, very high flyer. Its envelope is the body
+// slab; the gondola hangs underneath. Two small tail props (named "prop")
+// spin while airborne or moving, like the plane propellers.
+// ---------------------------------------------------------------------------
+
+const AIRSHIPS: VehicleDef[] = [
+  def({
+    id: "fly-blimp",
+    name: "Orbit Blimp",
+    brand: "Orbit",
+    kind: "flying",
+    fly: true,
+    maxAltitude: 70,
+    climb: 4,
+    blurb: "The gentle giant. Slow, huge, and the highest ceiling in the city.",
+    price: 18000,
+    stats: { speed: 2, accel: 3, handling: 4, seats: 8 },
+    plan: plan({
+      length: 6.0, width: 2.0, bodyY: 1.4, bodyH: 1.4,
+      hoodLen: 0, hoodH: 0.1,
+      cabinX: 0, cabinLen: 0, cabinH: 0, cabinW: 0, glassCabin: false,
+      extras: [
+        // Gondola + glass window band underneath the envelope.
+        { mat: "dark", x: 0.3, y: 0.35, z: 0, sx: 1.8, sy: 0.5, sz: 0.9 },
+        { mat: "glass", x: 0.3, y: 0.45, z: 0, sx: 1.4, sy: 0.25, sz: 0.92 },
+        // Gold nose cap + cheatline along the envelope.
+        { mat: "gold", x: 2.95, y: 1.4, z: 0, sx: 0.12, sy: 1.0, sz: 1.6 },
+        { mat: "gold", x: 0, y: 1.4, z: 0, sx: 5.6, sy: 0.08, sz: 2.02 },
+        // Tail fins: top + two side fins.
+        { mat: "paint", x: -2.7, y: 2.3, z: 0, sx: 0.5, sy: 0.9, sz: 0.06 },
+        { mat: "paint", x: -2.7, y: 1.4, z: 0.95, sx: 0.5, sy: 0.06, sz: 0.9 },
+        { mat: "paint", x: -2.7, y: 1.4, z: -0.95, sx: 0.5, sy: 0.06, sz: 0.9 },
+        // Two small tail propellers (they spin, see drive()).
+        { mat: "dark", x: -3.05, y: 1.4, z: 0.6, sx: 0.05, sy: 0.7, sz: 0.1, name: "prop" },
+        { mat: "dark", x: -3.05, y: 1.4, z: -0.6, sx: 0.05, sy: 0.7, sz: 0.1, name: "prop" },
+      ],
+    }),
+    wheels: [
+      { x: 0.9, z: 0.35, r: 0.12, w: 0.1 },
+      { x: 0.9, z: -0.35, r: 0.12, w: 0.1 },
+      { x: -0.3, z: 0.35, r: 0.12, w: 0.1 },
+      { x: -0.3, z: -0.35, r: 0.12, w: 0.1 },
+    ],
+    colors: ["white", "gold", "silver", "blue"],
+    defaultColor: "white",
+  }),
+];
+
+// ---------------------------------------------------------------------------
 // Catalog — Bikes, ATVs, skateboards
 // Bikes: 2 inline wheels, lean into turns (see driveParamsFor lean).
 // ATVs: 4 chunky wheels, off-road bonus.
@@ -988,6 +1267,9 @@ export const VEHICLES: VehicleDef[] = [
   ...CITY_CARS,
   ...TESLAS,
   ...FLYING_CARS,
+  ...PLANES,
+  ...HELICOPTERS,
+  ...AIRSHIPS,
   ...BIKES,
   ...ATVS,
   ...BOARDS,
@@ -1031,6 +1313,21 @@ export const CAR_SHOP: CarShopSection[] = [
     title: "Flying Cars",
     blurb: "Road cars that lift off. Fly takes off or lands, Jump climbs, Down comes down.",
     ids: FLYING_CARS.map((v) => v.id),
+  },
+  {
+    title: "Planes",
+    blurb: "Real aircraft. Fly takes off or lands, Jump climbs, Down comes down.",
+    ids: PLANES.map((v) => v.id),
+  },
+  {
+    title: "Helicopters",
+    blurb: "Rotor lift. Hover anywhere, land anywhere.",
+    ids: HELICOPTERS.map((v) => v.id),
+  },
+  {
+    title: "Airships",
+    blurb: "Slow, huge, and the highest ceiling in the city.",
+    ids: AIRSHIPS.map((v) => v.id),
   },
   {
     title: "Bikes",
@@ -1148,8 +1445,12 @@ export function buildVehicle(id: string, color?: string): Group {
     mesh.position.set(x, y, z);
     mesh.scale.set(sx, sy, sz);
     group.add(mesh);
+    return mesh;
   };
-  const addPart = (part: VehiclePart) => add(partMaterial(part.mat, paint), part.x, part.y, part.z, part.sx, part.sy, part.sz);
+  const addPart = (part: VehiclePart) => {
+    const mesh = add(partMaterial(part.mat, paint), part.x, part.y, part.z, part.sx, part.sy, part.sz);
+    if (part.name) mesh.name = part.name;
+  };
   const half = p.length / 2;
 
   // Main body slab.
@@ -1322,7 +1623,7 @@ export function driveParamsFor(id: string): DriveParams {
     hover: 0.12,
   };
   if (v.fly) {
-    base.climb = 10;
+    base.climb = v.climb ?? 10;
     base.maxAltitude = v.maxAltitude ?? 26;
     base.drag = 1.2;
     base.hover = 0.12;

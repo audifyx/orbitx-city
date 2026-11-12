@@ -267,6 +267,12 @@ const VEHICLE_PRICES = {
   "fly-skyhopper": 6000,
   "fly-aero": 9500,
   "fly-starlifter": 12000,
+  "fly-prop": 8000,
+  "fly-jet": 25000,
+  "fly-stunt": 12000,
+  "fly-heli": 15000,
+  "fly-rescue": 20000,
+  "fly-blimp": 18000,
   "bike-street": 700,
   "bike-sport": 3200,
   "bike-cruiser": 1800,
@@ -440,6 +446,41 @@ const VEHICLE_COLORS = {
     "black",
     "cyan"
   ],
+  "fly-prop": [
+    "white",
+    "red",
+    "blue",
+    "gold"
+  ],
+  "fly-jet": [
+    "white",
+    "silver",
+    "black",
+    "midnight"
+  ],
+  "fly-stunt": [
+    "red",
+    "sunset",
+    "lime",
+    "white"
+  ],
+  "fly-heli": [
+    "white",
+    "red",
+    "blue",
+    "black"
+  ],
+  "fly-rescue": [
+    "red",
+    "white",
+    "orange"
+  ],
+  "fly-blimp": [
+    "white",
+    "gold",
+    "silver",
+    "blue"
+  ],
   "bike-street": [
     "red",
     "black",
@@ -517,6 +558,12 @@ const VEHICLE_DEFAULT_COLORS = {
   "fly-skyhopper": "cyan",
   "fly-aero": "silver",
   "fly-starlifter": "gold",
+  "fly-prop": "white",
+  "fly-jet": "white",
+  "fly-stunt": "red",
+  "fly-heli": "white",
+  "fly-rescue": "red",
+  "fly-blimp": "white",
   "bike-street": "red",
   "bike-sport": "blue",
   "bike-cruiser": "black",
@@ -547,6 +594,12 @@ const VEHICLE_NAMES = {
   "fly-skyhopper": "Skyhopper",
   "fly-aero": "Aero Coupe",
   "fly-starlifter": "Orbit Starlifter",
+  "fly-prop": "Orbit Prop Plane",
+  "fly-jet": "Orbit Jet",
+  "fly-stunt": "Orbit Stunt Plane",
+  "fly-heli": "Orbit Heli",
+  "fly-rescue": "Orbit Rescue Heli",
+  "fly-blimp": "Orbit Blimp",
   "bike-street": "Street Comet 250",
   "bike-sport": "Apex R1 Sportbike",
   "bike-cruiser": "Highway King Cruiser",
