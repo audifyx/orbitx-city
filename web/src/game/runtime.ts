@@ -126,7 +126,7 @@ import {
   universeTravel,
   type UniverseId,
 } from "./multiverse";
-import { bridgeGateFor, DOCKS, stateById } from "./states";
+import { DOCKS } from "./states";
 import { isWater, WATER_SURFACE_Y } from "./water";
 import {
   EMOTES,
@@ -3915,30 +3915,8 @@ export function createRuntime(scene: Scene) {
         triggerHaptic("carHit");
       }
     }
-    // Bridge gates: the car crosses WITH the driver — same landing (x/z/yaw)
-    // as the walking hop in engine tick. Rects are 4 units deep on the travel
-    // axis and a substep moves at most ~1 unit, so the car cannot tunnel
-    // through; landings sit 2 units clear of the opposite gate, so no
-    // ping-pong. Flying cars above the colliders skip it (they fly over).
-    // Boats skip it too: the whole point of the ferry is to SAIL the
-    // strait, not hop it — and the boat's lane never crosses a gate rect.
-    if (!isBoat && car.alt <= 2) {
-      const gate = bridgeGateFor(car.x, car.z);
-      if (gate) {
-        car.x = gate.landing.x;
-        car.z = gate.landing.z;
-        car.yaw = gate.landing.yaw;
-        triggerHaptic("door");
-        // Drivers get the same arrival line the walking hop shows (engine
-        // tick's bridgeNotice) — tick() never runs while driving, so
-        // without this the hop is silent. Wording reused verbatim.
-        say(
-          gate.to === "home"
-            ? "OrbitX City — back home."
-            : `${stateById(gate.to).name} — ${stateById(gate.to).tagline}`,
-        );
-      }
-    }
+    // Bridges are real decks now (states.ts) — the car just drives across
+    // them; there is no gate hop any more.
     const steer = steerSm;
     car.lean += (steer * params.lean - car.lean) * Math.min(1, dt * 8);
     const bob = Math.sin(clock * 5) * 0.05;

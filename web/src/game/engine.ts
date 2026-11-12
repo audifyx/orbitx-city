@@ -23,7 +23,6 @@ import {
 import { buildCity, type City, type Mat, type RailPoint, type ShipPath } from "./city";
 import { MATERIALS } from "./materials";
 import { createRuntime, wantsTouch, type Body, type Runtime } from "./runtime";
-import { bridgeGateFor, stateById } from "./states";
 import { isWater, WATER_SURFACE_Y } from "./water";
 import { createMoveSmoother } from "./movement";
 import { applyDayNightLighting, applyEnvironment, applyGraphicsPreset, upgradeMaterials, type GraphicsQuality } from "./graphics";
@@ -263,11 +262,6 @@ export function createGame(
   // On-foot movement easing (movement.ts): ~0.25s in, ~0.15s out. Module
   // scope in createGame, NOT inside tick().
   const moveSmoother = createMoveSmoother();
-  // Magic-bridge hop state: per-gate cooldown + the arrival line shown in
-  // the status line for 5s after a hop.
-  const lastBridgeHop = new Map<string, number>();
-  let bridgeNotice = "";
-  let bridgeNoticeUntil = 0;
   const nose = new Vector3(1, 0, 0);
   const dir = new Vector3();
   const look = new Vector3();
@@ -415,35 +409,8 @@ export function createGame(
         player.onGround = overlaps(player.x, player.y - 0.04, player.z) || player.y <= 0.001;
       }
     }
-    // Magic bridge hop (states.ts): stepping into a gate rect teleports on
-    // foot to the paired landing, facing onward. Landings sit outside the
-    // far gate rect so a crossing can never immediately re-trigger; the
-    // 1.5s per-gate cooldown is belt-and-braces against double-firing on a
-    // slow frame. Driving players do not hop here — tick() never runs while
-    // driving and the car is owned by runtime.drive (no clean car hook in
-    // engine), so a driver steps out (E) and walks through.
-    // A swimmer never hops: the state-side gate rects sit INSIDE the water
-    // (e.g. west gate b at x -554..-550, z -8..8), so an unguarded hop would
-    // teleport a mid-strait swimmer back home. The home-side gates are on
-    // dry land outside the water and still hop as before.
-    const gate = swimming ? null : bridgeGateFor(player.x, player.z);
-    if (gate) {
-      const gateKey = `${gate.bridgeId}:${gate.side}`;
-      if (clock - (lastBridgeHop.get(gateKey) ?? -10) > 1.5) {
-        lastBridgeHop.set(gateKey, clock);
-        player.x = gate.landing.x;
-        player.z = gate.landing.z;
-        player.y = 0;
-        player.vy = 0;
-        player.yaw = gate.landing.yaw;
-        moveSmoother.reset();
-        bridgeNotice =
-          gate.to === "home"
-            ? "OrbitX City — back home."
-            : `${stateById(gate.to).name} — ${stateById(gate.to).tagline}`;
-        bridgeNoticeUntil = clock + 5;
-      }
-    }
+    // Bridges are real decks now (states.ts) — walking or driving across
+    // them just moves you; there is no gate hop any more.
     if (!runtime.indoors() && (player.y < -4 || player.y > 220)) {
       player.x = spawn.x;
       player.y = spawn.y;
@@ -788,12 +755,8 @@ export function createGame(
     onStatus(text);
   }
 
-  // Status line: for 5s after a bridge hop it shows the arrival line
-  // instead of the coords (the engine cannot reach runtime's say() toast —
-  // say is not on the Runtime return — so the status line is the visible
-  // channel until the client agent exposes it).
+  // Status line: coords (seed included) for the debug line.
   function statusFor(label: string) {
-    if (bridgeNotice && clock < bridgeNoticeUntil) return bridgeNotice;
     return `${label}  ${Math.round(player.x)} ${Math.round(player.y)} ${Math.round(player.z)}  seed ${seed}`;
   }
 

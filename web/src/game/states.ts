@@ -18,9 +18,10 @@
 //   NY  (New York City) .............. center (-800, 0), x -990..-610
 //   LA  (Los Angeles) ................ center (800, 0),  x 610..990
 //   FL  (Florida) .................... center (0, 900),  z 710..1090
-//   420 units of void sit between the home city and each state. The void is
-//   NEVER built out — the magic bridge (a short physical deck + a portal
-//   gate at its end) hops you across it. See BRIDGES below.
+//   420 units of void sit between the home city and each state. The straits
+//   are crossed by REAL drivable bridges (see BRIDGES below): one continuous
+//   physical deck from the home-side road to the state-side road, over the
+//   water — walk it or drive it, no hop, no portal.
 //
 // ECONOMY: City Sol only. No real money, no SOL, no ORBITX, no burn anywhere
 // in this file. Office leases mirror the HQ office prices (City Sol only).
@@ -1379,9 +1380,9 @@ export function buildAllRegions(city: City, seed = 1): void {
 // never fell — they just walked on nothing.
 //
 // This lays the same grass slab under each region (380x380, top y=0) plus a
-// ground strip under the state-side magic-bridge deck, which sticks 60
-// units out of the region into the void. The void between the home slab and
-// the regions stays void by design — the magic bridge hops it.
+// ground strip under the state-side bridge deck, which sticks 60 units out
+// of the region toward home. The strait between the home slab and the region
+// stays open water by design — the real bridge deck spans it (BRIDGES).
 // ---------------------------------------------------------------------------
 
 /** Region rect (world coords) for one state. */
@@ -1396,11 +1397,11 @@ export function buildRegionGround(city: City, state: StateDef): void {
   // top at y=0, so every road, block, plaza and district crossing sits on
   // solid grass.
   pushBox(city, cx, -0.55, cz, REGION_HALF * 2, 1.1, REGION_HALF * 2, "grass");
-  // Ground under the state-side magic-bridge deck: the deck sticks out of
-  // the region into the void, so extend the slab to the deck's outer end
+  // Ground under the state-side bridge deck: the deck sticks out of
+  // the region toward home, so extend the slab to the deck's outer end
   // (2 units of margin). The slab abuts the region slab exactly at the
   // region edge — never overlapping it, so no coplanar top faces.
-  const bridge = BRIDGES.find((b) => b.gates[0].to === state.id);
+  const bridge = BRIDGES.find((b) => b.to === state.id);
   if (!bridge) return;
   const d = bridge.decks[1] as { x0: number; z0: number; x1: number; z1: number };
   const r = regionRect(state.id);
@@ -1419,10 +1420,11 @@ export function buildRegionGround(city: City, state: StateDef): void {
 // ---------------------------------------------------------------------------
 // District bridges — PHYSICAL decks between adjacent districts
 // ---------------------------------------------------------------------------
-// The magic bridges hop you across the 420-unit void between the home city
-// and a state. District bridges are the opposite: a short deck over the
-// grass between two neighbouring districts INSIDE one region. You walk or
-// drive across it normally — there is no portal, no gate, no hop.
+// The inter-state bridges span the straits between the home city and a
+// state (real drivable decks — see BRIDGES). District bridges are the same
+// idea on a smaller scale: a short deck over the grass between two
+// neighbouring districts INSIDE one region. You walk or drive across it
+// normally — there is no portal, no gate, no hop.
 //
 // Placement: each deck sits ON the road that crosses the district boundary,
 // centred on the boundary line, so its ends land on district ground on both
@@ -1452,7 +1454,7 @@ export interface DistrictBridgeDef {
 }
 
 /** Deck asphalt sits 0.015 above the road asphalt so no two top faces are
- * coplanar (the deck crosses roads at the same height as the magic decks). */
+ * coplanar (the deck crosses roads at the same height as the inter-state bridge decks). */
 export const DISTRICT_BRIDGE_DECK_Y = 0.075;
 
 /**
@@ -1541,120 +1543,86 @@ export function buildAllDistrictBridges(city: City): void {
 }
 
 // ---------------------------------------------------------------------------
-// Magic bridges — a short physical deck + a portal gate that hops you across
-// the void. Chosen approach: ZONE-TRIGGERED HOP, not a 420-unit drive.
+// Real bridges — one continuous physical deck per strait, drivable + walkable
 // ---------------------------------------------------------------------------
-// Why: the void between regions is empty by design (no roads, no ground
-// detail, no fog budget for it). A long physical span would be a 420-unit
-// dead drive through nothing; a hop keeps the magic (walk through the gold
-// portal) and is deterministic in this engine — the runtime tick just checks
-// the player's x/z against the gate rects and re-places them at the paired
-// landing. No new physics, no moving platform, no desync. The deck itself IS
-// physical (rails are real colliders, so you cannot fall off the side).
+// 2026-11-12 (water-crossings batch): the old magic bridges were a short
+// deck stub on each shore + a zone-triggered portal hop across the void.
+// That is gone. Each crossing is now one continuous deck from the home-side
+// road to the state-side road: the two 60-unit shore stubs (already built)
+// plus a middle SPAN that closes the gap between them — 300 units west/east,
+// 332 south — over the open water. No gate, no portal, no hop anywhere on
+// the route: you drive or walk the whole way, and nothing re-places you
+// (there is no bridgeGateFor any more; engine tick + car drive lost their
+// hop blocks with it).
+//
+// Cross-section matches the shore stubs exactly (24 wide: asphalt deck at
+// y 0.06, 3-wide sidewalks at ±10.5, gold rails with REAL colliders at
+// ±11.4), so the span abuts the stubs edge-to-edge — no gap, no step, no
+// coplanar overlap. Lamps run down the middle of the whole crossing.
 // ---------------------------------------------------------------------------
-
-export interface BridgeGate {
-  bridgeId: string;
-  side: "a" | "b";
-  /** The state you ARRIVE in when you cross this gate. */
-  to: StateId | "home";
-  minX: number;
-  maxX: number;
-  minZ: number;
-  maxZ: number;
-  landing: { x: number; z: number; yaw: number };
-}
 
 export interface BridgeDef {
   id: string;
   name: string;
+  /** The state this bridge reaches. */
+  to: StateId;
   /** Deck rects: [home-side deck, state-side deck] as x0,z0,x1,z1. */
   decks: [{ x0: number; z0: number; x1: number; z1: number }, { x0: number; z0: number; x1: number; z1: number }];
-  gates: [BridgeGate, BridgeGate];
+  /** The middle span that closes the gap between the two shore decks,
+   *  as x0,z0,x1,z1. It abuts each stub edge-to-edge (west span.x1 === home
+   *  deck.x0, etc.) so the drive is continuous. */
+  span: { x0: number; z0: number; x1: number; z1: number };
 }
 
 /**
- * Gate yaw convention (engine tick: forward = (sin yaw, -cos yaw)):
- * yaw 0 = north (-z), π/2 = east (+x), -π/2 = west (-x), π = south (+z).
- * You keep walking the way you were walking — the landing faces onward.
+ * The three crossings. Span lengths: west/east close -550..-250 / 250..550
+ * (300 units over water + home grass); south closes 318..650 (332 units).
+ * The home slab ends at ±380, so the water strait itself is 230 (west/east)
+ * / 330 (south) — the span covers it plus the grass to the home-side stub.
  */
 export const BRIDGES: BridgeDef[] = [
   {
     id: "bridge-west",
     name: "Empire Span",
+    to: "ny",
     decks: [
       { x0: -250, z0: -12, x1: -190, z1: 12 },
       { x0: -610, z0: -12, x1: -550, z1: 12 },
     ],
-    gates: [
-      {
-        bridgeId: "bridge-west", side: "a", to: "ny",
-        minX: -250, maxX: -246, minZ: -8, maxZ: 8,
-        landing: { x: -556, z: 0, yaw: -Math.PI / 2 },
-      },
-      {
-        bridgeId: "bridge-west", side: "b", to: "home",
-        minX: -554, maxX: -550, minZ: -8, maxZ: 8,
-        landing: { x: -244, z: 0, yaw: Math.PI / 2 },
-      },
-    ],
+    span: { x0: -550, z0: -12, x1: -250, z1: 12 },
   },
   {
     id: "bridge-east",
     name: "Sunset Span",
+    to: "la",
     decks: [
       { x0: 190, z0: -12, x1: 250, z1: 12 },
       { x0: 550, z0: -12, x1: 610, z1: 12 },
     ],
-    gates: [
-      {
-        bridgeId: "bridge-east", side: "a", to: "la",
-        minX: 246, maxX: 250, minZ: -8, maxZ: 8,
-        landing: { x: 556, z: 0, yaw: Math.PI / 2 },
-      },
-      {
-        bridgeId: "bridge-east", side: "b", to: "home",
-        minX: 550, maxX: 554, minZ: -8, maxZ: 8,
-        landing: { x: 244, z: 0, yaw: -Math.PI / 2 },
-      },
-    ],
+    span: { x0: 250, z0: -12, x1: 550, z1: 12 },
   },
   {
     id: "bridge-south",
     name: "Palms Span",
+    to: "fl",
     decks: [
       { x0: -12, z0: 258, x1: 12, z1: 318 },
       { x0: -12, z0: 650, x1: 12, z1: 710 },
     ],
-    gates: [
-      {
-        bridgeId: "bridge-south", side: "a", to: "fl",
-        minX: -8, maxX: 8, minZ: 314, maxZ: 318,
-        landing: { x: 0, z: 656, yaw: Math.PI },
-      },
-      {
-        bridgeId: "bridge-south", side: "b", to: "home",
-        minX: -8, maxX: 8, minZ: 650, maxZ: 654,
-        landing: { x: 0, z: 312, yaw: 0 },
-      },
-    ],
+    span: { x0: -12, z0: 318, x1: 12, z1: 650 },
   },
 ];
 
-export const BRIDGE_GATES: BridgeGate[] = BRIDGES.flatMap((b) => b.gates);
-
-/** Tick hook input: which gate (if any) the player just stepped into. */
-export function bridgeGateFor(x: number, z: number): BridgeGate | null {
-  for (const g of BRIDGE_GATES) {
-    if (x >= g.minX && x <= g.maxX && z >= g.minZ && z <= g.maxZ) return g;
-  }
-  return null;
-}
-
-/** Builds one bridge's physical deck: slab, sidewalks, gold rails, lamps,
- *  gate pillars and the glowing portal slab you walk through. */
+/** Builds one bridge's full crossing: the two shore decks, the middle span
+ *  that joins them into one continuous deck, and the sign naming it.
+ *  No gate, no portal — the bridge IS the crossing. */
 export function buildBridge(city: City, bridge: BridgeDef): void {
-  for (const deck of bridge.decks) {
+  // One deck slab per rect (both shore stubs + the middle span), all with
+  // the same cross-section so they abut edge-to-edge into a single deck:
+  // asphalt at y 0.06 (same top as the roads), sidewalks at ±10.5, gold
+  // rails with real colliders at ±11.4 — you cannot drive or walk off.
+  const rects = [...bridge.decks, bridge.span];
+  for (const deck of rects) {
     const cx = (deck.x0 + deck.x1) / 2;
     const cz = (deck.z0 + deck.z1) / 2;
     const w = deck.x1 - deck.x0;
@@ -1678,46 +1646,50 @@ export function buildBridge(city: City, bridge: BridgeDef): void {
       pushBox(city, rx, 0.7, rz, alongX ? railLen : 0.4, 0.5, alongX ? 0.4 : railLen, "gold");
       pushCol(city, rx, 0.7, rz, alongX ? railLen : 0.4, 1.2, alongX ? 0.4 : railLen);
     }
-    // Lamps down the middle.
-    const steps = Math.floor(railLen / 20);
-    for (let i = -steps; i <= steps; i++) {
-      const lx = alongX ? cx + i * 20 : cx;
-      const lz = alongX ? cz : cz + i * 20;
-      pushBox(city, lx, 1.5, lz, 0.3, 3, 0.3, "black");
-      pushBox(city, lx, 3.1, lz, 0.9, 0.5, 0.9, "gold");
-    }
   }
-  // Gate pillars + the glowing portal slab at each gate's outer edge.
-  for (const gate of bridge.gates) {
-    const gx = (gate.minX + gate.maxX) / 2;
-    const gz = (gate.minZ + gate.maxZ) / 2;
-    const alongX = gate.maxX - gate.minX < gate.maxZ - gate.minZ;
-    const px = alongX ? 0 : 9;
-    const pz = alongX ? 9 : 0;
-    for (const s of [-1, 1]) {
-      pushBox(city, gx + s * px, 3, gz + s * pz, 1.5, 6, 1.5, "gold");
-    }
-    // Portal: a thin glowing slab spanning the deck. Visual only (no
-    // collider) — you walk straight through it and the tick hook hops you.
-    pushBox(
-      city, gx, 2.5, gz,
-      alongX ? 0.4 : 18, 5, alongX ? 18 : 0.4,
-      "cyanhot",
-    );
+  // Home-side apron: a flat asphalt pad (deck height, no rails — the
+  // cross road must stay open) joining the home-side stub to the road it
+  // meets. The stub ends 5 units short of the home N/S road (west/east)
+  // and 12 short of the pier end (south); without the pad the drive
+  // crosses open grass to reach the deck.
+  const apron =
+    bridge.id === "bridge-west" ? { x0: -190, z0: -12, x1: -185, z1: 12 }
+    : bridge.id === "bridge-east" ? { x0: 185, z0: -12, x1: 190, z1: 12 }
+    : { x0: -12, z0: 246, x1: 12, z1: 258 };
+  pushBox(city, (apron.x0 + apron.x1) / 2, 0.06, (apron.z0 + apron.z1) / 2, apron.x1 - apron.x0, 0.12, apron.z1 - apron.z0, "asphalt");
+  // Lamps down the middle, one run along the WHOLE crossing (stubs + span),
+  // every 20 units — a single run, so no lamp is ever duplicated at a joint
+  // and none spills off the deck ends.
+  const allX0 = Math.min(bridge.decks[0].x0, bridge.decks[1].x0, bridge.span.x0);
+  const allX1 = Math.max(bridge.decks[0].x1, bridge.decks[1].x1, bridge.span.x1);
+  const allZ0 = Math.min(bridge.decks[0].z0, bridge.decks[1].z0, bridge.span.z0);
+  const allZ1 = Math.max(bridge.decks[0].z1, bridge.decks[1].z1, bridge.span.z1);
+  const alongX = allX1 - allX0 > allZ1 - allZ0;
+  const len = alongX ? allX1 - allX0 : allZ1 - allZ0;
+  const mcx = (allX0 + allX1) / 2;
+  const mcz = (allZ0 + allZ1) / 2;
+  const lampSteps = Math.floor((len / 2 - 10) / 20);
+  for (let i = -lampSteps; i <= lampSteps; i++) {
+    const o = i * 20;
+    const lx = alongX ? mcx + o : mcx;
+    const lz = alongX ? mcz : mcz + o;
+    pushBox(city, lx, 1.5, lz, 0.3, 3, 0.3, "black");
+    pushBox(city, lx, 3.1, lz, 0.9, 0.5, 0.9, "gold");
   }
-  // A sign board at the home-side gate naming the crossing.
-  const homeGate = bridge.gates[0];
-  const toName = homeGate.to === "home" ? "OrbitX City" : stateById(homeGate.to).name;
+  // A sign board at the home-side end of the span (where a driver enters
+  // the crossing), naming the bridge and where it leads.
+  const signX = alongX ? (bridge.id === "bridge-west" ? bridge.span.x1 - 2 : bridge.span.x0 + 2) : 0;
+  const signZ = alongX ? 0 : bridge.span.z0 + 2;
   city.art.push({
     id: `${bridge.id}-sign`,
-    x: (homeGate.minX + homeGate.maxX) / 2,
+    x: signX,
     y: 4.2,
-    z: (homeGate.minZ + homeGate.maxZ) / 2,
+    z: signZ,
     rotY: bridge.id === "bridge-south" ? 0 : Math.PI / 2,
     w: 14,
     h: 3,
-    lines: [bridge.name.toUpperCase(), `TO ${toName.toUpperCase()}`],
-    sub: "Walk through the portal",
+    lines: [bridge.name.toUpperCase(), `TO ${stateById(bridge.to).name.toUpperCase()}`],
+    sub: "Walk or drive across",
   });
 }
 

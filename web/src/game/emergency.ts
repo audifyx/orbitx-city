@@ -513,8 +513,10 @@ function signArt(
   parts.art.push({ id, x, y, z, rotY, w, h, lines, sub });
 }
 
-/** Four perimeter walls with a door gap on the door face. Walls are 0.6
- * thick, centred on the rect edges, with colliders. */
+/** Four perimeter walls with a door gap on the door face (and, when set,
+ *  the same gap on the pass-through face — a tower astride a road, e.g.
+ *  the west/east district towers on the bridge lines). Walls are 0.6
+ *  thick, centred on the rect edges, with colliders. */
 function shellWalls(
   parts: CityParts,
   x0: number,
@@ -525,14 +527,16 @@ function shellWalls(
   wallMat: Mat,
   door: Face,
   doorW = 3,
+  passThrough?: Face,
 ): void {
   const t = 0.6;
   const cx = x0 + w / 2;
   const cz = z0 + d / 2;
+  const gapOn = (face: Face) => face === door || face === passThrough;
   // North wall (z = z0) and south wall (z = z0 + d).
   for (const z of [z0, z0 + d]) {
     const face: Face = z === z0 ? "n" : "s";
-    if (door === face) {
+    if (gapOn(face)) {
       const leftW = cx - doorW / 2 - x0;
       const rightW = x0 + w - (cx + doorW / 2);
       solidBox(parts, x0 + leftW / 2, h / 2, z, leftW, h, t, wallMat);
@@ -544,7 +548,7 @@ function shellWalls(
   // West wall (x = x0) and east wall (x = x0 + w).
   for (const x of [x0, x0 + w]) {
     const face: Face = x === x0 ? "w" : "e";
-    if (door === face) {
+    if (gapOn(face)) {
       const northD = cz - doorW / 2 - z0;
       const southD = z0 + d - (cz + doorW / 2);
       solidBox(parts, x, h / 2, z0 + northD / 2, t, h, northD, wallMat);
@@ -976,13 +980,20 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
   const cz = z0 + TOWER_D / 2;
   const style = district.style;
   const door = district.door;
+  // 2026-11-12 (water-crossings batch): the west/east towers sit astride
+  // the bridge lines — the road enters through `door` and must leave
+  // through the opposite face, or no car can cross to the states. The
+  // north/harbor towers are not on a bridge line and stay single-door.
+  // The ground-floor lane between the doors is clear by construction
+  // (desk, directory, lift and sofas all sit off the centre line).
+  const passThrough: Face | undefined = district.id === "west" ? "w" : district.id === "east" ? "e" : undefined;
   const suites = districtOfficeSuites(district.id);
   const liftId = `lift-${district.id}`;
   const towerId = `tower-${district.id}`;
 
   // Shell + roof + cornice band in the district accent.
   floorSlab(parts, x0, z0, TOWER_W, TOWER_D, 0.08, style.floor);
-  shellWalls(parts, x0, z0, TOWER_W, TOWER_D, TOWER_H, style.wall, door);
+  shellWalls(parts, x0, z0, TOWER_W, TOWER_D, TOWER_H, style.wall, door, 3, passThrough);
   for (const [bx, bz, bw, bd] of [
     [cx, z0 + 0.3, TOWER_W, 0.5],
     [cx, z0 + TOWER_D - 0.3, TOWER_W, 0.5],
@@ -1076,29 +1087,30 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
   }
 
   // Wallpaper on the tower shell, per floor (audit finish, 2026-11-11).
-  // The ground floor splits around the door gap (shellWalls doorW = 3);
-  // the suite floors get the full walls.
+  // The ground floor splits around the door gap (shellWalls doorW = 3) —
+  // on the door face AND the pass-through face, so no paint hangs across
+  // either opening; the suite floors get the full walls.
   for (const floorY of [0, 8, 12, 16]) {
     const ground = floorY === 0;
-    if (ground && door === "n") {
+    if (ground && (door === "n" || passThrough === "n")) {
       wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, x0 + 1.25, cx - 1.5, floorY, "white", style.accent);
       wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, cx + 1.5, x0 + 26.75, floorY, "white", style.accent);
     } else {
       wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, x0 + 1.25, x0 + 26.75, floorY, "white", style.accent);
     }
-    if (ground && door === "s") {
+    if (ground && (door === "s" || passThrough === "s")) {
       wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, x0 + 1.25, cx - 1.5, floorY, "white", style.accent);
       wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, cx + 1.5, x0 + 26.75, floorY, "white", style.accent);
     } else {
       wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, x0 + 1.25, x0 + 26.75, floorY, "white", style.accent);
     }
-    if (ground && door === "w") {
+    if (ground && (door === "w" || passThrough === "w")) {
       wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, z0 + 1.25, cz - 1.5, floorY, "white", style.accent);
       wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, cz + 1.5, z0 + 26.75, floorY, "white", style.accent);
     } else {
       wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, z0 + 1.25, z0 + 26.75, floorY, "white", style.accent);
     }
-    if (ground && door === "e") {
+    if (ground && (door === "e" || passThrough === "e")) {
       wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, z0 + 1.25, cz - 1.5, floorY, "white", style.accent);
       wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, cz + 1.5, z0 + 26.75, floorY, "white", style.accent);
     } else {
@@ -1154,6 +1166,7 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
     h: TOWER_H,
     style: style.facadeStyle,
     door,
+    passThrough,
     enterable: true,
     hero: false,
     face: door,

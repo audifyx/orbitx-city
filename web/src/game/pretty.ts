@@ -297,7 +297,7 @@ function addWall(
 
 function hollow(facade: Facade, material: MeshStandardMaterial) {
   const group = new Group();
-  const { x, z, w, d, h, door } = facade;
+  const { x, z, w, d, h, door, passThrough } = facade;
   const t = 0.45;
   const cx = x + w / 2;
   const cz = z + d / 2;
@@ -305,6 +305,9 @@ function hollow(facade: Facade, material: MeshStandardMaterial) {
   // Closed real doors (2026-11-12): the door face is a FULL solid wall,
   // and a wood door slab + white frame + gold handle sits in it. Entry is
   // E at the door anchor — the old 4-wide open gap is gone.
+  // The ONE exception is the pass-through face (a building astride a
+  // road/bridge line): it keeps the 4-wide gap so a car can drive through.
+  const gap = 4;
   const doorMat = new MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.65, metalness: 0.1 });
   const frameMat = new MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.4, metalness: 0.15 });
   const handleMat = new MeshStandardMaterial({ color: 0xe0b33a, roughness: 0.3, metalness: 0.7, emissive: 0x6a5208, emissiveIntensity: 0.4 });
@@ -336,22 +339,53 @@ function hollow(facade: Facade, material: MeshStandardMaterial) {
       group.add(handle);
     }
   };
+  // Only the pass-through face gets a gap; the door face stays closed.
+  const gapOn = (face: Face) => passThrough === face;
+  const place = (alongX: boolean) => {
+    const span = alongX ? w : d;
+    const origin = alongX ? x : z;
+    const gap0 = origin + (span - gap) / 2;
+    const gap1 = gap0 + gap;
+    if (alongX) {
+      addWall(group, (x + gap0) / 2, midY, z + t / 2, gap0 - x, h, t, material);
+      addWall(group, (gap1 + x + w) / 2, midY, z + t / 2, x + w - gap1, h, t, material);
+      addWall(group, (gap0 + gap1) / 2, 3 + (h - 3) / 2, z + t / 2, gap, h - 3, t, material);
+    } else {
+      addWall(group, x + t / 2, midY, (z + gap0) / 2, t, h, gap0 - z, material);
+      addWall(group, x + t / 2, midY, (gap1 + z + d) / 2, t, h, z + d - gap1, material);
+      addWall(group, x + t / 2, 3 + (h - 3) / 2, (gap0 + gap1) / 2, t, h - 3, gap, material);
+    }
+  };
   // Every face is a full wall; the door face also gets the closed door.
   if (door === "n") {
     addWall(group, cx, midY, z + t / 2, w, h, t, material);
     addDoor(true);
-  } else addWall(group, cx, midY, z + t / 2, w, h, t, material);
+  } else if (gapOn("n")) place(true);
+  else addWall(group, cx, midY, z + t / 2, w, h, t, material);
   if (door === "s") {
     addWall(group, cx, midY, z + d - t / 2, w, h, t, material);
     addDoor(true);
+  } else if (gapOn("s")) {
+    const gap0 = x + (w - gap) / 2;
+    const gap1 = gap0 + gap;
+    addWall(group, (x + gap0) / 2, midY, z + d - t / 2, gap0 - x, h, t, material);
+    addWall(group, (gap1 + x + w) / 2, midY, z + d - t / 2, x + w - gap1, h, t, material);
+    addWall(group, (gap0 + gap1) / 2, 3 + (h - 3) / 2, z + d - t / 2, gap, h - 3, t, material);
   } else addWall(group, cx, midY, z + d - t / 2, w, h, t, material);
   if (door === "w") {
     addWall(group, x + t / 2, midY, cz, t, h, d, material);
     addDoor(false);
-  } else addWall(group, x + t / 2, midY, cz, t, h, d, material);
+  } else if (gapOn("w")) place(false);
+  else addWall(group, x + t / 2, midY, cz, t, h, d, material);
   if (door === "e") {
     addWall(group, x + w - t / 2, midY, cz, t, h, d, material);
     addDoor(false);
+  } else if (gapOn("e")) {
+    const gap0 = z + (d - gap) / 2;
+    const gap1 = gap0 + gap;
+    addWall(group, x + w - t / 2, midY, (z + gap0) / 2, t, h, gap0 - z, material);
+    addWall(group, x + w - t / 2, midY, (gap1 + z + d) / 2, t, h, z + d - gap1, material);
+    addWall(group, x + w - t / 2, 3 + (h - 3) / 2, (gap0 + gap1) / 2, t, h - 3, gap, material);
   } else addWall(group, x + w - t / 2, midY, cz, t, h, d, material);
   const roofMat = new MeshStandardMaterial({ color: 0x141820, roughness: 0.7, metalness: 0.2 });
   addWall(group, cx, h + 0.2, cz, w, 0.4, d, roofMat);

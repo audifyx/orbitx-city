@@ -68,6 +68,13 @@ export interface Facade {
   h: number;
   style: number;
   door: Face | "";
+  /** Second ground-floor doorway on this face (a through-passage): the
+   *  building sits astride a road — here the bridge line — so a car or a
+   *  walker enters through `door` and leaves through `passThrough` (or
+   *  the reverse). pretty hollow() and the voxel shell builders cut the
+   *  same door gap on both faces; the lane between them must stay clear
+   *  of solid furniture. */
+  passThrough?: Face;
   enterable: boolean;
   hero: boolean;
   /** Street-facing side — where the storefront / porch / awning sits. */
@@ -395,20 +402,46 @@ function wallBox(cols: Collider[], x0: number, y0: number, z0: number, x1: numbe
   cols.push({ minX: x0, maxX: x1, minY: y0, maxY: y1, minZ: z0, maxZ: z1 });
 }
 
-function addWallCols(cols: Collider[], x0: number, y0: number, z0: number, w: number, h: number, d: number, _door: Face) {
+function addWallCols(cols: Collider[], x0: number, y0: number, z0: number, w: number, h: number, d: number, _door: Face, passThrough?: Face) {
   // Closed real doors (2026-11-12): every wall is solid, INCLUDING the
   // door face. The door is a solid panel (addDoorPanel, in shellOpen), not
   // a walk-through gap — the player walks up and presses E at the anchor
   // to spawn inside (runtime stepInside), and E again inside to step out.
   // The old 4-wide gap + lintel split made every building an open arch.
+  // The ONE exception is the pass-through face: a building astride a
+  // road or bridge line (e.g. a tower on a bridge line) keeps a 4-wide
+  // walk-through gap there so a car can drive the bridge route. The
+  // visual wall already leaves that gap open (hole() on passThrough in
+  // the shellOpen sample); the collider must match it, or the car stops
+  // at an invisible wall.
   const top = y0 + h;
+  const gap = 4;
+  const gapOn = (face: Face) => face === passThrough;
   const faces: Face[] = ["n", "s", "e", "w"];
   for (const face of faces) {
+    const alongX = face === "n" || face === "s";
     const zA = face === "s" ? z0 + d - 1 : z0;
     const zB = face === "n" || face === "s" ? zA + 1 : z0 + d;
     const xA = face === "e" ? x0 + w - 1 : x0;
     const xB = face === "n" || face === "s" ? x0 + w : xA + 1;
-    wallBox(cols, xA, y0, face === "w" || face === "e" ? z0 : zA, xB, top, face === "w" || face === "e" ? z0 + d : zB);
+    if (!gapOn(face)) {
+      wallBox(cols, xA, y0, face === "w" || face === "e" ? z0 : zA, xB, top, face === "w" || face === "e" ? z0 + d : zB);
+      continue;
+    }
+    const span = alongX ? w : d - 2;
+    const origin = alongX ? x0 : z0 + 1;
+    const gap0 = origin + (span - gap) / 2;
+    const gap1 = gap0 + gap;
+    const lintel = y0 + 3;
+    if (alongX) {
+      wallBox(cols, x0, y0, zA, gap0, top, zB);
+      wallBox(cols, gap1, y0, zA, x0 + w, top, zB);
+      wallBox(cols, gap0, lintel, zA, gap1, top, zB);
+    } else {
+      wallBox(cols, xA, y0, z0, xB, top, gap0);
+      wallBox(cols, xA, y0, gap1, xB, top, z0 + d);
+      wallBox(cols, xA, lintel, gap0, xB, top, gap1);
+    }
   }
 }
 
@@ -473,6 +506,7 @@ function shellOpen(
   sample: (u: number, ly: number, face: Face, len: number) => Mat | "air",
   roof: Mat,
   door: Face,
+  passThrough?: Face,
 ) {
   visualHide = true;
   emitX(boxes, x0, y0, z0, w, h, (u, ly) => sample(u, ly, "n", w));
@@ -485,7 +519,7 @@ function shellOpen(
   visualHide = false;
   // The closed door panel fills the visual gap hole() left in the wall.
   addDoorPanel(boxes, x0, y0, z0, w, d, door);
-  addWallCols(cols, x0, y0, z0, w, h, d, door);
+  addWallCols(cols, x0, y0, z0, w, h, d, door, passThrough);
   cols.push({
     minX: x0,
     maxX: x0 + w,
@@ -1479,14 +1513,40 @@ function addMonorail(boxes: Box[], cols: Collider[], rail: RailPoint[]) {
 }
 
 function addHills(boxes: Box[], cols: Collider[], rng: Rng) {
+  // Bridge corridors (2026-11-12, water-crossings batch): the three real
+  // bridges cross the home grass ring on their way out — a hill landing
+  // on a bridge line would wall the crossing off (seed 1: one hill sat on
+  // the Palms Span approach). A hill whose footprint (with its berm)
+  // touches a corridor is rotated along the ring until it clears, also
+  // staying clear of hills already placed.
+  const corridors = [
+    { x0: -380, x1: -190, z0: -16, z1: 16 },
+    { x0: 190, x1: 380, z0: -16, z1: 16 },
+    { x0: -16, x1: 16, z0: 250, z1: 380 },
+  ];
+  const placed: Array<{ x0: number; x1: number; z0: number; z1: number }> = [];
+  const blocked = (x: number, z: number, sx: number, sz: number) => {
+    const hx0 = x - (sx + 4) / 2;
+    const hx1 = x + (sx + 4) / 2;
+    const hz0 = z - (sz + 4) / 2;
+    const hz1 = z + (sz + 4) / 2;
+    if (corridors.some((c) => hx0 < c.x1 && hx1 > c.x0 && hz0 < c.z1 && hz1 > c.z0)) return true;
+    return placed.some((p) => hx0 < p.x1 + 4 && hx1 > p.x0 - 4 && hz0 < p.z1 + 4 && hz1 > p.z0 - 4);
+  };
   for (let i = 0; i < 26; i++) {
-    const a = (i / 26) * Math.PI * 2 + rng() * 0.1;
+    let a = (i / 26) * Math.PI * 2 + rng() * 0.1;
     const rad = 280 + rng() * 35;
     const h = 12 + rng() * 26;
-    const x = Math.cos(a) * rad;
-    const z = Math.sin(a) * rad;
     const sx = 22 + rng() * 18;
     const sz = 18 + rng() * 16;
+    let x = Math.cos(a) * rad;
+    let z = Math.sin(a) * rad;
+    for (let tries = 0; tries < 40 && blocked(x, z, sx, sz); tries++) {
+      a += 0.13;
+      x = Math.cos(a) * rad;
+      z = Math.sin(a) * rad;
+    }
+    placed.push({ x0: x - (sx + 4) / 2, x1: x + (sx + 4) / 2, z0: z - (sz + 4) / 2, z1: z + (sz + 4) / 2 });
     put(boxes, x, h / 2 - 1, z, sx, h, sz, "hill");
     cols.push(col(x, h / 2 - 1, z, sx, h, sz));
     // Grassy berm at the foot + trees so the hill reads as terrain from the
@@ -1561,15 +1621,16 @@ function opposite(door: Face, x0: number, z0: number, w: number, d: number, inse
   return { x: cx, z: z0 + inset, rot: 0 };
 }
 
-function cladWalls(boxes: Box[], x0: number, z0: number, w: number, d: number, door: Face) {
+function cladWalls(boxes: Box[], x0: number, z0: number, w: number, d: number, door: Face, passThrough?: Face) {
   const y = 1.85;
   const h = 3.15;
   const t = 0.16;
   const inset = 1.18;
-  if (door !== "n") put(boxes, x0 + w / 2, y, z0 + inset, w - 2.5, h, t, "cream");
-  if (door !== "s") put(boxes, x0 + w / 2, y, z0 + d - inset, w - 2.5, h, t, "cream");
-  if (door !== "w") put(boxes, x0 + inset, y, z0 + d / 2, t, h, d - 2.5, "cream");
-  if (door !== "e") put(boxes, x0 + w - inset, y, z0 + d / 2, t, h, d - 2.5, "cream");
+  const bare = (face: Face) => face === door || face === passThrough;
+  if (!bare("n")) put(boxes, x0 + w / 2, y, z0 + inset, w - 2.5, h, t, "cream");
+  if (!bare("s")) put(boxes, x0 + w / 2, y, z0 + d - inset, w - 2.5, h, t, "cream");
+  if (!bare("w")) put(boxes, x0 + inset, y, z0 + d / 2, t, h, d - 2.5, "cream");
+  if (!bare("e")) put(boxes, x0 + w - inset, y, z0 + d / 2, t, h, d - 2.5, "cream");
 }
 
 // Full-height interior cladding for tall rooms (mall, HQ): the stock
@@ -2054,6 +2115,11 @@ function addVenue(
   door: Face,
   kind: Zone["kind"],
   index = 0,
+  // Second ground-floor doorway on this face (a through-passage): the
+  // venue sits astride a road, so the road passes through it. The voxel
+  // shell + colliders + pretty overlay all cut the same door gap there,
+  // and the furnisher must keep the lane between the doors clear.
+  passThrough?: Face,
 ) {
   const style = kind === "cafe" ? 2 : kind === "hall" ? 3 : kind === "shop" ? 0 : 1;
   // Real-store exteriors: pitched roofs, glass storefronts, awnings, gold
@@ -2095,9 +2161,11 @@ function addVenue(
     w,
     h,
     d,
-    (u, ly, face, len) => (hole(face, door, u, ly, len) ? "air" : facadeSample(style, len)(u, ly)),
+    // A hole on the door face OR the pass-through face (both read as doors).
+    (u, ly, face, len) => (hole(face, door, u, ly, len) || (passThrough !== undefined && hole(face, passThrough, u, ly, len)) ? "air" : facadeSample(style, len)(u, ly)),
     "black",
     door,
+    passThrough,
   );
   addAwning(boxes, x0, z0, w, d, door);
   facades.push({
@@ -2109,6 +2177,7 @@ function addVenue(
     h,
     style,
     door,
+    passThrough,
     enterable: true,
     hero: false,
     face: door,
@@ -2572,10 +2641,13 @@ function furnishDock(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   const { cx, cz } = roomCenter(x0, z0, w, d);
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
   addCeiling(boxes, cols, x0, z0, w, d);
-  cladWalls(boxes, x0, z0, w, d, door);
+  // 2026-11-12 (water-crossings batch): the office is a through-passage
+  // — the pier road enters at the north door and leaves at the south door
+  // — so both walls stay bare and the whole x -2..2 lane stays clear.
+  cladWalls(boxes, x0, z0, w, d, door, "s");
   // Finish: warm walls with cyan striped wallpaper (nautical), beams, a
   // dressed window on the door wall past the sign, a plant by the door.
-  wallpaperWalls(boxes, x0, z0, w, d, door, "warm", "cyan");
+  wallpaperWalls(boxes, x0, z0, w, d, door, "warm", "cyan", "s");
   ceilingBeams(boxes, x0, z0, w, d);
   windowDressing(boxes, cx + 6, 1.9, z0 + 1.1, 0, 2.2, "red");
   pottedPlant(boxes, cols, x0 + 2.4, z0 + 2.4);
@@ -2608,13 +2680,16 @@ function furnishDock(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   put(boxes, x0 + 1.7, 0.8, z0 + d - 2.2, 0.25, 1.6, 0.25, "black");
   put(boxes, x0 + 1.7, 1.4, z0 + d - 2.2, 0.9, 0.2, 0.2, "black");
   cols.push(col(x0 + 1.7, 0.8, z0 + d - 2.2, 0.5, 1.6, 0.5));
-  // Shelf of rolled charts on the south wall + painting above it.
-  put(boxes, cx - 3, 1.0, z0 + d - 2.0, 4.0, 1.8, 0.7, "wood");
-  cols.push(col(cx - 3, 1.0, z0 + d - 2.0, 4.0, 1.8, 0.7));
-  put(boxes, cx - 4.2, 2.0, z0 + d - 2.0, 0.7, 0.25, 0.5, "white");
-  put(boxes, cx - 3.0, 2.0, z0 + d - 2.0, 0.7, 0.25, 0.5, "warm");
-  put(boxes, cx - 1.8, 2.0, z0 + d - 2.0, 0.7, 0.25, 0.5, "white");
-  voxelPainting(boxes, cx - 3, 2.6, z0 + d - 1.35, Math.PI, 2.2, 1.5);
+  // Shelf of rolled charts on the south wall + painting above it. Kept
+  // WEST of the through-lane (x -2..2 must stay clear for the pier road):
+  // centred at cx-4.5, 3 wide, clear of the anchor at x0+1.7 and the
+  // rope coil at z0+d-3.5.
+  put(boxes, cx - 4.5, 1.0, z0 + d - 2.0, 3.0, 1.8, 0.7, "wood");
+  cols.push(col(cx - 4.5, 1.0, z0 + d - 2.0, 3.0, 1.8, 0.7));
+  put(boxes, cx - 5.5, 2.0, z0 + d - 2.0, 0.7, 0.25, 0.5, "white");
+  put(boxes, cx - 4.5, 2.0, z0 + d - 2.0, 0.7, 0.25, 0.5, "warm");
+  put(boxes, cx - 3.5, 2.0, z0 + d - 2.0, 0.7, 0.25, 0.5, "white");
+  voxelPainting(boxes, cx - 4.5, 2.6, z0 + d - 1.35, Math.PI, 2.2, 1.5);
   // Standing lamp by the map table.
   put(boxes, cx + 5.8, 0.9, z0 + 4.5, 0.15, 1.8, 0.15, "gray");
   put(boxes, cx + 5.8, 1.85, z0 + 4.5, 0.5, 0.3, 0.5, "warm");
@@ -3656,7 +3731,7 @@ function addStadium(boxes: Box[], cols: Collider[], x0: number, z0: number, w: n
 // every 3.4 units — so the pattern and the paint share one depth and can
 // never z-fight each other. The door wall is skipped (cladWalls skips it
 // too). All offsets are relative to the room rect.
-function wallpaperWalls(boxes: Box[], x0: number, z0: number, w: number, d: number, door: Face, wall: Mat, accent: Mat) {
+function wallpaperWalls(boxes: Box[], x0: number, z0: number, w: number, d: number, door: Face, wall: Mat, accent: Mat, passThrough?: Face) {
   const { cx, cz } = roomCenter(x0, z0, w, d);
   const PI = 1.30; // paint centre inset
   const BI = 1.33; // band centre inset (proud of paint, behind signs)
@@ -3688,10 +3763,13 @@ function wallpaperWalls(boxes: Box[], x0: number, z0: number, w: number, d: numb
       u += 3.4;
     }
   };
-  if (door !== "n") runX(z0 + PI);
-  if (door !== "s") runX(z0 + d - PI);
-  if (door !== "w") runZ(x0 + PI);
-  if (door !== "e") runZ(x0 + w - PI);
+  // The door wall and (when set) the pass-through wall stay bare — paint
+  // across a doorway would read as a curtain over the opening.
+  const bare = (face: Face) => face === door || face === passThrough;
+  if (!bare("n")) runX(z0 + PI);
+  if (!bare("s")) runX(z0 + d - PI);
+  if (!bare("w")) runZ(x0 + PI);
+  if (!bare("e")) runZ(x0 + w - PI);
   // Wainscot + chair rail + top stripe + baseboard, proud of the paint.
   const bandX = (z: number, y: number, h: number, mat: Mat) => put(boxes, cx, y, z, w - 2.5, h, 0.06, mat);
   const bandZ = (x: number, y: number, h: number, mat: Mat) => put(boxes, x, y, cz, 0.06, h, d - 2.5, mat);
@@ -3702,10 +3780,10 @@ function wallpaperWalls(boxes: Box[], x0: number, z0: number, w: number, d: numb
     b(at, 3.25, 0.18, accent); // top stripe
     b(at, 0.12, 0.18, "black"); // baseboard
   };
-  if (door !== "n") bands(true, z0 + BI);
-  if (door !== "s") bands(true, z0 + d - BI);
-  if (door !== "w") bands(false, x0 + BI);
-  if (door !== "e") bands(false, x0 + w - BI);
+  if (!bare("n")) bands(true, z0 + BI);
+  if (!bare("s")) bands(true, z0 + d - BI);
+  if (!bare("w")) bands(false, x0 + BI);
+  if (!bare("e")) bands(false, x0 + w - BI);
 }
 
 // Two wood ceiling beams just under the ceiling slab (addCeiling's slab
@@ -5065,7 +5143,10 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
   put(boxes, 171, 0.1, 201, 46, 0.06, 4, "stone");
   put(boxes, 182, 0.1, 184, 6, 0.06, 8, "stone");
   addHarbor(boxes, cols);
-  zones.push(addVenue(boxes, cols, -8, 212, 16, 14, 7, "n", "dock"));
+  // Harbor Office (door north, pass-through south): the pier road runs
+  // straight through it to the Palms Span — the office is the pier's
+  // gatehouse, not a dead end (see furnishDock: the lane stays clear).
+  zones.push(addVenue(boxes, cols, -8, 212, 16, 14, 7, "n", "dock", 0, "s"));
 
   const projectZs = [-65, -137, 43, 79];
   projectZs.forEach((z0, index) => {
