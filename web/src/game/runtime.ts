@@ -1313,6 +1313,7 @@ export function createRuntime(scene: Scene) {
     if (zone.kind === "cafe") return "Coffee and a seat";
     if (zone.kind === "bank") return "Demo ledger only";
     if (zone.kind === "garage") return "Hover-cars live here";
+    if (zone.kind === "carshop") return "27 cars · City Sol only";
     if (zone.kind === "arcade") return "Ten cabinets, one high score";
     if (zone.kind === "market") return "Stalls and neon";
     if (zone.kind === "dock") return "Pier is open";
@@ -1332,7 +1333,7 @@ export function createRuntime(scene: Scene) {
 
   function mountSign(zone: Zone) {
     const sub =
-      zone.id.startsWith("home-") ? "Welcome home" : zone.kind === "shop" ? "Use the counter" : zone.kind === "cafe" ? "Pull up a seat" : zone.kind === "hall" ? "Stage is open" : zone.kind === "bank" ? "Savings window" : zone.kind === "garage" ? "Cars on the avenue" : zone.kind === "dock" ? "Clock in here" : "Walk in";
+      zone.id.startsWith("home-") ? "Welcome home" : zone.kind === "shop" ? "Use the counter" : zone.kind === "cafe" ? "Pull up a seat" : zone.kind === "hall" ? "Stage is open" : zone.kind === "bank" ? "Savings window" : zone.kind === "garage" ? "Cars on the avenue" : zone.kind === "carshop" ? "Buy your car here" : zone.kind === "dock" ? "Clock in here" : "Walk in";
     const texture = paint([zoneTitle(zone), zoneLine(zone)], sub);
     const mesh = new Mesh(
       new PlaneGeometry(zone.kind === "hall" ? 5.4 : 4.2, 1.7),
@@ -1563,8 +1564,10 @@ export function createRuntime(scene: Scene) {
     saveWallet(wallet);
   }
 
-  // The player's active car for THIS universe's save, spawned at the
-  // garage-row spot (72, 54). Replaces whatever ambient car sits there.
+  // The player's active car for THIS universe's save, spawned on the
+  // OrbitX Motors forecourt (202, -69) — the bought-car bay. Replaces
+  // whatever sits there. Cars are bought AT the shop, so the bought car
+  // waits at the shop, not at the old garage.
   function activeVehicleEntry(): OwnedVehicle | null {
     // A live rental is the car you drive — it takes the garage-row spot
     // over any owned car, and the owned car comes back when it ends.
@@ -1590,10 +1593,10 @@ export function createRuntime(scene: Scene) {
     } catch {
       return;
     }
-    let x = 72;
-    let z = 54;
-    let yaw = 0;
-    const spot = cars.findIndex((car) => car.id === "garage-row");
+    let x = 202;
+    let z = -69;
+    let yaw = Math.PI / 2;
+    const spot = cars.findIndex((car) => car.id === "shop-row");
     if (spot >= 0) {
       const old = cars[spot];
       root.remove(old.group);
@@ -1605,7 +1608,7 @@ export function createRuntime(scene: Scene) {
     group.position.set(x, 0.12, z);
     group.rotation.y = Math.PI / 2 - yaw;
     root.add(group);
-    cars.push({ id: "garage-row", group, x, z, yaw, lean: 0, vehicleId: entry.id, alt: 0 });
+    cars.push({ id: "shop-row", group, x, z, yaw, lean: 0, vehicleId: entry.id, alt: 0 });
     ownedCarIndex = cars.length - 1;
   }
 
@@ -1725,14 +1728,19 @@ export function createRuntime(scene: Scene) {
       tag.position.set(anchor.x, anchor.y + 2.7, anchor.z);
       root.add(tag);
     }
-    // The current universe's active car spawns at the garage-row spot.
+    // The current universe's active car spawns on the OrbitX Motors
+    // forecourt (shop-row spot).
     spawnActiveCar();
     for (const slot of next.boards) mountBoard(slot);
     for (const item of next.art) mountArt(item);
     buildLiftCabs();
-    const parked = ["black", "white", "cyan", "gold", "red", "silver"];
+    // No stray parked cars: the only car spawned from the city list is the
+    // player's own car (index 0, in their paint). Bought cars spawn on the
+    // OrbitX Motors forecourt via spawnActiveCar above — cars are bought
+    // AT the shop, not picked up off the street.
     next.cars.forEach((spawn, index) => {
-      const group = makeCar(index === 0 ? wallet.car : parked[index % parked.length], index % 3);
+      if (index !== 0) return;
+      const group = makeCar(wallet.car, index % 3);
       group.position.set(spawn.x, 0.12, spawn.z);
       group.rotation.y = Math.PI / 2 - spawn.yaw;
       root.add(group);
@@ -2656,6 +2664,7 @@ export function createRuntime(scene: Scene) {
     if (zone && nearService(body, zone)) {
       if (zone.kind === "shop") panel = "shop";
       else if (zone.kind === "garage") panel = "garage";
+      else if (zone.kind === "carshop") panel = "garage";
       else if (isDeptKind(zone.kind as string)) openEmergency(zone.kind as string, zone.name);
       else if (zone.kind === "arcade") panel = "arcade";
       else if (zone.kind === "project") {
@@ -2682,9 +2691,10 @@ export function createRuntime(scene: Scene) {
         openLift(anchor);
         return;
       }
-      // Hover Garage: E opens the garage panel (buy / select cars), it does
-      // not walk the player into the lobby.
-      if (anchor.kind === "garage") {
+      // Hover Garage / OrbitX Motors: E opens the car-shop panel (buy /
+      // select cars), it does not walk the player into the lobby. The
+      // player still walks in through the door to browse the showroom.
+      if (anchor.kind === "garage" || anchor.kind === "carshop") {
         panel = "garage";
         publish();
         return;
@@ -4191,7 +4201,7 @@ export function createRuntime(scene: Scene) {
       else if (driving && nearGate(body, 0, 8)) prompt = "Press E — hover time trial";
       else if (driving) prompt = "Press E to get out";
       else if (zone && nearService(body, zone)) {
-        prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "garage" ? "Press E to open the garage" : isDeptKind(zone.kind as string) ? `Press E — ${zoneTitle(zone)}` : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zoneTitle(zone);
+        prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "garage" ? "Press E to open the garage" : zone.kind === "carshop" ? "Press E — buy a car at OrbitX Motors" : isDeptKind(zone.kind as string) ? `Press E — ${zoneTitle(zone)}` : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zoneTitle(zone);
       } else if (nearestAnchor(body, 3.3)) {
         // A close door / lift / board beats the race gate, same as
         // interact(): the mall door sits 5.6 units from the street-race
@@ -4203,7 +4213,7 @@ export function createRuntime(scene: Scene) {
         // The tower door announces itself as an office entrance, never as a
         // photo spot — the anchor branch already runs before the photo check
         // below, so the door wins wherever the two ranges meet.
-        prompt = anchor.kind === "garage" ? "Press E — Hover Garage" : anchor.kind === "office" ? "Press E — Enter office" : walkIn ? `Walk in — ${title}` : `Press E — ${title}`;
+        prompt = anchor.kind === "garage" ? "Press E — Hover Garage" : anchor.kind === "carshop" ? "Press E — OrbitX Motors" : anchor.kind === "office" ? "Press E — Enter office" : walkIn ? `Walk in — ${title}` : `Press E — ${title}`;
       } else if (nearGate(body, 0, 8)) prompt = "Press E — street race";
       else if (sprint) prompt = `Sprint! Reach the gold line — ${((performance.now() - sprint.startAt) / 1000).toFixed(1)}s`;
       else if (dance) prompt = `Dance! Press E on the beat — ${dance.hits}/${DANCE_BEATS} hits, beat ${Math.min(dance.beat + 1, DANCE_BEATS)} of ${DANCE_BEATS}`;
@@ -4699,13 +4709,15 @@ export function createRuntime(scene: Scene) {
       body.pitch = 0.08;
       camMode = "first";
     } else if (shot === "garage") {
-      // E-priority probe: the garage door anchor (77.6, 54) is 5.6 units
-      // from the garage-row car (72, 54), inside the car's 7-unit entry
-      // radius. Pressing E here must walk into the garage, not enter the car.
+      // E-priority probe: the OrbitX Motors door anchor (208.6, -69) is
+      // 6.6 units from the shop-row car (202, -69), inside the car's
+      // 7-unit entry radius. Pressing E here must open the car-shop panel,
+      // not enter the car. (The Hover Garage door it used to probe has no
+      // car beside it anymore — bought cars spawn at the shop now.)
       body.flying = false;
-      body.x = 77.6;
+      body.x = 208.6;
       body.y = 0;
-      body.z = 54;
+      body.z = -69;
       body.yaw = Math.PI / 2;
       body.pitch = 0.05;
     } else if (shot === "race" || shot === "race-run") {

@@ -120,7 +120,7 @@ export interface RailPoint {
 export interface Anchor {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "offices" | "lift" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "fire" | "police" | "hospital" | "emergency";
+  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "carshop" | "arcade" | "market" | "dock" | "mall" | "office" | "offices" | "lift" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "fire" | "police" | "hospital" | "emergency";
   x: number;
   y: number;
   z: number;
@@ -175,7 +175,7 @@ export interface CarSpawn {
 export interface Zone {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "fire" | "police" | "hospital" | "emergency";
+  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "carshop" | "arcade" | "market" | "dock" | "mall" | "office" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "fire" | "police" | "hospital" | "emergency";
   slot: number;
   minX: number;
   maxX: number;
@@ -1715,7 +1715,7 @@ function addVenue(
   // Real-store exteriors: pitched roofs, glass storefronts, awnings, gold
   // cornices — the ground floor must read as a shop, not a blank slab.
   const arch: Pick<Facade, "roof" | "roofMat" | "storefront" | "awning" | "cornice"> =
-    kind === "shop" || kind === "arcade"
+    kind === "shop" || kind === "arcade" || kind === "carshop"
       ? { roof: "gable", roofMat: 2, storefront: true, awning: true, cornice: true }
       : kind === "cafe" || kind === "market"
         ? { roof: "hip", roofMat: 1, storefront: true, awning: true, cornice: true }
@@ -1786,6 +1786,7 @@ function addVenue(
   if (kind === "hotel") return furnishHotel(boxes, cols, x0, z0, w, d, door);
   if (kind === "casino") return furnishCasino(boxes, cols, x0, z0, w, d, door);
   if (kind === "nightclub") return furnishNightclub(boxes, cols, x0, z0, w, d, door);
+  if (kind === "carshop") return furnishCarShop(boxes, cols, x0, z0, w, d, door);
   return furnishSpot(boxes, cols, x0, z0, w, d, door, kind);
 }
 
@@ -1955,6 +1956,108 @@ function furnishGarage(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   }
   roomSign("garage", cx - 4, 2.2, z0 + 1.35, 0, 4.2, 1.7, ["HOVER GARAGE", "Lifts · Tires · Tune-ups"], "Hover-cars live here");
   return spotZone("garage", "Hover Garage", x0, z0, w, d, door);
+}
+
+// OrbitX Motors car shop (door west): buy your car AT the shop, not off
+// the street. Three showroom cars inside — two on the north wall, one on
+// a gold-trimmed platform in the south half — a sales counter on the back
+// (east) wall, E at the counter opens the buy panel, a key wall + brochure
+// rack on the south wall, waiting chairs by the door, a gold runner down
+// the drive lane from the door to the counter. The drive lane stays open;
+// the forecourt lot outside (buildCarShopLot) holds three more display
+// cars and the bought-car bay. City Sol only — no real money, no burn.
+function furnishCarShop(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "white");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  // A showroom car: body, cyan underglow, gold belt line, white cabin —
+  // the same build as the garage's hover cars, so the shop reads as the
+  // place cars live. Scenery with colliders, not drivable.
+  const showCar = (hx: number, hz: number, body: Mat, liftY = 0) => {
+    put(boxes, hx, 0.55 + liftY, hz, 3.4, 0.7, 1.9, body);
+    put(boxes, hx, 0.18 + liftY, hz, 3.5, 0.12, 2.0, "cyan");
+    put(boxes, hx, 0.95 + liftY, hz, 3.45, 0.1, 1.95, "gold");
+    put(boxes, hx, 1.05 + liftY, hz, 1.8, 0.55, 1.5, "white");
+    cols.push(col(hx, 0.7 + liftY, hz, 3.6, 1.4, 2.1));
+  };
+  showCar(cx - 5, z0 + 4.6, "gold");
+  showCar(cx + 3.5, z0 + 4.6, "black");
+  // Gold-trimmed display platform in the south half, third car on top.
+  put(boxes, cx, 0.3, cz + 5.5, 4.6, 0.6, 2.6, "stone");
+  cols.push(col(cx, 0.3, cz + 5.5, 4.6, 0.6, 2.6));
+  put(boxes, cx, 0.62, cz + 5.5, 4.8, 0.06, 2.8, "gold");
+  for (const [lx, lz] of [[cx - 2, cz + 4.2], [cx + 2, cz + 4.2], [cx - 2, cz + 6.8], [cx + 2, cz + 6.8]] as Array<[number, number]>) {
+    put(boxes, lx, 0.9, lz, 0.25, 1.8, 0.25, "gold");
+  }
+  showCar(cx, cz + 5.5, "red", 0.5);
+  // Sales counter on the back (east) wall, at the zone service point.
+  const back = opposite(door, x0, z0, w, d, 2.4);
+  put(boxes, back.x, 0.55, back.z, 1.15, 1.05, 7.2, "wood");
+  cols.push(col(back.x, 0.55, back.z, 1.15, 1.05, 7.2));
+  put(boxes, back.x, 1.15, back.z, 1.25, 0.12, 7.4, "stone");
+  put(boxes, back.x, 1.55, back.z, 0.35, 0.55, 0.35, "gold");
+  // Key wall + brochure rack on the south wall, clear of the platform.
+  put(boxes, cx - 3, 1.2, z0 + d - 1.45, 5.4, 1.6, 0.15, "black");
+  for (const [kx, km] of [[cx - 5, "gold"], [cx - 3.4, "cyan"], [cx - 1.8, "red"], [cx - 0.2, "white"]] as Array<[number, Mat]>) {
+    put(boxes, kx, 1.2, z0 + d - 1.6, 0.4, 0.4, 0.1, km);
+  }
+  for (const [bx, bm] of [[cx - 4.6, "cyan"], [cx - 3, "gold"], [cx - 1.4, "white"]] as Array<[number, Mat]>) {
+    put(boxes, bx, 0.7, z0 + d - 1.6, 0.5, 0.5, 0.1, bm);
+  }
+  // Waiting chairs + a plant by the door (south-west corner).
+  for (const [wx, wz] of [[x0 + 3.2, z0 + d - 4.2], [x0 + 3.2, z0 + d - 6.4]] as Array<[number, number]>) {
+    put(boxes, wx, 0.45, wz, 1.1, 0.85, 1.1, "stone");
+    cols.push(col(wx, 0.45, wz, 1.1, 0.85, 1.1));
+    put(boxes, wx, 0.95, wz, 0.9, 0.2, 0.9, "gold");
+  }
+  put(boxes, x0 + 5.6, 0.4, z0 + d - 5.3, 0.6, 0.8, 0.6, "gray");
+  put(boxes, x0 + 5.6, 1.1, z0 + d - 5.3, 0.9, 0.7, 0.9, "leaves");
+  cols.push(col(x0 + 5.6, 0.75, z0 + d - 5.3, 0.9, 1.5, 0.9));
+  // Bay lines for the north-wall cars, gold runner door → counter.
+  for (const bx of [cx - 7, cx - 3, cx + 1.6, cx + 5.6]) {
+    put(boxes, bx, 0.145, z0 + 4.6, 0.15, 0.05, 3.2, "white");
+  }
+  put(boxes, cx, 0.145, cz, 16, 0.05, 2.4, "gold");
+  roomSign("carshop", cx, 2.2, z0 + 1.35, 0, 4.2, 1.7, ["ORBITX MOTORS", "27 cars · City Sol only"], "Buy your car at the shop");
+  return spotZone("carshop", "OrbitX Motors", x0, z0, w, d, door);
+}
+
+// OrbitX Motors forecourt — the lot out front of the shop (west of the
+// 210,-80 building, on the z=-72 road): a stone apron, three display cars
+// in marked bays, a gold outline for the bought-car bay (the runtime
+// "shop-row" car spawns there, nose to the road), and a gold-trimmed
+// pylon at the street corner so the lot reads as a dealership from the
+// road. The display cars are boxes with colliders — scenery, not
+// drivable; the only drivable cars are the player's own car and the
+// bought car on the bay.
+function buildCarShopLot(boxes: Box[], cols: Collider[]) {
+  put(boxes, 197, 0.06, -68, 26, 0.06, 20, "stone");
+  const lotCar = (hx: number, hz: number, body: Mat) => {
+    put(boxes, hx, 0.55, hz, 3.4, 0.7, 1.9, body);
+    put(boxes, hx, 0.18, hz, 3.5, 0.12, 2.0, "cyan");
+    put(boxes, hx, 0.95, hz, 3.45, 0.1, 1.95, "gold");
+    put(boxes, hx, 1.05, hz, 1.8, 0.55, 1.5, "white");
+    cols.push(col(hx, 0.7, hz, 3.6, 1.4, 2.1));
+  };
+  lotCar(190, -62, "gold");
+  lotCar(198, -62, "cyan");
+  lotCar(206, -62, "red");
+  // White bay lines for the three display bays.
+  for (const bx of [187.5, 195.5, 203.5, 208.5]) {
+    put(boxes, bx, 0.1, -62, 0.15, 0.05, 3.4, "white");
+  }
+  // Gold outline around the bought-car bay (202, -69).
+  put(boxes, 202, 0.1, -70.5, 4.6, 0.05, 0.15, "gold");
+  put(boxes, 202, 0.1, -67.5, 4.6, 0.05, 0.15, "gold");
+  put(boxes, 199.7, 0.1, -69, 0.15, 0.05, 3.0, "gold");
+  put(boxes, 204.3, 0.1, -69, 0.15, 0.05, 3.0, "gold");
+  // Pylon at the street corner (186, -76.5): black pillar, gold cap,
+  // cyan band — the lot marker.
+  put(boxes, 186, 1.5, -76.5, 0.7, 3.0, 0.7, "black");
+  cols.push(col(186, 1.5, -76.5, 0.7, 3.0, 0.7));
+  put(boxes, 186, 3.1, -76.5, 0.9, 0.2, 0.9, "gold");
+  put(boxes, 186, 2.2, -76.5, 0.76, 0.5, 0.76, "cyan");
 }
 
 // Neon Arcade (door west): ten cabinets — five down the back wall, three
@@ -2155,6 +2258,7 @@ function furnishSpot(
   const names: Record<string, [string, string, Mat]> = {
     bank: ["OrbitX Bank", "Demo savings window", "stone"],
     garage: ["Hover Garage", "Take a car from the avenue", "black"],
+    carshop: ["OrbitX Motors", "Buy your car at the shop", "black"],
     arcade: ["Neon Arcade", "One cabinet, one high score", "cyan"],
     market: ["Night Market", "Stalls open until late", "warm"],
     dock: ["Harbor Office", "Ships and shift work", "wood"],
@@ -3845,6 +3949,15 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     addVenue(boxes, cols, 43, 79, 22, 22, 10, "w", "hall"),
     addVenue(boxes, cols, 79, -65, 22, 22, 10, "w", "bank"),
     addVenue(boxes, cols, 79, 43, 22, 22, 7, "w", "garage"),
+    // CARSHOP (car-shop builder) — OrbitX Motors dealership. Generous open
+    // lot NE of the city (210,-80), clear on all sides (nearest neighbour
+    // 23.7u, verified against buildCity(1) — see /tmp/lot-check.mjs): no
+    // generated building can land here (outside the bands grid) and the
+    // spacing pass has nothing adjacent to push onto the lot. The
+    // forecourt lot is built by buildCarShopLot below; the door anchor is
+    // in the anchors list below. THIS is the one car-shop hook — merge
+    // conflicts here belong to the car-shop builder.
+    addVenue(boxes, cols, 210, -80, 26, 22, 8, "w", "carshop"),
     addVenue(boxes, cols, 43, 43, 22, 22, 8, "w", "arcade"),
     addVenue(boxes, cols, -29, 79, 22, 22, 7, "n", "market"),
     // New venues: the two empty lots in the reserved west strip (inset 2
@@ -3874,6 +3987,9 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     addVenue(boxes, cols, -28, -190, 17, 20, 8, "s", "casino"),
     addVenue(boxes, cols, 172, 188, 20, 20, 8, "n", "nightclub"),
   ];
+  // CARSHOP: the dealership forecourt (display cars + bought-car bay) for
+  // the venue hooked in above.
+  buildCarShopLot(boxes, cols);
   zones.push(addSunsetPark(boxes, cols, 94, 204, 54, 26));
   zones.push(addStadium(boxes, cols, 148, 204, 46, 26));
   // Stone promenade linking the z=180 road to the gym + park, so the
@@ -3908,6 +4024,10 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     { id: "ads", name: "Billboard desk", kind: "ads", x: 12, y: 0, z: 66, yaw: 0, slot: 0 },
     { id: "bank", name: "OrbitX Bank", kind: "bank", x: 77.6, y: 0, z: -54, yaw: Math.PI / 2, slot: 0 },
     { id: "garage", name: "Hover Garage", kind: "garage", x: 77.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
+    // CARSHOP: OrbitX Motors door (west wall of the 210,-80 lot). E here
+    // opens the car-shop panel (buy / select cars). Anchor: id "carshop",
+    // (208.6, -69), yaw π/2.
+    doorAnchor("carshop", "OrbitX Motors", "carshop", 210, -80, 26, 22, "w"),
     { id: "arcade", name: "Neon Arcade", kind: "arcade", x: 41.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
     { id: "market", name: "Night Market", kind: "market", x: -18, y: 0, z: 77.6, yaw: Math.PI, slot: 0 },
     { id: "dock", name: "Harbor Office", kind: "dock", x: 0, y: 0, z: 210.6, yaw: Math.PI, slot: 0 },
@@ -4014,24 +4134,13 @@ export function buildCity(seed: number): City {
     art: [...art, ...emergencyParts.art],
     lifts: [...mall.lifts, ...office.lifts, ...emergencyParts.lifts],
     cars: [
+      // CARSHOP: no stray parked cars — the only city-list car is the
+      // player's own car (wallet paint) at the north plaza spot. Bought
+      // cars spawn on the OrbitX Motors forecourt via spawnActiveCar
+      // (runtime.ts, "shop-row" at 202, -69); the old 17 stray spawns
+      // (avenues, outer ring, pier, garage-row) are gone, so the shop is
+      // the place to get a car.
       { id: "north", x: 0, z: 46, yaw: 0 },
-      { id: "south", x: 0, z: 84, yaw: Math.PI },
-      { id: "east", x: 36, z: 50, yaw: 0 },
-      { id: "west", x: -36, z: 50, yaw: Math.PI },
-      { id: "east-ave", x: 72, z: 90, yaw: 0 },
-      { id: "west-ave", x: -72, z: -90, yaw: Math.PI },
-      { id: "north-ave", x: 18, z: 72, yaw: Math.PI / 2 },
-      { id: "south-ave", x: -18, z: -72, yaw: -Math.PI / 2 },
-      { id: "garage-row", x: 72, z: 54, yaw: Math.PI },
-      { id: "pier", x: 0, z: 220, yaw: 0 },
-      { id: "outer-north", x: -108, z: 50, yaw: 0 },
-      { id: "outer-south", x: 108, z: -50, yaw: Math.PI },
-      { id: "outer-east", x: 144, z: 18, yaw: 0 },
-      { id: "outer-west", x: -144, z: -18, yaw: Math.PI },
-      { id: "outer-ne", x: 180, z: 54, yaw: Math.PI / 2 },
-      { id: "outer-nw", x: -180, z: -54, yaw: -Math.PI / 2 },
-      { id: "outer-se", x: 54, z: 180, yaw: Math.PI },
-      { id: "outer-sw", x: -54, z: -180, yaw: 0 },
     ],
     citizens: [
       { name: "Rio", color: "sunset", x: 4, z: 20 },

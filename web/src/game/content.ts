@@ -592,6 +592,30 @@ export const STADIUM_FINISH_X = 191;
 export const STADIUM_BASE = 45;
 export const STADIUM_PER_SEC = 2;
 export const STADIUM_MIN = 5;
+// OrbitX Motors car shop — fixed location, same as city.ts (furnishCarShop
+// + buildCarShopLot + the buildCity hook in addFixedPlaces). Keep the two
+// files in sync if the shop ever moves. This is THE place to buy a car:
+// the garage panel opens at the shop door and at the sales counter, in
+// City Sol only (the 27-vehicle catalog in vehicles.ts is untouched). The
+// stray parked cars are gone — the only cars outside a real place are the
+// player's own car (north plaza) and the bought car on the shop forecourt.
+export const CAR_SHOP_PLACE = {
+  id: "carshop",
+  name: "OrbitX Motors",
+  // Showroom building: x0, z0, w, d + door face.
+  x: 210,
+  z: -80,
+  w: 26,
+  d: 22,
+  door: "w",
+  // Door anchor (E opens the buy panel) and the sales-counter service point.
+  anchor: { x: 208.6, z: -69 },
+  service: { x: 231.9, z: -69 },
+  // Forecourt lot out front (display cars + bought-car bay).
+  forecourt: { x0: 184, z0: -78, x1: 210, z1: -58 },
+  // Bought/active car spawn on the forecourt (runtime "shop-row").
+  spawn: { x: 202, z: -69 },
+} as const;
 // ---- Busking, parcel run, car wash (City Sol only, real state changes) ----
 // Busking: a rhythm set at the plaza corner — 6 beats, E on the beat,
 // 5 City Sol for showing up plus 3 per hit. Mirrors the dance floor.

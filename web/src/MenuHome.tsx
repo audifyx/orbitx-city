@@ -85,7 +85,7 @@ export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogi
         <div className="menu-stats" aria-label="City numbers">
           <span><b>12</b> characters</span>
           <span><b>20</b> jobs</span>
-          <span><b>17</b> venues</span>
+          <span><b>18</b> venues</span>
           <span><b>0</b> fees</span>
         </div>
       </div>

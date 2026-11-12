@@ -880,7 +880,7 @@ export default function App() {
                 {panel === "radio" && "Radio"}
                 {panel === "offices" && "OrbitX Tower offices"}
                 {panel === "myprops" && "My Properties"}
-                {panel === "garage" && "Hover Garage"}
+                {panel === "garage" && "OrbitX Motors"}
                 {panel === "multiverse" && "Multiverse"}
                 {panel === "emergency" && "Emergency services"}
                 {panel === "district-offices" && "District offices"}
@@ -1462,6 +1462,7 @@ export default function App() {
                     : "Sign in and pick a universe on the menu to sync cars — until then purchases are saved on this device only."}
                 </p>
                 {garageMsg ? <p>{garageMsg}</p> : null}
+                <p className="muted">Buy your car at OrbitX Motors — walk in, browse the cars on display in the showroom and out on the lot, and buy the one you want. City Sol only.</p>
                 {snap.rental ? (
                   <p>
                     Rented: <b>{getVehicle(snap.rental.id)?.name ?? snap.rental.id}</b> — {snap.rental.daysLeft} day{snap.rental.daysLeft === 1 ? "" : "s"} left.
@@ -2046,6 +2047,7 @@ const MAP_LABELS: Record<string, string> = {
   cafe: "Cafe",
   bank: "Bank",
   garage: "Garage",
+  carshop: "Motors",
   arcade: "Arcade",
   market: "Market",
   hall: "Hall",
@@ -2063,7 +2065,7 @@ const MAP_LABELS: Record<string, string> = {
 
 // Label priority: the plaza core gets its preferred spot first; the z=54
 // row (Shop/Cafe/Arcade/Garage) is the crowded one, so the order matters.
-const MAP_LABEL_PRIORITY = ["shop", "cafe", "hall", "dock", "bank", "market", "arcade", "garage", "cinema", "library", "gym", "park", "stadium", "museum", "casino", "nightclub", "hotel"];
+const MAP_LABEL_PRIORITY = ["shop", "cafe", "hall", "dock", "bank", "market", "arcade", "garage", "carshop", "cinema", "library", "gym", "park", "stadium", "museum", "casino", "nightclub", "hotel"];
 
 // Job board — single source of truth for the base pay the server pays
 // (api/city.js JOBS, plus the +5%-per-streak scaling in scaledPay).
@@ -2445,7 +2447,7 @@ function Phone({ snap, rt, onLogout }: { snap: Snap; rt: Runtime | null; onLogou
       <h3>City tour</h3>
       <span>{snap.mission >= 6 ? "Tour complete." : `Stop ${snap.mission + 1} of 6 is marked on the objective.`}</span>
       <h3>Places</h3>
-      {snap.districts.filter((place) => ["shop", "cafe", "hall", "bank", "garage", "arcade", "market", "dock", "project-0"].includes(place.id)).map((place) => (
+      {snap.districts.filter((place) => ["shop", "cafe", "hall", "bank", "garage", "carshop", "arcade", "market", "dock", "project-0"].includes(place.id)).map((place) => (
         <article key={place.id}>
           <div><b>{place.name}</b></div>
           <button type="button" onClick={() => { rt?.travel(place.id); }}>Go</button>
