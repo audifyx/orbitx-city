@@ -878,6 +878,7 @@ export function createRuntime(scene: Scene) {
   // the Motors forecourt / not out of a garage). Only then does its
   // parked copy hide — otherwise every owned car parks, active or not,
   // so two owned cars always means two cars in the bay.
+  let activeCarHomeId: string | null = null;
   // Universe picked on the menu (servers 1-5). Persisted so a reload keeps
   // the pick; the server id rides on every per-server op.
   let currentUniverse: number | null = (() => {
