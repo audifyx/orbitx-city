@@ -644,11 +644,6 @@ export default function App() {
           </span>
         </div>
       )}
-      {/* Minimap lives outside the HUD so it can be dragged anywhere and
-          does not bloat the HUD block. Same visibility as the HUD. */}
-      {!menu && !snap.hideHud && (
-        <Minimap me={snap.me} people={snap.people} seed={seed} touch={snap.touch} />
-      )}
       {!menu && snap.prompt && !snap.hideHud ? <p className="prompt">{snap.prompt}</p> : null}
       {!menu && !snap.hideHud && (
         <div className="actions">
@@ -703,6 +698,13 @@ export default function App() {
           </div>
         </div>
       ) : null}
+      {/* Minimap lives outside the HUD so it can be dragged anywhere and
+          does not bloat the HUD block. Same visibility as the HUD. It is
+          rendered after the touch controls so that, at the same z-index,
+          it paints above the stick / pad-buttons and stays draggable. */}
+      {!menu && !snap.hideHud && (
+        <Minimap me={snap.me} people={snap.people} seed={seed} />
+      )}
       {panel ? (
         <section className="panel-wrap" id="panel">
           <div className="panel" role="dialog">
@@ -1845,22 +1847,34 @@ const MINIMAP_STORAGE_KEY = "orbitx-minimap-pos";
 
 type MinimapPos = { x: number; y: number };
 
+// The canvas is 132px plus a 1px border on each side, so the wrapper's
+// outer box is 134px — clamp/dock against that, or the border pokes off
+// the edge when the map sits at the far right / bottom.
+const MINIMAP_OUTER = MINIMAP_SIZE + 2;
+
 function clampMinimapPos(pos: MinimapPos): MinimapPos {
   return {
-    x: Math.max(0, Math.min(pos.x, window.innerWidth - MINIMAP_SIZE)),
-    y: Math.max(0, Math.min(pos.y, window.innerHeight - MINIMAP_SIZE)),
+    x: Math.max(0, Math.min(pos.x, window.innerWidth - MINIMAP_OUTER)),
+    y: Math.max(0, Math.min(pos.y, window.innerHeight - MINIMAP_OUTER)),
   };
 }
 
-function minimapDefaultPos(touch: boolean): MinimapPos {
-  const x = Math.max(0, window.innerWidth - MINIMAP_SIZE - 10);
-  // Touch: bottom-right, above the pad-buttons (~176px tall). Desktop:
-  // bottom-right corner, nothing else lives there.
-  const bottom = touch ? 190 : 12;
-  return { x, y: Math.max(0, window.innerHeight - MINIMAP_SIZE - bottom) };
+// Same touch check the runtime uses — read directly, not from snap.touch:
+// snap.touch starts false and flips to true after the world starts, so a
+// prop would pick the desktop default on a phone at mount time.
+function isTouchDevice(): boolean {
+  return window.matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
 }
 
-function loadMinimapPos(touch: boolean): MinimapPos {
+function minimapDefaultPos(): MinimapPos {
+  const x = Math.max(0, window.innerWidth - MINIMAP_OUTER - 10);
+  // Touch: bottom-right, above the pad-buttons (~176px tall). Desktop:
+  // bottom-right corner, nothing else lives there.
+  const bottom = isTouchDevice() ? 190 : 12;
+  return { x, y: Math.max(0, window.innerHeight - MINIMAP_OUTER - bottom) };
+}
+
+function loadMinimapPos(): MinimapPos {
   try {
     const raw = localStorage.getItem(MINIMAP_STORAGE_KEY);
     if (raw) {
@@ -1872,13 +1886,13 @@ function loadMinimapPos(touch: boolean): MinimapPos {
   } catch {
     // Corrupt or unavailable storage — fall through to the default spot.
   }
-  return minimapDefaultPos(touch);
+  return minimapDefaultPos();
 }
 
-function Minimap({ me, people, seed, touch }: { me: Snap["me"]; people: Snap["people"]; seed: number; touch: boolean }) {
+function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"]; seed: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
-  const [pos, setPos] = useState<MinimapPos>(() => loadMinimapPos(touch));
+  const [pos, setPos] = useState<MinimapPos>(() => loadMinimapPos());
   const posRef = useRef(pos);
   const [dragging, setDragging] = useState(false);
   const model = useMemo(() => cityMapModel(seed), [seed]);
