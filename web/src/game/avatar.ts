@@ -1,4 +1,5 @@
 import { BoxGeometry, Group, Mesh, MeshStandardMaterial } from "three";
+import { CHAIN_COLORS, OUTFIT_DEFS, SHOE_COLORS, WATCH_COLORS, type WardrobeSlots } from "./wardrobe";
 
 export interface Look {
   id: string;
@@ -173,7 +174,7 @@ function add(group: Group, color: string, x: number, y: number, z: number, sx: n
 export function dressPerson(
   group: Group,
   look: Look,
-  shop: { color: string; hat: string; owned: string[]; trustOwned: boolean; clothes?: Clothes },
+  shop: { color: string; hat: string; owned: string[]; trustOwned: boolean; clothes?: Clothes; wardrobe?: WardrobeSlots },
 ) {
   // Remember which character this group is dressed as, so the walker
   // (movement.ts) can hang character-specific arm details on the pivots.
@@ -187,16 +188,22 @@ export function dressPerson(
     group.remove(child);
   }
   const bought = shop.trustOwned ? shop.owned.includes(`color-${shop.color}`) : shop.color !== "white" && !!SHOP_COLORS[shop.color];
-  const outfit = bought && SHOP_COLORS[shop.color] ? SHOP_COLORS[shop.color] : look.colors.outfit;
+  // Wardrobe outfit wins over the shop colour suit, which wins over the
+  // character's own outfit. A wardrobe outfit also carries a silhouette
+  // (hoodie / leather zip / suit tie) rendered below the torso.
+  const outfitDef = shop.wardrobe?.outfit ? OUTFIT_DEFS[shop.wardrobe.outfit] : undefined;
+  const outfit = outfitDef ? outfitDef.color : bought && SHOP_COLORS[shop.color] ? SHOP_COLORS[shop.color] : look.colors.outfit;
   const accent = look.colors.accent;
   const skin = look.colors.skin;
   const hair = look.colors.hair;
   // Clothes override the base look: an outfit wins over shirt + pants;
   // otherwise the shirt recolours the torso and the pants the legs.
   // (The walker takes the legs-box material as the leg colour, so pants
-  // flow into the swinging legs for free.)
-  const outfitStyle = clothes.outfit ? OUTFIT_STYLES[clothes.outfit] : undefined;
-  const shirtStyle = !outfitStyle && clothes.shirt ? SHIRT_STYLES[clothes.shirt] : undefined;
+  // flow into the swinging legs for free.) A wardrobe outfit wins over
+  // the clothes outfit outright — it already set `outfit` above — so
+  // the clothes layers only apply when no wardrobe outfit is worn.
+  const outfitStyle = !outfitDef && clothes.outfit ? OUTFIT_STYLES[clothes.outfit] : undefined;
+  const shirtStyle = !outfitDef && !outfitStyle && clothes.shirt ? SHIRT_STYLES[clothes.shirt] : undefined;
   const torsoColor = outfitStyle?.torso ?? shirtStyle?.color ?? outfit;
   const legsColor = outfitStyle
     ? outfitStyle.legs === "skin"
@@ -209,6 +216,13 @@ export function dressPerson(
   // the look's accent.
   const chestStripe = outfitStyle?.tie ?? (shirtStyle?.layer === "jacket" ? shirtStyle.inner ?? accent : accent);
   add(group, legsColor, 0, 0.28, 0, 0.5, 0.42, 0.34);
+  // Wardrobe shoes: two visible shoes at the feet (the legs box above
+  // ends at y 0.07; the shoes sit on the ground under it).
+  if (shop.wardrobe?.shoes && SHOE_COLORS[shop.wardrobe.shoes]) {
+    const shoeColor = SHOE_COLORS[shop.wardrobe.shoes];
+    add(group, shoeColor, -0.13, 0.05, 0.03, 0.22, 0.1, 0.32);
+    add(group, shoeColor, 0.13, 0.05, 0.03, 0.22, 0.1, 0.32);
+  }
   add(group, torsoColor, 0, 0.9, 0, 0.66, 0.78, 0.4);
   add(group, chestStripe, 0, 1.05, 0.16, 0.28, 0.42, 0.08);
   // Hoodie hood, behind the head (same shape as the "hood" hat branch).
@@ -219,6 +233,18 @@ export function dressPerson(
   // Dress skirt, over the top of the legs.
   if (outfitStyle?.skirt) {
     add(group, outfitStyle.torso, 0, 0.52, 0, 0.72, 0.38, 0.46);
+  }
+  // Outfit silhouette extras — only a wardrobe outfit has one.
+  if (outfitDef?.style === "hoodie") {
+    // Hood bunched behind the neck + a hood rim over the shoulders.
+    add(group, outfit, 0, 1.72, -0.12, 0.52, 0.4, 0.3);
+    add(group, outfit, 0, 1.94, 0, 0.5, 0.14, 0.48);
+  } else if (outfitDef?.style === "leather") {
+    // Gold zipper down the chest front.
+    add(group, "#e0b33a", 0, 0.92, 0.21, 0.06, 0.62, 0.03);
+  } else if (outfitDef?.style === "suit") {
+    // Gold tie bar down the chest front.
+    add(group, "#e0b33a", 0, 1.02, 0.21, 0.1, 0.5, 0.03);
   }
   add(group, skin, 0, 1.58, 0, 0.4, 0.4, 0.4);
   // Cupsy has NO face (user decision 2026-11-11 — faceless by design).
@@ -233,8 +259,29 @@ export function dressPerson(
     add(group, hair, 0, 1.42, 0.2, 0.26, 0.14, 0.08);
     add(group, hair, 0, 1.5, 0.2, 0.2, 0.05, 0.05);
   }
-  const style = look.accessories.hair;
-  if (style === "spiky") {
+  // A bought hairstyle overrides the character's own hair. New wardrobe
+  // styles (afro / dreads / bun / fade) get their own branches; the rest
+  // reuse the character-hair branches below.
+  const style = shop.wardrobe?.hair || look.accessories.hair;
+  if (style === "afro") {
+    add(group, hair, 0, 1.86, 0, 0.56, 0.3, 0.52);
+    add(group, hair, -0.26, 1.76, 0, 0.18, 0.2, 0.2);
+    add(group, hair, 0.26, 1.76, 0, 0.18, 0.2, 0.2);
+  } else if (style === "dreads") {
+    add(group, hair, 0, 1.82, 0, 0.44, 0.16, 0.44);
+    add(group, hair, -0.2, 1.4, -0.04, 0.1, 0.5, 0.12);
+    add(group, hair, 0.2, 1.4, -0.04, 0.1, 0.5, 0.12);
+    add(group, hair, 0, 1.4, -0.2, 0.12, 0.5, 0.1);
+    add(group, hair, -0.1, 1.45, 0.14, 0.09, 0.4, 0.09);
+    add(group, hair, 0.1, 1.45, 0.14, 0.09, 0.4, 0.09);
+  } else if (style === "bun") {
+    add(group, hair, 0, 1.8, 0, 0.42, 0.1, 0.42);
+    add(group, hair, 0, 1.98, 0, 0.16, 0.18, 0.16);
+  } else if (style === "fade") {
+    // Skin fade: close on the sides, a crisp flat top.
+    add(group, hair, 0, 1.8, 0, 0.42, 0.1, 0.42);
+    add(group, hair, 0, 1.88, 0, 0.3, 0.08, 0.3);
+  } else if (style === "spiky") {
     add(group, hair, 0, 1.9, 0, 0.12, 0.28, 0.12);
     add(group, hair, -0.14, 1.84, 0, 0.1, 0.22, 0.1, 0.4);
     add(group, hair, 0.14, 1.84, 0, 0.1, 0.22, 0.1, -0.4);
@@ -299,7 +346,34 @@ export function dressPerson(
     add(group, "#d8a04a", 0, 1.78, 0.24, 0.4, 0.06, 0.06);
   }
   const extra = look.accessories.extra;
-  if (extra === "glasses") {
+  // Wardrobe glasses replace the character's own glasses/shades/visor;
+  // the wardrobe chain (rendered in its own block below) replaces the
+  // character's own chain. Other extras (headset/cup/mic/mask) are
+  // untouched by the wardrobe.
+  const wGlasses = shop.wardrobe?.glasses || "";
+  const wChain = shop.wardrobe?.chain || "";
+  if (wGlasses === "shades") {
+    add(group, "#12141a", 0, 1.6, 0.2, 0.34, 0.1, 0.06);
+  } else if (wGlasses === "readers") {
+    add(group, "#22262e", -0.1, 1.6, 0.18, 0.1, 0.06, 0.03);
+    add(group, "#22262e", 0.1, 1.6, 0.18, 0.1, 0.06, 0.03);
+    add(group, "#22262e", 0, 1.6, 0.18, 0.05, 0.02, 0.02);
+    add(group, "#22262e", 0, 1.66, 0.18, 0.26, 0.02, 0.02);
+    add(group, "#22262e", -0.16, 1.6, 0.18, 0.02, 0.08, 0.02);
+    add(group, "#22262e", 0.16, 1.6, 0.18, 0.02, 0.08, 0.02);
+  } else if (wGlasses === "round") {
+    // Gold-rim rounds with light lenses.
+    add(group, "#e0b33a", -0.1, 1.6, 0.18, 0.13, 0.1, 0.03);
+    add(group, "#e0b33a", 0.1, 1.6, 0.18, 0.13, 0.1, 0.03);
+    add(group, "#dbe7ef", -0.1, 1.6, 0.19, 0.09, 0.07, 0.02);
+    add(group, "#dbe7ef", 0.1, 1.6, 0.19, 0.09, 0.07, 0.02);
+    add(group, "#e0b33a", 0, 1.6, 0.18, 0.05, 0.02, 0.02);
+  } else if (wGlasses === "visor") {
+    const stripes = ["#ff3b30", "#ff9500", "#34c759", "#0a84ff", "#af52de"];
+    stripes.forEach((color, i) => {
+      add(group, color, -0.16 + i * 0.08, 1.6, 0.2, 0.08, 0.1, 0.06);
+    });
+  } else if (extra === "glasses") {
     if (look.id === "cobie") {
       // Cobie: dark Bitcoin shades from his avatar art (not light lenses).
       add(group, "#12141a", -0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
@@ -329,16 +403,6 @@ export function dressPerson(
     }
   } else if (extra === "shades") {
     add(group, "#12141a", 0, 1.6, 0.2, 0.34, 0.1, 0.06);
-  } else if (extra === "chain") {
-    if (look.id === "frank") {
-      // Frank: beaded necklaces, light blue + red (his public avatar).
-      // Ansem's gold chain stays gold — this is a Frank-specific branch,
-      // not a recolor of the chain.
-      add(group, "#7ec8e3", 0, 1.26, 0.18, 0.36, 0.06, 0.08);
-      add(group, "#c1272d", 0, 1.19, 0.18, 0.36, 0.06, 0.08);
-    } else {
-      add(group, "#e0b33a", 0, 1.22, 0.18, 0.36, 0.08, 0.08);
-    }
   } else if (extra === "headset") {
     add(group, accent, 0, 1.7, 0, 0.5, 0.06, 0.12);
     add(group, "#22262e", -0.22, 1.58, 0, 0.1, 0.16, 0.12);
@@ -360,8 +424,41 @@ export function dressPerson(
   }
   // Sunglasses from the clothes shop: dark shades across the eyes.
   // Skipped when the look already wears glasses/shades of its own.
-  if (clothes.glasses === "sunglasses" && extra !== "glasses" && extra !== "shades") {
+  if (clothes.glasses === "sunglasses" && !shop.wardrobe?.glasses && extra !== "glasses" && extra !== "shades") {
     add(group, "#12141a", 0, 1.6, 0.2, 0.34, 0.1, 0.06);
+  }
+  // Wardrobe chain (neck) — its own slot, so it renders alongside
+  // glasses/headset/etc. It replaces the character's own chain; Frank's
+  // beaded necklaces stay when no wardrobe chain is worn.
+  if (wChain) {
+    if (wChain === "beads") {
+      add(group, "#7ec8e3", 0, 1.26, 0.18, 0.36, 0.06, 0.08);
+      add(group, "#c1272d", 0, 1.19, 0.18, 0.36, 0.06, 0.08);
+    } else {
+      add(group, CHAIN_COLORS[wChain] ?? "#e0b33a", 0, 1.22, 0.18, 0.36, 0.08, 0.08);
+      if (wChain === "diamond") {
+        // Diamond pendant hanging on the chest.
+        add(group, "#ffffff", 0, 1.12, 0.2, 0.1, 0.12, 0.05);
+      }
+    }
+  } else if (extra === "chain") {
+    if (look.id === "frank") {
+      // Frank: beaded necklaces, light blue + red (his public avatar).
+      // Ansem's gold chain stays gold — this is a Frank-specific branch,
+      // not a recolor of the chain.
+      add(group, "#7ec8e3", 0, 1.26, 0.18, 0.36, 0.06, 0.08);
+      add(group, "#c1272d", 0, 1.19, 0.18, 0.36, 0.06, 0.08);
+    } else {
+      add(group, "#e0b33a", 0, 1.22, 0.18, 0.36, 0.08, 0.08);
+    }
+  }
+  // Wardrobe watch — a band on the left wrist. The walker's left arm
+  // pivot sits at (-0.38, 1.24) and the limb hangs to ~0.67, so the
+  // wrist rests at 0.72. The band is group-space, not arm-attached:
+  // it sits at the rest position and is visible in every camera.
+  if (shop.wardrobe?.watch && WATCH_COLORS[shop.wardrobe.watch]) {
+    add(group, WATCH_COLORS[shop.wardrobe.watch], -0.38, 0.72, 0, 0.22, 0.09, 0.22);
+    add(group, "#f4f6fa", -0.38, 0.72, 0.1, 0.1, 0.05, 0.02);
   }
   // Threadguy: the mic is his job (Spaces host) — his extra is the
   // rainbow visor, so the mic branch above never fires for him.
