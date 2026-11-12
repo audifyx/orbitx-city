@@ -1516,6 +1516,7 @@ function publicPlayer(player) {
     bestRace: player.bestRace || 0,
     bestHover: player.bestHover || 0,
     holder: !!player.holder,
+    food: foodPublic(readFood(player)),
     wallet: player.wallet || "",
     daily: ensureDaily(player),
     email: player.email || "",
@@ -3160,6 +3161,277 @@ async function photoOp(player, save, body) {
   return { ok: true, message: `Photo of ${place} — paid ${PHOTO_PAY} City Sol.`, paid: PHOTO_PAY, place, me: publicPlayer(save) };
 }
 
+// --- FOOD: cooking, restaurants, gym, hunger (City Sol only) ------------
+// Everything here is in-game currency. No real SOL, no burn, no wallet.
+//
+// STORAGE (no DDL): food state lives inside the existing `missions`
+// JSON column under the reserved key "__food" — mission code only ever
+// reads save.missions[mission.id] for known mission ids, so the key is
+// inert there. Shape:
+//   { hunger 0-100, stamina 0-100, lastTick ms, lastWorkout ms,
+//     staminaAt ms, pantry {foodId: qty}, meals {recipeId: qty},
+//     fedUntil ms }
+//
+// HUNGER CONTRACT (shared with the grocery piece, Piece 2): the grocery
+// store sells the GROCERY_FOODS ids below and tops up `pantry`; this
+// piece only READS the pantry (cooking/eating) and owns the `hunger` /
+// `stamina` values and their effects. If Piece 2 lands first, it must
+// write hunger into this same __food blob (hunger 0-100); if it writes
+// a top-level save.hunger instead, the coordinator should move it here.
+// A cooked meal restores FAR more hunger than a raw snack (snack +6..12,
+// cooked meal +20..45). Hunger drains 1 point per 3 minutes of real
+// time (lazy decay on every food op); stamina drains 1 per 12h without
+// a workout. New players start with a move-in pantry (STARTER_PANTRY)
+// so the kitchen works before the first grocery run.
+const FOOD_KEY = "__food";
+const HUNGER_MAX = 100;
+const STAMINA_MAX = 100;
+const HUNGER_START = 80;
+const STAMINA_START = 20;
+const HUNGER_DECAY_MS = 3 * 60 * 1000; // 1 hunger per 3 minutes
+const STAMINA_DECAY_MS = 12 * 60 * 60 * 1000; // 1 stamina per 12h idle
+const WORKOUT_COST = 5;
+const WORKOUT_GAIN = 2;
+const WORKOUT_COOLDOWN_MS = 30 * 1000;
+const FED_MIN = 10; // restaurant meal: job pay +10% for 10 minutes
+const GROCERY_FOODS = {
+  bread: { name: "Bread", snack: 10 },
+  patty: { name: "Beef Patty", snack: 10 },
+  dough: { name: "Pizza Dough", snack: 8 },
+  cheese: { name: "Cheese", snack: 12 },
+  greens: { name: "Salad Greens", snack: 10 },
+  dressing: { name: "Dressing", snack: 6 },
+  potato: { name: "Potato", snack: 10 },
+  tomato: { name: "Tomato", snack: 10 },
+  egg: { name: "Egg", snack: 12 },
+  milk: { name: "Milk", snack: 8 },
+};
+const STARTER_PANTRY = { bread: 2, patty: 2, dough: 1, cheese: 1, greens: 1, dressing: 1, potato: 2, egg: 1 };
+const RECIPES = {
+  burger: { name: "City Burger", needs: { bread: 1, patty: 1 }, hunger: 40, stamina: 0 },
+  pizza: { name: "Plaza Pizza", needs: { dough: 1, cheese: 1 }, hunger: 45, stamina: 0 },
+  salad: { name: "Sunset Salad", needs: { greens: 1, dressing: 1 }, hunger: 35, stamina: 1 },
+  fries: { name: "Harbor Fries", needs: { potato: 1 }, hunger: 20, stamina: 0 },
+  omelette: { name: "Sunrise Omelette", needs: { egg: 1, cheese: 1 }, hunger: 30, stamina: 1 },
+};
+const RESTAURANTS = {
+  diner: {
+    name: "Sunset Diner",
+    vibe: "Cheap chrome diner by the garage — burgers, fries, shakes.",
+    menu: [
+      { id: "diner-burger", name: "Diner Burger", price: 12, hunger: 35 },
+      { id: "diner-fries", name: "Diner Fries", price: 6, hunger: 18 },
+      { id: "diner-shake", name: "Milkshake", price: 8, hunger: 15 },
+      { id: "diner-coffee", name: "Diner Coffee", price: 4, hunger: 8 },
+    ],
+  },
+  pizza: {
+    name: "Pizza Nova",
+    vibe: "Wood-fired pizza house on the east side — cozy, loud, cheesy.",
+    menu: [
+      { id: "pizza-margherita", name: "Margherita", price: 18, hunger: 40 },
+      { id: "pizza-pepperoni", name: "Pepperoni Slice", price: 24, hunger: 45 },
+      { id: "pizza-garlic", name: "Garlic Bread", price: 10, hunger: 20 },
+    ],
+  },
+  fork: {
+    name: "The Gold Fork",
+    vibe: "White tablecloths and gold trim by the park — the fancy night out.",
+    menu: [
+      { id: "fork-steak", name: "Gold Steak", price: 60, hunger: 55 },
+      { id: "fork-pasta", name: "Truffle Pasta", price: 45, hunger: 50 },
+      { id: "fork-dessert", name: "Sunset Dessert", price: 25, hunger: 30 },
+    ],
+  },
+};
+const GYM_WORKOUTS = {
+  treadmill: { name: "Treadmill Run", cost: WORKOUT_COST, gain: WORKOUT_GAIN },
+  weights: { name: "Bench Press", cost: WORKOUT_COST, gain: WORKOUT_GAIN },
+  bag: { name: "Heavy Bag", cost: WORKOUT_COST, gain: WORKOUT_GAIN },
+};
+
+// Hunger that matters: well fed you run fast, starving you crawl.
+// Stamina (gym) adds up to +10% on top. Same formula lives in
+// content.ts foodSpeedMult — keep the two in sync.
+function foodSpeedMult(hunger, stamina) {
+  const h = Number(hunger || 0);
+  const hungerMult = h >= 70 ? 1.1 : h >= 30 ? 1.0 : h > 0 ? 0.85 : 0.7;
+  const staminaMult = 1 + Math.min(100, Math.max(0, Number(stamina || 0))) * 0.001;
+  return Math.round(hungerMult * staminaMult * 1000) / 1000;
+}
+function foodCarryCap(stamina) {
+  return 5 + Math.floor(Math.min(100, Math.max(0, Number(stamina || 0))) / 20);
+}
+function foodDefaults() {
+  return {
+    hunger: HUNGER_START,
+    stamina: STAMINA_START,
+    lastTick: Date.now(),
+    lastWorkout: 0,
+    staminaAt: Date.now(),
+    pantry: { ...STARTER_PANTRY },
+    meals: {},
+    fedUntil: 0,
+  };
+}
+function readFood(save) {
+  if (!save || !save.missions || typeof save.missions !== "object") return null;
+  const food = save.missions[FOOD_KEY];
+  return food && typeof food === "object" ? food : null;
+}
+function cleanCounts(bag) {
+  const out = {};
+  if (bag && typeof bag === "object") {
+    for (const [key, value] of Object.entries(bag)) {
+      const n = Math.floor(Number(value || 0));
+      if (n > 0) out[key] = n;
+    }
+  }
+  return out;
+}
+function ensureFood(save) {
+  if (!save.missions || typeof save.missions !== "object") save.missions = {};
+  let food = save.missions[FOOD_KEY];
+  if (!food || typeof food !== "object") {
+    food = foodDefaults();
+    save.missions[FOOD_KEY] = food;
+    return food;
+  }
+  const now = Date.now();
+  food.hunger = Math.min(HUNGER_MAX, Math.max(0, Number(food.hunger ?? HUNGER_START)));
+  food.stamina = Math.min(STAMINA_MAX, Math.max(0, Number(food.stamina ?? STAMINA_START)));
+  food.lastTick = Number(food.lastTick || now);
+  food.lastWorkout = Number(food.lastWorkout || 0);
+  food.staminaAt = Number(food.staminaAt || now);
+  food.pantry = cleanCounts(food.pantry);
+  food.meals = cleanCounts(food.meals);
+  food.fedUntil = Number(food.fedUntil || 0);
+  // Lazy decay: hunger drains with real time, stamina drains with idle days.
+  const lost = Math.floor((now - food.lastTick) / HUNGER_DECAY_MS);
+  if (lost > 0) {
+    food.hunger = Math.max(0, food.hunger - lost);
+    food.lastTick += lost * HUNGER_DECAY_MS;
+  }
+  if (food.lastWorkout > 0) {
+    const idle = Math.floor((now - food.staminaAt) / STAMINA_DECAY_MS);
+    if (idle > 0) {
+      food.stamina = Math.max(0, food.stamina - idle);
+      food.staminaAt += idle * STAMINA_DECAY_MS;
+    }
+  } else {
+    food.staminaAt = now;
+  }
+  return food;
+}
+function foodPublic(food) {
+  const f = food && typeof food === "object" ? food : foodDefaults();
+  return {
+    hunger: Math.min(HUNGER_MAX, Math.max(0, Number(f.hunger ?? HUNGER_START))),
+    stamina: Math.min(STAMINA_MAX, Math.max(0, Number(f.stamina ?? STAMINA_START))),
+    pantry: { ...(f.pantry || {}) },
+    meals: { ...(f.meals || {}) },
+    fedUntil: Number(f.fedUntil || 0),
+    fed: Number(f.fedUntil || 0) > Date.now(),
+    speedMult: foodSpeedMult(f.hunger, f.stamina),
+    carryCap: foodCarryCap(f.stamina),
+  };
+}
+function foodReply(food, message, extra = {}) {
+  return { ok: true, message, food: foodPublic(food), ...extra };
+}
+async function foodStatusOp(player, save) {
+  const food = ensureFood(save);
+  await saveSave(save);
+  return { ok: true, food: foodPublic(food), me: publicPlayer(save) };
+}
+async function foodEatOp(player, save, body) {
+  const item = String(body.item || "");
+  const food = ensureFood(save);
+  const recipe = RECIPES[item];
+  if (recipe) {
+    if (!food.meals[item]) return { ok: false, message: `No ${recipe.name} in your bag — cook one first.`, status: 400 };
+    food.meals[item] -= 1;
+    if (food.meals[item] <= 0) delete food.meals[item];
+    food.hunger = Math.min(HUNGER_MAX, food.hunger + recipe.hunger);
+    food.stamina = Math.min(STAMINA_MAX, food.stamina + (recipe.stamina || 0));
+    await saveSave(save);
+    return foodReply(food, `Ate a ${recipe.name} — +${recipe.hunger} hunger${recipe.stamina ? `, +${recipe.stamina} stamina` : ""}.`, { me: publicPlayer(save) });
+  }
+  if (!item || !(food.pantry[item] > 0)) {
+    return { ok: false, message: "Nothing to eat — that is not in your pantry.", status: 400 };
+  }
+  const snack = GROCERY_FOODS[item]?.snack ?? 8;
+  const name = GROCERY_FOODS[item]?.name ?? item;
+  food.pantry[item] -= 1;
+  if (food.pantry[item] <= 0) delete food.pantry[item];
+  food.hunger = Math.min(HUNGER_MAX, food.hunger + snack);
+  await saveSave(save);
+  return foodReply(food, `Ate ${name} straight from the bag — +${snack} hunger. Cook it into a meal for far more.`, { me: publicPlayer(save) });
+}
+async function foodCookOp(player, save, body) {
+  const recipeId = String(body.recipe || "");
+  const recipe = RECIPES[recipeId];
+  if (!recipe) return { ok: false, message: "Unknown recipe.", status: 400 };
+  const server = currentServerFor(body, player);
+  const owned = (save.homes && Array.isArray(save.homes.homes) ? save.homes.homes : []).some((h) => h.server === server);
+  if (!owned) return { ok: false, message: "You need a home on this server first — the kitchen is in your own home.", status: 400 };
+  const food = ensureFood(save);
+  const missing = Object.entries(recipe.needs).filter(([id, qty]) => (food.pantry[id] || 0) < qty);
+  if (missing.length) {
+    const names = missing.map(([id]) => GROCERY_FOODS[id]?.name ?? id);
+    return { ok: false, message: `Missing ${names.join(", ")} — grab it at the grocery store first.`, status: 400 };
+  }
+  const carried = Object.values(food.meals).reduce((sum, n) => sum + n, 0);
+  if (carried >= foodCarryCap(food.stamina)) {
+    return { ok: false, message: `Your arms are full (${carried}/${foodCarryCap(food.stamina)} meals) — eat something, or work out to carry more.`, status: 400 };
+  }
+  for (const [id, qty] of Object.entries(recipe.needs)) {
+    food.pantry[id] -= qty;
+    if (food.pantry[id] <= 0) delete food.pantry[id];
+  }
+  food.meals[recipeId] = (food.meals[recipeId] || 0) + 1;
+  await saveSave(save);
+  return foodReply(food, `Cooked a ${recipe.name} — +${recipe.hunger} hunger when you eat it.`, { me: publicPlayer(save) });
+}
+async function foodOrderOp(player, save, body) {
+  const restaurantId = String(body.restaurant || "");
+  const itemId = String(body.item || "");
+  const restaurant = RESTAURANTS[restaurantId];
+  if (!restaurant) return { ok: false, message: "Unknown restaurant.", status: 400 };
+  const item = restaurant.menu.find((entry) => entry.id === itemId);
+  if (!item) return { ok: false, message: "That is not on this menu.", status: 400 };
+  if (save.balance < item.price) {
+    return { ok: false, message: `Not enough City Sol — ${item.name} is ${item.price}.`, status: 400 };
+  }
+  const food = ensureFood(save);
+  save.balance -= item.price;
+  food.hunger = Math.min(HUNGER_MAX, food.hunger + item.hunger);
+  food.fedUntil = Date.now() + FED_MIN * 60 * 1000;
+  await saveSave(save);
+  await mirrorBalance(player, save);
+  return foodReply(food, `Ate ${item.name} at ${restaurant.name} — +${item.hunger} hunger. Satisfied: job pay +10% for ${FED_MIN} min.`, { me: publicPlayer(save) });
+}
+async function foodWorkoutOp(player, save, body) {
+  const workoutId = String(body.workout || "");
+  const workout = GYM_WORKOUTS[workoutId];
+  if (!workout) return { ok: false, message: "Unknown workout.", status: 400 };
+  const food = ensureFood(save);
+  const wait = Math.ceil((WORKOUT_COOLDOWN_MS - (Date.now() - food.lastWorkout)) / 1000);
+  if (food.lastWorkout && wait > 0) {
+    return { ok: false, message: `Catch your breath — next set in ${wait}s.`, status: 400 };
+  }
+  if (save.balance < workout.cost) {
+    return { ok: false, message: `Not enough City Sol — a workout is ${workout.cost}.`, status: 400 };
+  }
+  save.balance -= workout.cost;
+  food.stamina = Math.min(STAMINA_MAX, food.stamina + workout.gain);
+  food.lastWorkout = Date.now();
+  food.staminaAt = Date.now();
+  await saveSave(save);
+  await mirrorBalance(player, save);
+  return foodReply(food, `${workout.name} done — +${workout.gain} stamina (${food.stamina}/100). Run faster, carry more.`, { me: publicPlayer(save) });
+}
+
 export async function GET() {
   return json({
     ok: true,
@@ -3572,6 +3844,12 @@ export async function POST(request) {
     save.job = null;
     save.jobStreak = Number(save.jobStreak || 0) + 1;
     save.earned = Number(save.earned || 0) + pay;
+    // FOOD: a restaurant meal leaves you Satisfied — job pay +10% for
+    // 10 minutes (food.fedUntil, set by food-order). The bonus lands on
+    // the save like the base pay; the leaderboard keeps the base pay.
+    const food = ensureFood(save);
+    const fedBonus = food.fedUntil > Date.now() && pay > 0 ? Math.max(1, Math.round(pay * 0.1)) : 0;
+    if (fedBonus > 0) save.balance += fedBonus;
     // Keep the legacy global job fields in step so old clients that read
     // them do not see a stale job. noteEarn also credits the global
     // `earned` total (the leaderboard reads it).
@@ -3582,7 +3860,7 @@ export async function POST(request) {
     await mirrorBalance(player, save);
     await savePlayer(player);
     const extra = bonus ? ` Quest paid ${bonus} City Sol.` : "";
-    return json({ ok: true, message: `${id} paid ${pay} City Sol. Job streak ${save.jobStreak}.${extra}`, me: publicPlayer(save) });
+    return json({ ok: true, message: `${id} paid ${pay} City Sol.${fedBonus > 0 ? ` Satisfied bonus +${fedBonus}.` : ""} Job streak ${save.jobStreak}.${extra}`, me: publicPlayer(save) });
   }
 
   // Real billboards: pay SOL from the in-app wallet, Jupiter swaps
@@ -3959,6 +4237,23 @@ export async function POST(request) {
 
   // Mission chain + new earning ops — per-server saves (City Sol only).
   // The attached `me` is the server-scoped save, not the global row.
+  if (op === "food-status" || op === "food-eat" || op === "food-cook" || op === "food-order" || op === "food-workout") {
+    const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
+    const save = await ensureSave(player, server);
+    const result =
+      op === "food-status"
+        ? await foodStatusOp(player, save)
+        : op === "food-eat"
+          ? await foodEatOp(player, save, body)
+          : op === "food-cook"
+            ? await foodCookOp(player, save, body)
+            : op === "food-order"
+              ? await foodOrderOp(player, save, body)
+              : await foodWorkoutOp(player, save, body);
+    return json(result, result.ok ? 200 : result.status || 400);
+  }
+
   if (op === "mission-list" || op === "mission-step" || op === "busk" || op === "photo") {
     const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
