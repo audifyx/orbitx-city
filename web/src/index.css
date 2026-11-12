@@ -905,6 +905,55 @@ body.touch .touch-ui {
   letter-spacing: 0.12em;
 }
 
+/* Hunger meter: gold bar on dark, red when low. The HUD is
+   pointer-events: none, so the row re-enables events for the Eat
+   quick-eat button (the only clickable thing in the HUD). */
+.hud .hunger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  pointer-events: auto;
+}
+
+.hud .hunger button {
+  pointer-events: auto;
+  margin: 0;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #e0b33a;
+  color: #000000;
+  border: 1px solid #e0b33a;
+  cursor: pointer;
+}
+
+.hunger-bar {
+  display: inline-block;
+  width: 64px;
+  height: 8px;
+  background: #333333;
+  border: 1px solid #9a9a9a;
+  vertical-align: middle;
+}
+
+.hunger-bar i {
+  display: block;
+  height: 100%;
+  background: #e0b33a;
+}
+
+.hunger-bar i.low {
+  background: #d43a2e;
+}
+
+/* Two buttons in one list row (grocery Buy + Eat): the list's article
+   divs stack vertically by default, so the button row goes horizontal. */
+.list article .row-btns {
+  flex-direction: row;
+  gap: 8px;
+}
+
 /* Driving controls (touch, while driving only): big Gas / Brake hold
    buttons above the pad grid and below the minimap's touch default
    (bottom 256px), so the right thumb holds the throttle while the left

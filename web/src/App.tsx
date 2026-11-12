@@ -220,6 +220,11 @@ const EMPTY: Snap = {
   billboards: [],
   events: [],
   shop: [],
+  foodCatalog: [],
+  food: {},
+  hunger: 100,
+  foodLoaded: false,
+  foodMsg: "",
   eventLabel: "",
   panel: "",
   lift: null,
@@ -485,6 +490,13 @@ export default function App() {
   useEffect(() => {
     if (panel !== "missions") return;
     gameRef.current?.runtime.loadMissions();
+  }, [panel]);
+
+  // Keep the grocery fresh while the Grocery panel is open — the catalog,
+  // inventory and hunger all come from the server, never local.
+  useEffect(() => {
+    if (panel !== "grocery") return;
+    gameRef.current?.runtime.loadFood();
   }, [panel]);
 
   // Config-fetch failure guard (menu): if /config/characters.json fails,
@@ -792,6 +804,17 @@ export default function App() {
             <span>{snap.account ? "Account" : "Guest"}</span>
           </div>
           <strong>CITY SOL {snap.balance}</strong>
+          {/* Hunger — text + bar, no emoji. The Eat button is the HUD
+              quick-eat (most-restorative owned food, one tap); it only
+              shows when the player owns food. The HUD is
+              pointer-events: none, so the row re-enables events. */}
+          <span className="hunger">
+            <span>Hunger {snap.hunger}{snap.hunger <= 0 ? " — Hungry" : ""}</span>
+            <span className="hunger-bar" aria-label={`Hunger ${snap.hunger} out of 100`}><i style={{ width: `${snap.hunger}%` }} className={snap.hunger <= 25 ? "low" : undefined} /></span>
+            {Object.values(snap.food).reduce((sum, n) => sum + n, 0) > 0 ? (
+              <button type="button" onClick={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}>Eat</button>
+            ) : null}
+          </span>
           {snap.flying || snap.carFlying ? <span className="flying-chip">FLYING</span> : null}
           {snap.holder ? <span>HOLDER</span> : null}
           {snap.voiceProvider && snap.voiceProvider !== "off" ? (
@@ -814,6 +837,7 @@ export default function App() {
       {!menu && !snap.hideHud && (
         <div className="actions">
           <button type="button" onClick={() => open("shop")}>Shop</button>
+          <button type="button" onClick={() => open("grocery")}>Grocery</button>
           <button type="button" onClick={() => open("jobs")}>Jobs</button>
           <button type="button" onClick={() => open("missions")}>Missions</button>
           <button type="button" onClick={() => open("ads")}>Ads</button>
@@ -848,6 +872,7 @@ export default function App() {
             <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.cycleCamera(); }}>Camera</button>
             <button type="button" onClick={() => { triggerHaptic("tap"); open("chat"); }}>Chat</button>
             <button type="button" onClick={() => { triggerHaptic("tap"); open("shop"); }}>Shop</button>
+            <button type="button" onClick={() => { triggerHaptic("tap"); open("grocery"); }}>Grocery</button>
             <button
               type="button"
               onPointerDown={(event) => {
@@ -896,6 +921,7 @@ export default function App() {
             <header>
               <strong>
                 {panel === "shop" && "OrbitX shop"}
+                {panel === "grocery" && "OrbitX Grocery"}
                 {panel === "jobs" && "Jobs"}
                 {panel === "missions" && "Missions"}
                 {panel === "ads" && "Book a billboard"}
@@ -968,6 +994,39 @@ export default function App() {
                     </article>
                   );
                 })}
+              </div>
+            )}
+            {panel === "grocery" && (
+              <div className="list">
+                <p>Balance {snap.balance} City Sol · Hunger {snap.hunger}/100{snap.hunger <= 0 ? " — Hungry: walking is slower until you eat." : ""}</p>
+                {snap.foodMsg ? <p>{snap.foodMsg}</p> : null}
+                {!snap.foodLoaded ? <p>Loading the shelves…</p> : null}
+                {snap.foodCatalog.map((item) => {
+                  const owned = snap.food[item.id] || 0;
+                  return (
+                    <article key={item.id}>
+                      <div>
+                        <b>{item.name}</b>
+                        <span>{item.price} City Sol · restores {item.hunger} hunger</span>
+                        {owned > 0 ? <span>You own {owned}</span> : null}
+                      </div>
+                      <div className="row-btns">
+                        {owned > 0 ? (
+                          <button type="button" onClick={() => gameRef.current?.runtime.eatFood(item.id)}>
+                            Eat
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => gameRef.current?.runtime.buyFood(item.id)}
+                        >
+                          Buy
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+                <p className="muted">Food is City Sol only. Hunger drains slowly while you play — eat to stay full. At 0 hunger you only walk slower; nothing else happens.</p>
               </div>
             )}
             {panel === "missions" && (
@@ -2124,6 +2183,7 @@ const MAP_LABELS: Record<string, string> = {
   carshop: "Motors",
   arcade: "Arcade",
   market: "Market",
+  grocery: "Grocery",
   hall: "Hall",
   dock: "Dock",
   cinema: "Cinema",
@@ -2139,7 +2199,7 @@ const MAP_LABELS: Record<string, string> = {
 
 // Label priority: the plaza core gets its preferred spot first; the z=54
 // row (Shop/Cafe/Arcade/Garage) is the crowded one, so the order matters.
-const MAP_LABEL_PRIORITY = ["shop", "cafe", "hall", "dock", "bank", "market", "arcade", "garage", "carshop", "cinema", "library", "gym", "park", "stadium", "museum", "casino", "nightclub", "hotel"];
+const MAP_LABEL_PRIORITY = ["shop", "cafe", "hall", "dock", "bank", "market", "grocery", "arcade", "garage", "carshop", "cinema", "library", "gym", "park", "stadium", "museum", "casino", "nightclub", "hotel"];
 
 // Job board — single source of truth for the base pay the server pays
 // (api/city.js JOBS, plus the +5%-per-streak scaling in scaledPay).

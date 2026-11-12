@@ -129,7 +129,7 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "voice";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "voice";
 
 export interface PersonCard {
   id: string;
@@ -245,6 +245,14 @@ export interface Snap {
   billboards: BillboardInfo[];
   events: EventInfo[];
   shop: ShopCatalogItem[];
+  // Grocery + hunger (OrbitX Grocery): the food catalog, the player's
+  // food inventory ({ itemId: count }, per-server save), and the hunger
+  // meter 0..100. foodLoaded/foodMsg are the panel's load state.
+  foodCatalog: FoodCatalogItem[];
+  food: Record<string, number>;
+  hunger: number;
+  foodLoaded: boolean;
+  foodMsg: string;
   eventLabel: string;
   panel: PanelName | "";
   lift: { name: string; floors: number[]; stops: string[]; current: number } | null;
@@ -405,27 +413,6 @@ const SHOP_CATALOG: ShopCatalogItem[] = [
   { id: "trail-gold", kind: "trail", name: "Gold trail", value: "gold", price: 75 },
 ];
 
-// Home furniture catalog (Edit Home) — mirrors api/city.js
-// FURNITURE_CATALOG, the server is the price authority; prices must match.
-// Bought in the Shop panel, placed in Edit Home inside a home you own.
-// City Sol only, no burn.
-export const FURNITURE_CATALOG: { id: string; name: string; price: number }[] = [
-  { id: "tv", name: "OrbitX TV", price: 450 },
-  { id: "couch", name: "Sofa", price: 600 },
-  { id: "bed", name: "Double Bed", price: 750 },
-  { id: "dining-table", name: "Dining Table", price: 320 },
-  { id: "chair", name: "Chair", price: 120 },
-  { id: "lamp", name: "Floor Lamp", price: 90 },
-  { id: "rug", name: "Rug", price: 150 },
-  { id: "shelf", name: "Shelf", price: 260 },
-  { id: "plant", name: "Potted Plant", price: 80 },
-  { id: "kitchen", name: "Kitchen Set", price: 800 },
-  { id: "desk", name: "Desk", price: 340 },
-  { id: "armchair", name: "Armchair", price: 290 },
-  { id: "coffee-table", name: "Coffee Table", price: 210 },
-  { id: "tv-stand", name: "TV Stand", price: 180 },
-];
-
 export function furnitureName(id: string): string {
   return FURNITURE_CATALOG.find((item) => item.id === id)?.name || id;
 }
@@ -439,6 +426,31 @@ export interface HomeFurniturePiece {
   rot: number;
 }
 
+// Grocery — the canonical 12 foods, City Sol, mirroring api/city.js
+// FOOD_CATALOG (the server is the price + hunger authority; this list
+// is display + the offline price check). hunger is the restore, 0..100.
+export interface FoodCatalogItem {
+  id: string;
+  name: string;
+  price: number;
+  hunger: number;
+  kind: "snack" | "drink" | "meal";
+}
+
+const FOOD_CATALOG: FoodCatalogItem[] = [
+  { id: "water", name: "Water", price: 5, hunger: 5, kind: "drink" },
+  { id: "chips", name: "Chips", price: 10, hunger: 10, kind: "snack" },
+  { id: "soda", name: "Soda", price: 12, hunger: 8, kind: "drink" },
+  { id: "donut", name: "Donut", price: 12, hunger: 12, kind: "snack" },
+  { id: "fruit", name: "Fruit", price: 15, hunger: 12, kind: "snack" },
+  { id: "coffee", name: "Coffee", price: 15, hunger: 8, kind: "drink" },
+  { id: "energy-drink", name: "Energy Drink", price: 20, hunger: 10, kind: "drink" },
+  { id: "sandwich", name: "Sandwich", price: 30, hunger: 25, kind: "meal" },
+  { id: "salad", name: "Salad", price: 35, hunger: 25, kind: "meal" },
+  { id: "burger", name: "Burger", price: 40, hunger: 35, kind: "meal" },
+  { id: "groceries-bag", name: "Groceries Bag", price: 50, hunger: 30, kind: "meal" },
+  { id: "pizza", name: "Pizza", price: 60, hunger: 45, kind: "meal" },
+];
 // Photo Safari landmarks (server place ids) — the 8 spots the photo op
 // pays for, 15 City Sol each, once per landmark per day. Coords are the
 // door/spot the player stands at; the radius is generous so the panel's
@@ -1381,6 +1393,7 @@ export function createRuntime(scene: Scene) {
   function zoneLine(zone: Zone) {
     if (zone.kind === "project") return content.projects[zone.slot]?.line ?? "Community office";
     if (zone.kind === "shop") return "Demo credits only";
+    if (zone.kind === "grocery") return "Snacks · drinks · meals";
     if (zone.kind === "cafe") return "Coffee and a seat";
     if (zone.kind === "bank") return "Demo ledger only";
     if (zone.kind === "garage") return "Hover-cars live here";
@@ -1404,7 +1417,7 @@ export function createRuntime(scene: Scene) {
 
   function mountSign(zone: Zone) {
     const sub =
-      zone.id.startsWith("home-") ? "Welcome home" : zone.kind === "shop" ? "Use the counter" : zone.kind === "cafe" ? "Pull up a seat" : zone.kind === "hall" ? "Stage is open" : zone.kind === "bank" ? "Savings window" : zone.kind === "garage" ? "Cars on the avenue" : zone.kind === "carshop" ? "Buy your car here" : zone.kind === "dock" ? "Clock in here" : "Walk in";
+      zone.id.startsWith("home-") ? "Welcome home" : zone.kind === "shop" ? "Use the counter" : zone.kind === "grocery" ? "Buy food here" : zone.kind === "cafe" ? "Pull up a seat" : zone.kind === "hall" ? "Stage is open" : zone.kind === "bank" ? "Savings window" : zone.kind === "garage" ? "Cars on the avenue" : zone.kind === "carshop" ? "Buy your car here" : zone.kind === "dock" ? "Clock in here" : "Walk in";
     const texture = paint([zoneTitle(zone), zoneLine(zone)], sub);
     const mesh = new Mesh(
       new PlaneGeometry(zone.kind === "hall" ? 5.4 : 4.2, 1.7),
@@ -1732,6 +1745,11 @@ export function createRuntime(scene: Scene) {
     // Load the mission chain up front (not only when the panel opens) so
     // the chat / drive / job / daily / buy hooks can advance it.
     if (world.online) void loadMissions();
+    // Load the grocery state up front too, so the HUD hunger meter shows
+    // the server's value from the first frame (the sync's me carries the
+    // last persisted hunger, but the live meter is only ever adopted
+    // from food-list and the food op responses — see applyFoodData).
+    if (world.online) void loadFood();
     const params = new URLSearchParams(location.search);
     lookId = params.get("look") || localStorage.getItem("orbitx-look") || world.me?.look || "tjr";
     if (!lookById(lookId).id) lookId = "tjr";
@@ -1992,6 +2010,11 @@ export function createRuntime(scene: Scene) {
       billboards: content.billboards.map((item) => faceFor(item)),
       events: world.online && world.events.length ? [...content.events, ...world.events] : content.events,
       shop: SHOP_CATALOG,
+      foodCatalog,
+      food: { ...foodInv },
+      hunger,
+      foodLoaded,
+      foodMsg,
       eventLabel: eventLeft > 0 ? `Fountain lights in ${Math.ceil(eventLeft)}` : burstLeft > 0 ? "Fountain lights" : "",
       panel,
       lift: liftPanel,
@@ -2802,7 +2825,10 @@ export function createRuntime(scene: Scene) {
     const zone = zoneAt(body);
     if (zone && nearService(body, zone)) {
       if (zone.kind === "shop") panel = "shop";
-      else if (zone.kind === "garage") panel = "garage";
+      else if (zone.kind === "grocery") {
+        void loadFood();
+        panel = "grocery";
+      } else if (zone.kind === "garage") panel = "garage";
       else if (zone.kind === "carshop") panel = "garage";
       else if (isDeptKind(zone.kind as string)) openEmergency(zone.kind as string, zone.name);
       else if (zone.kind === "arcade") panel = "arcade";
@@ -2849,7 +2875,7 @@ export function createRuntime(scene: Scene) {
         publish();
         return;
       }
-      if (anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel") {
+      if (anchor.kind === "shop" || anchor.kind === "grocery" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel") {
         stepInside(anchor, body);
         publish();
         return;
@@ -3877,6 +3903,195 @@ export function createRuntime(scene: Scene) {
     }
   }
 
+  // --- Grocery + hunger (OrbitX Grocery, per-server save) ---
+  // Hunger 0..100, full at 100. It drains 1 point per
+  // HUNGER_DRAIN_SECONDS of ACTIVE play (playing, not paused, tab
+  // visible) — ~2.5 hours from full to empty. At 0 the player only
+  // walks slower and the HUD says Hungry: no death, no money lost,
+  // nothing locked. Food inventory + hunger live on the per-server
+  // save (daily.food / daily.hunger, api/city.js); offline they live
+  // in localStorage, like the wallet. The server is the authority
+  // whenever it answers; the client is the live authority while
+  // playing (the 250ms sync's me carries the last PERSISTED hunger,
+  // so it must never overwrite the live meter — only food-list and
+  // the food op responses adopt server values).
+  const HUNGER_DRAIN_SECONDS = 150;
+  const HUNGER_EMPTY_SPEED = 0.6;
+  const FOOD_KEY = "orbitx-demo-food-v1";
+  let foodCatalog: FoodCatalogItem[] = FOOD_CATALOG;
+  let foodInv: Record<string, number> = {};
+  let hunger = 100;
+  let foodLoaded = false;
+  let foodMsg = "";
+  let hungerActiveSeconds = 0;
+  let lastHungerSent = -1;
+  let hungerEmptyNoticed = false;
+  function loadLocalFood() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(FOOD_KEY) || "null") as { hunger?: number; food?: Record<string, number> } | null;
+      if (parsed && typeof parsed === "object") {
+        if (Number.isFinite(Number(parsed.hunger))) hunger = Math.max(0, Math.min(100, Math.round(Number(parsed.hunger))));
+        if (parsed.food && typeof parsed.food === "object") {
+          foodInv = {};
+          for (const [id, count] of Object.entries(parsed.food)) {
+            if (FOOD_CATALOG.some((item) => item.id === id) && Number(count) > 0) foodInv[id] = Math.floor(Number(count));
+          }
+        }
+      }
+    } catch {
+      // Offline food still works for this session.
+    }
+  }
+  function saveLocalFood() {
+    try {
+      localStorage.setItem(FOOD_KEY, JSON.stringify({ hunger, food: foodInv }));
+    } catch {
+      // The food still applies for this session if storage is unavailable.
+    }
+  }
+  loadLocalFood();
+
+  // Adopt a food op's answer (food-list / food-buy / food-eat /
+  // food-hunger): inventory + hunger straight from the server, and the
+  // server catalog when it arrives (same 12 items, same prices).
+  function applyFoodData(data: unknown) {
+    if (!data || typeof data !== "object") return;
+    const foodData = data as { food?: Record<string, number>; hunger?: number; catalog?: FoodCatalogItem[] };
+    if (foodData.food && typeof foodData.food === "object") {
+      foodInv = {};
+      for (const [id, count] of Object.entries(foodData.food)) {
+        if (FOOD_CATALOG.some((item) => item.id === id) && Number(count) > 0) foodInv[id] = Math.floor(Number(count));
+      }
+    }
+    if (Number.isFinite(Number(foodData.hunger))) {
+      hunger = Math.max(0, Math.min(100, Math.round(Number(foodData.hunger))));
+      lastHungerSent = hunger;
+    }
+    if (Array.isArray(foodData.catalog) && foodData.catalog.length) {
+      const clean = foodData.catalog.filter(
+        (item): item is FoodCatalogItem =>
+          item && typeof item.id === "string" && typeof item.name === "string" && Number.isFinite(Number(item.price)) && Number.isFinite(Number(item.hunger)),
+      );
+      if (clean.length) foodCatalog = clean;
+    }
+    if (hunger > 0) hungerEmptyNoticed = false;
+    saveLocalFood();
+  }
+
+  // Report a drained hunger value to the server. Fire-and-forget, only
+  // when the value actually changed — the op only ever lowers hunger,
+  // so a report that loses the race against an eat is harmless.
+  async function persistHunger() {
+    if (!world.online || hunger === lastHungerSent) return;
+    lastHungerSent = hunger;
+    try {
+      const data = await cityOp("food-hunger", { server: serverId(), hunger });
+      if (data.me) applySaveMe(data.me);
+      applyFoodData(data);
+    } catch {
+      lastHungerSent = -1;
+    }
+  }
+
+  async function loadFood() {
+    if (!world.online) {
+      foodLoaded = true;
+      publish();
+      return;
+    }
+    try {
+      const data = await cityOp("food-list", { server: serverId() });
+      applyFoodData(data);
+      foodLoaded = true;
+      foodMsg = "";
+    } catch (err) {
+      foodMsg = err instanceof Error ? err.message : "Could not load the grocery.";
+    }
+    publish();
+  }
+
+  async function buyFood(id: string, qty = 1) {
+    const item = foodCatalog.find((entry) => entry.id === id);
+    if (!item) return "Unknown food.";
+    if (world.online) {
+      try {
+        const data = await cityOp("food-buy", { server: serverId(), id, qty });
+        if (data.me) applySaveMe(data.me);
+        applyFoodData(data);
+        triggerHaptic("success");
+        say(String(data.message || "Bought."));
+        publish();
+        return String(data.message || "Bought.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused the purchase.";
+        say(message);
+        triggerHaptic("error");
+        publish();
+        return message;
+      }
+    }
+    const cost = item.price * qty;
+    if (wallet.balance < cost) {
+      say("Not enough City Sol.");
+      triggerHaptic("error");
+      return "Not enough City Sol.";
+    }
+    wallet.balance -= cost;
+    foodInv[id] = (foodInv[id] || 0) + qty;
+    saveLocalFood();
+    triggerHaptic("success");
+    say(`Bought ${qty > 1 ? `${qty} × ` : ""}${item.name} for ${cost} City Sol.`);
+    publish();
+    return `Bought ${item.name}.`;
+  }
+
+  async function eatFood(id: string) {
+    const item = foodCatalog.find((entry) => entry.id === id);
+    if (!item) return "Unknown food.";
+    if (!(foodInv[id] > 0)) {
+      say(`You have no ${item.name} — buy some at OrbitX Grocery.`);
+      return `You have no ${item.name}.`;
+    }
+    if (world.online) {
+      try {
+        const data = await cityOp("food-eat", { server: serverId(), id });
+        if (data.me) applySaveMe(data.me);
+        applyFoodData(data);
+        triggerHaptic("success");
+        say(String(data.message || "Ate."));
+        publish();
+        return String(data.message || "Ate.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused the bite.";
+        say(message);
+        triggerHaptic("error");
+        publish();
+        return message;
+      }
+    }
+    foodInv[id] -= 1;
+    if (foodInv[id] <= 0) delete foodInv[id];
+    hunger = Math.min(100, hunger + item.hunger);
+    if (hunger > 0) hungerEmptyNoticed = false;
+    saveLocalFood();
+    triggerHaptic("success");
+    say(hunger >= 100 ? `Ate ${item.name}. Full.` : `Ate ${item.name} (+${item.hunger}).`);
+    publish();
+    return `Ate ${item.name}.`;
+  }
+
+  // HUD quick-eat: one tap eats the most-restorative food the player
+  // owns. Nothing owned → a nudge to the store, not an error.
+  async function eatBestFood() {
+    const owned = foodCatalog.filter((item) => (foodInv[item.id] || 0) > 0);
+    if (!owned.length) {
+      say("No food — buy some at OrbitX Grocery.");
+      return "No food yet.";
+    }
+    owned.sort((a, b) => b.hunger - a.hunger);
+    return eatFood(owned[0].id);
+  }
+
   // --- Mission chain + busk + photo safari (server ops, per-server saves)
   // world.ts is not this agent's file, so these call /api/city directly
   // with the same bearer pattern world.call uses (account token first,
@@ -4118,6 +4333,25 @@ export function createRuntime(scene: Scene) {
     // Rental expiry — once a second, while playing. The car goes back and
     // the player is left on foot where the car was.
     if (playing) checkRentalExpiry(body);
+    // Hunger drain — only while actively playing (playing, not paused,
+    // tab visible). 1 point per HUNGER_DRAIN_SECONDS of active time, so
+    // a full stomach lasts ~2.5 hours of play. At 0 the player only
+    // walks slower (engine tick reads walkSpeedScale) and gets one
+    // "hungry" notice: no death, no money lost, nothing locked. The
+    // report to the server is fire-and-forget (persistHunger).
+    if (playing && !paused && !document.hidden) {
+      hungerActiveSeconds += dt;
+      if (hungerActiveSeconds >= HUNGER_DRAIN_SECONDS && hunger > 0) {
+        hungerActiveSeconds -= HUNGER_DRAIN_SECONDS;
+        hunger = Math.max(0, hunger - 1);
+        if (hunger === 0 && !hungerEmptyNoticed) {
+          hungerEmptyNoticed = true;
+          say("You're hungry — eat something at OrbitX Grocery. Walking is slower until you eat.");
+        }
+        void persistHunger();
+        publish();
+      }
+    }
     flyFlag = body.flying;
     consumeLook(body);
     if (!opts.orbit) {
@@ -4392,7 +4626,7 @@ export function createRuntime(scene: Scene) {
       else if (driving && nearGate(body, 0, 8)) prompt = "Press E — hover time trial";
       else if (driving) prompt = "Press E to get out";
       else if (zone && nearService(body, zone)) {
-        prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "garage" ? "Press E to open the garage" : zone.kind === "carshop" ? "Press E — buy a car at OrbitX Motors" : isDeptKind(zone.kind as string) ? `Press E — ${zoneTitle(zone)}` : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zoneTitle(zone);
+        prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "grocery" ? "Press E — buy food at OrbitX Grocery" : zone.kind === "garage" ? "Press E to open the garage" : zone.kind === "carshop" ? "Press E — buy a car at OrbitX Motors" : isDeptKind(zone.kind as string) ? `Press E — ${zoneTitle(zone)}` : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zoneTitle(zone);
       } else if (zone && nearExitDoor(body, zone)) {
         // By the inside of a closed door: E steps back outside.
         prompt = "Press E — Exit";
@@ -4403,7 +4637,7 @@ export function createRuntime(scene: Scene) {
         // "street race" at the door instead of "Walk in".
         const anchor = nearestAnchor(body, 3.3)!;
         const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
-        const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel";
+        const walkIn = anchor.kind === "shop" || anchor.kind === "grocery" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel";
         // The tower door announces itself as an office entrance, never as a
         // photo spot — the anchor branch already runs before the photo check
         // below, so the door wins wherever the two ranges meet.
@@ -4437,7 +4671,7 @@ export function createRuntime(scene: Scene) {
         // range: clear the prompt (leaving it untouched kept "Press E to
         // drive" on screen 30-40 m after the player walked away).
         if (nearestCar(body, 7) >= 0) prompt = "Press E to drive";
-        else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : zone.id.startsWith("home-") && ownHomeId(zone.id) ? `${zoneTitle(zone)} — press X to edit your home` : lot?.ownerId === world.id ? `${lot.name} — press X to decorate` : zoneTitle(zone);
+        else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : zone.kind === "grocery" ? "OrbitX Grocery — checkout at the back" : zone.id.startsWith("home-") && ownHomeId(zone.id) ? `${zoneTitle(zone)} — press X to edit your home` : lot?.ownerId === world.id ? `${lot.name} — press X to decorate` : zoneTitle(zone);
         else prompt = "";
       }
     }
@@ -5759,6 +5993,8 @@ export function createRuntime(scene: Scene) {
       // The selection still applies for this session.
     }
     applyMe();
+    // Food + hunger are per-server: reload them for the new universe.
+    if (world.online) void loadFood();
     spawnActiveCar();
     publish();
     return result;
@@ -5776,6 +6012,8 @@ export function createRuntime(scene: Scene) {
       // The selection still applies for this session.
     }
     applyMe();
+    // Food + hunger are per-server: reload them for the new universe.
+    if (world.online) void loadFood();
     spawnActiveCar();
     publish();
     return result;
@@ -5969,6 +6207,15 @@ export function createRuntime(scene: Scene) {
       return () => listeners.delete(fn);
     },
     buy,
+    loadFood,
+    buyFood,
+    eatFood,
+    eatBestFood,
+    // Walk-speed scale for the engine tick: a starving player (hunger
+    // 0) walks at 60% — the only penalty hunger ever applies.
+    walkSpeedScale() {
+      return hunger <= 0 ? HUNGER_EMPTY_SPEED : 1;
+    },
     book(id: string, days: number, text: string) {
       return book(id, days, wallet.name || "Demo project", text || "NEW CAMPAIGN");
     },

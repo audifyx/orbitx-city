@@ -350,7 +350,11 @@ export function createGame(
     const shift = keys.has("ShiftLeft") || keys.has("ShiftRight") || runtime.downHeld();
     const ctrl = keys.has("ControlLeft") || keys.has("ControlRight");
     const space = keys.has("Space") || runtime.jumpHeld();
-    const speed = player.flying ? (ctrl ? 28 : 14) : shift ? 1.6 : ctrl ? 8.5 : 5.2;
+    const speedBase = player.flying ? (ctrl ? 28 : 14) : shift ? 1.6 : ctrl ? 8.5 : 5.2;
+    // Hunger: a starving player (hunger 0) walks at 60% — the only
+    // penalty hunger ever applies, and only on foot (flying / driving
+    // are untouched). runtime.walkSpeedScale is 1 except at hunger 0.
+    const speed = player.flying ? speedBase : speedBase * (runtime.walkSpeedScale ? runtime.walkSpeedScale() : 1);
     const sin = Math.sin(player.yaw);
     const cos = Math.cos(player.yaw);
     if (player.flying) {
