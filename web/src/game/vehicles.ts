@@ -249,6 +249,23 @@ export const SPOILER_NAMES: Record<SpoilerStyle, string> = {
 
 export const NEON_COLORS = ["cyan", "pink", "gold", "green", "purple", "red"] as const;
 export const NEON_PRICE = 220;
+/** Neon underglow hex per colour key (see NEON_COLORS). */
+export const NEON_HEX: Record<string, number> = {
+  cyan: 0x00e5ff,
+  pink: 0xff4fd8,
+  gold: 0xffc93c,
+  green: 0x39ff88,
+  purple: 0xb26bff,
+  red: 0xff3b30,
+};
+export const NEON_NAMES: Record<string, string> = {
+  cyan: "Cyan",
+  pink: "Pink",
+  gold: "Gold",
+  green: "Green",
+  purple: "Purple",
+  red: "Red",
+};
 
 /** Window tint level: 0 clear (free), 1 light, 2 medium, 3 dark. */
 export const TINT_PRICES = [0, 80, 140, 200];
@@ -1642,28 +1659,51 @@ function partMaterial(mat: PartMat, paint: MeshStandardMaterial, tint = 0): Mate
 }
 
 /**
+ * Dirt-darkened paint: a dirty car reads brown-grey, worse as dirt
+ * climbs. retint() uses the same rule, so a repainted dirty car stays
+ * dirty until it is washed.
+ */
+export function dirtPaintHex(hex: number, dirt: number): number {
+  const d = Math.max(0, Math.min(100, dirt)) / 100;
+  if (d <= 0) return hex;
+  const c = new THREEColor(hex);
+  c.lerp(new THREEColor(0x6b543a), d * 0.6);
+  return c.getHex();
+}
+
+/**
  * Build a THREE.Group for a catalog vehicle.
  * @param id Vehicle id from VEHICLES.
  * @param color Paint key (see VEHICLE_COLORS) or "#rrggbb". Defaults to the
  *   vehicle's defaultColor. Unknown ids throw — the shop must never pass
  *   a bad id (see WIRING.md: the server validates before the client builds).
+ * @param opts Per-car mods + wear from the owned-vehicle entry
+ *   (OwnedVehicle.mods / .dirt / .damage): paint reads the color, rims
+ *   recolour the hubs, spoiler overrides the plan spoiler, neon changes
+ *   the underglow, tint darkens the glass, dirt dulls the paint and
+ *   damage adds dents.
  */
-export function buildVehicle(id: string, color?: string): Group {
+export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial<VehicleMods> | null; wear?: Partial<VehicleWear> | null }): Group {
   const v = getVehicle(id);
   if (!v) throw new Error(`Unknown vehicle ${id}`);
+  const mods = normalizeMods(opts?.mods);
+  const wear = normalizeWear(opts?.wear);
   const p = v.plan;
   const group = new Group();
   group.rotation.order = "YXZ";
   const box = new BoxGeometry(1, 1, 1);
   const paints: MeshStandardMaterial[] = [];
   const paint = new MeshStandardMaterial({
-    color: paintHex(color ?? v.defaultColor),
+    color: dirtPaintHex(paintHex(color ?? v.defaultColor), wear.dirt),
     emissive: 0x12141c,
     emissiveIntensity: 0.28,
-    roughness: 0.35,
+    // Dirt kills the shine: roughness climbs with the dirt level.
+    roughness: 0.35 + 0.55 * (wear.dirt / 100),
     metalness: 0.45,
   });
   paints.push(paint);
+  // Damage dulls the paint a touch more (a banged-up car never shines).
+  if (wear.damage > 0) paint.color.multiplyScalar(1 - 0.25 * (wear.damage / 100));
   const add = (material: Material, x: number, y: number, z: number, sx: number, sy: number, sz: number) => {
     const mesh = new Mesh(box, material);
     mesh.position.set(x, y, z);
@@ -1672,7 +1712,7 @@ export function buildVehicle(id: string, color?: string): Group {
     return mesh;
   };
   const addPart = (part: VehiclePart) => {
-    const mesh = add(partMaterial(part.mat, paint), part.x, part.y, part.z, part.sx, part.sy, part.sz);
+    const mesh = add(partMaterial(part.mat, paint, part.mat === "glass" ? mods.tint : 0), part.x, part.y, part.z, part.sx, part.sy, part.sz);
     if (part.name) mesh.name = part.name;
   };
   const half = p.length / 2;
@@ -1689,13 +1729,13 @@ export function buildVehicle(id: string, color?: string): Group {
     // Cybertruck wedge: stepped slabs rising from nose to tail, no glasshouse.
     add(paint, half - 0.9, p.bodyY + p.bodyH / 2 + 0.12, 0, 1.8, 0.24, p.width - 0.2);
     add(paint, -0.3, p.bodyY + p.bodyH / 2 + 0.3, 0, 2.2, 0.42, p.width - 0.25);
-    add(partMaterial("glass", paint), 0.35, p.bodyY + p.bodyH / 2 + 0.32, 0, 0.9, 0.24, p.width - 0.6);
+    add(partMaterial("glass", paint, mods.tint), 0.35, p.bodyY + p.bodyH / 2 + 0.32, 0, 0.9, 0.24, p.width - 0.6);
   } else if (p.cabinLen > 0) {
     // Cabin box + glass canopy inset on top (or painted roof if no glass).
     const cabinY = p.bodyY + p.bodyH / 2 + p.cabinH / 2;
     add(paint, p.cabinX, cabinY, 0, p.cabinLen, p.cabinH, p.cabinW);
     if (p.glassCabin) {
-      add(partMaterial("glass", paint), p.cabinX + 0.05, cabinY + p.cabinH / 2 - 0.02, 0, p.cabinLen - 0.5, 0.16, p.cabinW - 0.22);
+      add(partMaterial("glass", paint, mods.tint), p.cabinX + 0.05, cabinY + p.cabinH / 2 - 0.02, 0, p.cabinLen - 0.5, 0.16, p.cabinW - 0.22);
     } else {
       add(paint, p.cabinX, cabinY + p.cabinH / 2 + 0.05, 0, p.cabinLen - 0.2, 0.1, p.cabinW - 0.1);
     }
@@ -1706,12 +1746,34 @@ export function buildVehicle(id: string, color?: string): Group {
     add(paint, -half + p.trunkLen / 2, p.bodyY + p.bodyH / 2 + 0.04, 0, p.trunkLen, 0.12, p.width - 0.2);
   }
 
-  // Spoiler: blade on two struts.
-  if (p.spoiler) {
+  // Spoiler: blade on two struts. The mod overrides the plan spoiler —
+  // "none" keeps whatever the car was built with, "delete" removes it
+  // even when the plan has one, "lip"/"gt"/"drag" draw that style at the
+  // plan position (or a sensible default when the plan has none).
+  const spoilerStyle: SpoilerStyle = mods.spoiler;
+  if (spoilerStyle !== "delete") {
     const s = p.spoiler;
-    add(paint, s.x, s.y, 0, s.w, s.h, p.width - 0.2);
-    add(partMaterial("dark", paint), s.x, s.y - 0.14, 0.35, 0.08, 0.22, 0.08);
-    add(partMaterial("dark", paint), s.x, s.y - 0.14, -0.35, 0.08, 0.22, 0.08);
+    if (spoilerStyle === "lip") {
+      const x = s ? s.x : -half + 0.15;
+      const y = s ? s.y - 0.18 : p.bodyY + p.bodyH / 2 + 0.1;
+      add(paint, x, y, 0, 0.5, 0.05, p.width - 0.3);
+    } else if (spoilerStyle === "gt") {
+      const gx = s ? s.x : -half + 0.2;
+      const gy = s ? s.y + 0.12 : p.bodyY + p.bodyH / 2 + 0.35;
+      add(paint, gx, gy, 0, s?.w ?? 0.55, 0.06, p.width - 0.2);
+      add(partMaterial("dark", paint), gx, gy - 0.16, 0.35, 0.08, 0.26, 0.08);
+      add(partMaterial("dark", paint), gx, gy - 0.16, -0.35, 0.08, 0.26, 0.08);
+    } else if (spoilerStyle === "drag") {
+      const dx = s ? s.x : -half + 0.25;
+      const dy = s ? s.y + 0.2 : p.bodyY + p.bodyH / 2 + 0.45;
+      add(paint, dx, dy, 0, 0.7, 0.05, p.width + 0.15);
+      add(partMaterial("dark", paint), dx, dy - 0.2, 0.45, 0.08, 0.34, 0.08);
+      add(partMaterial("dark", paint), dx, dy - 0.2, -0.45, 0.08, 0.34, 0.08);
+    } else if (s) {
+      add(paint, s.x, s.y, 0, s.w, s.h, p.width - 0.2);
+      add(partMaterial("dark", paint), s.x, s.y - 0.14, 0.35, 0.08, 0.22, 0.08);
+      add(partMaterial("dark", paint), s.x, s.y - 0.14, -0.35, 0.08, 0.22, 0.08);
+    }
   }
 
   // Roof rails.
@@ -1762,8 +1824,13 @@ export function buildVehicle(id: string, color?: string): Group {
 
   // Wheels: named "wheel" so drive()'s spin loop finds them. Hubcaps + glow
   // match makeCar; boards get no hubcaps or underglow (tiny wheels).
+  // Rim mod recolours the hub: stock chrome, sport dark, chrome bright,
+  // gold gold, stealth black.
   const wheelMat = partMaterial("tire", paint);
-  const chrome = partMaterial("chrome", paint);
+  const rimMat =
+    mods.rims === "gold" ? GOLD :
+    mods.rims === "sport" || mods.rims === "black" ? partMaterial("dark", paint) :
+    partMaterial("chrome", paint);
   for (const w of v.wheels) {
     const wheel = new CylinderGeometry(w.r, w.r, w.w, 12);
     const mesh = new Mesh(wheel, wheelMat);
@@ -1772,14 +1839,36 @@ export function buildVehicle(id: string, color?: string): Group {
     mesh.name = "wheel";
     group.add(mesh);
     if (!isBoard) {
-      const hub = new Mesh(new CylinderGeometry(w.r * 0.45, w.r * 0.45, w.w + 0.02, 10), chrome);
+      const hub = new Mesh(new CylinderGeometry(w.r * 0.45, w.r * 0.45, w.w + 0.02, 10), rimMat);
       hub.rotation.x = Math.PI / 2;
       hub.position.set(w.x, w.r, w.z);
       group.add(hub);
     }
   }
+  // Underglow: neon (when bought) replaces the stock cyan strip with the
+  // chosen colour — bigger and brighter, so it reads at night.
   if (!isBoard && !isBike) {
-    add(MATERIALS.cyan, 0, 0.06, 0, p.length - 0.9, 0.05, 0.3);
+    if (mods.neon) {
+      const hex = NEON_HEX[mods.neon] ?? 0x00e5ff;
+      add(
+        new MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 1.6, roughness: 0.3 }),
+        0, 0.05, 0, p.length - 0.7, 0.06, 0.5,
+      );
+    } else {
+      add(MATERIALS.cyan, 0, 0.06, 0, p.length - 0.9, 0.05, 0.3);
+    }
+  }
+
+  // Damage: dark dent patches on the body, one at 40+ damage, a second
+  // at 70+. Fixed offsets (not random) so a rebuild looks the same.
+  if (wear.damage >= 40) {
+    const dent = partMaterial("dark", paint);
+    add(dent, p.length * 0.18, p.bodyY + 0.1, p.width / 2 + 0.01, 0.5, 0.3, 0.03);
+    add(dent, -p.length * 0.15, p.bodyY + 0.12, -p.width / 2 - 0.01, 0.45, 0.26, 0.03);
+  }
+  if (wear.damage >= 70) {
+    const dent = partMaterial("dark", paint);
+    add(dent, p.length * 0.05, p.bodyY + p.bodyH / 2 + 0.03, 0, 0.6, 0.04, p.width - 0.5);
   }
 
   group.userData.paints = paints;
@@ -1829,10 +1918,12 @@ export interface DriveParams {
   hover: number;
 }
 
-export function driveParamsFor(id: string): DriveParams {
+export function driveParamsFor(id: string, opts?: { mods?: Partial<VehicleMods> | null; wear?: Partial<VehicleWear> | null }): DriveParams {
   const v = getVehicle(id);
   if (!v) throw new Error(`Unknown vehicle ${id}`);
   const s = v.stats;
+  const mods = normalizeMods(opts?.mods);
+  const wear = normalizeWear(opts?.wear);
   const base: DriveParams = {
     maxSpeed: 7 + s.speed * 1.7,
     accel: 10 + s.accel * 1.2,
@@ -1846,6 +1937,18 @@ export function driveParamsFor(id: string): DriveParams {
     pushToGo: false,
     hover: 0.12,
   };
+  // Engine tune: +10% top speed and +12% accel per stage. Tires: +10%
+  // steering per level (grip). Both are real stat changes, bought
+  // per-car via customize-car.
+  base.maxSpeed *= 1 + 0.1 * mods.engine;
+  base.accel *= 1 + 0.12 * mods.engine;
+  base.steer *= 1 + 0.1 * mods.tires;
+  // Wear: a dirty car drags a little; a banged-up car is slower,
+  // slower to accelerate and lazier to steer (up to -10% / -15% / -8%
+  // at 100 damage). Wash/repair restore the numbers.
+  base.maxSpeed *= 1 - 0.03 * Math.min(1, wear.dirt / 100) - 0.1 * (wear.damage / 100);
+  base.accel *= 1 - 0.15 * (wear.damage / 100);
+  base.steer *= 1 - 0.08 * (wear.damage / 100);
   if (v.fly) {
     base.climb = v.climb ?? 10;
     base.maxAltitude = v.maxAltitude ?? 26;
