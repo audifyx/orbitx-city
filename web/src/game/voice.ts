@@ -57,6 +57,14 @@ if (typeof window !== "undefined") {
   (window as unknown as { __orbitxVoice?: unknown }).__orbitxVoice = {
     peerCount: () => peers.size,
     connectionStates: () => [...peers.values()].map((link) => link.pc.connectionState),
+    // Per peer: does the remote audio element have a live audio track?
+    // (proves media actually arrived, not just that the handshake worked).
+    remoteAudio: () =>
+      [...peers.values()].map((link) => {
+        const stream = link.audio.srcObject as MediaStream | null;
+        const track = stream?.getAudioTracks()[0];
+        return { hasStream: !!stream, live: !!track && track.readyState === "live", paused: link.audio.paused };
+      }),
     proximity: () => proximity,
     room: () => room,
   };
