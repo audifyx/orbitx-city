@@ -918,9 +918,16 @@ body.touch .touch-ui {
   gap: 8px;
 }
 
+/* The base `button` rule gives every button margin-top: 16px and
+   padding: 12px 42px — reset both here, or the container grows 16px
+   tall (and the buttons shrink under flex) and the top strip pokes
+   into the minimap. box-sizing keeps width: 76px exact. */
 .drive-buttons button {
+  box-sizing: border-box;
   width: 76px;
   min-height: 64px;
+  margin: 0;
+  padding: 12px 8px;
   font-size: 16px;
   font-weight: 700;
   border-radius: 12px;
