@@ -121,7 +121,7 @@ export interface RailPoint {
 export interface Anchor {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "carshop" | "arcade" | "market" | "dock" | "mall" | "office" | "offices" | "lift" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "restaurant" | "fire" | "police" | "hospital" | "emergency" | "grocery";
+  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "carshop" | "arcade" | "market" | "dock" | "mall" | "office" | "offices" | "lift" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "restaurant" | "fire" | "police" | "hospital" | "emergency" | "grocery" | "store";
   x: number;
   y: number;
   z: number;
@@ -4501,13 +4501,17 @@ function addMegaMall(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: 
   // Ground floor: stone finish, ceiling slab is the mezzanine (built below).
   put(boxes, x0 + w / 2, 0.08, z0 + d / 2, w - 2.4, 0.08, d - 2.4, "stone");
   cladWallsTall(boxes, x0, z0, w, d, "w", 9.5);
-  // Shopfronts along the south wall.
+  // Shopfronts along the south wall. Three of them are the wardrobe
+  // stores (style theme): each has its own shopfront + anchor below, so
+  // the player walks up and presses E to open the Shop on that store's
+  // tab. Shopfront x is x0 + 6 + i * 8.6 (49 / 57.6 / 66.2 / 74.8 /
+  // 83.4 / 92); the store anchors sit 2.3 in front of their counters.
   const shops: Array<[string, string, Mat]> = [
-    ["ORBITX GEAR", "Merch + gear", "gold"],
+    ["SECOND ORBIT", "Thrift · 10–45 City Sol", "warm"],
     ["PLAZA COFFEE", "Coffee + bites", "warm"],
-    ["SNEAKER DEN", "Kicks + streetwear", "red"],
+    ["ORBITX SUPPLY", "Streetwear · 60–180 City Sol", "red"],
     ["NEON ARCADE", "Games + prizes", "cyan"],
-    ["STYLE LAB", "Fashion + fits", "gold"],
+    ["AURUM BOUTIQUE", "Designer · 220–800 City Sol", "gold"],
     ["TOKEN TOYS", "Toys + collectibles", "warm"],
   ];
   for (let i = 0; i < shops.length; i++) {
@@ -4604,6 +4608,13 @@ function addMegaMall(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: 
     doorAnchor("megamall", "Mega Mall", "mall", x0, z0, w, d, "w"),
     { id: "mall-lift-0", name: "Mall Lift", kind: "lift", x: 91.5, y: 0, z: -25, yaw: Math.PI / 2, slot: 0, liftId: "mall-lift", liftFloor: 0 },
     { id: "mall-lift-1", name: "Mall Lift", kind: "lift", x: 91.5, y: MALL_FLOOR2, z: -25, yaw: Math.PI / 2, slot: 1, liftId: "mall-lift", liftFloor: 1 },
+    // Wardrobe stores (style theme): one anchor per store, in front of
+    // its south-wall shopfront (counter at z 26.9, anchor 2.3 north of
+    // it). Pressing E opens the Shop on that store's tab (runtime.ts
+    // anchor branch). Spacing 17.2 apart — no overlap at the 3.3 range.
+    { id: "store-thrift", name: "Second Orbit — Thrift", kind: "store", x: 49, y: 0, z: 24.6, yaw: Math.PI, slot: 0 },
+    { id: "store-street", name: "ORBITX Supply — Streetwear", kind: "store", x: 66.2, y: 0, z: 24.6, yaw: Math.PI, slot: 0 },
+    { id: "store-designer", name: "AURUM Boutique — Designer", kind: "store", x: 83.4, y: 0, z: 24.6, yaw: Math.PI, slot: 0 },
   ];
   const lifts: Lift[] = [{ id: "mall-lift", name: "Mall Lift", x: 95, z: -25, w: 4, d: 4, floors: [0, MALL_FLOOR2], stops: ["Ground Floor", "Mezzanine"], landing: "w" }];
   return { zones, anchors, lifts };

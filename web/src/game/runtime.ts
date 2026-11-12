@@ -69,7 +69,7 @@ import { allLooks, clothesFromOwned, dressPerson, loadLooks, lookById, lookName,
 import { GOLD, MATERIALS } from "./materials";
 import { accountToken, readAccount } from "../auth";
 import { world, type CityMe } from "./world";
-import { wardrobeFromOwned, setEquippedOwned, removeFitOwned, encodeFitEntry, WARDROBE_CATALOG, WARDROBE_KINDS, type SavedFit, type WardrobeKind, type WardrobeSlots } from "./wardrobe";
+import { wardrobeFromOwned, setEquippedOwned, removeFitOwned, encodeFitEntry, WARDROBE_CATALOG, WARDROBE_KINDS, type SavedFit, type StoreId, type WardrobeKind, type WardrobeSlots } from "./wardrobe";
 import {
   accumulateWear,
   buildVehicle,
@@ -258,6 +258,11 @@ export interface Snap {
   /** Equipped wardrobe slots + saved fits, parsed from wallet.owned. */
   wardrobe: WardrobeSlots;
   fits: SavedFit[];
+  /** Which store tab the Shop opens on (thrift/street/designer/classics). */
+  shopStore: StoreId | "classics";
+  /** Bumps each time a store venue opens the Shop on its tab, so opening
+   * the same store twice still switches the tab (App syncs on this). */
+  shopStoreNonce: number;
   indoors: string;
   prompt: string;
   balance: number;
@@ -1263,6 +1268,11 @@ export function createRuntime(scene: Scene) {
   let eventLeft = 0;
   let burstLeft = 0;
   let panel: PanelName | "" = "";
+  // Wardrobe stores (style theme): which store tab the Shop opens on.
+  // A store venue (Mega Mall shopfront anchor) sets panelStore + bumps
+  // shopStoreNonce before opening the panel; App syncs on the nonce.
+  let panelStore: StoreId | "classics" = "thrift";
+  let shopStoreNonce = 0;
   const CAMS = ["shoulder", "far", "selfie", "first"] as const;
   type CamMode = (typeof CAMS)[number];
   function storedCam(): CamMode {
@@ -2359,6 +2369,8 @@ export function createRuntime(scene: Scene) {
       owned: [...wallet.owned],
       wardrobe,
       fits: wardrobe.fits,
+      shopStore: panelStore,
+      shopStoreNonce,
       color: wallet.color,
       hat: wallet.hat,
       car: wallet.car,
@@ -3267,8 +3279,23 @@ export function createRuntime(scene: Scene) {
         publish();
         return;
       }
-      if (anchor.kind === "shop" || anchor.kind === "grocery" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel" || anchor.kind === "restaurant") {        stepInside(anchor, body);
-        publish();
+      // Wardrobe store (style theme): a Mega Mall shopfront anchor opens
+      // the Shop on that store's tab — each store is its own place in the
+      // world, not just a tab. The nonce bump makes opening the same
+      // store twice still switch the tab (App syncs on it).
+      if (anchor.kind === "store") {
+        const store: StoreId | null =
+          anchor.id === "store-thrift" ? "thrift" : anchor.id === "store-street" ? "street" : anchor.id === "store-designer" ? "designer" : null;
+        if (store) {
+          panelStore = store;
+          shopStoreNonce += 1;
+          panel = "shop";
+          say(anchor.name);
+          publish();
+          return;
+        }
+      }
+      if (anchor.kind === "shop" || anchor.kind === "grocery" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel" || anchor.kind === "restaurant") {        stepInside(anchor, body);        publish();
         return;
       }
       if (isDeptKind(anchor.kind as string)) openEmergency(anchor.kind as string, anchor.name);

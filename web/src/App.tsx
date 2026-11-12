@@ -239,6 +239,8 @@ const EMPTY: Snap = {
   owned: [],
   wardrobe: { outfit: "", shoes: "", chain: "", watch: "", glasses: "", hair: "" },
   fits: [],
+  shopStore: "thrift",
+  shopStoreNonce: 0,
   color: "white",
   hat: "none",
   car: "black",
@@ -781,6 +783,16 @@ export default function App() {
   const [fitName, setFitName] = useState("");
   const [fitMsg, setFitMsg] = useState("");
 
+  // A store venue in the world (Mega Mall shopfront) opens the Shop on
+  // that store's tab — the runtime bumps shopStoreNonce so opening the
+  // same store twice in a row still switches the tab. Tab clicks are
+  // local-only; this effect only fires on a nonce change, so it never
+  // fights a tab the player picked by hand.
+  useEffect(() => {
+    setShopStore(snap.shopStore);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snap.shopStoreNonce]);
+
   const buyItem = (id: string) => {
     void gameRef.current?.runtime.buy(id);
   };
@@ -1152,7 +1164,7 @@ export default function App() {
             {panel === "shop" && (
               <div className="list">
                 <p>Balance {snap.balance} · Burned total {snap.burned}</p>
-                <p className="muted">Three clothing stores, three price tiers — thrift is cheap, streetwear is mid, designer is serious. Same kind of piece, different store, different price — and the designer one looks better.</p>
+                <p className="muted">Three clothing stores, three price tiers — thrift is cheap, streetwear is mid, designer is serious. Same kind of piece, different store, different price — and the designer one looks better. Each store has its own shopfront in the Mega Mall — walk up and press E to open it right there.</p>
                 <div className="days">
                   {STORES.map((store) => (
                     <button key={store.id} type="button" className={shopStore === store.id ? "on" : ""} onClick={() => setShopStore(store.id)}>
@@ -1297,7 +1309,7 @@ export default function App() {
             )}
             {panel === "wardrobe" && (
               <div className="list">
-                <p className="muted">Your closet — change clothes here, no buying. New pieces live at the three stores in the Shop.</p>
+                <p className="muted">Your closet — change clothes here, no buying. New pieces live at the three stores in the Mega Mall — Second Orbit (thrift), ORBITX Supply (streetwear), AURUM Boutique (designer).</p>
                 <button type="button" onClick={() => open("shop")}>Go to the shops</button>
                 {wardrobeSections()}              </div>
             )}
@@ -2798,6 +2810,7 @@ export default function App() {
                     ) : null}
                   </article>
                   {owned ? (
+                    <>
                     <article>
                       <div>
                         <b>Edit Home</b>
@@ -2829,6 +2842,7 @@ export default function App() {
                       Open closet
                     </button>
                   </article>
+                    </>
                   ) : null}
                   {mineList}
                 </div>
