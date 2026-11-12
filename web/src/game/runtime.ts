@@ -442,6 +442,9 @@ export interface Snap {
   board: { name: string; burned: number }[];
   districts: { id: string; name: string; x: number; z: number }[];
   people: PersonCard[];
+  // Wandering citizens (the 14 People-theme NPCs among them) with their
+  // LIVE position — the Players panel teleports to NPC friends via this.
+  npcs: { name: string; x: number; z: number }[];
   friends: { id: string; name: string }[];
   // Inbox: friend requests carry no kind; party invites carry
   // kind "party" + the party id. The Players panel tells them apart.
@@ -2781,6 +2784,7 @@ export function createRuntime(scene: Scene) {
         x: remote.state.x,
         z: remote.state.z,
       })),
+      npcs: npcs.map((npc) => ({ name: npc.name, x: npc.x, z: npc.z })),
       friends: world.me?.friends ?? [],
       requests: world.me?.inbox ?? [],
       party: world.party?.members ?? [],
@@ -9637,6 +9641,29 @@ export function createRuntime(scene: Scene) {
       lastBody.yaw = Math.atan2(lastBody.x - target.x, lastBody.z - target.z);
       panel = "";
       say(`Teleported to ${target.name}.`);
+      publish();
+    },
+    // Teleport to a wandering NPC (the 14 People-theme friends walk the
+    // city on patrol loops) — same rules as teleportToPlayer: step out
+    // of the car / train / bus first, land on foot beside them, FREE.
+    teleportToNpc(name: string) {
+      const found = npcs.find((npc) => npc.name === name);
+      if (!found || !lastBody) {
+        say("Could not find that person right now.");
+        publish();
+        return;
+      }
+      if (driving) exitCar(lastBody);
+      ridingTrain = false;
+      ridingBus = false;
+      lastBody.x = found.x + 2;
+      lastBody.z = found.z + 2;
+      lastBody.y = 0;
+      lastBody.vy = 0;
+      lastBody.flying = false;
+      lastBody.yaw = Math.atan2(lastBody.x - found.x, lastBody.z - found.z);
+      panel = "";
+      say(`Teleported to ${found.name}.`);
       publish();
     },
     // Dismiss one toast early (tap it) — it leaves the live stack but
