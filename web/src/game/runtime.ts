@@ -19,7 +19,7 @@ import {
 } from "three";
 import type { Anchor, Art, BoardSlot, City, Collider, Lift, Zone } from "./city";
 import { TRAIN_LINE_Z, TRAIN_STATIONS, trainTrackY } from "./city";
-import { BUS_BOARD_DIST, BUS_LENGTH, BusSim, buildBusMesh } from "./bus";
+import { BUS_BOARD_DIST, BUS_LENGTH, BUS_WIDTH, BusSim, buildBusMesh } from "./bus";
 import {
   BUSK_BASE,
   BUSK_BEATS,
@@ -4306,6 +4306,17 @@ export function createRuntime(scene: Scene) {
 
   function carBlocks(x: number, y: number, z: number) {
     if (driving || y > 2.2) return false;
+    // The City Loop bus is solid to walkers too (except its rider, who is
+    // inside it) — same shape as the car test, length 9 / width 2.6.
+    if (!ridingBus) {
+      const bdx = x - bus.x;
+      const bdz = z - bus.z;
+      const bfx = Math.sin(bus.yaw);
+      const bfz = -Math.cos(bus.yaw);
+      const balong = bdx * bfx + bdz * bfz;
+      const bside = bdx * -bfz + bdz * bfx;
+      if (Math.abs(balong) < BUS_LENGTH / 2 + 0.4 && Math.abs(bside) < BUS_WIDTH / 2 + 0.4) return true;
+    }
     // Scaled from the car's own length/width (buildVehicle sets them):
     // half-length + 0.4 along the forward axis, half-width + 0.4 across.
     return cars.some((car, index) => {
