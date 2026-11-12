@@ -1,5 +1,5 @@
 import { makeRng, type Rng } from "./seed";
-import { buildAllRegions, buildAllBridges, WORLD_BOUNDS } from "./states";
+import { buildAllRegions, buildAllBridges, buildDocks, WORLD_BOUNDS } from "./states";
 import { buildAllHomes } from "./homes";
 import { buildAllDistricts, buildAllDistrictBridges, type CityParts } from "./emergency";
 import { RESTAURANT_PLACES } from "./content";
@@ -5241,6 +5241,10 @@ export function buildCity(seed: number): City {
   buildAllRegions(city, seed || 1);
   buildAllHomes(city, seed || 1);
   buildAllBridges(city);
+  // Ferry docks (states.ts DOCKS): a pier + free boat at every strait
+  // shore. Must run inside buildCity — cityMapModel caches by seed, so
+  // calling it after buildCity() returns would serve a pre-dock model.
+  buildDocks(city);
   return city;
 }
 

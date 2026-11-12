@@ -1725,3 +1725,127 @@ export function buildBridge(city: City, bridge: BridgeDef): void {
 export function buildAllBridges(city: City): void {
   for (const b of BRIDGES) buildBridge(city, b);
 }
+
+// ---------------------------------------------------------------------------
+// Ferry docks — one free boat at every strait shore (water.ts contract).
+// ---------------------------------------------------------------------------
+// Each dock is a wooden pier walking out from the shore into the strait,
+// with a free Orbit Ferry moored alongside it. The pier runs parallel to
+// the sailing lane, never across it: the boat lane sits 3.5 units off the
+// pier centre (z = 20.5 west/east, x = 20.5 south), clear of the magic
+// bridge decks, their ground strips (z/x ±14) and their gold rails
+// (±11.4) — the boat sails straight down its lane from shore to shore.
+// The boat faces the crossing (yaw -PI/2 west, +PI/2 east, PI south, 0
+// north) so boarding and holding W just goes. Boarding is free: enterCar
+// never checks ownership, and the docked boats respawn with the city.
+// A bought Orbit Ferry moors at the home south dock (runtime.ts).
+// ---------------------------------------------------------------------------
+
+export interface DockDef {
+  id: string;
+  strait: "west" | "east" | "south";
+  side: "home" | "ny" | "la" | "fl";
+  /** Pier deck rect (world XZ) — walkway from the shore into the water. */
+  pier: { x0: number; x1: number; z0: number; z1: number };
+  /** Docked boat spot: centre + facing yaw. */
+  boat: { x: number; z: number; yaw: number };
+  /** Sign text destination ("NY" / "LA" / "FL" / "HOME"). */
+  dest: string;
+  /** Ferry sign position + facing (DoubleSide, either face reads). */
+  sign: { x: number; z: number; rotY: number };
+}
+
+export const DOCKS: DockDef[] = [
+  {
+    id: "west-home", strait: "west", side: "home",
+    pier: { x0: -396, x1: -380, z0: 15.5, z1: 18.5 },
+    boat: { x: -391, z: 20.5, yaw: -Math.PI / 2 },
+    dest: "NY",
+    sign: { x: -376, z: 24, rotY: Math.PI / 2 },
+  },
+  {
+    id: "west-ny", strait: "west", side: "ny",
+    pier: { x0: -610, x1: -594, z0: 15.5, z1: 18.5 },
+    boat: { x: -599, z: 20.5, yaw: Math.PI / 2 },
+    dest: "HOME",
+    sign: { x: -614, z: 24, rotY: -Math.PI / 2 },
+  },
+  {
+    id: "east-home", strait: "east", side: "home",
+    pier: { x0: 380, x1: 396, z0: 15.5, z1: 18.5 },
+    boat: { x: 391, z: 20.5, yaw: Math.PI / 2 },
+    dest: "LA",
+    sign: { x: 376, z: 24, rotY: -Math.PI / 2 },
+  },
+  {
+    id: "east-la", strait: "east", side: "la",
+    pier: { x0: 594, x1: 610, z0: 15.5, z1: 18.5 },
+    boat: { x: 599, z: 20.5, yaw: -Math.PI / 2 },
+    dest: "HOME",
+    sign: { x: 614, z: 24, rotY: Math.PI / 2 },
+  },
+  {
+    id: "south-home", strait: "south", side: "home",
+    pier: { x0: 15.5, x1: 18.5, z0: 380, z1: 396 },
+    boat: { x: 20.5, z: 391, yaw: Math.PI },
+    dest: "FL",
+    sign: { x: 24, z: 376, rotY: Math.PI },
+  },
+  {
+    id: "south-fl", strait: "south", side: "fl",
+    pier: { x0: 15.5, x1: 18.5, z0: 694, z1: 710 },
+    boat: { x: 20.5, z: 699, yaw: 0 },
+    dest: "HOME",
+    sign: { x: 24, z: 714, rotY: 0 },
+  },
+];
+
+/** Builds every ferry dock's pier + sign into the city. */
+export function buildDocks(city: City): void {
+  for (const dock of DOCKS) {
+    const p = dock.pier;
+    const cx = (p.x0 + p.x1) / 2;
+    const cz = (p.z0 + p.z1) / 2;
+    const lenX = p.x1 - p.x0;
+    const lenZ = p.z1 - p.z0;
+    // Wooden deck, top at y=0.2 — a 0.2 step up from the shore, same as
+    // the harbor pier (city.ts addHarbor). No collider: the player walks
+    // it at y=0, and the boat's pier check in runtime.ts uses the rect.
+    pushBox(city, cx, 0.1, cz, lenX, 0.2, lenZ, "wood");
+    // Support posts down to the seabed (WATER_FLOOR_Y = -6), at the pier
+    // corners, inset 1 unit.
+    for (const px of [p.x0 + 1, p.x1 - 1]) {
+      for (const pz of [p.z0 + 0.6, p.z1 - 0.6]) {
+        pushBox(city, px, -2.9, pz, 0.3, 6, 0.3, "black");
+      }
+    }
+    // Lamp at the pier's outer (water) tip corner, on the pier's north /
+    // west edge (with a real collider, like the harbor pier lamps, so the
+    // player cannot walk through the post).
+    const lampX =
+      dock.strait === "west"
+        ? dock.side === "home" ? p.x0 + 0.7 : p.x1 - 0.7
+        : dock.strait === "east"
+          ? dock.side === "home" ? p.x1 - 0.7 : p.x0 + 0.7
+          : p.x0 + 0.7;
+    const lampZ =
+      dock.strait === "south"
+        ? dock.side === "home" ? p.z1 - 0.7 : p.z0 + 0.7
+        : p.z0 + 0.7;
+    pushBox(city, lampX, 1.3, lampZ, 0.25, 2.4, 0.25, "black");
+    pushBox(city, lampX, 2.6, lampZ, 0.7, 0.3, 0.7, "gold");
+    pushCol(city, lampX, 1.3, lampZ, 0.25, 2.4, 0.25);
+    // Ferry sign at the pier root, so the dock is findable from the road.
+    city.art.push({
+      id: `${dock.id}-sign`,
+      x: dock.sign.x,
+      y: 4.2,
+      z: dock.sign.z,
+      rotY: dock.sign.rotY,
+      w: 12,
+      h: 2.5,
+      lines: ["FERRY DOCK", `FREE BOATS — SAIL TO ${dock.dest}`],
+      sub: "Press E to sail",
+    });
+  }
+}
