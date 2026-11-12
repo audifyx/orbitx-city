@@ -75,6 +75,47 @@ export const DEFAULT_PROJECTS: ProjectInfo[] = [
   { id: "lumen", name: "Lumen Labs", line: "Build nights and hangouts", site: "", holders: "—", price: "Placeholder" },
 ];
 
+// OrbitX HQ tower suites (floors 2–4) — the real claimable offices. A suite
+// costs City Sol (in-game currency) to claim/lease; the directory panel owns
+// the prices and the claim flow, so no price lives here. There is no real
+// buy-and-burn for offices (buy+burn is ads/banners only). The Founder's
+// Office is the user's own OrbitX office and is never claimable.
+export interface OfficeSuite {
+  id: string;
+  name: string;
+  floor: 2 | 3 | 4;
+  tier: "standard" | "premium" | "founder";
+  claimable: boolean;
+}
+
+export const OFFICE_SUITES: OfficeSuite[] = [
+  { id: "office-f2-a", name: "Suite 2A", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f2-b", name: "Suite 2B", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f2-c", name: "Suite 2C", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f2-d", name: "Suite 2D", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f2-e", name: "Suite 2E", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f2-f", name: "Suite 2F", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f2-g", name: "Suite 2G", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f2-h", name: "Suite 2H", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f3-a", name: "Suite 3A", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f3-b", name: "Suite 3B", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f3-c", name: "Suite 3C", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f3-d", name: "Suite 3D", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f3-e", name: "Suite 3E", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f3-f", name: "Suite 3F", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f3-g", name: "Suite 3G", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f3-h", name: "Suite 3H", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f4-founder", name: "Founder's Office", floor: 4, tier: "founder", claimable: false },
+  { id: "office-f4-a", name: "Suite 4A", floor: 4, tier: "premium", claimable: true },
+  { id: "office-f4-b", name: "Suite 4B", floor: 4, tier: "premium", claimable: true },
+  { id: "office-f4-c", name: "Suite 4C", floor: 4, tier: "premium", claimable: true },
+  { id: "office-f4-d", name: "Suite 4D", floor: 4, tier: "premium", claimable: true },
+  { id: "office-f4-e", name: "Suite 4E", floor: 4, tier: "premium", claimable: true },
+  { id: "office-f4-f", name: "Suite 4F", floor: 4, tier: "premium", claimable: true },
+  { id: "office-f4-g", name: "Suite 4G", floor: 4, tier: "premium", claimable: true },
+  { id: "office-f4-h", name: "Suite 4H", floor: 4, tier: "premium", claimable: true },
+];
+
 export const DEFAULT_BILLBOARDS: BillboardInfo[] = [
   {
     id: "plaza-east",
@@ -455,7 +496,11 @@ export interface PhotoSpot {
 }
 export const PHOTO_SPOTS: PhotoSpot[] = [
   { id: "fountain", name: "Fountain plaza", x: 14, z: 12 },
-  { id: "tower", name: "ORBITX tower", x: 0, z: 2 },
+  // Tower spot: moved off the spawn walk (it used to sit at 0, 2, so the
+  // first prompt a new player saw was "Take photo") to the plaza in front
+  // of the tower door, clear of the door anchor — the door now says
+  // "Enter office" instead. Fountain and pier spots untouched.
+  { id: "tower", name: "ORBITX tower", x: -30, z: 8 },
   { id: "pier", name: "Harbor pier", x: 0, z: 232 },
 ];
 export const PHOTO_REWARD = 10;

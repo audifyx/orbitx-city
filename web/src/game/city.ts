@@ -117,7 +117,7 @@ export interface RailPoint {
 export interface Anchor {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "lift" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel";
+  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "offices" | "lift" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel";
   x: number;
   y: number;
   z: number;
@@ -1618,6 +1618,38 @@ function furnishOffice(
   put(boxes, desk.x, 1.2, desk.z, 0.45, 0.28, 0.35, "cyan");
   put(boxes, cx, 0.4, z0 + 2.4, 3.2, 0.45, 0.8, "red");
   cols.push(col(cx, 0.4, z0 + 2.4, 3.2, 0.45, 0.8));
+  // Enrichment: two work desks on the north wall (west of the bench),
+  // extra chairs at the meeting table, a bookcase + sideboard on the
+  // south wall, plants in the corners, paintings flanking the door, and a
+  // rug under the meeting table. Nothing already here moves.
+  deskRow(boxes, cols, x0 + 2.7, 0, z0 + 2.4, 2, 2.8, true);
+  // Two guest chairs facing the desk (south of it, clear of the door lane
+  // and of the service point in front of the desk).
+  for (const cxOff of [-2.1, 2.1]) {
+    put(boxes, cx + cxOff, 0.4, cz + 6.3, 0.45, 0.45, 0.45, "black");
+    cols.push(col(cx + cxOff, 0.4, cz + 6.3, 0.45, 0.45, 0.45));
+  }
+  put(boxes, x0 + 4.5, 1.0, z0 + d - 2.3, 3.4, 2.0, 0.7, "wood");
+  cols.push(col(x0 + 4.5, 1.0, z0 + d - 2.3, 3.4, 2.0, 0.7));
+  const bookMats: Mat[] = ["red", "cyan", "gold", "white"];
+  for (let level = 0; level < 2; level++) {
+    for (let i = 0; i < 3; i++) {
+      put(boxes, x0 + 3.5 + i * 1.0, 0.7 + level * 0.9, z0 + d - 2.72, 0.4, 0.45, 0.3, bookMats[(i + level * 2) % bookMats.length]);
+    }
+  }
+  put(boxes, x0 + w - 6.5, 0.55, z0 + d - 2.4, 2.6, 1.05, 0.9, "wood");
+  cols.push(col(x0 + w - 6.5, 0.55, z0 + d - 2.4, 2.6, 1.05, 0.9));
+  put(boxes, x0 + w - 7.2, 1.2, z0 + d - 2.4, 0.3, 0.3, 0.3, "white");
+  put(boxes, x0 + w - 5.8, 1.2, z0 + d - 2.4, 0.3, 0.3, 0.3, "gold");
+  for (const [px, pz] of [[x0 + 2.0, z0 + d - 4.0], [x0 + w - 2.7, z0 + d - 2.7]] as Array<[number, number]>) {
+    put(boxes, px, 0.2, pz, 0.9, 0.4, 0.9, "stone");
+    put(boxes, px, 0.5, pz, 0.8, 0.9, 0.8, "leavesDark");
+    cols.push(col(px, 0.5, pz, 0.8, 0.9, 0.8));
+  }
+  voxelPainting(boxes, x0 + w - 1.65, 1.9, z0 + 5, -Math.PI / 2, 2.2, 1.5);
+  voxelPainting(boxes, x0 + w - 1.65, 1.9, z0 + d - 5, -Math.PI / 2, 2.2, 1.5);
+  put(boxes, cx, 0.145, cz, 6, 0.05, 4.4, "gold");
+  put(boxes, cx, 0.155, cz, 4.6, 0.05, 3.0, "red");
   return {
     id: `project-${index}`,
     name: "Project office",
@@ -1726,34 +1758,22 @@ function addVenue(
   return furnishSpot(boxes, cols, x0, z0, w, d, door, kind);
 }
 
-function furnishSpot(
-  boxes: Box[],
-  cols: Collider[],
+// The five generic "spot" venues each get a real interior of their own.
+// Every one returns the exact Zone the old generic furnishSpot returned
+// (same id / name / service point / sign), so zone + anchor + door wiring
+// is untouched — only the contents inside the room change. All five keep
+// their fixed doors: bank / garage / arcade enter from the west, market
+// and the harbor office from the north.
+function spotZone(
+  kind: Zone["kind"],
+  name: string,
   x0: number,
   z0: number,
   w: number,
   d: number,
   door: Face,
-  kind: Zone["kind"],
 ): Zone {
-  const names: Record<string, [string, string, Mat]> = {
-    bank: ["OrbitX Bank", "Demo savings window", "stone"],
-    garage: ["Hover Garage", "Take a car from the avenue", "black"],
-    arcade: ["Neon Arcade", "One cabinet, one high score", "cyan"],
-    market: ["Night Market", "Stalls open until late", "warm"],
-    dock: ["Harbor Office", "Ships and shift work", "wood"],
-  };
-  const [name, , floor] = names[kind] ?? ["OrbitX", "Come in", "cream"];
-  const { cx, cz } = roomCenter(x0, z0, w, d);
-  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, floor);
-  addCeiling(boxes, cols, x0, z0, w, d);
-  cladWalls(boxes, x0, z0, w, d, door);
   const back = opposite(door, x0, z0, w, d, 2.4);
-  const alongX = door === "n" || door === "s";
-  put(boxes, back.x, 0.6, back.z, alongX ? 6.4 : 1.1, 1.1, alongX ? 1.1 : 6.4, kind === "arcade" ? "cyan" : "black");
-  cols.push(col(back.x, 0.6, back.z, alongX ? 6.4 : 1.1, 1.1, alongX ? 1.1 : 6.4));
-  put(boxes, cx, 0.45, cz, 2.2, 0.8, 1.2, "wood");
-  cols.push(col(cx, 0.45, cz, 2.2, 0.8, 1.2));
   const service = opposite(door, x0, z0, w, d, 4.1);
   return {
     id: kind,
@@ -1771,6 +1791,357 @@ function furnishSpot(
     signZ: back.z + (door === "n" ? -0.55 : door === "s" ? 0.55 : 0),
     signRot: back.rot,
   };
+}
+
+// OrbitX Bank (door west): teller counter with two glass windows on the
+// back wall, vault door on the north wall, ATMs on the south wall, a
+// railed queue lane down the middle, waiting chairs, plants, gold trim.
+function furnishBank(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "stone");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  const back = opposite(door, x0, z0, w, d, 2.4);
+  // Teller counter + gold top on the back (east) wall; the zone sign sits
+  // over the middle bay, so the glass windows live in the outer bays.
+  put(boxes, back.x - 0.6, 0.55, back.z, 1.2, 1.05, 8.0, "stone");
+  cols.push(col(back.x - 0.6, 0.55, back.z, 1.2, 1.05, 8.0));
+  put(boxes, back.x - 0.6, 1.15, back.z, 1.35, 0.12, 8.2, "gold");
+  for (const off of [-4.2, 4.2]) {
+    put(boxes, back.x - 0.6, 1.7, back.z + off, 0.12, 1.0, 1.6, "cyan");
+    put(boxes, back.x - 0.85, 1.4, back.z + off, 0.15, 0.4, 0.6, "black");
+  }
+  put(boxes, back.x - 0.6, 1.3, back.z, 0.3, 0.2, 0.3, "gold");
+  for (const off of [-2.5, 2.5]) {
+    put(boxes, back.x - 0.6, 1.35, back.z + off, 0.4, 0.4, 0.4, "gold");
+  }
+  // Railed queue lane: two runs either side of the door lane, open at the
+  // east end so the player steps around to the service point.
+  for (const rz of [cz - 2.6, cz + 2.6]) {
+    put(boxes, cx - 1.25, 0.55, rz, 9.5, 0.08, 0.12, "black");
+    cols.push(col(cx - 1.25, 0.55, rz, 9.5, 1.1, 0.2));
+    for (const px of [cx - 6, cx - 1.25, cx + 3.5]) {
+      put(boxes, px, 0.5, rz, 0.18, 1.0, 0.18, "gold");
+    }
+  }
+  // Vault door on the north wall: gold rim, black door, gold wheel.
+  put(boxes, cx + 3, 1.5, z0 + 1.32, 3.6, 3.0, 0.12, "gold");
+  put(boxes, cx + 3, 1.45, z0 + 1.42, 3.2, 2.8, 0.2, "black");
+  put(boxes, cx + 3, 1.45, z0 + 1.58, 0.5, 0.5, 0.15, "gold");
+  // ATMs on the south wall.
+  for (const ax of [cx - 6, cx - 1.5]) {
+    put(boxes, ax, 0.9, z0 + d - 1.9, 1.4, 1.8, 0.8, "black");
+    cols.push(col(ax, 0.9, z0 + d - 1.9, 1.4, 1.8, 0.8));
+    put(boxes, ax, 1.15, z0 + d - 2.32, 0.9, 0.6, 0.1, "cyan");
+    put(boxes, ax, 1.85, z0 + d - 1.9, 1.45, 0.1, 0.85, "gold");
+  }
+  // Waiting chairs on the north wall, plants flanking the teller counter.
+  for (const chx of [cx - 7, cx - 4.4, cx - 1.8]) {
+    put(boxes, chx, 0.38, z0 + 2.6, 0.95, 0.45, 0.9, "red");
+    put(boxes, chx, 0.85, z0 + 2.15, 0.95, 0.9, 0.2, "red");
+    cols.push(col(chx, 0.5, z0 + 2.45, 1.0, 1.0, 1.1));
+  }
+  for (const pz of [cz - 7.8, cz + 7.8]) {
+    put(boxes, x0 + w - 3.2, 0.2, pz, 0.9, 0.4, 0.9, "stone");
+    put(boxes, x0 + w - 3.2, 0.5, pz, 0.8, 0.9, 0.8, "leavesDark");
+    cols.push(col(x0 + w - 3.2, 0.5, pz, 0.8, 0.9, 0.8));
+  }
+  // Gold floor strip in front of the counter, painting on the south wall.
+  put(boxes, back.x - 2.6, 0.145, back.z, 1.6, 0.05, 7.0, "gold");
+  voxelPainting(boxes, cx + 4, 1.9, z0 + d - 1.4, Math.PI, 2.2, 1.5);
+  roomSign("bank", x0 + 1.35, 2.2, cz - 6, Math.PI / 2, 4.2, 1.7, ["ORBITX BANK", "Tellers · Vault · ATMs"], "Demo ledger only");
+  return spotZone("bank", "OrbitX Bank", x0, z0, w, d, door);
+}
+
+// Hover Garage (door west): two hover cars parked on the north wall, a
+// third car up on the lift in the south half, tool benches + pegboard on
+// the back wall, tire stacks, parts crates, work lamps, bay lines and
+// oil stains on the black floor. The drive lane from the door stays open.
+function furnishGarage(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "black");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  // A hover car: black body, cyan underglow, gold belt line, white cabin.
+  const hoverCar = (hx: number, hz: number, body: Mat, liftY = 0) => {
+    put(boxes, hx, 0.55 + liftY, hz, 3.4, 0.7, 1.9, body);
+    put(boxes, hx, 0.18 + liftY, hz, 3.5, 0.12, 2.0, "cyan");
+    put(boxes, hx, 0.95 + liftY, hz, 3.45, 0.1, 1.95, "gold");
+    put(boxes, hx, 1.05 + liftY, hz, 1.8, 0.55, 1.5, "white");
+    cols.push(col(hx, 0.7 + liftY, hz, 3.6, 1.4, 2.1));
+  };
+  hoverCar(cx - 4, z0 + 4.6, "black");
+  hoverCar(cx + 3.5, z0 + 4.6, "black");
+  // Lift platform + corner posts in the south half, third car riding on it.
+  put(boxes, cx, 0.3, cz + 5.5, 4.6, 0.6, 2.6, "stone");
+  cols.push(col(cx, 0.3, cz + 5.5, 4.6, 0.6, 2.6));
+  for (const [lx, lz] of [[cx - 2, cz + 4.2], [cx + 2, cz + 4.2], [cx - 2, cz + 6.8], [cx + 2, cz + 6.8]] as Array<[number, number]>) {
+    put(boxes, lx, 0.9, lz, 0.25, 1.8, 0.25, "gray");
+  }
+  hoverCar(cx, cz + 5.5, "red", 0.5);
+  // Workbench + pegboard on the back (east) wall, south of the service
+  // point; parts shelf on the same wall, north of it.
+  put(boxes, x0 + w - 2.8, 0.55, cz + 5.5, 1.2, 1.05, 4.6, "wood");
+  cols.push(col(x0 + w - 2.8, 0.55, cz + 5.5, 1.2, 1.05, 4.6));
+  put(boxes, x0 + w - 2.8, 1.2, cz + 4.3, 0.6, 0.25, 0.6, "gray");
+  put(boxes, x0 + w - 2.8, 1.2, cz + 5.5, 0.4, 0.3, 0.4, "red");
+  put(boxes, x0 + w - 2.8, 1.2, cz + 6.7, 0.5, 0.25, 0.5, "gold");
+  put(boxes, x0 + w - 1.45, 1.9, cz + 5.5, 0.15, 1.6, 4.4, "black");
+  for (const [tz, tm] of [[cz + 4.0, "gold"], [cz + 5.5, "cyan"], [cz + 7.0, "red"]] as Array<[number, Mat]>) {
+    put(boxes, x0 + w - 1.58, 1.9, tz, 0.1, 0.4, 0.4, tm);
+  }
+  put(boxes, x0 + w - 2.8, 1.1, cz - 4.5, 1.0, 2.2, 3.4, "wood");
+  cols.push(col(x0 + w - 2.8, 1.1, cz - 4.5, 1.0, 2.2, 3.4));
+  for (const [gy, gz, gm] of [[0.95, cz - 5.5, "gold"], [0.95, cz - 3.5, "cyan"], [1.75, cz - 5.5, "red"], [1.75, cz - 3.5, "white"]] as Array<[number, number, Mat]>) {
+    put(boxes, x0 + w - 3.45, gy, gz, 0.3, 0.4, 0.4, gm);
+  }
+  // Tire stacks in the west corners.
+  for (const [tx, tz] of [[x0 + 3.5, z0 + 4.0], [x0 + 3.5, z0 + d - 2.5]] as Array<[number, number]>) {
+    for (let level = 0; level < 3; level++) {
+      put(boxes, tx, 0.15 + level * 0.3, tz, 1.3, 0.3, 1.3, "black");
+    }
+    put(boxes, tx, 0.95, tz, 0.5, 0.15, 0.5, "gray");
+    cols.push(col(tx, 0.45, tz, 1.3, 0.9, 1.3));
+  }
+  // Parts crates stacked on the south wall.
+  put(boxes, cx + 5.5, 0.5, z0 + d - 2.3, 1.0, 1.0, 1.0, "wood");
+  put(boxes, cx + 5.5, 1.5, z0 + d - 2.3, 1.0, 1.0, 1.0, "wood");
+  put(boxes, cx + 3.8, 0.5, z0 + d - 2.3, 1.0, 1.0, 1.0, "wood");
+  cols.push(col(cx + 4.65, 1.0, z0 + d - 2.3, 3.4, 2.0, 1.1));
+  // Standing work lamps flanking the lift.
+  for (const [lx, lz] of [[cx - 4, cz + 3.8], [cx + 4.5, cz - 3.5]] as Array<[number, number]>) {
+    put(boxes, lx, 0.9, lz, 0.15, 1.8, 0.15, "gray");
+    put(boxes, lx, 1.85, lz, 0.5, 0.3, 0.5, "warm");
+    cols.push(col(lx, 0.9, lz, 0.3, 1.8, 0.3));
+  }
+  // Bay lines, gold drive line, oil stains — flat paint on the floor.
+  for (const bx of [cx - 6, cx - 2, cx + 1.6, cx + 5.6]) {
+    put(boxes, bx, 0.145, z0 + 4.6, 0.15, 0.05, 3.2, "white");
+  }
+  put(boxes, cx, 0.145, cz, 14, 0.05, 0.3, "gold");
+  for (const [ox, oz] of [[cx - 4, z0 + 6.8], [cx + 3.5, z0 + 6.8], [cx, cz + 7.5]] as Array<[number, number]>) {
+    put(boxes, ox, 0.145, oz, 2.6, 0.05, 1.4, "gray");
+  }
+  roomSign("garage", cx - 4, 2.2, z0 + 1.35, 0, 4.2, 1.7, ["HOVER GARAGE", "Lifts · Tires · Tune-ups"], "Hover-cars live here");
+  return spotZone("garage", "Hover Garage", x0, z0, w, d, door);
+}
+
+// Neon Arcade (door west): ten cabinets — five down the back wall, three
+// on the north wall, two on the south — a prize counter in the south-west
+// corner, gold stools, neon strips, a high-score board by the door.
+function furnishArcade(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "cyan");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  // A cabinet: black body, gold top, glowing face + white control deck
+  // on the side that looks into the room.
+  const cabinet = (mx: number, mz: number, face: Face, mat: Mat) => {
+    const wide = face === "n" || face === "s";
+    put(boxes, mx, 1.0, mz, wide ? 1.4 : 0.9, 2.0, wide ? 0.9 : 1.4, "black");
+    cols.push(col(mx, 1.0, mz, wide ? 1.4 : 0.9, 2.0, wide ? 0.9 : 1.4));
+    put(boxes, mx, 2.05, mz, wide ? 1.45 : 0.95, 0.15, wide ? 0.95 : 1.45, "gold");
+    const fx = mx + (face === "e" ? 0.48 : face === "w" ? -0.48 : 0);
+    const fz = mz + (face === "s" ? 0.48 : face === "n" ? -0.48 : 0);
+    put(boxes, fx, 1.25, fz, wide ? 1.0 : 0.1, 0.8, wide ? 0.1 : 1.0, mat);
+    put(boxes, fx, 0.65, fz, wide ? 0.9 : 0.1, 0.35, wide ? 0.1 : 0.9, "white");
+  };
+  const mats: Mat[] = ["cyan", "red", "warm", "gold", "cyan"];
+  // Five-cabinet row on the back (east) wall — the service point lands in
+  // front of the middle cabinet.
+  [cz - 6.5, cz - 3.25, cz, cz + 3.25, cz + 6.5].forEach((mz, i) => {
+    cabinet(x0 + w - 2.7, mz, "w", mats[i % mats.length]);
+  });
+  for (const [nx, nm] of [[cx - 6, "red"], [cx - 2, "gold"], [cx + 2, "warm"]] as Array<[number, Mat]>) {
+    cabinet(nx, z0 + 2.6, "s", nm);
+  }
+  for (const [sx, sm] of [[cx - 1.5, "warm"], [cx + 3.5, "cyan"]] as Array<[number, Mat]>) {
+    cabinet(sx, z0 + d - 2.6, "n", sm);
+  }
+  // Prize counter in the south-west corner, goods on top.
+  put(boxes, x0 + 4, 0.55, z0 + d - 3.5, 4.0, 1.05, 1.2, "wood");
+  cols.push(col(x0 + 4, 0.55, z0 + d - 3.5, 4.0, 1.05, 1.2));
+  put(boxes, x0 + 4, 1.15, z0 + d - 3.5, 4.2, 0.12, 1.35, "gold");
+  const prizes: Mat[] = ["gold", "red", "cyan", "white"];
+  for (let i = 0; i < 4; i++) {
+    put(boxes, x0 + 2.8 + i * 0.85, 1.4, z0 + d - 3.5, 0.45, 0.45, 0.45, prizes[i]);
+  }
+  // Gold stools in front of the cabinets (no colliders, like the club's).
+  for (const sz of [cz - 6.5, cz - 3.25, cz + 3.25, cz + 6.5]) {
+    put(boxes, x0 + w - 4.8, 0.3, sz, 0.5, 0.6, 0.5, "gold");
+  }
+  for (const nx of [cx - 6, cx - 2, cx + 2]) {
+    put(boxes, nx, 0.3, z0 + 4.3, 0.5, 0.6, 0.5, "gold");
+  }
+  for (const sx of [cx - 1.5, cx + 3.5]) {
+    put(boxes, sx, 0.3, z0 + d - 4.5, 0.5, 0.6, 0.5, "gold");
+  }
+  // Neon strips above the cabinet rows (east one rides above the sign).
+  put(boxes, cx, 2.9, z0 + 1.35, 12, 0.18, 0.15, "cyanhot");
+  put(boxes, cx, 2.9, z0 + d - 1.35, 12, 0.18, 0.15, "cyanhot");
+  put(boxes, x0 + w - 1.35, 3.3, cz, 0.15, 0.18, 12, "cyanhot");
+  roomSign("arcade-scores", x0 + 1.35, 2.2, cz - 6, Math.PI / 2, 4.2, 1.7, ["HIGH SCORES", "1. ORBITX-9 · 999,420"], "Beat the top score");
+  put(boxes, cx, 0.145, cz, 6, 0.05, 4, "black");
+  return spotZone("arcade", "Neon Arcade", x0, z0, w, d, door);
+}
+
+// Night Market (door north): four stalls on the side walls, the service
+// stall on the south wall, a communal table with crate seats, crate
+// stacks, string lights, and a red runner down the door lane.
+function furnishMarket(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "warm");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  // A stall: wood counter, stone top, four posts, coloured awning, goods.
+  // `tall` lifts the awning above the zone sign (south / service stall).
+  const stall = (sx: number, sz: number, alongX: boolean, awn: Mat, goods: Mat[], tall = false) => {
+    const cw = alongX ? 4.2 : 1.3;
+    const cd = alongX ? 1.3 : 4.2;
+    put(boxes, sx, 0.55, sz, cw, 1.05, cd, "wood");
+    cols.push(col(sx, 0.55, sz, cw, 1.05, cd));
+    put(boxes, sx, 1.15, sz, cw + 0.2, 0.12, cd + 0.2, "stone");
+    const postY = tall ? 2.25 : 1.75;
+    const postH = tall ? 2.1 : 1.1;
+    const awnY = tall ? 3.32 : 2.4;
+    const pxs = alongX ? [sx - 1.9, sx + 1.9] : [sx - 0.55, sx + 0.55];
+    const pzs = alongX ? [sz - 0.55, sz + 0.55] : [sz - 1.9, sz + 1.9];
+    for (const px of pxs) {
+      for (const pz of pzs) {
+        put(boxes, px, postY, pz, 0.16, postH, 0.16, "black");
+      }
+    }
+    put(boxes, sx, awnY, sz, alongX ? 4.6 : 1.9, 0.15, alongX ? 1.9 : 4.6, awn);
+    for (let i = 0; i < 3; i++) {
+      const gx = alongX ? sx - 1.3 + i * 1.3 : sx;
+      const gz = alongX ? sz : sz - 1.3 + i * 1.3;
+      put(boxes, gx, 1.4, gz, 0.45, 0.45, 0.45, goods[i % goods.length]);
+    }
+  };
+  const fruit: Mat[] = ["red", "gold", "warm"];
+  const bread: Mat[] = ["warm", "gold", "white"];
+  stall(x0 + 2.1, z0 + 6, false, "red", fruit);
+  stall(x0 + 2.1, z0 + 12.5, false, "warm", bread);
+  stall(x0 + w - 2.1, z0 + 6, false, "warm", bread);
+  stall(x0 + w - 2.1, z0 + 12.5, false, "red", fruit);
+  stall(cx, z0 + d - 2.7, true, "red", ["cyan", "gold", "red"], true);
+  // Communal table east of the door lane, crate seats around it.
+  put(boxes, cx + 5.5, 0.45, z0 + 14, 3.0, 0.8, 1.6, "wood");
+  cols.push(col(cx + 5.5, 0.45, z0 + 14, 3.0, 0.8, 1.6));
+  put(boxes, cx + 5.0, 0.95, z0 + 14, 0.4, 0.3, 0.4, "warm");
+  put(boxes, cx + 6.0, 0.95, z0 + 14, 0.4, 0.3, 0.4, "red");
+  for (const [kx, kz] of [[cx + 3.5, z0 + 14], [cx + 7.5, z0 + 14], [cx + 5.5, z0 + 12.3], [cx + 5.5, z0 + 15.7]] as Array<[number, number]>) {
+    put(boxes, kx, 0.3, kz, 0.6, 0.6, 0.6, "wood");
+    cols.push(col(kx, 0.3, kz, 0.6, 0.6, 0.6));
+  }
+  // Crate stacks in the corners.
+  for (const [kx, kz, stacked] of [[x0 + 3, z0 + d - 2.5, true], [x0 + w - 3, z0 + d - 2.5, true], [x0 + 3, z0 + 2.5, false]] as Array<[number, number, boolean]>) {
+    put(boxes, kx, 0.5, kz, 1.0, 1.0, 1.0, "wood");
+    if (stacked) put(boxes, kx, 1.5, kz, 1.0, 1.0, 1.0, "wood");
+    cols.push(col(kx, stacked ? 1.0 : 0.5, kz, 1.1, stacked ? 2.0 : 1.0, 1.1));
+  }
+  // String lights strung across the room + a red runner down the lane.
+  for (const lz of [z0 + 7, z0 + 14]) {
+    put(boxes, cx, 3.0, lz, 14, 0.12, 0.12, "warm");
+    for (const lx of [cx - 6, cx, cx + 6]) {
+      put(boxes, lx, 2.75, lz, 0.25, 0.25, 0.25, "warm");
+    }
+  }
+  put(boxes, cx, 0.145, z0 + 9, 2.4, 0.05, 13, "red");
+  roomSign("market", cx - 6, 2.2, z0 + 1.35, 0, 4.2, 1.7, ["NIGHT MARKET", "Stalls · Food · Neon"], "Stalls open until late");
+  return spotZone("market", "Night Market", x0, z0, w, d, door);
+}
+
+// Harbor Office (door north, small 16x14 room): map table in the middle,
+// two desks on the west wall, notice board on the east wall, crates + net
+// and a ship's anchor in the south corners, rope coil, shelf of charts
+// on the south wall, lamps.
+function furnishDock(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  // Map table, east of the door lane and south of its centre line, so the
+  // way in from the door stays fully open.
+  put(boxes, cx + 3.5, 0.5, cz + 1.5, 3.0, 0.9, 1.8, "wood");
+  cols.push(col(cx + 3.5, 0.5, cz + 1.5, 3.0, 0.9, 1.8));
+  put(boxes, cx + 3.5, 1.0, cz + 1.5, 2.6, 0.1, 1.4, "cyan");
+  put(boxes, cx + 3.5, 1.1, cz + 1.5, 0.35, 0.12, 0.35, "gold");
+  put(boxes, cx + 2.2, 1.15, cz + 1.9, 0.5, 0.25, 0.25, "white");
+  put(boxes, cx + 3.5, 0.145, cz + 1.5, 5.0, 0.05, 3.2, "red");
+  // Two desks with screens on the west wall + a lamp on the first desk.
+  deskRow(boxes, cols, x0 + 2.4, 0, z0 + 3.5, 2, 3.0, false);
+  put(boxes, x0 + 2.4, 1.0, z0 + 3.5, 0.3, 0.3, 0.3, "warm");
+  // Notice board on the east wall, notes pinned to it.
+  put(boxes, x0 + w - 1.45, 1.7, z0 + 5, 0.15, 1.8, 3.0, "black");
+  put(boxes, x0 + w - 1.55, 1.8, z0 + 4.3, 0.1, 0.5, 0.6, "white");
+  put(boxes, x0 + w - 1.55, 1.6, z0 + 5.4, 0.1, 0.4, 0.5, "gold");
+  put(boxes, x0 + w - 1.55, 2.0, z0 + 6.2, 0.1, 0.5, 0.5, "red");
+  // Crates + draped net in the south-east corner.
+  put(boxes, cx + 5.3, 0.5, z0 + d - 2.5, 1.0, 1.0, 1.0, "wood");
+  put(boxes, cx + 5.3, 1.5, z0 + d - 2.5, 1.0, 1.0, 1.0, "wood");
+  put(boxes, cx + 4.0, 0.5, z0 + d - 2.5, 1.0, 1.0, 1.0, "wood");
+  put(boxes, cx + 5.3, 2.05, z0 + d - 2.5, 1.3, 0.15, 1.3, "gray");
+  cols.push(col(cx + 4.8, 1.0, z0 + d - 2.5, 2.6, 2.0, 1.1));
+  // Rope coil + ship's anchor in the south-west corner.
+  disc(boxes, x0 + 2.5, 0.15, z0 + d - 3.5, 1.0, 0.3, "warm");
+  disc(boxes, x0 + 2.5, 0.45, z0 + d - 3.5, 1.0, 0.3, "warm");
+  cols.push(col(x0 + 2.5, 0.3, z0 + d - 3.5, 2.0, 0.6, 2.0));
+  put(boxes, x0 + 1.7, 0.8, z0 + d - 2.2, 0.25, 1.6, 0.25, "black");
+  put(boxes, x0 + 1.7, 1.4, z0 + d - 2.2, 0.9, 0.2, 0.2, "black");
+  cols.push(col(x0 + 1.7, 0.8, z0 + d - 2.2, 0.5, 1.6, 0.5));
+  // Shelf of rolled charts on the south wall + painting above it.
+  put(boxes, cx - 3, 1.0, z0 + d - 2.0, 4.0, 1.8, 0.7, "wood");
+  cols.push(col(cx - 3, 1.0, z0 + d - 2.0, 4.0, 1.8, 0.7));
+  put(boxes, cx - 4.2, 2.0, z0 + d - 2.0, 0.7, 0.25, 0.5, "white");
+  put(boxes, cx - 3.0, 2.0, z0 + d - 2.0, 0.7, 0.25, 0.5, "warm");
+  put(boxes, cx - 1.8, 2.0, z0 + d - 2.0, 0.7, 0.25, 0.5, "white");
+  voxelPainting(boxes, cx - 3, 2.6, z0 + d - 1.35, Math.PI, 2.2, 1.5);
+  // Standing lamp by the map table.
+  put(boxes, cx + 5.8, 0.9, z0 + 4.5, 0.15, 1.8, 0.15, "gray");
+  put(boxes, cx + 5.8, 1.85, z0 + 4.5, 0.5, 0.3, 0.5, "warm");
+  cols.push(col(cx + 5.8, 0.9, z0 + 4.5, 0.3, 1.8, 0.3));
+  roomSign("dock", cx - 4.5, 2.2, z0 + 1.35, 0, 4.2, 1.7, ["HARBOR OFFICE", "Shifts · Ships · Cargo"], "Pier is open");
+  return spotZone("dock", "Harbor Office", x0, z0, w, d, door);
+}
+
+function furnishSpot(
+  boxes: Box[],
+  cols: Collider[],
+  x0: number,
+  z0: number,
+  w: number,
+  d: number,
+  door: Face,
+  kind: Zone["kind"],
+): Zone {
+  if (kind === "bank") return furnishBank(boxes, cols, x0, z0, w, d, door);
+  if (kind === "garage") return furnishGarage(boxes, cols, x0, z0, w, d, door);
+  if (kind === "arcade") return furnishArcade(boxes, cols, x0, z0, w, d, door);
+  if (kind === "market") return furnishMarket(boxes, cols, x0, z0, w, d, door);
+  if (kind === "dock") return furnishDock(boxes, cols, x0, z0, w, d, door);
+  // Unknown kind: the old generic shell (floor + back counter + table).
+  const names: Record<string, [string, string, Mat]> = {
+    bank: ["OrbitX Bank", "Demo savings window", "stone"],
+    garage: ["Hover Garage", "Take a car from the avenue", "black"],
+    arcade: ["Neon Arcade", "One cabinet, one high score", "cyan"],
+    market: ["Night Market", "Stalls open until late", "warm"],
+    dock: ["Harbor Office", "Ships and shift work", "wood"],
+  };
+  const [name, , floor] = names[kind] ?? ["OrbitX", "Come in", "cream"];
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, floor);
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  const back = opposite(door, x0, z0, w, d, 2.4);
+  const alongX = door === "n" || door === "s";
+  // (The arcade's cyan counter lived here; arcade never reaches this
+  // fallback — it has its own function above — so this is always black.)
+  put(boxes, back.x, 0.6, back.z, alongX ? 6.4 : 1.1, 1.1, alongX ? 1.1 : 6.4, "black");
+  cols.push(col(back.x, 0.6, back.z, alongX ? 6.4 : 1.1, 1.1, alongX ? 1.1 : 6.4));
+  put(boxes, cx, 0.45, cz, 2.2, 0.8, 1.2, "wood");
+  cols.push(col(cx, 0.45, cz, 2.2, 0.8, 1.2));
+  return spotZone(kind, name, x0, z0, w, d, door);
 }
 
 // ---- new venues: cinema, library, gym (park is outdoor, below) ----
@@ -3077,6 +3448,95 @@ function addMegaMall(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: 
   return { zones, anchors, lifts };
 }
 
+interface OfficeSuiteSpec {
+  id: string;
+  name: string;
+  floorLabel: string;
+  tierLabel: string;
+  x0: number;
+  x1: number;
+  y0: number;
+  // North wall (door wall, faces a corridor) and south wall — or the lobby
+  // void edge on floor 2, where the suite ends at the mezzanine rail.
+  z0: number;
+  z1: number;
+  voidEdge?: boolean;
+  premium?: boolean;
+}
+
+// One claimable tower suite: partition wall on the north corridor with a
+// door + name sign, desks along the west wall, a meeting table against the
+// partition wall (or a hand-rolled breakout table in narrow suites, so no
+// screen ever floats mid-room), a painting, and a furnished south end
+// (lounge against a real south wall, rug + benches on the floor-2 void
+// edge). The door sits near the suite's west side so the entry lane runs
+// clear of the desks and the table. The lift landing (-93.5, -25) and the
+// corridors stay open — nothing here touches the shaft or the slab holes.
+function furnishOfficeSuite(boxes: Box[], cols: Collider[], spec: OfficeSuiteSpec) {
+  const { id, name, floorLabel, tierLabel, x0, x1, y0, z0, z1, voidEdge, premium } = spec;
+  const w = x1 - x0;
+  const d = z1 - z0;
+  const cx = (x0 + x1) / 2;
+  const doorX = x0 + 3.2;
+  wallRunX(boxes, cols, x0, x1, y0, z0, 4, "cream", doorX, 2.4);
+  // Suite sign on the corridor face, beside the door (faces the corridor).
+  if (w >= 12) roomSign(`suite-${id}`, doorX + 4.0, y0 + 2.6, z0 - 0.35, Math.PI, 4.4, 1.0, [name], `${floorLabel} · ${tierLabel}`);
+  else roomSign(`suite-${id}`, x0 + 6.3, y0 + 2.6, z0 - 0.35, Math.PI, 3.2, 1.0, [name], `${floorLabel} · ${tierLabel}`);
+  // Desks along the west wall; the entry lane runs clear of them.
+  deskRow(boxes, cols, x0 + 1.1, y0, z0 + 4.5, d >= 18 ? 3 : 2, 3.4, false);
+  // Painting on the partition wall, west of the door.
+  voxelPainting(boxes, x0 + 2.5, y0 + 2, z0 + 0.65, 0, 2.2, 1.5);
+  if (w >= 12) {
+    // Real meeting table against the partition wall (screen on the wall),
+    // east side, clear of the door lane.
+    meetingTable(boxes, cols, x1 - 3.8, y0, z0 + 4.3, 6, 4);
+  } else {
+    // Narrow suite: hand-rolled breakout table + chairs, no floating screen.
+    put(boxes, x1 - 2.2, y0 + 0.45, z0 + 8.5, 2.4, 0.1, 1.6, "wood");
+    put(boxes, x1 - 2.2, y0 + 0.22, z0 + 8.5, 0.3, 0.4, 0.3, "black");
+    cols.push(col(x1 - 2.2, y0 + 0.5, z0 + 8.5, 2.4, 0.9, 1.6));
+    for (const [chx, chz] of [[x1 - 0.9, z0 + 8.5], [x1 - 2.2, z0 + 10.1]] as Array<[number, number]>) {
+      put(boxes, chx, y0 + 0.3, chz, 0.7, 0.5, 0.7, "red");
+      cols.push(col(chx, y0 + 0.3, chz, 0.7, 0.5, 0.7));
+    }
+  }
+  // South end: full lounge against a real south wall, rug + benches on the
+  // floor-2 void edge, rug + plants in between.
+  if (voidEdge) {
+    put(boxes, cx, y0 + 0.12, z1 - 2, 8, 0.06, 5, "gold");
+    put(boxes, cx, y0 + 0.16, z1 - 2, 6.5, 0.06, 3.5, "red");
+    put(boxes, cx, y0 + 0.4, z1 - 2, 1.6, 0.35, 0.9, "wood");
+    cols.push(col(cx, y0 + 0.4, z1 - 2, 1.6, 0.35, 0.9));
+    for (const bz of [z1 - 3.2, z1 - 0.8]) {
+      put(boxes, cx, y0 + 0.38, bz, 3.4, 0.45, 1.1, "red");
+      cols.push(col(cx, y0 + 0.38, bz, 3.4, 0.45, 1.1));
+    }
+    for (const px of [x0 + 1.3, x1 - 1.3]) {
+      put(boxes, px, y0 + 0.5, z1 - 1.5, 0.8, 0.9, 0.8, "leavesDark");
+      cols.push(col(px, y0 + 0.5, z1 - 1.5, 0.8, 0.9, 0.8));
+    }
+  } else if (d >= 20) {
+    loungeSet(boxes, cols, cx, y0, z1 - 8, "n", z1 - 0.7);
+    for (const px of [x0 + 1.5, x1 - 1.5]) {
+      put(boxes, px, y0 + 0.5, z1 - 2, 0.8, 0.9, 0.8, "leavesDark");
+      cols.push(col(px, y0 + 0.5, z1 - 2, 0.8, 0.9, 0.8));
+    }
+  } else {
+    put(boxes, cx, y0 + 0.12, z1 - 3.5, 7, 0.06, 5, "gold");
+    put(boxes, cx, y0 + 0.16, z1 - 3.5, 5.5, 0.06, 3.5, premium ? "gold" : "red");
+    for (const px of [x0 + 1.3, x1 - 1.3]) {
+      put(boxes, px, y0 + 0.5, z1 - 1.5, 0.8, 0.9, 0.8, "leavesDark");
+      cols.push(col(px, y0 + 0.5, z1 - 1.5, 0.8, 0.9, 0.8));
+    }
+  }
+  if (premium) {
+    // Premium suites: paintings on both side walls.
+    voxelPainting(boxes, x1 - 0.3, y0 + 2, z0 + 10, -Math.PI / 2, 2.2, 1.5);
+    voxelPainting(boxes, x0 + 0.3, y0 + 2, z0 + 10, Math.PI / 2, 2.2, 1.5);
+  }
+  hangLights(boxes, cx, y0 + 4, (z0 + z1) / 2, w, d);
+}
+
 function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: Anchor[]; lifts: Lift[] } {
   const x0 = OFFICE.x0;
   const z0 = OFFICE.z0;
@@ -3144,40 +3604,133 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   }
   hangLights(boxes, -72, 12, 14, 40, 22);
   hangLights(boxes, -72, 8, -14, 40, 22);
+  // Office directory board: freestanding, just east of the front desk, so a
+  // player landing by the desk sees it straight ahead. Lists suite names +
+  // floors only — no prices (the directory panel shows those). E at the
+  // board opens the offices panel (anchor "hq-directory", kind "offices").
+  put(boxes, -64, 2.0, 6, 5.0, 3.9, 0.3, "black");
+  cols.push(col(-64, 2.0, 6, 5.0, 3.9, 0.3));
+  put(boxes, -64, 4.02, 6, 5.2, 0.15, 0.45, "gold");
+  for (const px of [-66.2, -61.8]) {
+    put(boxes, px, 0.55, 6, 0.3, 1.1, 0.3, "black");
+    cols.push(col(px, 0.55, 6, 0.3, 1.1, 0.3));
+  }
+  roomSign("hq-dir-0", -64, 3.35, 6.3, 0, 4.6, 0.85, ["OFFICE DIRECTORY"], "OrbitX HQ");
+  roomSign("hq-dir-2", -64, 2.45, 6.3, 0, 4.6, 0.85, ["Floor 2", "Suites 2A – 2H"], "Standard offices");
+  roomSign("hq-dir-3", -64, 1.55, 6.3, 0, 4.6, 0.85, ["Floor 3", "Suites 3A – 3H"], "Standard offices");
+  roomSign("hq-dir-4", -64, 0.65, 6.3, 0, 4.6, 0.85, ["Floor 4", "Founder's Office · 4A – 4H"], "Premium suites · Roof Terrace above");
   // Floor slabs: 8 (with the lobby void hole), 12, 16, 20 (roof terrace).
   slabWithHoles(boxes, cols, x0, 8, z0, w, d, [[x0, 5, x0 + w, z0 + d], [-99, -27, -95, -23]], "cream");
   slabWithHoles(boxes, cols, x0, 12, z0, w, d, [[-99, -27, -95, -23]], "cream");
   slabWithHoles(boxes, cols, x0, 16, z0, w, d, [[-99, -27, -95, -23]], "cream");
   slabWithHoles(boxes, cols, x0, 20, z0, w, d, [[-99, -27, -95, -23]], "cream");
-  // Floor 2 (y=8, south strip only): open office (north) + lounge (south,
-  // behind the partition wall). The meeting table sits against the north
-  // wall so its screen hangs on it.
-  wallRunX(boxes, cols, -99, -57, 8, -14, 4, "cream", -78, 2.4);
-  deskRow(boxes, cols, -95, 8, -20, 4, 5, true);
-  deskRow(boxes, cols, -95, 8, -24, 4, 5, true);
-  meetingTable(boxes, cols, -50, 8, -24.2, 6, 4);
-  loungeSet(boxes, cols, -72, 8, -4, "s", 3.7);
-  hangLights(boxes, -72, 12, -16, 40, 20);
-  // (The floor-2 zone sign carries the "FLOOR 2" label.)
-  // Floor 3 (y=12): open office + lounge.
-  wallRunX(boxes, cols, -99, -57, 12, 6, 4, "cream", -78, 2.4);
-  deskRow(boxes, cols, -95, 12, -12, 4, 5, true);
-  deskRow(boxes, cols, -95, 12, -16, 4, 5, true);
-  deskRow(boxes, cols, -95, 12, -20, 4, 5, true);
-  loungeSet(boxes, cols, -72, 12, 16, "n", 27.7);
-  voxelPainting(boxes, -52, 14, 27.7, Math.PI, 2.2, 1.5);
-  hangLights(boxes, -72, 16, 0, 40, 30);
-  // (The floor-3 zone sign carries the "FLOOR 3" label.)
-  // Floor 4 (y=16): two meeting rooms (screens on the north wall) +
-  // kitchenette on the south wall.
-  wallRunZ(boxes, cols, -27, -3, 16, -71, 4, "cream", -15, 2.4);
-  wallRunX(boxes, cols, -99, -71, 16, -3, 4, "cream", -85, 2.4);
-  meetingTable(boxes, cols, -85, 16, -24.2, 6, 4);
-  meetingTable(boxes, cols, -57, 16, -24.2, 6, 4);
-  kitchenette(boxes, cols, -48, 16, 26, true);
-  voxelPainting(boxes, -99 + 1.3, 18, -15, Math.PI / 2, 2.2, 1.5);
-  hangLights(boxes, -72, 20, 0, 40, 30);
-  // (The floor-4 zone sign carries the "FLOOR 4" label.)
+  // Floor 2 (y=8, south strip only — the lobby void runs z 5..29): a
+  // corridor along the north wall off the lift, four suites in the north row
+  // (2A–2D), a middle corridor reached by the east passage, and four suites
+  // in the south row (2E–2H) on the void edge, behind a gold mezzanine
+  // rail so nobody walks off into the lobby below.
+  wallRunZ(boxes, cols, -22, -8, 8, -86.75, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, -22, -8, 8, -73.5, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, -22, -8, 8, -60.25, 4, "cream", 0, 0);
+  wallRunX(boxes, cols, -100, -47, 8, -8, 4, "cream", 0, 0);
+  // East passage west wall: alongside the north row only — it must stop at
+  // the middle corridor (z -8) or it seals the corridor off.
+  wallRunZ(boxes, cols, -22, -8, 8, -47, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, -5, 4, 8, -86, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, -5, 4, 8, -72, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, -5, 4, 8, -58, 4, "cream", 0, 0);
+  furnishOfficeSuite(boxes, cols, { id: "office-f2-a", name: "Suite 2A", floorLabel: "Floor 2", tierLabel: "Standard office", x0: -100, x1: -86.75, y0: 8, z0: -22, z1: -8 });
+  furnishOfficeSuite(boxes, cols, { id: "office-f2-b", name: "Suite 2B", floorLabel: "Floor 2", tierLabel: "Standard office", x0: -86.75, x1: -73.5, y0: 8, z0: -22, z1: -8 });
+  furnishOfficeSuite(boxes, cols, { id: "office-f2-c", name: "Suite 2C", floorLabel: "Floor 2", tierLabel: "Standard office", x0: -73.5, x1: -60.25, y0: 8, z0: -22, z1: -8 });
+  furnishOfficeSuite(boxes, cols, { id: "office-f2-d", name: "Suite 2D", floorLabel: "Floor 2", tierLabel: "Standard office", x0: -60.25, x1: -47, y0: 8, z0: -22, z1: -8 });
+  furnishOfficeSuite(boxes, cols, { id: "office-f2-e", name: "Suite 2E", floorLabel: "Floor 2", tierLabel: "Standard office", x0: -100, x1: -86, y0: 8, z0: -5, z1: 4, voidEdge: true });
+  furnishOfficeSuite(boxes, cols, { id: "office-f2-f", name: "Suite 2F", floorLabel: "Floor 2", tierLabel: "Standard office", x0: -86, x1: -72, y0: 8, z0: -5, z1: 4, voidEdge: true });
+  furnishOfficeSuite(boxes, cols, { id: "office-f2-g", name: "Suite 2G", floorLabel: "Floor 2", tierLabel: "Standard office", x0: -72, x1: -58, y0: 8, z0: -5, z1: 4, voidEdge: true });
+  furnishOfficeSuite(boxes, cols, { id: "office-f2-h", name: "Suite 2H", floorLabel: "Floor 2", tierLabel: "Standard office", x0: -58, x1: -44, y0: 8, z0: -5, z1: 4, voidEdge: true });
+  put(boxes, -72, 8.55, 4.7, 56, 1.1, 0.3, "gold");
+  cols.push({ minX: -100, maxX: -44, minY: 8, maxY: 9.1, minZ: 4.55, maxZ: 4.85 });
+  roomSign("hq-f2-plate", -88, 10.6, -27.4, 0, 6, 1.2, ["Floor 2", "Suites 2A – 2H"], "Standard offices");
+  hangLights(boxes, -72, 12, -25.5, 40, 5);
+  hangLights(boxes, -72, 12, -6.5, 40, 5);
+  // Floor 3 (y=12): same two-row shape as floor 2, full depth — north row
+  // (3A–3D), middle corridor, south row (3E–3H) with lounges at the real
+  // south wall.
+  wallRunZ(boxes, cols, -22, -2, 12, -86.75, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, -22, -2, 12, -73.5, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, -22, -2, 12, -60.25, 4, "cream", 0, 0);
+  wallRunX(boxes, cols, -100, -47, 12, -2, 4, "cream", 0, 0);
+  // East passage west wall: alongside the north row only — it must stop at
+  // the middle corridor (z -2) or it seals the corridor off.
+  wallRunZ(boxes, cols, -22, -2, 12, -47, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, 1, 28, 12, -86, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, 1, 28, 12, -72, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, 1, 28, 12, -58, 4, "cream", 0, 0);
+  furnishOfficeSuite(boxes, cols, { id: "office-f3-a", name: "Suite 3A", floorLabel: "Floor 3", tierLabel: "Standard office", x0: -100, x1: -86.75, y0: 12, z0: -22, z1: -2 });
+  furnishOfficeSuite(boxes, cols, { id: "office-f3-b", name: "Suite 3B", floorLabel: "Floor 3", tierLabel: "Standard office", x0: -86.75, x1: -73.5, y0: 12, z0: -22, z1: -2 });
+  furnishOfficeSuite(boxes, cols, { id: "office-f3-c", name: "Suite 3C", floorLabel: "Floor 3", tierLabel: "Standard office", x0: -73.5, x1: -60.25, y0: 12, z0: -22, z1: -2 });
+  furnishOfficeSuite(boxes, cols, { id: "office-f3-d", name: "Suite 3D", floorLabel: "Floor 3", tierLabel: "Standard office", x0: -60.25, x1: -47, y0: 12, z0: -22, z1: -2 });
+  furnishOfficeSuite(boxes, cols, { id: "office-f3-e", name: "Suite 3E", floorLabel: "Floor 3", tierLabel: "Standard office", x0: -100, x1: -86, y0: 12, z0: 1, z1: 28 });
+  furnishOfficeSuite(boxes, cols, { id: "office-f3-f", name: "Suite 3F", floorLabel: "Floor 3", tierLabel: "Standard office", x0: -86, x1: -72, y0: 12, z0: 1, z1: 28 });
+  furnishOfficeSuite(boxes, cols, { id: "office-f3-g", name: "Suite 3G", floorLabel: "Floor 3", tierLabel: "Standard office", x0: -72, x1: -58, y0: 12, z0: 1, z1: 28 });
+  furnishOfficeSuite(boxes, cols, { id: "office-f3-h", name: "Suite 3H", floorLabel: "Floor 3", tierLabel: "Standard office", x0: -58, x1: -44, y0: 12, z0: 1, z1: 28 });
+  roomSign("hq-f3-plate", -88, 14.6, -27.4, 0, 6, 1.2, ["Floor 3", "Suites 3A – 3H"], "Standard offices");
+  hangLights(boxes, -72, 16, -25.5, 40, 5);
+  hangLights(boxes, -72, 16, -0.5, 40, 5);
+  // Floor 4 (y=16): the Founder's Office — the biggest room in the tower
+  // (west block, off the lift landing) — plus eight premium suites in
+  // three rows: north 4A/4B, middle 4C–4E, south 4F–4H. The kitchenette
+  // stays on the floor, at the east end of the north corridor.
+  wallRunZ(boxes, cols, -22, 7, 16, -74, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, -22, -9, 16, -60.5, 4, "cream", 0, 0);
+  wallRunX(boxes, cols, -74, -47, 16, -9, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, -6, 7, 16, -65, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, -6, 7, 16, -56, 4, "cream", 0, 0);
+  wallRunX(boxes, cols, -100, -47, 16, 7, 4, "cream", 0, 0);
+  // East passage west wall: two segments, alongside the north row
+  // (z -22..-9) and the middle row (z -6..7) — with gaps at the middle
+  // corridor (z -9..-6) and the south corridor (z 7..10), or both
+  // corridors are sealed off.
+  wallRunZ(boxes, cols, -22, -9, 16, -47, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, -6, 7, 16, -47, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, 10, 28, 16, -82.33, 4, "cream", 0, 0);
+  wallRunZ(boxes, cols, 10, 28, 16, -64.67, 4, "cream", 0, 0);
+  wallRunX(boxes, cols, -100, -74, 16, -22, 4, "cream", -95.5, 2.4);
+  roomSign("suite-office-f4-founder", -91.3, 18.6, -22.35, Math.PI, 5.0, 1.0, ["Founder's Office"], "Floor 4 · Private — not for sale");
+  // Gold ORBITX wall on the west wall + gold rug under the hero desk.
+  roomSign("founder-logo", -99.7, 19, 0, Math.PI / 2, 8, 2, ["ORBITX"], "Founder's Office");
+  put(boxes, -88, 16.12, -8, 10, 0.06, 8, "gold");
+  put(boxes, -88, 16.16, -8, 8.5, 0.06, 6.5, "red");
+  // Hero desk (facing south) with a gold chair.
+  put(boxes, -88, 16.45, -10, 5, 0.12, 2.2, "wood");
+  cols.push(col(-88, 16.5, -10, 5, 0.9, 2.2));
+  put(boxes, -90, 16.2, -10, 0.25, 0.4, 1.8, "black");
+  put(boxes, -86, 16.2, -10, 0.25, 0.4, 1.8, "black");
+  put(boxes, -88, 17.1, -10.9, 1.6, 1.0, 0.1, "cyan");
+  put(boxes, -88, 16.3, -7.6, 0.8, 0.6, 0.8, "gold");
+  cols.push(col(-88, 16.3, -7.6, 0.8, 0.6, 0.8));
+  // Meeting table against the partition wall + lounge at the south end.
+  meetingTable(boxes, cols, -88, 16, -17.2, 8, 5);
+  loungeSet(boxes, cols, -88, 16, 3, "n", 6.3);
+  voxelPainting(boxes, -74.3, 18, -2, -Math.PI / 2, 2.2, 1.5);
+  voxelPainting(boxes, -74.3, 18, -14, -Math.PI / 2, 2.2, 1.5);
+  for (const [px, pz] of [[-98.5, 5.5], [-75.5, 5.5], [-98.5, -2]] as Array<[number, number]>) {
+    put(boxes, px, 16.5, pz, 0.8, 0.9, 0.8, "leavesDark");
+    cols.push(col(px, 16.5, pz, 0.8, 0.9, 0.8));
+  }
+  hangLights(boxes, -88, 20, -7.5, 20, 25);
+  furnishOfficeSuite(boxes, cols, { id: "office-f4-a", name: "Suite 4A", floorLabel: "Floor 4", tierLabel: "Premium suite", x0: -74, x1: -60.5, y0: 16, z0: -22, z1: -9, premium: true });
+  furnishOfficeSuite(boxes, cols, { id: "office-f4-b", name: "Suite 4B", floorLabel: "Floor 4", tierLabel: "Premium suite", x0: -60.5, x1: -47, y0: 16, z0: -22, z1: -9, premium: true });
+  furnishOfficeSuite(boxes, cols, { id: "office-f4-c", name: "Suite 4C", floorLabel: "Floor 4", tierLabel: "Premium suite", x0: -74, x1: -65, y0: 16, z0: -6, z1: 7, premium: true });
+  furnishOfficeSuite(boxes, cols, { id: "office-f4-d", name: "Suite 4D", floorLabel: "Floor 4", tierLabel: "Premium suite", x0: -65, x1: -56, y0: 16, z0: -6, z1: 7, premium: true });
+  furnishOfficeSuite(boxes, cols, { id: "office-f4-e", name: "Suite 4E", floorLabel: "Floor 4", tierLabel: "Premium suite", x0: -56, x1: -47, y0: 16, z0: -6, z1: 7, premium: true });
+  furnishOfficeSuite(boxes, cols, { id: "office-f4-f", name: "Suite 4F", floorLabel: "Floor 4", tierLabel: "Premium suite", x0: -100, x1: -82.33, y0: 16, z0: 10, z1: 28, premium: true });
+  furnishOfficeSuite(boxes, cols, { id: "office-f4-g", name: "Suite 4G", floorLabel: "Floor 4", tierLabel: "Premium suite", x0: -82.33, x1: -64.67, y0: 16, z0: 10, z1: 28, premium: true });
+  furnishOfficeSuite(boxes, cols, { id: "office-f4-h", name: "Suite 4H", floorLabel: "Floor 4", tierLabel: "Premium suite", x0: -64.67, x1: -44, y0: 16, z0: 10, z1: 28, premium: true });
+  kitchenette(boxes, cols, -52, 16, -27.6, true);
+  roomSign("hq-f4-plate", -88, 18.6, -27.4, 0, 6, 1.2, ["Floor 4", "Founder's Office · 4A – 4H"], "Premium suites");
+  hangLights(boxes, -72, 20, -25.5, 40, 5);
+  hangLights(boxes, -60, 20, -7.5, 24, 5);
+  hangLights(boxes, -72, 20, 8.5, 40, 5);
   // Roof terrace (y=20): railing, trees, benches, gold ORBITX sign east.
   for (const [rx, rz, rw, rd] of [[x0 + 0.15, z0 + 0.15, w - 0.3, 0.3], [x0 + 0.15, z0 + d - 0.45, w - 0.3, 0.3], [x0 + 0.15, z0 + 0.15, 0.3, d - 0.3], [x0 + w - 0.45, z0 + 0.15, 0.3, d - 0.3]] as Array<[number, number, number, number]>) {
     put(boxes, rx + rw / 2, 20.55, rz + rd / 2, rw, 1.1, rd, "gold");
@@ -3200,6 +3753,8 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   ];
   const anchors: Anchor[] = [
     doorAnchor("orbitx-hq", "OrbitX HQ", "office", x0, z0, w, d, "e"),
+    // Office directory board in the lobby — E opens the offices panel.
+    { id: "hq-directory", name: "Office directory", kind: "offices", x: -64, y: 0, z: 7.6, yaw: 0, slot: 0 },
     { id: "hq-lift-0", name: "HQ Lift", kind: "lift", x: -93.5, y: 0, z: -25, yaw: -Math.PI / 2, slot: 0, liftId: "hq-lift", liftFloor: 0 },
     { id: "hq-lift-1", name: "HQ Lift", kind: "lift", x: -93.5, y: 8, z: -25, yaw: -Math.PI / 2, slot: 1, liftId: "hq-lift", liftFloor: 1 },
     { id: "hq-lift-2", name: "HQ Lift", kind: "lift", x: -93.5, y: 12, z: -25, yaw: -Math.PI / 2, slot: 2, liftId: "hq-lift", liftFloor: 2 },

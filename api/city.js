@@ -81,6 +81,72 @@ function scaledPay(id, streak) {
   return Math.round(base * mult);
 }
 
+// OrbitX Tower offices (floors 2-4). 25 suites: 24 claimable + the
+// Founder's Office, which belongs to OrbitX and is never for sale.
+// Leases are paid in City Sol only — the game's own money. There is no
+// real-money price, no SOL, no ORBITX and no burn for offices; buy+burn
+// is ads/banners only. Prices are opening prices: standard (floors 2-3)
+// 100/day, 500/week, 1500/month; premium (floor 4) 250/day, 1200/week,
+// 3500/month. A new player starts at 250 City Sol and jobs pay 40-90,
+// so a standard day is affordable on day one and a standard week takes
+// a few days of playing.
+const OFFICES = [
+  { id: "office-f2-a", name: "Suite 2A", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f2-b", name: "Suite 2B", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f2-c", name: "Suite 2C", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f2-d", name: "Suite 2D", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f2-e", name: "Suite 2E", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f2-f", name: "Suite 2F", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f2-g", name: "Suite 2G", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f2-h", name: "Suite 2H", floor: 2, tier: "standard", claimable: true },
+  { id: "office-f3-a", name: "Suite 3A", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f3-b", name: "Suite 3B", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f3-c", name: "Suite 3C", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f3-d", name: "Suite 3D", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f3-e", name: "Suite 3E", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f3-f", name: "Suite 3F", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f3-g", name: "Suite 3G", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f3-h", name: "Suite 3H", floor: 3, tier: "standard", claimable: true },
+  { id: "office-f4-founder", name: "Founder's Office", floor: 4, tier: "founder", claimable: false },
+  { id: "office-f4-a", name: "Suite 4A", floor: 4, tier: "premium", claimable: true },
+  { id: "office-f4-b", name: "Suite 4B", floor: 4, tier: "premium", claimable: true },
+  { id: "office-f4-c", name: "Suite 4C", floor: 4, tier: "premium", claimable: true },
+  { id: "office-f4-d", name: "Suite 4D", floor: 4, tier: "premium", claimable: true },
+  { id: "office-f4-e", name: "Suite 4E", floor: 4, tier: "premium", claimable: true },
+  { id: "office-f4-f", name: "Suite 4F", floor: 4, tier: "premium", claimable: true },
+  { id: "office-f4-g", name: "Suite 4G", floor: 4, tier: "premium", claimable: true },
+  { id: "office-f4-h", name: "Suite 4H", floor: 4, tier: "premium", claimable: true },
+];
+
+const OFFICE_PRICES = {
+  standard: { 1: 100, 7: 500, 30: 1500 },
+  premium: { 1: 250, 7: 1200, 30: 3500 },
+};
+
+function officeSuite(id) {
+  return OFFICES.find((suite) => suite.id === id) || null;
+}
+
+function officePrice(suite, termDays) {
+  const table = OFFICE_PRICES[suite.tier];
+  if (!table) return 0;
+  return table[termDays] || 0;
+}
+
+function officeTermLabel(termDays) {
+  return termDays === 1 ? "1 day" : termDays === 7 ? "7 days" : "30 days";
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function officeEndISO(start, termDays) {
+  const date = new Date(`${start}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + termDays);
+  return date.toISOString().slice(0, 10);
+}
+
 const MISSIONS = [
   { id: "plaza", pay: 15 },
   { id: "shop", pay: 20 },
@@ -116,6 +182,7 @@ function memory() {
       world: new Map(),
       chat: [],
       bookings: new Map(),
+      officeClaims: new Map(),
       events: [],
       signals: [],
       parties: new Map(),
@@ -231,6 +298,23 @@ async function ensureSchema() {
     start TEXT NOT NULL,
     until TEXT NOT NULL,
     burned INTEGER NOT NULL
+  )`;
+  // Tower office leases, paid in City Sol only. One row per suite (the
+  // suite id is the key), so a suite can hold exactly one active claim.
+  // No SOL, no ORBITX, no burn anywhere in this table — buy+burn is
+  // ads/banners only.
+  await sql`CREATE TABLE IF NOT EXISTS office_claims (
+    suite TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    owner_name TEXT NOT NULL,
+    project TEXT NOT NULL,
+    logo TEXT NOT NULL,
+    site TEXT NOT NULL,
+    term_days INTEGER NOT NULL,
+    start TEXT NOT NULL,
+    until TEXT NOT NULL,
+    price INTEGER NOT NULL,
+    claimed_at TEXT NOT NULL
   )`;
   await sql`CREATE TABLE IF NOT EXISTS events (
     id TEXT PRIMARY KEY,
@@ -652,6 +736,210 @@ async function readBookings() {
   return liveBookings([...memory().bookings.values()]);
 }
 
+function publicOfficeClaim(row) {
+  return {
+    suite: row.suite,
+    owner_id: row.owner_id,
+    owner_name: row.owner_name || "",
+    project: row.project,
+    logo: row.logo || "",
+    site: row.site || "",
+    term_days: Number(row.term_days),
+    start: row.start,
+    until: row.until || row.end || "",
+    price: Number(row.price),
+    claimed_at: row.claimed_at || "",
+  };
+}
+
+function officeClaimRow(row) {
+  return {
+    suite: row.suite,
+    owner_id: row.owner_id,
+    owner_name: row.owner_name || "",
+    project: row.project,
+    logo: row.logo || "",
+    site: row.site || "",
+    term_days: Number(row.term_days),
+    start: row.start,
+    until: row.until || row.end || "",
+    price: Number(row.price),
+    claimed_at: row.claimed_at || "",
+  };
+}
+
+async function saveOfficeClaim(claim) {
+  const client = sb();
+  if (client) {
+    const { error } = await client.from("office_claims").upsert(claim);
+    if (!error) return;
+    noteSupabase(error.message);
+  }
+  const sql = db();
+  if (sql) {
+    await ensureSchema();
+    await sql`INSERT INTO office_claims (suite, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at)
+      VALUES (${claim.suite}, ${claim.owner_id}, ${claim.owner_name}, ${claim.project}, ${claim.logo}, ${claim.site}, ${Number(claim.term_days)}, ${claim.start}, ${claim.until}, ${Number(claim.price)}, ${claim.claimed_at})
+      ON CONFLICT (suite) DO UPDATE SET owner_id = EXCLUDED.owner_id, owner_name = EXCLUDED.owner_name, project = EXCLUDED.project, logo = EXCLUDED.logo, site = EXCLUDED.site, term_days = EXCLUDED.term_days, start = EXCLUDED.start, until = EXCLUDED.until, price = EXCLUDED.price, claimed_at = EXCLUDED.claimed_at`;
+    return;
+  }
+  const cache = redis();
+  if (cache) {
+    await cache.hset("orbitx:office-claims", { [claim.suite]: JSON.stringify(claim) });
+    return;
+  }
+  memory().officeClaims.set(claim.suite, claim);
+}
+
+async function deleteOfficeClaim(suiteId) {
+  const client = sb();
+  if (client) {
+    const { error } = await client.from("office_claims").delete().eq("suite", suiteId);
+    if (!error) return;
+    noteSupabase(error.message);
+  }
+  const sql = db();
+  if (sql) {
+    await ensureSchema();
+    await sql`DELETE FROM office_claims WHERE suite = ${suiteId}`;
+    return;
+  }
+  const cache = redis();
+  if (cache) {
+    await cache.hdel("orbitx:office-claims", suiteId);
+    return;
+  }
+  memory().officeClaims.delete(suiteId);
+}
+
+async function readOfficeClaims() {
+  const client = sb();
+  if (client) {
+    const { data, error } = await client
+      .from("office_claims")
+      .select("suite, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at");
+    if (!error && data) return data.map(officeClaimRow);
+    if (error) noteSupabase(error.message);
+  }
+  const sql = db();
+  if (sql) {
+    await ensureSchema();
+    const rows = await sql`SELECT suite, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at FROM office_claims`;
+    return rows.map(officeClaimRow);
+  }
+  const cache = redis();
+  if (cache) {
+    const all = (await cache.hgetall("orbitx:office-claims")) || {};
+    return Object.values(all).map((row) => officeClaimRow(typeof row === "string" ? JSON.parse(row) : row));
+  }
+  return [...memory().officeClaims.values()].map(officeClaimRow);
+}
+
+function activeOfficeClaim(claims, suiteId) {
+  const today = todayISO();
+  return claims.find((row) => row.suite === suiteId && row.until >= today) || null;
+}
+
+async function officeDirectory() {
+  const claims = await readOfficeClaims();
+  return OFFICES.map((suite) => {
+    const claim = suite.claimable ? activeOfficeClaim(claims, suite.id) : null;
+    return {
+      id: suite.id,
+      floor: suite.floor,
+      name: suite.name,
+      tier: suite.tier,
+      claimable: suite.claimable,
+      prices: suite.claimable
+        ? { 1: officePrice(suite, 1), 7: officePrice(suite, 7), 30: officePrice(suite, 30) }
+        : { 1: 0, 7: 0, 30: 0 },
+      claim: claim ? publicOfficeClaim(claim) : null,
+    };
+  });
+}
+
+async function claimOffice(player, body) {
+  const suite = officeSuite(String(body.suite || ""));
+  if (!suite) return { ok: false, message: "Unknown suite.", status: 400 };
+  if (!suite.claimable) {
+    return { ok: false, message: "The Founder's Office belongs to OrbitX. It is never for sale.", status: 400 };
+  }
+  const termDays = Number(body.term_days);
+  if (![1, 7, 30].includes(termDays)) {
+    return { ok: false, message: "Pick a 1-day, 7-day, or 30-day lease.", status: 400 };
+  }
+  const project = String(body.project || "").trim().slice(0, 48);
+  if (!project) return { ok: false, message: "Name the project claiming this office.", status: 400 };
+  const logo = String(body.logo || "").trim().slice(0, 200);
+  const site = String(body.site || "").trim().slice(0, 200);
+  for (const url of [logo, site]) {
+    if (url && !/^https?:\/\//i.test(url)) {
+      return { ok: false, message: "Logo and site links must start with http:// or https://.", status: 400 };
+    }
+  }
+  const price = officePrice(suite, termDays);
+  if (!price) return { ok: false, message: "That lease term is not priced.", status: 400 };
+  const claims = await readOfficeClaims();
+  const taken = activeOfficeClaim(claims, suite.id);
+  if (taken) {
+    return { ok: false, message: `${suite.name} is already claimed by ${taken.project} until ${taken.until}.`, status: 400 };
+  }
+  if (player.balance < price) {
+    return { ok: false, message: `Not enough City Sol — ${suite.name} for ${officeTermLabel(termDays)} costs ${price} City Sol.`, status: 400 };
+  }
+  // City Sol only: deduct from the stored balance and persist it, exactly
+  // like the shop spend op. The in-game "burned" counter is untouched —
+  // offices do not burn anything, and there is no SOL/ORBITX involved.
+  const start = todayISO();
+  const claim = {
+    suite: suite.id,
+    owner_id: player.id,
+    owner_name: player.name,
+    project,
+    logo,
+    site,
+    term_days: termDays,
+    start,
+    until: officeEndISO(start, termDays),
+    price,
+    claimed_at: new Date().toISOString(),
+  };
+  player.balance -= price;
+  await savePlayer(player);
+  try {
+    await saveOfficeClaim(claim);
+  } catch {
+    // The claim did not land — refund the City Sol rather than leave the
+    // player poorer with no office.
+    player.balance += price;
+    await savePlayer(player);
+    return { ok: false, message: "The claim did not save. Your City Sol was refunded — try again.", status: 500 };
+  }
+  return {
+    ok: true,
+    message: `${suite.name} is yours for ${officeTermLabel(termDays)} — ${price} City Sol. It is yours until ${claim.until}.`,
+    claim: publicOfficeClaim(claim),
+    offices: await officeDirectory(),
+  };
+}
+
+async function releaseOffice(player, body) {
+  const suite = officeSuite(String(body.suite || ""));
+  if (!suite) return { ok: false, message: "Unknown suite.", status: 400 };
+  const claims = await readOfficeClaims();
+  const claim = activeOfficeClaim(claims, suite.id);
+  if (!claim) return { ok: false, message: `${suite.name} is not claimed.`, status: 400 };
+  if (claim.owner_id !== player.id) {
+    return { ok: false, message: `Only ${claim.project} can release ${suite.name}.`, status: 400 };
+  }
+  await deleteOfficeClaim(suite.id);
+  return {
+    ok: true,
+    message: `${suite.name} released. The lease ends now — no refund for the days left.`,
+    offices: await officeDirectory(),
+  };
+}
+
 async function addEvent(info) {
   const client = sb();
   if (client) {
@@ -867,6 +1155,10 @@ async function adoptGuest(account, guest) {
     if (moved.error) noteSupabase(moved.error.message);
     const books = await client.from("bookings").update({ owner_id: account.id }).eq("owner_id", guest.id);
     if (books.error && !/owner_id/i.test(books.error.message || "")) noteSupabase(books.error.message);
+    // Office leases move the same way — the claim stays with the person,
+    // just under their account id now.
+    const offices = await client.from("office_claims").update({ owner_id: account.id }).eq("owner_id", guest.id);
+    if (offices.error && !/office_claims/i.test(offices.error.message || "")) noteSupabase(offices.error.message);
   }
   await deletePlayer(guest.id);
 }
@@ -1148,9 +1440,26 @@ export async function POST(request) {
     if (result.ok) payload.me = publicPlayer(player);
     return json(payload, status || 200);
   };
+  // Tower office leases — City Sol only. No SOL, no ORBITX, no burn:
+  // the claim functions above deduct from the stored City Sol balance.
+  const officeReply = async (result) => {
+    const { status, ...payload } = result;
+    if (result.ok) payload.me = publicPlayer(player);
+    return json(payload, status || 200);
+  };
   if (op === "radio-list") return radioReply(await radioList());
   if (op === "radio-upload-url") return radioReply(await radioUploadUrl(player, body));
   if (op === "radio-register") return radioReply(await radioRegister(player, body));
+  if (op === "office-claim") return officeReply(await claimOffice(player, body));
+  if (op === "office-claims") return officeReply({ ok: true, offices: await officeDirectory() });
+  if (op === "office-release") return officeReply(await releaseOffice(player, body));
+  if (op === "office-status") {
+    const claims = await readOfficeClaims();
+    const mine = claims
+      .filter((row) => row.owner_id === player.id && row.until >= todayISO())
+      .map(publicOfficeClaim);
+    return officeReply({ ok: true, mine, offices: await officeDirectory() });
+  }
 
   if (op === "profile") {
     const name = String(body.name || player.name).trim().slice(0, 18);

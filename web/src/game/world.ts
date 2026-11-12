@@ -440,6 +440,15 @@ class CityWorld {
     return data;
   }
 
+  // Fresh "me" from the server (City Sol balance, owned, etc.) — the 1s
+  // digest op has no server handler, so this is the way a panel that just
+  // spent City Sol (e.g. an office claim) refreshes the displayed balance.
+  async meNow() {
+    const data = await this.call("me", {});
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
   async walletView() {
     const data = await this.call("wallet-view", {});
     if (data.me) this.me = data.me as CityMe;

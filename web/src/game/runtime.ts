@@ -102,7 +102,7 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk" | "radio";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk" | "radio" | "offices";
 
 export interface PersonCard {
   id: string;
@@ -950,7 +950,7 @@ export function createRuntime(scene: Scene) {
     if (zone.kind === "cafe") return "Coffee and a seat";
     if (zone.kind === "bank") return "Demo ledger only";
     if (zone.kind === "garage") return "Hover-cars live here";
-    if (zone.kind === "arcade") return "One cabinet is free";
+    if (zone.kind === "arcade") return "Ten cabinets, one high score";
     if (zone.kind === "market") return "Stalls and neon";
     if (zone.kind === "dock") return "Pier is open";
     if (zone.kind === "mall") return "Shops · food court · mezzanine";
@@ -1665,6 +1665,18 @@ export function createRuntime(scene: Scene) {
   }
 
   function stepInside(anchor: Anchor, body: Body) {
+    if (anchor.id === "orbitx-hq") {
+      // Tower door: land inside the lobby by the front desk, facing it and
+      // the ORBITX logo wall — not just inside the door.
+      body.x = -72;
+      body.z = 8.5;
+      body.y = 0;
+      body.vy = 0;
+      body.flying = false;
+      body.yaw = 0;
+      say(anchor.name);
+      return;
+    }
     body.x = anchor.x + Math.sin(anchor.yaw) * 3.5;
     body.z = anchor.z - Math.cos(anchor.yaw) * 3.5;
     body.y = 0;
@@ -2130,6 +2142,7 @@ export function createRuntime(scene: Scene) {
       if (anchor.kind === "jobs") panel = "jobs";
       if (anchor.kind === "ads") panel = "ads";
       if (anchor.kind === "events") panel = "events";
+      if (anchor.kind === "offices") panel = "offices";
       publish();
       return;
     }
@@ -2380,7 +2393,7 @@ export function createRuntime(scene: Scene) {
     }
     if (job === "guide") target = guidePoint() ?? null;
     if (job === "mechanic") target = { x: 36, z: 50 };
-    if (job === "photographer") target = phase === 0 ? { x: 0, z: 12 } : { x: 0, z: -6 };
+    if (job === "photographer") target = phase === 0 ? { x: 0, z: 12 } : { x: -30, z: 8 };
     if (job === "promoter") target = phase === 0 ? (anchors.find((item) => item.id === "hall") ?? null) : { x: 8, z: 70 };
     if (job === "dock") target = anchors.find((item) => item.id === "dock") ?? { x: 0, z: 148 };
     if (job === "dj") target = anchors.find((item) => item.id === "hall") ?? null;
@@ -3154,7 +3167,10 @@ export function createRuntime(scene: Scene) {
         const anchor = nearestAnchor(body, 3.3)!;
         const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
         const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel";
-        prompt = walkIn ? `Walk in — ${title}` : `Press E — ${title}`;
+        // The tower door announces itself as an office entrance, never as a
+        // photo spot — the anchor branch already runs before the photo check
+        // below, so the door wins wherever the two ranges meet.
+        prompt = anchor.kind === "office" ? "Press E — Enter office" : walkIn ? `Walk in — ${title}` : `Press E — ${title}`;
       } else if (nearGate(body, 0, 8)) prompt = "Press E — street race";
       else if (sprint) prompt = `Sprint! Reach the gold line — ${((performance.now() - sprint.startAt) / 1000).toFixed(1)}s`;
       else if (dance) prompt = `Dance! Press E on the beat — ${dance.hits}/${DANCE_BEATS} hits, beat ${Math.min(dance.beat + 1, DANCE_BEATS)} of ${DANCE_BEATS}`;
@@ -4575,6 +4591,14 @@ export function createRuntime(scene: Scene) {
         applyMe();
         publish();
       }).catch((err) => say(err instanceof Error ? err.message : "Wallet unavailable."));
+    },
+    // Refresh the City Sol balance after a server-side spend (office claim).
+    // walletView is account-only; meNow works for guests too.
+    refreshMe() {
+      void world.meNow().then(() => {
+        applyMe();
+        publish();
+      }).catch(() => {});
     },
     quoteSend(destination: string, amount: string) {
       return world.walletQuote(destination, amount);

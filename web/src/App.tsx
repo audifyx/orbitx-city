@@ -6,12 +6,55 @@ import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
 import { CharacterSelect } from "./Roster";
 import { MenuHome } from "./MenuHome";
-import { signOutAccount, type Account } from "./auth";
+import { accountToken, signOutAccount, type Account } from "./auth";
 import { DecorBar, EmoteWheel, FeaturePanel, PhoneExtra, RaceBanner, SpectateBar, featureTitle } from "./Features";
 import { EMPTY_LEADERS, EMPTY_RACE } from "./game/life";
 
 const HELP =
   "WASD move · click or drag to look · arrows or Q/R turn · Space jump · F fly · E use or drive · C camera · hold Z emotes · O spectator · T chat · V talk";
+
+// Tower office directory, served live by /api/city — never invented.
+// "offices" joins PanelName in runtime.ts once the tower-interiors wiring
+// lands; until then App.tsx carries it locally so this file compiles.
+type AppPanel = PanelName | "" | "offices";
+
+interface OfficeClaimState {
+  suite: string;
+  project: string;
+  logo: string;
+  site: string;
+  owner_id: string;
+  owner_name: string;
+  term_days: number;
+  start: string;
+  until: string;
+  price: number;
+  claimed_at: string;
+}
+
+interface OfficeSuiteState {
+  id: string;
+  floor: number;
+  name: string;
+  tier: "standard" | "premium" | "founder";
+  claimable: boolean;
+  prices: { 1: number; 7: number; 30: number };
+  claim: OfficeClaimState | null;
+}
+
+// Same bearer pattern as the game world's own API calls: account token
+// first, guest player token (localStorage "orbitx-token") second.
+async function callCity(op: string, extra: Record<string, unknown> = {}) {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const token = accountToken() || localStorage.getItem("orbitx-token") || "";
+  if (token) headers.authorization = `Bearer ${token}`;
+  const response = await fetch("/api/city", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ op, ...extra }),
+  });
+  return (await response.json()) as Record<string, unknown>;
+}
 
 const EMPTY: Snap = {
   playing: false,
@@ -179,7 +222,7 @@ export default function App() {
   const [status, setStatus] = useState("");
   const [webglMissing, setWebglMissing] = useState(false);
   const [snap, setSnap] = useState<Snap>(EMPTY);
-  const [panel, setPanel] = useState<PanelName | "">("");
+  const [panel, setPanel] = useState<AppPanel>("");
   const [adText, setAdText] = useState("ORBITX LIVE");
   const [adId, setAdId] = useState("plaza-east");
   const [adDays, setAdDays] = useState<1 | 7 | 30>(7);
@@ -197,6 +240,14 @@ export default function App() {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const radioAudioRef = useRef<HTMLAudioElement | null>(null);
   const radioInputRef = useRef<HTMLInputElement | null>(null);
+  const [offices, setOffices] = useState<OfficeSuiteState[]>([]);
+  const [officeMsg, setOfficeMsg] = useState("");
+  const [officeBusy, setOfficeBusy] = useState(false);
+  const [officeSuite, setOfficeSuite] = useState("");
+  const [officeTerm, setOfficeTerm] = useState<1 | 7 | 30>(7);
+  const [officeProject, setOfficeProject] = useState("");
+  const [officeLogo, setOfficeLogo] = useState("");
+  const [officeSite, setOfficeSite] = useState("");
   const [chatText, setChatText] = useState("");
   const [gate, setGate] = useState<"login" | "city">("login");
   const [who, setWho] = useState<Account | null>(null);
@@ -236,6 +287,17 @@ export default function App() {
       if (audio) audio.pause();
     };
   }, []);
+
+  // Keep the office directory live while the Offices panel is open — the
+  // list, prices and claim state all come from the server, never local.
+  useEffect(() => {
+    if (panel !== "offices") return;
+    setOfficeMsg("");
+    void callCity("office-claims").then((res) => {
+      if (res.ok && Array.isArray(res.offices)) setOffices(res.offices as OfficeSuiteState[]);
+      else setOfficeMsg(String(res.message || "Could not load the office directory."));
+    });
+  }, [panel]);
 
   // Poll an in-flight booking until it lands (live / failed / burn-pending).
   useEffect(() => {
@@ -298,7 +360,7 @@ export default function App() {
     if (node) node.scrollTop = node.scrollHeight;
   }, [panel]);
 
-  const open = (name: PanelName) => {
+  const open = (name: PanelName | "offices") => {
     setPanel(name);
     const lock = name !== "chat";
     gameRef.current?.runtime.setPaused(lock);
@@ -444,6 +506,7 @@ export default function App() {
           <button type="button" onClick={() => open("jobs")}>Jobs</button>
           <button type="button" onClick={() => open("ads")}>Ads</button>
           <button type="button" onClick={() => open("radio")}>Radio</button>
+          <button type="button" onClick={() => open("offices")}>Offices</button>
           <button type="button" onClick={() => open("events")}>Events</button>
           <button type="button" onClick={() => open("chat")}>Chat</button>
           <button type="button" onClick={() => open("phone")}>Phone</button>
@@ -497,12 +560,13 @@ export default function App() {
                 {panel === "jobs" && "Jobs"}
                 {panel === "ads" && "Book a billboard"}
                 {panel === "radio" && "Radio"}
+                {panel === "offices" && "OrbitX Tower offices"}
                 {panel === "events" && "Events"}
                 {panel === "chat" && "Chat"}
                 {panel === "phone" && "Phone"}
                 {panel === "menu" && "Menu"}
                 {panel === "lift" && (snap.lift?.name ?? "Lift")}
-                {featureTitle(panel)}
+                {featureTitle(panel as PanelName | "")}
               </strong>
               <button type="button" onClick={close}>Close</button>
             </header>
@@ -753,6 +817,162 @@ export default function App() {
                 {radioMsg ? <p>{radioMsg}</p> : null}
               </div>
             )}
+            {panel === "offices" && (
+              <div className="list">
+                <p className="muted">
+                  Tower offices lease for City Sol — the game&apos;s own money. No real SOL, no ORBITX, nothing burned.
+                  One active claim per suite. A lease runs to its end date; releasing early ends it with no refund.
+                </p>
+                <p>Your balance {snap.balance} City Sol</p>
+                {officeMsg ? <p>{officeMsg}</p> : null}
+                {offices.length === 0 && !officeMsg ? <p>Loading the directory…</p> : null}
+                {([2, 3, 4] as const).map((floor) => (
+                  <div key={floor}>
+                    <h3>Floor {floor}{floor === 4 ? " — premium" : " — standard"}</h3>
+                    {offices
+                      .filter((suite) => suite.floor === floor)
+                      .map((suite) => (
+                        <article key={suite.id}>
+                          <div>
+                            <b>{suite.name}</b>
+                            {suite.claimable ? (
+                              <span>
+                                Day {suite.prices[1]} · Week {suite.prices[7]} · Month {suite.prices[30]} City Sol
+                              </span>
+                            ) : (
+                              <span>Founder&apos;s Office — OrbitX (not claimable)</span>
+                            )}
+                            {suite.claim ? (
+                              <span>
+                                {suite.claim.logo ? (
+                                  <img alt="" src={suite.claim.logo} style={{ height: 24, verticalAlign: "middle", marginRight: 6 }} />
+                                ) : null}
+                                Claimed by {suite.claim.project} until {suite.claim.until}
+                                {suite.claim.site ? (
+                                  <>
+                                    {" "}· <a href={suite.claim.site} target="_blank" rel="noreferrer">Visit site</a>
+                                  </>
+                                ) : null}
+                              </span>
+                            ) : suite.claimable ? (
+                              <span>Available</span>
+                            ) : null}
+                          </div>
+                          {suite.claimable && !suite.claim ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOfficeSuite(suite.id);
+                                setOfficeTerm(7);
+                                setOfficeMsg("");
+                              }}
+                            >
+                              Claim
+                            </button>
+                          ) : null}
+                          {suite.claim && suite.claim.owner_id === snap.meId ? (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (officeBusy) return;
+                                setOfficeBusy(true);
+                                const res = await callCity("office-release", { suite: suite.id });
+                                setOfficeMsg(String(res.message || ""));
+                                if (res.ok && Array.isArray(res.offices)) setOffices(res.offices as OfficeSuiteState[]);
+                                setOfficeBusy(false);
+                              }}
+                            >
+                              Release
+                            </button>
+                          ) : null}
+                        </article>
+                      ))}
+                  </div>
+                ))}
+                {(() => {
+                  const selected = offices.find((suite) => suite.id === officeSuite) || null;
+                  if (!selected || !selected.claimable || selected.claim) return null;
+                  const price = selected.prices[officeTerm];
+                  return (
+                    <form
+                      onSubmit={async (event) => {
+                        event.preventDefault();
+                        if (officeBusy) return;
+                        setOfficeBusy(true);
+                        setOfficeMsg("");
+                        const res = await callCity("office-claim", {
+                          suite: selected.id,
+                          term_days: officeTerm,
+                          project: officeProject,
+                          logo: officeLogo,
+                          site: officeSite,
+                        });
+                        if (res.ok) {
+                          setOfficeMsg(String(res.message || "Claimed."));
+                          if (Array.isArray(res.offices)) setOffices(res.offices as OfficeSuiteState[]);
+                          setOfficeSuite("");
+                          setOfficeProject("");
+                          setOfficeLogo("");
+                          setOfficeSite("");
+                          // The claim deducts City Sol server-side; pull the
+                          // fresh balance or the panel keeps showing the
+                          // pre-claim number (no timer refreshes it).
+                          gameRef.current?.runtime.refreshMe();
+                        } else {
+                          setOfficeMsg(String(res.message || "Claim failed."));
+                        }
+                        setOfficeBusy(false);
+                      }}
+                    >
+                      <h3>Claim {selected.name} — Floor {selected.floor}</h3>
+                      <div className="days">
+                        {([1, 7, 30] as const).map((days) => (
+                          <button
+                            key={days}
+                            type="button"
+                            className={officeTerm === days ? "on" : ""}
+                            onClick={() => setOfficeTerm(days)}
+                          >
+                            {days === 1 ? "1 day" : days === 7 ? "7 days" : "30 days"} · {selected.prices[days]} City Sol
+                          </button>
+                        ))}
+                      </div>
+                      <label>
+                        Project name
+                        <input value={officeProject} maxLength={48} onChange={(event) => setOfficeProject(event.target.value)} />
+                      </label>
+                      <label>
+                        Logo URL
+                        <input
+                          value={officeLogo}
+                          maxLength={200}
+                          placeholder="https://…"
+                          onChange={(event) => setOfficeLogo(event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        Site URL
+                        <input
+                          value={officeSite}
+                          maxLength={200}
+                          placeholder="https://…"
+                          onChange={(event) => setOfficeSite(event.target.value)}
+                        />
+                      </label>
+                      <p>
+                        {price} City Sol for {officeTerm === 1 ? "1 day" : officeTerm === 7 ? "7 days" : "30 days"}.
+                        Your balance {snap.balance} City Sol.
+                        {snap.balance < price ? " Not enough City Sol — play jobs to earn more." : ""}
+                      </p>
+                      <button type="submit" disabled={officeBusy || snap.balance < price || !officeProject.trim()}>
+                        {officeBusy ? "Claiming…" : `Confirm — pay ${price} City Sol`}
+                      </button>
+                      <button type="button" onClick={() => setOfficeSuite("")}>Cancel</button>
+                    </form>
+                  );
+                })()}
+              </div>
+            )}
             {panel === "events" && (
               <div className="list">
                 {snap.events.map((item) => (
@@ -820,7 +1040,7 @@ export default function App() {
                 gameRef.current?.start(parseSeed(seedText || "1"), "orbit");
               });
             }} />}
-            <FeaturePanel snap={{ ...snap, panel }} rt={gameRef.current?.runtime ?? null} />
+            <FeaturePanel snap={{ ...snap, panel: panel as PanelName | "" }} rt={gameRef.current?.runtime ?? null} />
             {panel === "menu" && (
               <div className="list">
                 <p>{HELP} · P phone · N day/night · V push to talk · 1-4 emotes</p>
