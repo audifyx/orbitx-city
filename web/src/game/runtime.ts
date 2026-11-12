@@ -5452,17 +5452,19 @@ export function createRuntime(scene: Scene) {
         body.pitch = 0.05;
       }
     } else if (shot === "homegarage") {
-      // First owned home's garage, from the driveway: the bay + parked
-      // cars fill the frame, the house behind them. Falls back to the
-      // first catalog home when nothing is owned (no bay renders there).
+      // First owned home's garage, from just inside the bay's front
+      // edge: the bay + parked cars fill the frame, the house behind
+      // them — and the player is inside the E-prompt zone, so Use opens
+      // the garage panel. Falls back to the first catalog home when
+      // nothing is owned (no bay renders there).
       const owned = ownedHomes();
       const home = (owned.length ? homeById(owned[0].homeId) : null) ?? homeById("home-ny-01");
       if (home) {
         const layout = garageLayoutFor(home, localVehicles.length);
         body.flying = false;
-        body.x = layout.service.x + layout.bay.fx * (layout.bay.d / 2 + 3.5);
+        body.x = layout.service.x + layout.bay.fx * (layout.bay.d / 2 - 0.5);
         body.y = 0;
-        body.z = layout.service.z + layout.bay.fz * (layout.bay.d / 2 + 3.5);
+        body.z = layout.service.z + layout.bay.fz * (layout.bay.d / 2 - 0.5);
         body.yaw = Math.atan2(-layout.bay.fx, layout.bay.fz);
         body.pitch = 0.12;
       }
