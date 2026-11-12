@@ -2990,6 +2990,12 @@ async function customizeCar(save, body) {
   if (!entry) return { ok: false, message: "You don't own that car yet.", status: 400 };
   const mod = String(body.mod || "");
   const value = body.value === undefined ? null : body.value;
+  // Paint first: a free shop colour is not a premium paint — repainting
+  // to one of them goes through buy-car (already-owned = repaint). This
+  // check must run before modPrice, which rejects non-premium paints.
+  if (mod === "paint" && typeof value === "string" && (VEHICLE_COLORS[id] || []).includes(value)) {
+    return { ok: false, message: "That paint is free in the shop — premium paints only here.", status: 400 };
+  }
   const price = modPrice(mod, value);
   if (price == null) return { ok: false, message: "That mod is not available.", status: 400 };
   const mods = normalizeMods(entry.mods);
@@ -3014,13 +3020,9 @@ async function customizeCar(save, body) {
       return { ok: false, message: "Race tires need your home workshop — upgrade the garage first.", status: 400 };
     }
   }
-  // Paint: premium paints only — the shop colours are free, and repainting
-  // to one of them goes through buy-car (already-owned = repaint).
+  // Paint: premium paints only (the free-colour case is refused above,
+  // before modPrice).
   if (mod === "paint") {
-    const colors = VEHICLE_COLORS[id] || [];
-    if (colors.includes(value)) {
-      return { ok: false, message: "That paint is free in the shop — premium paints only here.", status: 400 };
-    }
     if (entry.color === value) return { ok: false, message: "Already that colour.", status: 400 };
   }
   if (mod === "rims" && mods.rims === value) return { ok: false, message: "Those rims are already fitted.", status: 400 };
