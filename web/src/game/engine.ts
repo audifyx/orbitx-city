@@ -789,6 +789,7 @@ export function createGame(
         const step = Math.min(0.05, left);
         if (runtime.driving()) runtime.drive(step, player, keys, carHit);
         else if (runtime.ridingTrain()) runtime.rideTrain(step, player);
+        else if (runtime.ridingBus()) runtime.rideBus(step, player);
         else tick(step);
         left -= step;
       }

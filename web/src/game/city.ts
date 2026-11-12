@@ -1,5 +1,6 @@
 import { makeRng, type Rng } from "./seed";
 import { buildAllRegions, buildAllBridges, buildDocks, WORLD_BOUNDS } from "./states";
+import { buildBusStation } from "./bus";
 import { buildAllHomes } from "./homes";
 import { buildAllDistricts, buildAllDistrictBridges, type CityParts } from "./emergency";
 import { RESTAURANT_PLACES } from "./content";
@@ -5529,6 +5530,9 @@ export function buildCity(seed: number): City {
   // shore. Must run inside buildCity — cityMapModel caches by seed, so
   // calling it after buildCity() returns would serve a pre-dock model.
   buildDocks(city);
+  // City Loop bus: Central Station + five stop shelters (bus.ts). Same
+  // rule as the regions/bridges — inside buildCity, before the cached model.
+  buildBusStation(city);
   return city;
 }
 

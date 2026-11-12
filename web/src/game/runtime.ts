@@ -19,6 +19,7 @@ import {
 } from "three";
 import type { Anchor, Art, BoardSlot, City, Collider, Lift, Zone } from "./city";
 import { TRAIN_LINE_Z, TRAIN_STATIONS, trainTrackY } from "./city";
+import { BUS_BOARD_DIST, BUS_LENGTH, BusSim, buildBusMesh } from "./bus";
 import {
   BUSK_BASE,
   BUSK_BEATS,
@@ -329,6 +330,8 @@ export interface Snap {
   playing: boolean;
   touch: boolean;
   driving: boolean;
+  /** Riding the City Loop bus — the rider is carried, not driving. */
+  ridingBus: boolean;
   flying: boolean;
   /** Driving a vehicle that can fly (climb > 0) — the pad relabels. */
   flyingCar: boolean;
@@ -1473,6 +1476,12 @@ export function createRuntime(scene: Scene) {
   // when the player is flying it by hand (Jump / Down). Set by the Fly
   // button while driving a flying vehicle; manual Jump / Down cancels it.
   const cars: { id: string; group: Group; x: number; z: number; yaw: number; lean: number; vehicleId?: string; alt: number; autoAlt: number | null }[] = [];
+  // City Loop bus (bus.ts): one bus on a real-time loop, parked at Central
+  // Station to start. The rider is carried with it and steps off at a stop.
+  // Free — no fare, no wallet, no City Sol.
+  const bus = new BusSim();
+  let busMesh: Group | null = null;
+  let ridingBus = false;
   let beacon: Mesh | null = null;
   let packageMesh: Mesh | null = null;
   let rider: Group | null = null;
@@ -2358,6 +2367,8 @@ export function createRuntime(scene: Scene) {
     const token = ++bootGen;
     playing = isPlay;
     driving = false;
+    ridingBus = false;
+    bus.reset();
     carIndex = -1;
     carSpeed = 0;
     ridingTrain = false;
@@ -2461,6 +2472,11 @@ export function createRuntime(scene: Scene) {
       root.add(group);
       cars.push({ id: `dock-${dock.id}`, group, x: dock.boat.x, z: dock.boat.z, yaw: dock.boat.yaw, lean: 0, vehicleId: "boat-ferry", alt: 0, autoAlt: null });
     }
+    // City Loop bus: one bus on the loop, parked at Central Station to start.
+    busMesh = buildBusMesh();
+    busMesh.position.set(bus.x, 0.12, bus.z);
+    busMesh.rotation.y = Math.PI / 2 - bus.yaw;
+    root.add(busMesh);
     beacon = new Mesh(box, MATERIALS.cyanhot);
     beacon.scale.set(0.35, 1.4, 0.35);
     beacon.visible = false;
@@ -2596,6 +2612,7 @@ export function createRuntime(scene: Scene) {
       playing,
       touch,
       driving,
+      ridingBus,
       flying: flyFlag,
       flyingCar: driving && carIndex >= 0 && !!driveParams && driveParams.climb > 0,
       carFlying: driving && carIndex >= 0 && !!(cars[carIndex] && (cars[carIndex].alt > 0 || cars[carIndex].autoAlt != null)),
@@ -3426,6 +3443,11 @@ export function createRuntime(scene: Scene) {
     const who = body ?? lastBody;
     if (!who || !playing || paused || typing) return;
     body = who;
+    // Riding the bus: E gets off, but only at a stop — the prompt names it.
+    if (ridingBus) {
+      if (bus.dwelling && bus.atStop) exitBus(body);
+      return;
+    }
     if (driving) {
       if (raceNext < 0 && nearGate(body, 0, 8)) {
         void startRace("hover");
@@ -3676,6 +3698,12 @@ export function createRuntime(scene: Scene) {
     }
     if (zone?.id === "nightclub" && Math.hypot(body.x - CLUB_DANCE_SPOT.x, body.z - CLUB_DANCE_SPOT.z) < 2.5) {
       startDance();
+      return;
+    }
+    // City Loop bus: board while it dwells at a stop — free, no fare. It
+    // answers before the car fallback, like a door beats a parked car.
+    if (bus.dwelling && Math.hypot(bus.x - body.x, bus.z - body.z) < BUS_BOARD_DIST) {
+      boardBus(body);
       return;
     }
     // No door, zone, or board answered: a car within 7 units is the last
@@ -3969,6 +3997,39 @@ export function createRuntime(scene: Scene) {
       root.add(tag);
     }
     stepTrain(0);
+  }
+  function boardBus(body: Body) {
+    ridingBus = true;
+    body.flying = false;
+    body.vy = 0;
+    triggerHaptic("door");
+    say("City Loop bus — free ride. Press E at a stop to get off.");
+    publish();
+  }
+
+  function exitBus(body: Body) {
+    const stop = bus.atStop;
+    ridingBus = false;
+    if (stop) {
+      // Step off onto the sidewalk by the shelter, facing the bus.
+      body.x = stop.doorX;
+      body.z = stop.doorZ;
+      body.y = 0;
+      body.yaw = Math.atan2(bus.x - body.x, -(bus.z - body.z));
+    }
+    body.vy = 0;
+    triggerHaptic("door");
+    publish();
+  }
+
+  /** Keep the rider glued to the bus while it drives (engine substep loop
+   * + after() — same shape as drive()'s body sync). */
+  function rideBus(_dt: number, body: Body) {
+    body.x = bus.x;
+    body.y = 0.2;
+    body.z = bus.z;
+    body.yaw = bus.yaw;
+    body.vy = 0;
   }
 
   function moveAxes(keys: Set<string>) {
@@ -5471,6 +5532,27 @@ export function createRuntime(scene: Scene) {
     try {
     clock += dt;
     lastBody = body;
+    // City Loop bus: advance the loop, move the mesh (wheels spin with the
+    // road speed, like drive()), say the arrival line on a bridge hop, and
+    // carry the rider with it.
+    bus.update(dt);
+    if (busMesh) {
+      busMesh.position.set(bus.x, 0.12, bus.z);
+      busMesh.rotation.y = Math.PI / 2 - bus.yaw;
+      for (const child of busMesh.children) {
+        if (child.name === "wheel") child.rotation.z += bus.speed * dt * 1.4;
+      }
+    }
+    const busGate = bus.takeHop();
+    if (busGate) {
+      triggerHaptic("door");
+      say(
+        busGate.to === "home"
+          ? "OrbitX City — back home."
+          : `${stateById(busGate.to).name} — ${stateById(busGate.to).tagline}`,
+      );
+    }
+    if (ridingBus) rideBus(dt, body);
     // Rental expiry — once a second, while playing. The car goes back and
     // the player is left on foot where the car was.
     if (playing) checkRentalExpiry(body);
@@ -5696,7 +5778,7 @@ export function createRuntime(scene: Scene) {
     }
     const emoteNow = Date.now() < world.emoteUntil ? world.emote : "";
     if (localBody) {
-      localBody.visible = camMode !== "first" && !driving && !ridingTrain && !spectator;
+      localBody.visible = camMode !== "first" && !driving && !ridingTrain && !ridingBus && !spectator;
       const lift = applyEmote(localBody, emoteNow, Math.PI - body.yaw);
       localBody.position.set(body.x, body.y + lift, body.z);
       paintPerson(localBody, true);
@@ -5798,6 +5880,11 @@ export function createRuntime(scene: Scene) {
           : `Riding the OrbitX Line — next stop ${TRAIN_STATIONS[trainState.next].name}`;
       else if (trainState.stopped && nearTrainBoard(body))
         prompt = `Press E — board the train to ${TRAIN_STATIONS[trainState.next].name} (free)`;
+      else if (ridingBus)
+        prompt =
+          bus.dwelling && bus.atStop
+            ? `Press E to get off — ${bus.atStop.name}`
+            : `Riding the City Loop — next stop ${bus.nextStop()?.name ?? ""}`;
       else if (nearOwnBed(body)) prompt = energy >= 100 ? "Your bed — fully rested" : "Press E — sleep in your bed (energy back to 100)";
       else if (zone && nearService(body, zone)) {
         prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "grocery" ? "Press E — buy food at OrbitX Grocery" : zone.kind === "garage" ? "Press E to open the garage" : zone.kind === "carshop" ? "Press E — buy a car at OrbitX Motors" : isDeptKind(zone.kind as string) ? `Press E — ${zoneTitle(zone)}` : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zone.kind === "restaurant" ? `Press E — order at ${zoneTitle(zone)}` : zone.kind === "gym" ? "Press E — gym desk · work out" : zoneTitle(zone);
@@ -5845,8 +5932,11 @@ export function createRuntime(scene: Scene) {
         // only the car fallback and the zone title remain. Nothing in
         // range: clear the prompt (leaving it untouched kept "Press E to
         // drive" on screen 30-40 m after the player walked away).
+        // The City Loop bus beats the car fallback: a dwelling bus at the
+        // stop answers E before any car parked nearby does.
         const nearCar = nearestCar(body, 7);
-        if (nearCar >= 0) {
+        if (bus.dwelling && Math.hypot(bus.x - body.x, bus.z - body.z) < BUS_BOARD_DIST) prompt = "Press E — board the City Loop bus (free)";
+        else if (nearCar >= 0) {
           prompt = (cars[nearCar]?.group.userData.kind as string) === "boat" ? "Press E to sail — free ferry" : "Press E to drive";
         }
         else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : zone.kind === "grocery" ? "OrbitX Grocery — checkout at the back" : zone.id.startsWith("home-") && ownHomeId(zone.id) ? `${zoneTitle(zone)} — press X to edit your home` : lot?.ownerId === world.id ? `${lot.name} — press X to decorate` : zoneTitle(zone);
@@ -6101,7 +6191,7 @@ export function createRuntime(scene: Scene) {
       const sp = Math.sin(body.pitch);
       camera.lookAt(body.x + Math.sin(body.yaw) * cp, body.y + 1.62 + sp, body.z - Math.cos(body.yaw) * cp);
       handMat.color.set(lookById(lookId).colors.skin);
-      hands.visible = true;
+      hands.visible = !ridingBus;
       hands.position.copy(camera.position);
       hands.quaternion.copy(camera.quaternion);
       return true;
@@ -6135,6 +6225,26 @@ export function createRuntime(scene: Scene) {
       camera.position.copy(smoothed);
       camera.up.set(0, 1, 0);
       camera.lookAt(car.x, 0.9 + car.alt, car.z);
+      return true;
+    }
+    if (ridingBus) {
+      // Chase cam behind the bus, same shape as the driving chase cam
+      // (first-person is already handled above — the body rides the bus).
+      const yaw = bus.yaw;
+      const dist = (camMode === "selfie" ? 5.2 : camMode === "far" ? 11 : 6 + BUS_LENGTH) * camZoom;
+      const side = camMode === "shoulder" ? 1.3 : 0;
+      const sign = camMode === "selfie" ? 1 : -1;
+      const lookYaw = yaw + chaseYaw;
+      const desired = {
+        x: bus.x + Math.sin(lookYaw) * dist * sign + Math.cos(lookYaw) * side,
+        y: camMode === "selfie" ? 2.2 : 3.6 + chasePitch * 1.6,
+        z: bus.z - Math.cos(lookYaw) * dist * sign + Math.sin(lookYaw) * side,
+      };
+      const pulled = pullCamera({ x: bus.x, y: 1.3, z: bus.z }, desired);
+      const smoothed = smoothCamera(new Vector3(pulled.x, Math.max(1.4, pulled.y), pulled.z), dt);
+      camera.position.copy(smoothed);
+      camera.up.set(0, 1, 0);
+      camera.lookAt(bus.x, 0.9, bus.z);
       return true;
     }
     const dist = (camMode === "selfie" ? 2.6 : camMode === "far" ? 9.2 : 4.8) * camZoom;
@@ -8650,6 +8760,7 @@ export function createRuntime(scene: Scene) {
     blocks: carBlocks,
     driving: () => driving,
     ridingTrain: () => ridingTrain,
+    ridingBus: () => ridingBus,
     paused: () => paused,
     typing: () => typing,
     stickActive: () => Math.hypot(stickX, stickY) > 0.15,
@@ -8659,6 +8770,7 @@ export function createRuntime(scene: Scene) {
     moveAxes,
     drive,
     rideTrain,
+    rideBus,
     after,
     interact,
     say,

@@ -248,6 +248,7 @@ const EMPTY: Snap = {
   playing: false,
   touch: false,
   driving: false,
+  ridingBus: false,
   flying: false,
   flyingCar: false,
   carFlying: false,
