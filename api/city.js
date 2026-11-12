@@ -1082,6 +1082,7 @@ async function ensureSchema() {
     homes TEXT NOT NULL DEFAULT '{"homeServer":0,"homes":[]}',
     vehicles TEXT NOT NULL DEFAULT '[]',
     active_vehicle TEXT NOT NULL DEFAULT '',
+    rental TEXT NOT NULL DEFAULT 'null',
     last_seen BIGINT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (player_id, server_id)
@@ -1091,6 +1092,7 @@ async function ensureSchema() {
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS homes TEXT NOT NULL DEFAULT '{"homeServer":0,"homes":[]}'`;
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS vehicles TEXT NOT NULL DEFAULT '[]'`;
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS active_vehicle TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS rental TEXT NOT NULL DEFAULT 'null'`;
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS last_seen BIGINT NOT NULL DEFAULT 0`;
   await sql`CREATE TABLE IF NOT EXISTS events (
     id TEXT PRIMARY KEY,
@@ -1127,6 +1129,9 @@ function freshPlayer(id, name) {
     homes: { homeServer: 0, homes: [] },
     vehicles: [],
     activeVehicle: null,
+    // GTA garage rental — at most one live rental per save; null when
+    // none. { id, color, days, expiresAt } — see sanitizeRental.
+    rental: null,
     // Identity-level pointer: the universe where the player made their
     // home (players.home_server). Null = no home yet; latest home wins.
     homeServer: null,
@@ -1174,6 +1179,35 @@ function sanitizeVehicles(vehicles) {
     .map((v) => ({ id: v.id, color: String(v.color || "") }));
 }
 
+// --- Garage rentals (car rental, 0.5 City Sol/day) ----------------------
+// City Sol only, no burn: a rental is a time-boxed loan, not a purchase
+// and not a burn event. Balances are INTEGER in Supabase AND Neon
+// (verified 2026-11-11), so a 0.5/day rate can only ever charge whole
+// Sol — the total rounds DOWN, so the player never pays more than
+// 0.5/day, and the minimum rental is 2 days (a 1-day rental would cost
+// 0). The rate stays 0.5/day; only the total is integer.
+const RENTAL_RATE_PER_DAY = 0.5;
+const RENTAL_MIN_DAYS = 2;
+const RENTAL_MAX_DAYS = 30;
+const RENTAL_DAY_MS = 86400000;
+
+function rentalCost(days) {
+  return Math.floor(days * RENTAL_RATE_PER_DAY);
+}
+
+function sanitizeRental(rental) {
+  if (!rental || typeof rental.id !== "string") return null;
+  const expiresAt = Number(rental.expiresAt || 0);
+  const daysLeft = expiresAt > Date.now() ? Math.max(1, Math.ceil((expiresAt - Date.now()) / RENTAL_DAY_MS)) : 0;
+  return {
+    id: rental.id,
+    color: String(rental.color || ""),
+    days: Number(rental.days || 0),
+    daysLeft,
+    expiresAt,
+  };
+}
+
 function publicPlayer(player) {
   return {
     id: player.id,
@@ -1198,6 +1232,7 @@ function publicPlayer(player) {
     homes: sanitizeHomes(player.homes),
     vehicles: sanitizeVehicles(player.vehicles),
     activeVehicle: player.activeVehicle || null,
+    rental: sanitizeRental(player.rental),
     bestRace: player.bestRace || 0,
     bestHover: player.bestHover || 0,
     holder: !!player.holder,
@@ -1346,6 +1381,7 @@ function parseSave(row) {
   save.homes = typeof row.homes === "string" ? JSON.parse(row.homes || '{"homeServer":0,"homes":[]}') : row.homes || { homeServer: 0, homes: [] };
   save.vehicles = typeof row.vehicles === "string" ? JSON.parse(row.vehicles || "[]") : row.vehicles || [];
   save.activeVehicle = row.active_vehicle || row.activeVehicle || null;
+  save.rental = typeof row.rental === "string" ? JSON.parse(row.rental || "null") : row.rental || null;
   save.lastSeen = Number(row.last_seen ?? row.lastSeen ?? 0);
   return save;
 }
@@ -1378,6 +1414,7 @@ function rowFromSave(save) {
     homes: JSON.stringify(save.homes || { homeServer: 0, homes: [] }),
     vehicles: JSON.stringify(save.vehicles || []),
     active_vehicle: save.activeVehicle || "",
+    rental: JSON.stringify(save.rental || null),
     last_seen: Number(save.lastSeen || 0),
     updated_at: new Date().toISOString(),
   };
@@ -1409,13 +1446,14 @@ async function saveSave(save) {
   const client = sb();
   if (client) {
     let { error } = await client.from("player_saves").upsert(rowFromSave(save));
-    if (error && /homes|vehicles|active_vehicle|last_seen|missions|trail/i.test(error.message || "")) {
+    if (error && /homes|vehicles|active_vehicle|rental|last_seen|missions|trail/i.test(error.message || "")) {
       // Same strip-unknown-columns retry as savePlayer: a missing column
       // surfaces as an error instead of silently dropping the field.
       const row = rowFromSave(save);
       delete row.homes;
       delete row.vehicles;
       delete row.active_vehicle;
+      delete row.rental;
       delete row.last_seen;
       delete row.missions;
       delete row.trail;
@@ -1429,8 +1467,8 @@ async function saveSave(save) {
   if (sql) {
     await ensureSchema();
     const row = rowFromSave(save);
-    await sql`INSERT INTO player_saves (player_id, server_id, balance, burned, owned, color, hat, car, look, job, job_streak, business, rent, earned, best_race, best_hover, daily, mission, mission_at, missions, trail, homes, vehicles, active_vehicle, last_seen, updated_at)
-      VALUES (${row.player_id}, ${row.server_id}, ${row.balance}, ${row.burned}, ${row.owned}, ${row.color}, ${row.hat}, ${row.car}, ${row.look}, ${row.job}, ${row.job_streak}, ${row.business}, ${row.rent}, ${row.earned}, ${row.best_race}, ${row.best_hover}, ${row.daily}, ${row.mission}, ${row.mission_at}, ${row.missions}, ${row.trail}, ${row.homes}, ${row.vehicles}, ${row.active_vehicle}, ${row.last_seen}, ${row.updated_at})
+    await sql`INSERT INTO player_saves (player_id, server_id, balance, burned, owned, color, hat, car, look, job, job_streak, business, rent, earned, best_race, best_hover, daily, mission, mission_at, missions, trail, homes, vehicles, active_vehicle, rental, last_seen, updated_at)
+      VALUES (${row.player_id}, ${row.server_id}, ${row.balance}, ${row.burned}, ${row.owned}, ${row.color}, ${row.hat}, ${row.car}, ${row.look}, ${row.job}, ${row.job_streak}, ${row.business}, ${row.rent}, ${row.earned}, ${row.best_race}, ${row.best_hover}, ${row.daily}, ${row.mission}, ${row.mission_at}, ${row.missions}, ${row.trail}, ${row.homes}, ${row.vehicles}, ${row.active_vehicle}, ${row.rental}, ${row.last_seen}, ${row.updated_at})
       ON CONFLICT (player_id, server_id) DO UPDATE SET
         balance = EXCLUDED.balance, burned = EXCLUDED.burned, owned = EXCLUDED.owned,
         color = EXCLUDED.color, hat = EXCLUDED.hat, car = EXCLUDED.car, look = EXCLUDED.look,
@@ -1439,7 +1477,7 @@ async function saveSave(save) {
         best_hover = EXCLUDED.best_hover, daily = EXCLUDED.daily, mission = EXCLUDED.mission,
         mission_at = EXCLUDED.mission_at, missions = EXCLUDED.missions, trail = EXCLUDED.trail,
         homes = EXCLUDED.homes, vehicles = EXCLUDED.vehicles,
-        active_vehicle = EXCLUDED.active_vehicle, last_seen = EXCLUDED.last_seen,
+        active_vehicle = EXCLUDED.active_vehicle, rental = EXCLUDED.rental, last_seen = EXCLUDED.last_seen,
         updated_at = EXCLUDED.updated_at`;
     return;
   }
@@ -2476,6 +2514,92 @@ async function selectCar(save, body) {
   return { ok: true, me: publicPlayer(save) };
 }
 
+// --- Garage rentals (0.5 City Sol/day, paid up front) ------------------
+// One live rental per save; the rented car is NOT added to save.vehicles
+// (the client spawns it from me.rental instead) and save.activeVehicle is
+// untouched, so the owned car comes back on its own when the rental ends.
+
+async function liveRental(save) {
+  if (!save.rental || typeof save.rental.id !== "string") return null;
+  if (Number(save.rental.expiresAt || 0) > Date.now()) return save.rental;
+  save.rental = null;
+  await saveSave(save);
+  return null;
+}
+
+// Overlay the current universe's per-server garage data onto a `me`
+// built from the global player row. The 250ms sync heartbeat overwrites
+// world.me, and the client's applyMe() copies it into local state —
+// without this, a live rental and the owned cars were wiped from the
+// client seconds after renting/buying (the car entity stayed spawned and
+// drivable, the rental line vanished, and the rental's client-side expiry
+// never fired). Balance is NOT overlaid: the displayed balance stays the
+// global one (pre-existing; the universe ledger's balance only shows
+// right after a garage op).
+async function overlaySaveGarage(player, body, me) {
+  const server = heartbeatServer(body, player);
+  if (!server) return me;
+  const save = await saveKey(player.id, server);
+  if (!save) return me;
+  me.vehicles = sanitizeVehicles(save.vehicles);
+  me.activeVehicle = save.activeVehicle || null;
+  me.rental = sanitizeRental(await liveRental(save));
+  return me;
+}
+
+async function rentCar(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Unknown server.", status: 400 };
+  const id = String(body.id || "");
+  if (VEHICLE_PRICES[id] == null) return { ok: false, message: "That vehicle is not for rent.", status: 400 };
+  const colors = VEHICLE_COLORS[id] || [];
+  const color = body.color == null || body.color === "" ? VEHICLE_DEFAULT_COLORS[id] : String(body.color);
+  if (!colors.includes(color)) {
+    return { ok: false, message: "That color is not available for this vehicle.", status: 400 };
+  }
+  const days = Math.floor(Number(body.days || 0));
+  if (!Number.isFinite(days) || days < RENTAL_MIN_DAYS || days > RENTAL_MAX_DAYS) {
+    return { ok: false, message: `Rent ${RENTAL_MIN_DAYS}–${RENTAL_MAX_DAYS} days at a time.`, status: 400 };
+  }
+  const vehicles = Array.isArray(save.vehicles) ? save.vehicles : [];
+  if (vehicles.some((v) => v.id === id)) {
+    return { ok: false, message: "You already own that car — select it instead.", status: 400 };
+  }
+  const existing = await liveRental(save);
+  if (existing) {
+    return { ok: false, message: `You already have ${VEHICLE_NAMES[existing.id] || existing.id} rented — return it first.`, status: 400 };
+  }
+  // City Sol only: no burn, no burned increment — a rental is a loan,
+  // not a purchase or a burn event.
+  const cost = rentalCost(days);
+  if (save.balance < cost) return { ok: false, message: "Not enough City Sol.", status: 400 };
+  save.balance -= cost;
+  save.rental = { id, color, days, expiresAt: Date.now() + days * RENTAL_DAY_MS };
+  await saveSave(save);
+  return {
+    ok: true,
+    message: `Rented ${VEHICLE_NAMES[id] || id} for ${days} days — ${cost} City Sol (0.5/day).`,
+    rental: sanitizeRental(save.rental),
+    me: publicPlayer(save),
+  };
+}
+
+async function rentalStatusOp(save) {
+  const rental = await liveRental(save);
+  return { ok: true, rental: sanitizeRental(rental), me: publicPlayer(save) };
+}
+
+async function returnRental(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Unknown server.", status: 400 };
+  const rental = await liveRental(save);
+  if (!rental) return { ok: false, message: "No active rental.", status: 400 };
+  const name = VEHICLE_NAMES[rental.id] || rental.id;
+  save.rental = null;
+  await saveSave(save);
+  return { ok: true, message: `Returned ${name}.`, rental: null, me: publicPlayer(save) };
+}
+
 // --- Homes (homes.ts catalog, mirrored) ---
 
 async function buyHome(player, save, body) {
@@ -3107,11 +3231,25 @@ export async function POST(request) {
   }
 
   // Garage — per-server cars (vehicles.ts). The save is this server's own.
-  if (op === "buy-car" || op === "select-car") {
+  // Rentals live on the same save (save.rental, not save.vehicles).
+  if (op === "buy-car" || op === "select-car" || op === "rent-car" || op === "rental-status" || op === "return-rental") {
     const server = parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Unknown server." }, 400);
-    const save = await ensureSave(player, server);
-    const result = op === "buy-car" ? await buyCar(save, body) : await selectCar(save, body);
+    // Rental-status is a read: never mint a save for it. The other garage
+    // ops use ensureSave (Sol fix) so a first universe is seeded from the
+    // player's global wealth and the save is reconciled; mirrorBalance
+    // keeps the global row in step after every successful op.
+    const save = await ensureSave(player, server, { mint: op !== "rental-status" });
+    if (!save) {
+      if (op === "rental-status") return json({ ok: true, rental: null, me: publicPlayer(player) });
+      return json({ ok: false, message: "No rental on this server." }, 400);
+    }
+    let result;
+    if (op === "buy-car") result = await buyCar(save, body);
+    else if (op === "select-car") result = await selectCar(save, body);
+    else if (op === "rent-car") result = await rentCar(save, body);
+    else if (op === "rental-status") result = await rentalStatusOp(save);
+    else result = await returnRental(save, body);
     if (result.ok) await mirrorBalance(player, save);
     return json(result, result.ok ? 200 : result.status || 400);
   }
@@ -3323,6 +3461,8 @@ export async function POST(request) {
       if (data) party = data;
       if (error) noteSupabase(error.message);
     }
+    const me = publicPlayer(player);
+    await overlaySaveGarage(player, body, me);
     return json({
       ok: true,
       me: publicPlayer(syncSave || player),

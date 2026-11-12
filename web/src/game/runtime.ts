@@ -212,6 +212,8 @@ export interface ShopCatalogItem {
   price: number;
 }
 
+export type ActiveRental = { id: string; color: string; days: number; daysLeft: number; expiresAt: number };
+
 export interface Snap {
   playing: boolean;
   touch: boolean;
@@ -316,6 +318,8 @@ export interface Snap {
   // GTA expansion: garage / multiverse / emergency / district panels.
   vehicles: OwnedVehicle[];
   activeVehicle: string | null;
+  // GTA garage rental — the live rental, or null (server is the authority).
+  rental: ActiveRental | null;
   universe: { id: number; name: string; isHome: boolean } | null;
   haptics: boolean;
   emergency: { kind: string; name: string } | null;
@@ -761,6 +765,17 @@ export function createRuntime(scene: Scene) {
       // The offline garage still works for this session.
     }
   }
+
+  // GTA garage rental — the rented car on THIS universe's save (server is
+  // the authority; null when no rental is live). Not persisted locally:
+  // applyMe re-syncs it from me.rental on every server answer.
+  let localRental: ActiveRental | null = null;
+  // A rental the client already ended (expired locally, or ejected after
+  // the server ended it) — the server can lag behind by clock skew and
+  // report the same rental live again on the next sync; never re-arm from
+  // that stale report. A fresh rent always has a later expiresAt, so it
+  // still lands.
+  let endedRental: { id: string; expiresAt: number } | null = null;
   function loadLocalHomes(): PlayerHomesSave {
     try {
       const parsed = JSON.parse(localStorage.getItem(HOMES_KEY) || "null") as PlayerHomesSave | null;
@@ -1521,6 +1536,23 @@ export function createRuntime(scene: Scene) {
     if (typeof me.activeVehicle === "string" || me.activeVehicle === null) {
       localActiveVehicle = me.activeVehicle;
     }
+    // Rental comes back on me (publicPlayer) — the server is the
+    // authority, and a rental with 0 days left is already over. A rental
+    // the client already ended is never re-armed from a stale server
+    // report (clock skew can leave the server saying "live" for minutes
+    // after the client ended it) — a fresh rent has a later expiresAt.
+    const nextRental = (me as CityMe).rental;
+    localRental =
+      nextRental && typeof nextRental.id === "string" && (nextRental.daysLeft ?? 0) > 0
+        && !(endedRental && nextRental.id === endedRental.id && nextRental.expiresAt === endedRental.expiresAt)
+        ? {
+            id: nextRental.id,
+            color: nextRental.color || "",
+            days: nextRental.days ?? 0,
+            daysLeft: nextRental.daysLeft,
+            expiresAt: nextRental.expiresAt,
+          }
+        : null;
     if (me.homes) {
       localHomes = { homeServer: (me.homes.homeServer ?? 0) as PlayerHomesSave["homeServer"], homes: [...(me.homes.homes ?? [])] };
       saveLocalHomes();
@@ -1532,6 +1564,11 @@ export function createRuntime(scene: Scene) {
   // The player's active car for THIS universe's save, spawned at the
   // garage-row spot (72, 54). Replaces whatever ambient car sits there.
   function activeVehicleEntry(): OwnedVehicle | null {
+    // A live rental is the car you drive — it takes the garage-row spot
+    // over any owned car, and the owned car comes back when it ends.
+    if (localRental && localRental.expiresAt > Date.now()) {
+      return { id: localRental.id, color: localRental.color };
+    }
     if (!localActiveVehicle) return null;
     return localVehicles.find((v) => v.id === localActiveVehicle) ?? { id: localActiveVehicle, color: wallet.car };
   }
@@ -1949,6 +1986,7 @@ export function createRuntime(scene: Scene) {
       trail,
       vehicles: [...localVehicles],
       activeVehicle: localActiveVehicle,
+      rental: localRental ? { ...localRental } : null,
       universe: currentUniverse
         ? { id: currentUniverse, name: universeDisplayName(currentUniverse as UniverseId), isHome: universeIsHome }
         : null,
@@ -3874,6 +3912,9 @@ export function createRuntime(scene: Scene) {
     try {
     clock += dt;
     lastBody = body;
+    // Rental expiry — once a second, while playing. The car goes back and
+    // the player is left on foot where the car was.
+    if (playing) checkRentalExpiry(body);
     flyFlag = body.flying;
     consumeLook(body);
     if (!opts.orbit) {
@@ -5209,6 +5250,170 @@ export function createRuntime(scene: Scene) {
     return "Selected.";
   }
 
+  // Shared rental-end path: the car goes back and the player is left on
+  // foot where the car was — never teleported into the void. body may be
+  // null when the game is not running; then nobody is driving to eject.
+  function endRentalLocally(body: Body | null, message: string) {
+    const wasDrivingRental = driving && carIndex === ownedCarIndex && ownedCarIndex >= 0;
+    // Driving some other car: the splice in spawnActiveCar shifts indices,
+    // so remember the car object and re-point at it afterwards.
+    const otherCar = !wasDrivingRental && driving && carIndex >= 0 ? cars[carIndex] : null;
+    if (wasDrivingRental) {
+      if (body) exitCar(body);
+      else {
+        driving = false;
+        carIndex = -1;
+        carSpeed = 0;
+        driveParams = null;
+      }
+    }
+    if (localRental) endedRental = { id: localRental.id, expiresAt: localRental.expiresAt };
+    localRental = null;
+    spawnActiveCar();
+    if (otherCar) {
+      const idx = cars.indexOf(otherCar);
+      if (idx >= 0) carIndex = idx;
+    }
+    say(message);
+    publish();
+  }
+
+  // Rental expiry — checked once a second from after(): when the paid
+  // days run out the car goes back and the player is left on foot where
+  // the car was. The server is the authority on the save, and it
+  // auto-expires the same way on the next rental op — no ping is sent
+  // from here, so a clock-skewed client cannot loop against the server.
+  // The no-rental branch covers the server ending it first: if the
+  // player is still driving the garage-row car and it is neither the
+  // rental nor the owned active car, it is a phantom — drop them on foot
+  // instead of leaving them in a car that no longer exists.
+  let rentalCheckAt = 0;
+  function checkRentalExpiry(body: Body) {
+    const now = Date.now();
+    if (now - rentalCheckAt < 1000) return;
+    rentalCheckAt = now;
+    if (localRental) {
+      if (localRental.expiresAt > now) return;
+      const name = getVehicle(localRental.id)?.name ?? localRental.id;
+      endRentalLocally(body, `Your ${name} rental ran out — the car went back to the shop.`);
+      triggerHaptic("error");
+      return;
+    }
+    if (driving && carIndex === ownedCarIndex && ownedCarIndex >= 0) {
+      const car = cars[carIndex];
+      if (car && car.vehicleId !== localActiveVehicle) {
+        endRentalLocally(body, "Your rental ran out — the car went back to the shop.");
+        triggerHaptic("error");
+      }
+    }
+  }
+
+  // GTA garage rental — mirrors buyCar (0.5 City Sol/day, paid up front).
+  // Online only: the rental lives on the per-server save.
+  async function rentCar(id: string, color: string, days: number) {
+    const v = getVehicle(id);
+    if (!v) {
+      triggerHaptic("error");
+      return "Unknown vehicle.";
+    }
+    if (!world.online) {
+      const message = "Rentals need the online city — sign in and pick a universe.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+    if (!currentUniverse) {
+      const message = "Pick a universe on the menu first.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+    try {
+      const data = await world.rentCar(id, color, days, currentUniverse);
+      applyMe();
+      spawnActiveCar();
+      triggerHaptic("success");
+      publish();
+      say(String(data.message || "Rented."));
+      return String(data.message || "Rented.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "The city refused the rental.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+  }
+
+  // Rental status for the garage panel — the server is the authority, so
+  // this also clears a rental that ran out while the panel was closed.
+  async function rentalStatus() {
+    if (world.online && currentUniverse) {
+      try {
+        const wasRental = localRental;
+        const drivingRental = driving && carIndex === ownedCarIndex && ownedCarIndex >= 0;
+        await world.rentalStatus(currentUniverse);
+        applyMe();
+        if (wasRental && !localRental && drivingRental) {
+          endRentalLocally(lastBody, `Your ${getVehicle(wasRental.id)?.name ?? wasRental.id} rental ran out — the car went back to the shop.`);
+        } else if (!drivingRental) {
+          const otherCar = driving && carIndex >= 0 ? cars[carIndex] : null;
+          spawnActiveCar();
+          if (otherCar) {
+            const idx = cars.indexOf(otherCar);
+            if (idx >= 0) carIndex = idx;
+          }
+        }
+        publish();
+        return { ok: true as const, rental: localRental ? { ...localRental } : null };
+      } catch (err) {
+        return { ok: false as const, message: err instanceof Error ? err.message : "Could not load the rental.", rental: null };
+      }
+    }
+    return { ok: true as const, rental: localRental ? { ...localRental } : null };
+  }
+
+  // End the rental early — the car goes back, no refund (paid up front).
+  async function returnRental() {
+    if (!world.online) {
+      const message = "Rentals need the online city — sign in and pick a universe.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+    if (!currentUniverse) {
+      const message = "Pick a universe on the menu first.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+    try {
+      const data = await world.returnRental(currentUniverse);
+      const message = String(data.message || "Returned.");
+      const wasRental = localRental;
+      const drivingRental = driving && carIndex === ownedCarIndex && ownedCarIndex >= 0;
+      applyMe();
+      if (wasRental && drivingRental) {
+        endRentalLocally(lastBody, message);
+      } else if (!drivingRental) {
+        const otherCar = driving && carIndex >= 0 ? cars[carIndex] : null;
+        spawnActiveCar();
+        if (otherCar) {
+          const idx = cars.indexOf(otherCar);
+          if (idx >= 0) carIndex = idx;
+        }
+        say(message);
+        publish();
+      }
+      triggerHaptic("success");
+      return message;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "The city refused the return.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+  }
+
   // GTA home buy — City Sol only, per (player, universe).
   async function buyHome(homeId: string) {
     const home = homeById(homeId);
@@ -5324,6 +5529,7 @@ export function createRuntime(scene: Scene) {
     if (!isUniverseId(id)) throw new Error("Pick Universe 1 to 5.");
     const result = await universeJoin(id);
     currentUniverse = result.universe.id;
+    world.currentServer = result.universe.id;
     universeIsHome = result.isHome;
     try {
       localStorage.setItem("orbitx-universe", String(id));
@@ -5340,6 +5546,7 @@ export function createRuntime(scene: Scene) {
     if (!isUniverseId(id)) throw new Error("Pick Universe 1 to 5.");
     const result = await universeTravel(id);
     currentUniverse = result.universe.id;
+    world.currentServer = result.universe.id;
     universeIsHome = result.isHome;
     try {
       localStorage.setItem("orbitx-universe", String(id));
@@ -6022,6 +6229,15 @@ export function createRuntime(scene: Scene) {
     },
     selectCar(id: string) {
       return selectCar(id);
+    },
+    rentCar(id: string, color: string, days: number) {
+      return rentCar(id, color, days);
+    },
+    rentalStatus() {
+      return rentalStatus();
+    },
+    returnRental() {
+      return returnRental();
     },
     buyHome(homeId: string) {
       return buyHome(homeId);

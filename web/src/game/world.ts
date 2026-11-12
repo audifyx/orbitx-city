@@ -43,6 +43,8 @@ export interface CityMe {
   // the ops; the client only mirrors what the server returns).
   vehicles?: OwnedVehicle[];
   activeVehicle?: string | null;
+  // GTA garage rental — the live rental on this universe's save, or null.
+  rental?: { id: string; color: string; days: number; daysLeft: number; expiresAt: number } | null;
   homes?: { homeServer: number; homes: OwnedHome[] };
   friends: { id: string; name: string }[];
   inbox: { id: string; name: string }[];
@@ -87,6 +89,12 @@ class CityWorld {
   id = "";
   token = "";
   server = "This device";
+  // The universe the player is currently in (1-5), set by the runtime on
+  // join/travel. The 250ms sync heartbeat sends it so the server can
+  // resolve the player's per-universe save — the heartbeat otherwise falls
+  // back to homeServer, which guests never have, so the save was never
+  // touched mid-play and the sync's `me` carried no garage data.
+  currentServer: number | null = null;
   me: CityMe | null = null;
   people: CityPerson[] = [];
   chat: WorldChat[] = [];
@@ -193,7 +201,7 @@ class CityWorld {
   }
 
   private applyDigest(data: Record<string, unknown>) {
-    if (data.me) this.me = data.me as CityMe;
+    if (data.me) this.me = this.mergeGarageMe(data.me as CityMe);
     if (Array.isArray(data.lots)) this.lots = data.lots as LotCard[];
     if (data.leaders) this.leaders = data.leaders as Leaders;
     if (data.daily) this.daily = data.daily as DailyCard;
@@ -215,12 +223,34 @@ class CityWorld {
 
   private busy = false;
 
+  // A `me` from a global-row op (quest-ping, wallet, an old sync …)
+  // carries no per-server garage data — never let it wipe the current
+  // universe's rental/vehicles out from under the player. The garage ops
+  // and the (overlayed) sync return a save `me` that carries the data,
+  // so the merge is a no-op for them. A real return/expiry clears the
+  // CURRENT me first (the op itself, or the sync's overlay), so a rental
+  // that is actually gone is never resurrected by this.
+  private mergeGarageMe(incoming: CityMe): CityMe {
+    const cur = this.me;
+    if (
+      cur &&
+      !incoming.rental &&
+      !incoming.vehicles?.length &&
+      !incoming.activeVehicle &&
+      (cur.rental || cur.vehicles?.length || cur.activeVehicle)
+    ) {
+      return { ...incoming, rental: cur.rental, vehicles: cur.vehicles, activeVehicle: cur.activeVehicle };
+    }
+    return incoming;
+  }
+
   private async flush() {
     if (this.busy || !this.online || !this.latest) return;
     this.busy = true;
     try {
-      const data = await this.call("sync", { state: this.latest });
-      this.me = (data.me as CityMe) || this.me;
+      const data = await this.call("sync", { state: this.latest, server: this.currentServer ?? undefined });
+      const incomingMe = data.me as CityMe | null;
+      this.me = incomingMe ? this.mergeGarageMe(incomingMe) : this.me;
       this.mission = Number((this.me as CityMe & { mission?: number }).mission || this.mission);
       this.people = (data.people as CityPerson[]) || [];
       this.chat = (data.chat as WorldChat[]) || [];
@@ -370,6 +400,25 @@ class CityWorld {
 
   async selectCar(id: string, server: number) {
     const data = await this.call("select-car", { id, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  // GTA garage rentals — 0.5 City Sol/day, paid up front, per-server.
+  async rentCar(id: string, color: string, days: number, server: number) {
+    const data = await this.call("rent-car", { id, color, days, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async rentalStatus(server: number) {
+    const data = await this.call("rental-status", { server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async returnRental(server: number) {
+    const data = await this.call("return-rental", { server });
     if (data.me) this.me = data.me as CityMe;
     return data;
   }

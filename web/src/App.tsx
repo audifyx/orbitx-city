@@ -290,6 +290,7 @@ const EMPTY: Snap = {
   trail: "none",
   vehicles: [],
   activeVehicle: null,
+  rental: null,
   universe: null,
   haptics: false,
   emergency: null,
@@ -410,6 +411,8 @@ export default function App() {
   const [garageColors, setGarageColors] = useState<Record<string, string>>({});
   const [garageMsg, setGarageMsg] = useState("");
   const [garageBusy, setGarageBusy] = useState(false);
+  // Garage rentals: 0.5 City Sol/day, paid up front (2/3/7 days).
+  const [garageRentDays, setGarageRentDays] = useState<2 | 3 | 7>(2);
   // District-offices panel (cloned from the HQ offices panel, per server).
   const [districtSel, setDistrictSel] = useState<DistrictId>("harbor");
   const [districtOffices, setDistrictOffices] = useState<DistrictOfficeDirectoryRow[]>([]);
@@ -575,6 +578,15 @@ export default function App() {
         setHomeServer(res.homeServer);
       } else setHomeMsg(String(res.message || ""));
     });
+  }, [panel]);
+
+  // Garage panel: rental-status poll for the current universe, so the
+  // rental line is server-fresh when the panel opens.
+  useEffect(() => {
+    if (panel !== "garage") return;
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    void rt.rentalStatus().catch(() => {});
   }, [panel]);
 
   // Poll an in-flight booking until it lands (live / failed / burn-pending).
@@ -1450,6 +1462,32 @@ export default function App() {
                     : "Sign in and pick a universe on the menu to sync cars — until then purchases are saved on this device only."}
                 </p>
                 {garageMsg ? <p>{garageMsg}</p> : null}
+                {snap.rental ? (
+                  <p>
+                    Rented: <b>{getVehicle(snap.rental.id)?.name ?? snap.rental.id}</b> — {snap.rental.daysLeft} day{snap.rental.daysLeft === 1 ? "" : "s"} left.
+                    <button
+                      type="button"
+                      disabled={garageBusy}
+                      onClick={async () => {
+                        const rt = gameRef.current?.runtime;
+                        if (!rt || garageBusy) return;
+                        setGarageBusy(true);
+                        setGarageMsg(await rt.returnRental());
+                        setGarageBusy(false);
+                      }}
+                    >
+                      Return
+                    </button>
+                  </p>
+                ) : null}
+                <p className="muted">Rent any car — 0.5 City Sol/day, paid up front. Pick your days:</p>
+                <span className="days">
+                  {([2, 3, 7] as const).map((d) => (
+                    <button key={d} type="button" className={garageRentDays === d ? "on" : ""} onClick={() => setGarageRentDays(d)}>
+                      {d} days
+                    </button>
+                  ))}
+                </span>
                 {CAR_SHOP.map((section) => (
                   <div key={section.title}>
                     <h3>{section.title}</h3>
@@ -1461,6 +1499,11 @@ export default function App() {
                       const active = snap.activeVehicle === id;
                       const color = garageColors[id] ?? snap.vehicles.find((car) => car.id === id)?.color ?? "black";
                       const afford = snap.balance >= v.price;
+                      // Rental total rounds DOWN to whole Sol (balances are
+                      // integers), so the player never pays more than
+                      // 0.5/day: 2 days = 1, 3 days = 1, 7 days = 3.
+                      const rentCost = Math.floor(garageRentDays * 0.5);
+                      const rentAfford = snap.balance >= rentCost;
                       return (
                         <article key={id}>
                           <div>
@@ -1503,19 +1546,34 @@ export default function App() {
                               Select
                             </button>
                           ) : (
-                            <button
-                              type="button"
-                              disabled={garageBusy || !afford}
-                              onClick={async () => {
-                                const rt = gameRef.current?.runtime;
-                                if (!rt || garageBusy) return;
-                                setGarageBusy(true);
-                                setGarageMsg(await rt.buyCar(id, color));
-                                setGarageBusy(false);
-                              }}
-                            >
-                              {afford ? `Buy — ${v.price} City Sol` : "Not enough City Sol"}
-                            </button>
+                            <div>
+                              <button
+                                type="button"
+                                disabled={garageBusy || !afford}
+                                onClick={async () => {
+                                  const rt = gameRef.current?.runtime;
+                                  if (!rt || garageBusy) return;
+                                  setGarageBusy(true);
+                                  setGarageMsg(await rt.buyCar(id, color));
+                                  setGarageBusy(false);
+                                }}
+                              >
+                                {afford ? `Buy — ${v.price} City Sol` : "Not enough City Sol"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={garageBusy || !rentAfford}
+                                onClick={async () => {
+                                  const rt = gameRef.current?.runtime;
+                                  if (!rt || garageBusy) return;
+                                  setGarageBusy(true);
+                                  setGarageMsg(await rt.rentCar(id, color, garageRentDays));
+                                  setGarageBusy(false);
+                                }}
+                              >
+                                {rentAfford ? `Rent ${garageRentDays}d — ${rentCost} City Sol` : "Not enough City Sol"}
+                              </button>
+                            </div>
                           )}
                         </article>
                       );
