@@ -85,7 +85,6 @@ import {
   buyHomeLocal,
   freshHomesSave,
   homeById,
-  homePrice,
   type OwnedHome,
   type PlayerHomesSave,
 } from "./homes";
@@ -96,6 +95,7 @@ import {
   universeTravel,
   type UniverseId,
 } from "./multiverse";
+import { bridgeGateFor } from "./states";
 import {
   EMOTES,
   FURNITURE,
@@ -1274,7 +1274,7 @@ export function createRuntime(scene: Scene) {
       localActiveVehicle = me.activeVehicle;
     }
     if (me.homes) {
-      localHomes = { homeServer: me.homes.homeServer ?? 0, homes: [...(me.homes.homes ?? [])] };
+      localHomes = { homeServer: (me.homes.homeServer ?? 0) as PlayerHomesSave["homeServer"], homes: [...(me.homes.homes ?? [])] };
       saveLocalHomes();
     }
     wallet.name = me.name;
@@ -2573,6 +2573,20 @@ export function createRuntime(scene: Scene) {
     } else {
       carSpeed *= -0.25;
       triggerHaptic("carHit");
+    }
+    // Bridge gates: the car crosses WITH the driver — same landing (x/z/yaw)
+    // as the walking hop in engine tick. Rects are 4 units deep on the travel
+    // axis and a substep moves at most ~1 unit, so the car cannot tunnel
+    // through; landings sit 2 units clear of the opposite gate, so no
+    // ping-pong. Flying cars above the colliders skip it (they fly over).
+    if (car.alt <= 2) {
+      const gate = bridgeGateFor(car.x, car.z);
+      if (gate) {
+        car.x = gate.landing.x;
+        car.z = gate.landing.z;
+        car.yaw = gate.landing.yaw;
+        triggerHaptic("door");
+      }
     }
     const steer = s * moving;
     car.lean += (steer * params.lean - car.lean) * Math.min(1, dt * 8);
@@ -4758,6 +4772,7 @@ export function createRuntime(scene: Scene) {
     drive,
     after,
     interact,
+    say,
     rideLift,
     consumeLook,
     setStick(x: number, y: number) {

@@ -527,6 +527,17 @@ class CityWorld {
   }
 
   private async call(op: string, extra: Record<string, unknown>, auth: boolean | "account" = true) {
+    // Fail closed on the server id: live.js 400s EVERY live op (including the
+    // 1s digest) on an invalid explicit `server`. Only 1-5 may ever be sent;
+    // ops that omit the field entirely (digest, sync, session, me) are
+    // untouched. This guard can never trip today — every caller validates
+    // first — it exists so a future caller cannot 400 the poll loop.
+    if (extra.server !== undefined) {
+      const server = Number(extra.server);
+      if (!Number.isInteger(server) || server < 1 || server > 5) {
+        throw new Error(`Refusing to send invalid server ${String(extra.server)} on ${op}.`);
+      }
+    }
     const headers: Record<string, string> = { "content-type": "application/json" };
     const access = accountToken();
     if (access) headers.authorization = `Bearer ${access}`;
