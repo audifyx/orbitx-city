@@ -12,6 +12,7 @@ import {
   Sprite,
   SpriteMaterial,
   TorusGeometry,
+  Vector3,
   type Material,
   type PerspectiveCamera,
   type Scene,
@@ -69,6 +70,33 @@ import { GOLD, MATERIALS } from "./materials";
 import { readAccount } from "../auth";
 import { world } from "./world";
 import {
+  buildVehicle,
+  driveParamsFor,
+  getVehicle,
+  FLY_CONTROLS,
+  VEHICLE_COLORS,
+  type DriveParams,
+  type OwnedVehicle,
+} from "./vehicles";
+import { ensureWalker, animateWalk, makeCameraSmoother } from "./movement";
+import { triggerHaptic, isHapticsEnabled, setHapticsEnabled } from "./haptics";
+import { emergencyJobById, jobObjective, jobTargetFor } from "./emergency";
+import {
+  buyHomeLocal,
+  freshHomesSave,
+  homeById,
+  homePrice,
+  type OwnedHome,
+  type PlayerHomesSave,
+} from "./homes";
+import {
+  isUniverseId,
+  universeDisplayName,
+  universeJoin,
+  universeTravel,
+  type UniverseId,
+} from "./multiverse";
+import {
   EMOTES,
   FURNITURE,
   GATES,
@@ -102,7 +130,7 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk" | "radio" | "offices";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices";
 
 export interface PersonCard {
   id: string;
@@ -234,12 +262,21 @@ export interface Snap {
   talk: { name: string; role: string; line: string; index: number; total: number; jobId: string; jobName: string; offerLabel: string } | null;
   photos: { taken: number; spots: string[] };
   wishes: number;
+  // GTA expansion: garage / multiverse / emergency / district panels.
+  vehicles: OwnedVehicle[];
+  activeVehicle: string | null;
+  universe: { id: number; name: string; isHome: boolean } | null;
+  haptics: boolean;
+  emergency: { kind: string; name: string } | null;
+  districtOffice: string;
 }
 
 interface Remote {
   state: NetState;
   seen: number;
   group: Group;
+  prevX: number;
+  prevZ: number;
 }
 
 interface Spark {
@@ -407,7 +444,11 @@ function addHat(group: Group, box: BoxGeometry, hat: string) {
   group.add(node);
 }
 
-function makeCar(skin: string, style: number) {
+function makeCar(skin: string, style: number, vehicleId?: string) {
+  // Catalog car — buildVehicle already returns rotation.order YXZ, named
+  // "wheel" children and userData.paints, so retint() and the wheel-spin
+  // loop in drive() keep working unchanged.
+  if (vehicleId) return buildVehicle(vehicleId, skin);
   const group = new Group();
   group.rotation.order = "YXZ";
   const box = new BoxGeometry(1, 1, 1);
@@ -509,7 +550,7 @@ function makeCar(skin: string, style: number) {
 function retint(group: Group, skin: string) {
   const paints = group.userData.paints as MeshStandardMaterial[] | undefined;
   if (!paints) return;
-  const color = COLORS[skin] ?? COLORS.black;
+  const color = COLORS[skin] ?? VEHICLE_COLORS[skin] ?? COLORS.black;
   for (const material of paints) material.color.setHex(color);
 }
 
@@ -528,6 +569,72 @@ export function createRuntime(scene: Scene) {
     localStorage.removeItem(BOOK_KEY);
   }
   let wallet = loadWallet();
+  // GTA vehicles — per-(player, universe) ownership. The Wallet shape in
+  // economy.ts is shared, so owned cars live in their own localStorage key
+  // (offline) and mirror world.me.vehicles whenever the server returns it.
+  const VEHICLES_KEY = "orbitx-demo-vehicles-v1";
+  const HOMES_KEY = "orbitx-demo-homes-v1";
+  function loadLocalVehicles(): { vehicles: OwnedVehicle[]; activeVehicle: string | null } {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(VEHICLES_KEY) || "null") as { vehicles?: OwnedVehicle[]; activeVehicle?: string | null } | null;
+      return {
+        vehicles: Array.isArray(parsed?.vehicles) ? parsed.vehicles.filter((v) => typeof v?.id === "string") : [],
+        activeVehicle: typeof parsed?.activeVehicle === "string" ? parsed.activeVehicle : null,
+      };
+    } catch {
+      return { vehicles: [], activeVehicle: null };
+    }
+  }
+  const loadedVehicles = loadLocalVehicles();
+  let localVehicles = loadedVehicles.vehicles;
+  let localActiveVehicle = loadedVehicles.activeVehicle;
+  function saveLocalVehicles() {
+    try {
+      localStorage.setItem(VEHICLES_KEY, JSON.stringify({ vehicles: localVehicles, activeVehicle: localActiveVehicle }));
+    } catch {
+      // The offline garage still works for this session.
+    }
+  }
+  function loadLocalHomes(): PlayerHomesSave {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(HOMES_KEY) || "null") as PlayerHomesSave | null;
+      if (parsed && Array.isArray(parsed.homes)) return { homeServer: parsed.homeServer ?? 0, homes: parsed.homes };
+    } catch {
+      // Fall through to a fresh save.
+    }
+    return freshHomesSave();
+  }
+  let localHomes = loadLocalHomes();
+  function saveLocalHomes() {
+    try {
+      localStorage.setItem(HOMES_KEY, JSON.stringify(localHomes));
+    } catch {
+      // The offline home still counts for this session.
+    }
+  }
+  // Universe picked on the menu (servers 1-5). Persisted so a reload keeps
+  // the pick; the server id rides on every per-server op.
+  let currentUniverse: number | null = (() => {
+    const saved = Number(localStorage.getItem("orbitx-universe") || "");
+    return saved >= 1 && saved <= 5 ? saved : null;
+  })();
+  let universeIsHome = false;
+  // Owned-car spawn bookkeeping: index in `cars` of the spawned active car.
+  let ownedCarIndex = -1;
+  // Per-vehicle drive params, cached on enterCar.
+  let driveParams: DriveParams | null = null;
+  let prevW = false;
+  // Walk-cycle displacement: previous local position, for real speed.
+  let prevLocal = { x: 0, z: 0, set: false };
+  // Camera glide (walking + driving chase only, never first-person).
+  const camSmoother = makeCameraSmoother();
+  let snapCamNext = false;
+  // Emergency panel context (which department the player walked into).
+  let emergencyDept: { kind: string; name: string } | null = null;
+  // District-offices panel: which district directory is open.
+  let districtOfficeSel = "harbor";
+  // Zone-enter haptic: the zone id the player was in last frame.
+  let prevInsideName = "";
   let bootGen = 0;
   if (params.get("name")) {
     wallet.name = params.get("name") || wallet.name;
@@ -641,7 +748,6 @@ export function createRuntime(scene: Scene) {
     { x: -18, z: -72, label: "Put out the fire at the south avenue" },
     { x: 72, z: 90, label: "Put out the fire at the east avenue" },
   ] as const;
-  const FIRE_DONE = 3;
   const TEACHER_STOPS = [
     { x: -77.6, z: 163, label: "Meet the class at the Library" },
     { x: 121, z: 217, label: "Outdoor lesson in Sunset Park" },
@@ -721,7 +827,7 @@ export function createRuntime(scene: Scene) {
   const chat: ChatLine[] = [];
   const remotes = new Map<string, Remote>();
   const boards = new Map<string, { mesh: Mesh; base: BillboardInfo; texture: CanvasTexture }>();
-  const cars: { id: string; group: Group; x: number; z: number; yaw: number; lean: number }[] = [];
+  const cars: { id: string; group: Group; x: number; z: number; yaw: number; lean: number; vehicleId?: string; alt: number }[] = [];
   let beacon: Mesh | null = null;
   let packageMesh: Mesh | null = null;
   let rider: Group | null = null;
@@ -748,6 +854,8 @@ export function createRuntime(scene: Scene) {
     homeZ: number;
     x: number;
     z: number;
+    prevX: number;
+    prevZ: number;
     yaw: number;
     waypoints: Array<{ x: number; z: number }>;
     wp: number;
@@ -1135,6 +1243,7 @@ export function createRuntime(scene: Scene) {
     scene.add(root);
     boards.clear();
     cars.length = 0;
+    ownedCarIndex = -1;
     remotes.clear();
     beacon = null;
     packageMesh = null;
@@ -1157,8 +1266,60 @@ export function createRuntime(scene: Scene) {
     wallet.color = me.color;
     wallet.hat = me.hat;
     wallet.car = me.car;
+    if (Array.isArray(me.vehicles)) {
+      localVehicles = [...me.vehicles];
+      saveLocalVehicles();
+    }
+    if (typeof me.activeVehicle === "string" || me.activeVehicle === null) {
+      localActiveVehicle = me.activeVehicle;
+    }
+    if (me.homes) {
+      localHomes = { homeServer: me.homes.homeServer ?? 0, homes: [...(me.homes.homes ?? [])] };
+      saveLocalHomes();
+    }
     wallet.name = me.name;
     saveWallet(wallet);
+  }
+
+  // The player's active car for THIS universe's save, spawned at the
+  // garage-row spot (72, 54). Replaces whatever ambient car sits there.
+  function activeVehicleEntry(): OwnedVehicle | null {
+    if (!localActiveVehicle) return null;
+    return localVehicles.find((v) => v.id === localActiveVehicle) ?? { id: localActiveVehicle, color: wallet.car };
+  }
+
+  function spawnActiveCar() {
+    if (ownedCarIndex >= 0) {
+      const old = cars[ownedCarIndex];
+      if (old) root.remove(old.group);
+      cars.splice(ownedCarIndex, 1);
+      ownedCarIndex = -1;
+    }
+    const entry = activeVehicleEntry();
+    if (!entry) return;
+    let group: Group;
+    try {
+      group = buildVehicle(entry.id, entry.color);
+    } catch {
+      return;
+    }
+    let x = 72;
+    let z = 54;
+    let yaw = 0;
+    const spot = cars.findIndex((car) => car.id === "garage-row");
+    if (spot >= 0) {
+      const old = cars[spot];
+      root.remove(old.group);
+      x = old.x;
+      z = old.z;
+      yaw = old.yaw;
+      cars.splice(spot, 1);
+    }
+    group.position.set(x, 0.12, z);
+    group.rotation.y = Math.PI / 2 - yaw;
+    root.add(group);
+    cars.push({ id: "garage-row", group, x, z, yaw, lean: 0, vehicleId: entry.id, alt: 0 });
+    ownedCarIndex = cars.length - 1;
   }
 
   function upsertRemote(state: NetState) {
@@ -1176,7 +1337,7 @@ export function createRuntime(scene: Scene) {
     tag.name = "tag";
     group.add(tag);
     root.add(group);
-    remotes.set(state.id, { state, seen: performance.now(), group });
+    remotes.set(state.id, { state, seen: performance.now(), group, prevX: state.x, prevZ: state.z });
   }
 
   async function begin(next: City, isPlay: boolean) {
@@ -1203,6 +1364,11 @@ export function createRuntime(scene: Scene) {
     driving = false;
     carIndex = -1;
     carSpeed = 0;
+    ownedCarIndex = -1;
+    driveParams = null;
+    prevW = false;
+    prevLocal = { x: 0, z: 0, set: false };
+    prevInsideName = "";
     insideName = "";
     job = "";
     phase = 0;
@@ -1238,7 +1404,7 @@ export function createRuntime(scene: Scene) {
       const info = NPC_LINES[citizen.name];
       const patrol = info?.patrol ?? NPC_DEFAULT_PATROL;
       const waypoints = patrol.map(([dx, dz]) => ({ x: citizen.x + dx, z: citizen.z + dz }));
-      npcs.push({ group, name: citizen.name, homeX: citizen.x, homeZ: citizen.z, x: citizen.x, z: citizen.z, yaw: index, waypoints, wp: 1 % waypoints.length, waitUntil: 0 });
+      npcs.push({ group, name: citizen.name, homeX: citizen.x, homeZ: citizen.z, x: citizen.x, z: citizen.z, prevX: citizen.x, prevZ: citizen.z, yaw: index, waypoints, wp: 1 % waypoints.length, waitUntil: 0 });
     });
     // Activity markers (labels only — no new geometry): the dance floor in
     // the hall and the three photo spots.
@@ -1257,6 +1423,8 @@ export function createRuntime(scene: Scene) {
       tag.position.set(anchor.x, anchor.y + 2.7, anchor.z);
       root.add(tag);
     }
+    // The current universe's active car spawns at the garage-row spot.
+    spawnActiveCar();
     for (const slot of next.boards) mountBoard(slot);
     for (const item of next.art) mountArt(item);
     buildLiftCabs();
@@ -1266,7 +1434,7 @@ export function createRuntime(scene: Scene) {
       group.position.set(spawn.x, 0.12, spawn.z);
       group.rotation.y = Math.PI / 2 - spawn.yaw;
       root.add(group);
-      cars.push({ id: spawn.id, group, x: spawn.x, z: spawn.z, yaw: spawn.yaw, lean: 0 });
+      cars.push({ id: spawn.id, group, x: spawn.x, z: spawn.z, yaw: spawn.yaw, lean: 0, alt: 0 });
     });
     beacon = new Mesh(box, MATERIALS.cyanhot);
     beacon.scale.set(0.35, 1.4, 0.35);
@@ -1355,6 +1523,13 @@ export function createRuntime(scene: Scene) {
       sparks.push({ mesh, vx: 0, vy: 0, vz: 0, life: 0 });
     }
     publish();
+    // Menu universe pick: join that universe now that the session is live,
+    // so the save (balance, cars, homes) is this universe's own. If the
+    // server op is not live yet the join fails silently and the game plays
+    // on with the session save.
+    if (isPlay && currentUniverse) {
+      void joinUniverse(currentUniverse).catch(() => {});
+    }
   }
 
   function mountBoard(slot: BoardSlot) {
@@ -1502,6 +1677,14 @@ export function createRuntime(scene: Scene) {
       talk,
       photos: { taken: photosTaken, spots: [...photoSpots] },
       wishes,
+      vehicles: [...localVehicles],
+      activeVehicle: localActiveVehicle,
+      universe: currentUniverse
+        ? { id: currentUniverse, name: universeDisplayName(currentUniverse as UniverseId), isHome: universeIsHome }
+        : null,
+      haptics: isHapticsEnabled(),
+      emergency: emergencyDept ? { ...emergencyDept } : null,
+      districtOffice: districtOfficeSel,
     };
     panel = "";
     for (const listener of listeners) listener(snap);
@@ -1542,6 +1725,8 @@ export function createRuntime(scene: Scene) {
     if (id === "bus") return "Bus driver";
     if (id === "fire") return "Firefighter";
     if (id === "doctor") return "Doctor";
+    if (id === "cop") return "Police Officer";
+    if (id === "paramedic") return "Paramedic";
     if (id === "teacher") return "Teacher";
     if (id === "shootout") return "Basketball shootout";
     if (id === "treasure") return "Treasure hunt";
@@ -1616,11 +1801,10 @@ export function createRuntime(scene: Scene) {
       return left > 1 ? `Sweep the plaza — ${left} litter spots left` : "Sweep the plaza — one litter spot left";
     }
     if (job === "bus") return BUS_STOPS[Math.min(phase, BUS_STOPS.length - 1)].label;
-    if (job === "fire") {
-      const left = FIRE_DONE - phase;
-      return left > 1 ? `Put out the fires — ${left} reports left` : "Put out the fires — one report left";
-    }
-    if (job === "doctor") return `Clinic at the hall — patient ${Math.min(phase + 1, 3)} of 3`;
+    // Emergency jobs (cop / paramedic / fire / doctor): per-phase lines
+    // verbatim from EMERGENCY_JOBS in emergency.ts.
+    const emSpec = emergencyJobById(job);
+    if (emSpec) return jobObjective(emSpec, phase);
     if (job === "teacher") return TEACHER_STOPS[Math.min(phase, TEACHER_STOPS.length - 1)].label;
     const stop = tourStops[world.online ? world.mission : tourStep];
     if (stop) return stop.text;
@@ -1803,6 +1987,7 @@ export function createRuntime(scene: Scene) {
     if (first) {
       photoSpots.push(spot.id);
       earn(wallet, PHOTO_REWARD, `Photo — ${spot.name}`);
+      triggerHaptic("jobPay");
     }
     savePhotos();
     burst(spot.x, 2.2, spot.z);
@@ -1816,6 +2001,7 @@ export function createRuntime(scene: Scene) {
 
   function makeWish() {
     if (wallet.balance < WISH_SPOT.cost) {
+      triggerHaptic("error");
       say(`A wish costs ${WISH_SPOT.cost} City Sol — come back richer.`);
       return;
     }
@@ -1842,6 +2028,7 @@ export function createRuntime(scene: Scene) {
       museumSeen.push(exhibit.id);
       earn(wallet, MUSEUM_REWARD, `Exhibit — ${exhibit.name}`);
       if (completed) earn(wallet, MUSEUM_BONUS, "Museum tour complete");
+      triggerHaptic("jobPay");
     }
     saveMuseum();
     burst(exhibit.x, 2.2, exhibit.z);
@@ -1857,6 +2044,7 @@ export function createRuntime(scene: Scene) {
 
   function pullLever() {
     if (wallet.balance < CASINO_COST) {
+      triggerHaptic("error");
       say(`One pull costs ${CASINO_COST} City Sol — come back richer.`);
       return;
     }
@@ -1882,6 +2070,7 @@ export function createRuntime(scene: Scene) {
       return;
     }
     if (wallet.balance < HOTEL_COST) {
+      triggerHaptic("error");
       say(`A night costs ${HOTEL_COST} City Sol — come back richer.`);
       return;
     }
@@ -1915,6 +2104,7 @@ export function createRuntime(scene: Scene) {
       const amount = Math.max(STADIUM_MIN, Math.round(STADIUM_BASE - secs * STADIUM_PER_SEC));
       sprint = null;
       say(earn(wallet, amount, `Stadium sprint (${secs.toFixed(1)}s)`));
+      triggerHaptic("jobPay");
       publish();
     }
   }
@@ -1976,6 +2166,7 @@ export function createRuntime(scene: Scene) {
       const hits = dance.hits;
       dance = null;
       say(earn(wallet, amount, `Dance set (${hits}/${DANCE_BEATS} on the beat)`));
+      triggerHaptic("jobPay");
       publish();
     }
   }
@@ -2037,6 +2228,7 @@ export function createRuntime(scene: Scene) {
       const hits = busk.hits;
       busk = null;
       say(earn(wallet, amount, `Busking (${hits}/${BUSK_BEATS} on the beat)`));
+      triggerHaptic("jobPay");
       publish();
     }
   }
@@ -2066,8 +2258,21 @@ export function createRuntime(scene: Scene) {
       washReadyAt = Date.now() + WASH_COOLDOWN_MS;
       burst(WASH_SPOT.x, 2.2, WASH_SPOT.z);
       say(earn(wallet, WASH_PAY, "Hover-car wash"));
+      triggerHaptic("jobPay");
       publish();
     }
+  }
+
+  // Department kinds (fire / police / hospital / emergency) live in the
+  // city.ts unions once the world agent adds them; until then the casts
+  // below keep the routing working without a type error.
+  function isDeptKind(kind: string) {
+    return kind === "fire" || kind === "police" || kind === "hospital" || kind === "emergency";
+  }
+
+  function openEmergency(kind: string, name: string) {
+    emergencyDept = { kind, name };
+    panel = "emergency";
   }
 
   function interact(body?: Body) {
@@ -2109,6 +2314,8 @@ export function createRuntime(scene: Scene) {
     const zone = zoneAt(body);
     if (zone && nearService(body, zone)) {
       if (zone.kind === "shop") panel = "shop";
+      else if (zone.kind === "garage") panel = "garage";
+      else if (isDeptKind(zone.kind as string)) openEmergency(zone.kind as string, zone.name);
       else if (zone.kind === "arcade") panel = "arcade";
       else if (zone.kind === "project") {
         hqIndex = zone.slot;
@@ -2134,15 +2341,32 @@ export function createRuntime(scene: Scene) {
         openLift(anchor);
         return;
       }
-      if (anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel") {
+      // Hover Garage: E opens the garage panel (buy / select cars), it does
+      // not walk the player into the lobby.
+      if (anchor.kind === "garage") {
+        panel = "garage";
+        publish();
+        return;
+      }
+      if (anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel") {
         stepInside(anchor, body);
         publish();
         return;
       }
-      if (anchor.kind === "jobs") panel = "jobs";
-      if (anchor.kind === "ads") panel = "ads";
-      if (anchor.kind === "events") panel = "events";
-      if (anchor.kind === "offices") panel = "offices";
+      if (isDeptKind(anchor.kind as string)) openEmergency(anchor.kind as string, anchor.name);
+      else if (anchor.kind === "jobs") panel = "jobs";
+      else if (anchor.kind === "ads") panel = "ads";
+      else if (anchor.kind === "events") panel = "events";
+      else if (anchor.kind === "offices") {
+        // HQ directory opens the HQ offices; a district tower's directory
+        // board (tower-{district}-directory) opens that district's panel.
+        if (anchor.id === "hq-directory") panel = "offices";
+        else if (anchor.id.endsWith("-directory")) {
+          const district = anchor.id.replace(/^tower-/, "").replace(/-directory$/, "");
+          districtOfficeSel = district === "harbor" || district === "north" || district === "east" || district === "west" ? district : "harbor";
+          panel = "district-offices";
+        } else panel = "offices";
+      }
       publish();
       return;
     }
@@ -2179,6 +2403,7 @@ export function createRuntime(scene: Scene) {
     // Parcel run: pick up at the bank steps, deliver at the Library door.
     if (!parcel && Math.hypot(body.x - PARCEL_PICKUP.x, body.z - PARCEL_PICKUP.z) < 2.5) {
       parcel = "carried";
+      triggerHaptic("pickup");
       say("Parcel collected — take it to the Library door.");
       publish();
       return;
@@ -2187,6 +2412,7 @@ export function createRuntime(scene: Scene) {
       parcel = "";
       burst(PARCEL_DELIVER.x, 2.2, PARCEL_DELIVER.z);
       say(earn(wallet, PARCEL_REWARD, "Parcel run (Bank → Library)"));
+      triggerHaptic("jobPay");
       publish();
       return;
     }
@@ -2255,8 +2481,20 @@ export function createRuntime(scene: Scene) {
     body.flying = false;
     body.vy = 0;
     const car = cars[index];
-    retint(car.group, wallet.car);
-    say("Press E to get out.");
+    if (!car) return;
+    car.alt = 0;
+    try {
+      driveParams = driveParamsFor(car.vehicleId ?? "city-sedan");
+    } catch {
+      driveParams = null;
+    }
+    // Catalog cars wear their owned paint, not the repaint-only wallet color.
+    const owned = car.vehicleId ? localVehicles.find((v) => v.id === car.vehicleId) : undefined;
+    retint(car.group, owned?.color ?? wallet.car);
+    const kind = (car.group.userData.kind as string) || "car";
+    if (driveParams && driveParams.climb > 0) say(FLY_CONTROLS.note);
+    else if (kind === "skateboard") say("Tap W to push.");
+    else say("Press E to get out.");
     if (!droveQuest && world.online) {
       droveQuest = true;
       void world.questPing("drive").then(() => applyMe()).catch(() => {});
@@ -2267,12 +2505,20 @@ export function createRuntime(scene: Scene) {
     const car = cars[carIndex];
     driving = false;
     if (car) {
-      body.x = car.x + Math.cos(car.yaw) * 2.6;
-      body.z = car.z + Math.sin(car.yaw) * 2.6;
+      // Flying cars land first — the player steps out on the ground, never
+      // mid-air. Boards are small: step off 1.2 units, not 2.6.
+      if (car.alt > 0) {
+        car.alt = 0;
+        car.group.position.y = driveParams?.hover ?? 0.12;
+      }
+      const drop = (car.group.userData.kind as string) === "skateboard" ? 1.2 : 2.6;
+      body.x = car.x + Math.cos(car.yaw) * drop;
+      body.z = car.z + Math.sin(car.yaw) * drop;
       body.y = 0;
     }
     carIndex = -1;
     carSpeed = 0;
+    driveParams = null;
     body.vy = 0;
   }
 
@@ -2291,32 +2537,54 @@ export function createRuntime(scene: Scene) {
     }
     const { f, s } = moveAxes(keys);
     const ctrl = keys.has("ControlLeft") || keys.has("ControlRight");
-    const max = ctrl ? 22 : 12;
-    carSpeed += f * 18 * dt;
-    carSpeed *= 1 - 1.6 * dt;
-    if (carSpeed > max) carSpeed = max;
-    if (carSpeed < -6) carSpeed = -6;
     const car = cars[carIndex];
     if (!car) return;
+    // Per-vehicle physics (cached on enterCar; ambient cars fall back to
+    // the city sedan's numbers, which match the old hard-coded constants).
+    const params: DriveParams = driveParams ?? {
+      maxSpeed: 12, accel: 18, steer: 1.5, reverse: -6, lean: 0.28, drag: 1.6,
+      climb: 0, maxAltitude: 0, offroad: false, pushToGo: false, hover: 0.12,
+    };
+    const wNow = keys.has("KeyW");
+    if (params.pushToGo) {
+      // Skateboard: W is a tap-to-push impulse, not held throttle.
+      if (wNow && !prevW) carSpeed = Math.min(carSpeed + 3, params.maxSpeed);
+    } else {
+      carSpeed += f * params.accel * dt;
+    }
+    prevW = wNow;
+    carSpeed *= 1 - params.drag * dt;
+    const max = ctrl ? params.maxSpeed * 1.6 : params.maxSpeed;
+    if (carSpeed > max) carSpeed = max;
+    if (carSpeed < params.reverse) carSpeed = params.reverse;
     const moving = Math.abs(carSpeed) > 0.4 ? Math.sign(carSpeed) : 0;
-    car.yaw -= s * moving * 1.5 * dt;
+    car.yaw -= s * moving * params.steer * dt;
+    // Flying: Space climbs (the touch Jump button too), Shift/C descends.
+    if (params.climb > 0) {
+      if (keys.has("Space") || holdJump) car.alt = Math.min(car.alt + params.climb * dt, params.maxAltitude);
+      if (keys.has("ShiftLeft") || keys.has("ShiftRight") || keys.has("KeyC") || holdDown) car.alt = Math.max(car.alt - params.climb * dt, 0);
+    }
     const nx = car.x + Math.sin(car.yaw) * carSpeed * dt;
     const nz = car.z - Math.cos(car.yaw) * carSpeed * dt;
-    if (!blocked(nx, nz)) {
+    // Above 2 units the car is over the colliders — skip collision entirely.
+    if (car.alt > 2 || !blocked(nx, nz)) {
       car.x = nx;
       car.z = nz;
-    } else carSpeed *= -0.25;
+    } else {
+      carSpeed *= -0.25;
+      triggerHaptic("carHit");
+    }
     const steer = s * moving;
-    car.lean += (steer * 0.28 - car.lean) * Math.min(1, dt * 8);
+    car.lean += (steer * params.lean - car.lean) * Math.min(1, dt * 8);
     const bob = Math.sin(clock * 5) * 0.05;
-    car.group.position.set(car.x, 0.12 + bob, car.z);
+    car.group.position.set(car.x, params.hover + car.alt + bob, car.z);
     car.group.rotation.y = Math.PI / 2 - car.yaw;
     for (const child of car.group.children) {
       if (child.name === "wheel") child.rotation.z += carSpeed * dt * 1.4;
     }
     car.group.rotation.z = -car.lean;
     body.x = car.x;
-    body.y = 0.2;
+    body.y = 0.2 + car.alt;
     body.z = car.z;
     body.yaw = car.yaw;
     body.vy = 0;
@@ -2324,7 +2592,20 @@ export function createRuntime(scene: Scene) {
 
   function carBlocks(x: number, y: number, z: number) {
     if (driving || y > 2.2) return false;
-    return cars.some((car, index) => index !== carIndex && Math.abs(x - car.x) < 1.55 && Math.abs(z - car.z) < 1.55);
+    // Scaled from the car's own length/width (buildVehicle sets them):
+    // half-length + 0.4 along the forward axis, half-width + 0.4 across.
+    return cars.some((car, index) => {
+      if (index === carIndex) return false;
+      const len = (car.group.userData.length as number) || 3.45;
+      const wid = (car.group.userData.width as number) || 1.62;
+      const dx = x - car.x;
+      const dz = z - car.z;
+      const fx = Math.sin(car.yaw);
+      const fz = -Math.cos(car.yaw);
+      const along = dx * fx + dz * fz;
+      const side = dx * -fz + dz * fx;
+      return Math.abs(along) < len / 2 + 0.4 && Math.abs(side) < wid / 2 + 0.4;
+    });
   }
 
   function consumeLook(body: Body) {
@@ -2377,6 +2658,7 @@ export function createRuntime(scene: Scene) {
       return;
     }
     let target: { x: number; z: number } | null = null;
+    const emSpec = emergencyJobById(job);
     if (job === "courier" && phase === 0) target = { x: 0, z: 24 };
     if (job === "courier" && phase === 1) target = anchors.find((item) => item.id === "shop") ?? null;
     if (job === "taxi") {
@@ -2405,8 +2687,9 @@ export function createRuntime(scene: Scene) {
     if (job === "lifeguard") target = LIFEGUARD_POSTS[Math.min(phase, 2)];
     if (job === "cleaner") target = LITTER_SPOTS[Math.min(phase, LITTER_SPOTS.length - 1)];
     if (job === "bus") target = BUS_STOPS[Math.min(phase, BUS_STOPS.length - 1)];
-    if (job === "fire") target = FIRE_SPOTS[Math.min(phase, FIRE_SPOTS.length - 1)];
-    if (job === "doctor") target = anchors.find((item) => item.id === "hall") ?? null;
+    // Emergency jobs: phase targets resolve through EMERGENCY_JOBS — dept
+    // targets go to the NEAREST department anchor of that kind.
+    if (emSpec) target = jobTargetFor(emSpec, phase, body.x, body.z, anchors);
     if (job === "teacher") target = TEACHER_STOPS[Math.min(phase, TEACHER_STOPS.length - 1)];
     // Parcel run (no job): the beacon points at the Library door while
     // the player carries the parcel — same beacon as the jobs use.
@@ -2439,7 +2722,7 @@ export function createRuntime(scene: Scene) {
     // out until the next shift. Each fire is positioned at its report
     // (and flickers) while it burns.
     for (let i = 0; i < fireMeshes.length; i++) {
-      fireMeshes[i].visible = job === "fire" && i >= phase;
+      fireMeshes[i].visible = job === "fire" && i >= phase - 1;
       if (fireMeshes[i].visible) {
         fireMeshes[i].position.set(FIRE_SPOTS[i].x, 0.6 + Math.sin(clock * 6 + i * 2) * 0.12, FIRE_SPOTS[i].z);
       }
@@ -2450,9 +2733,28 @@ export function createRuntime(scene: Scene) {
     if (job === "courier" && phase === 1 && atShop(body)) reach = true;
     // Dwell jobs: leaving the spot resets the hold. Standing still inside
     // the radius counts up; the prompt shows the seconds left.
-    const dwellJob = job === "lifeguard" || job === "cleaner" || job === "bus" || job === "fire" || job === "doctor";
+    const dwellJob = job === "lifeguard" || job === "cleaner" || job === "bus";
     if (dwellJob && !reach) dwell = 0;
     if (!reach) return;
+    // Emergency jobs: dwell phases hold still for dwellSeconds, arrival
+    // phases advance on reach — both follow the security/guide pattern.
+    if (emSpec) {
+      const emPhase = emSpec.phases[phase];
+      if (!emPhase) return;
+      const need = emPhase.dwellSeconds ?? 0;
+      if (need > 0) {
+        dwell += dt;
+        const left = Math.max(0, need - dwell);
+        holdPrompt = `${emPhase.label}… hold still (${Math.ceil(left)}s)`;
+        if (dwell < need) return;
+        dwell = 0;
+      }
+      if (job === "fire" && phase >= 1) burst(target.x, 1, target.z);
+      phase += 1;
+      if (phase >= emSpec.phases.length) void finishJob(job);
+      else say(emSpec.phases[phase].label);
+      return;
+    }
     if (dwellJob) {
       dwell += dt;
       const need = job === "bus" ? 2 : job === "cleaner" ? 2.5 : 3;
@@ -2460,9 +2762,7 @@ export function createRuntime(scene: Scene) {
       holdPrompt =
         job === "lifeguard" ? `Scanning the water… hold still (${Math.ceil(left)}s)`
         : job === "cleaner" ? `Sweeping… hold still (${Math.ceil(left)}s)`
-        : job === "bus" ? `Boarding riders… hold still (${Math.ceil(left)}s)`
-        : job === "fire" ? `Putting out the fire… hold still (${Math.ceil(left)}s)`
-        : `Treating the patient… hold still (${Math.ceil(left)}s)`;
+        : `Boarding riders… hold still (${Math.ceil(left)}s)`;
       if (dwell < need) return;
       dwell = 0;
       if (job === "lifeguard") {
@@ -2477,15 +2777,6 @@ export function createRuntime(scene: Scene) {
         phase += 1;
         if (phase >= BUS_STOPS.length) void finishJob("bus");
         else say("Riders aboard. Next stop.");
-      } else if (job === "fire") {
-        burst(target.x, 1, target.z);
-        phase += 1;
-        if (phase >= FIRE_DONE) void finishJob("fire");
-        else say("Fire out. Next report.");
-      } else {
-        phase += 1;
-        if (phase >= 3) void finishJob("doctor");
-        else say("Patient treated. Next one.");
       }
       return;
     }
@@ -2498,6 +2789,7 @@ export function createRuntime(scene: Scene) {
       if (phase % 2 === 0) {
         phase += 1;
         riderOn = true;
+        triggerHaptic("pickup");
         say("Rider aboard.");
       } else if (phase >= 5) {
         riderOn = false;
@@ -2736,6 +3028,7 @@ export function createRuntime(scene: Scene) {
           coinTaken[i] = true;
           mesh.visible = false;
           burst(spot.x, 1, spot.z);
+          triggerHaptic("pickup");
           const got = coinTaken.filter(Boolean).length;
           if (got >= COIN_TOTAL) {
             say("Last coin! The hunt pays.");
@@ -2814,6 +3107,7 @@ export function createRuntime(scene: Scene) {
           treasureTaken[i] = true;
           mesh.visible = false;
           burst(spot.x, 1, spot.z);
+          triggerHaptic("pickup");
           const got = treasureTaken.filter(Boolean).length;
           if (got >= TREASURE_TOTAL) {
             say("Last chest! The hunt pays.");
@@ -2878,6 +3172,7 @@ export function createRuntime(scene: Scene) {
     if (!world.online) {
       tourStep += 1;
       say(earn(wallet, step === tourStops.length - 1 ? 80 : 20, "City tour"));
+      triggerHaptic("jobPay");
       tourLock = false;
       return;
     }
@@ -2894,18 +3189,20 @@ export function createRuntime(scene: Scene) {
   let tourStep = 0;
 
   async function pay(id: string) {
-    const amounts: Record<string, number> = { courier: 45, taxi: 90, guide: 60, mechanic: 55, photographer: 40, promoter: 50, dock: 65, dj: 55, banker: 50, barista: 45, vendor: 55, security: 75, mail: 70, lifeguard: 65, cleaner: 55, bus: 80, fire: 75, doctor: 70, teacher: 60, coinhunt: 40, fishing: 45, shootout: 50, treasure: 45 };
+    const amounts: Record<string, number> = { courier: 45, taxi: 90, guide: 60, mechanic: 55, photographer: 40, promoter: 50, dock: 65, dj: 55, banker: 50, barista: 45, vendor: 55, security: 75, mail: 70, lifeguard: 65, cleaner: 55, bus: 80, fire: 75, doctor: 70, cop: 85, paramedic: 80, teacher: 60, coinhunt: 40, fishing: 45, shootout: 50, treasure: 45 };
     // A hotel rest pays +10% on top of the job (min 1 City Sol) — the
     // same bonus whether the pay comes from the local wallet or the server.
     const base = amounts[id] ?? 0;
     const restedBonus = isRested() && base > 0 ? Math.max(1, Math.round(base * 0.1)) : 0;
     if (!world.online) {
       say(earn(wallet, amounts[id] + restedBonus, jobTitle(id) + (restedBonus ? " · rested +10%" : "")));
+      triggerHaptic("jobPay");
       return true;
     }
     try {
       const data = await world.earn(id);
       applyMe();
+      triggerHaptic("jobPay");
       let msg = String(data.message || "Paid.");
       if (restedBonus) msg += " " + earn(wallet, restedBonus, "Rested bonus (+10% job pay)");
       say(msg);
@@ -2956,16 +3253,27 @@ export function createRuntime(scene: Scene) {
     // NPC patrol: walk the loop of waypoints around the home spot, pausing
     // at each stop; face the player while talking.
     for (const [index, npc] of npcs.entries()) {
+      // Walk-cycle speed from real displacement (same rule as the player).
+      const npcSpeed = Math.min(30, Math.hypot(npc.x - npc.prevX, npc.z - npc.prevZ) / Math.max(dt, 0.001));
+      const npcMoving = npcSpeed > 0.05;
+      npc.prevX = npc.x;
+      npc.prevZ = npc.z;
+      const walkNpc = () => {
+        const npcWalker = ensureWalker(npc.group);
+        if (npcWalker) animateWalk(npcWalker, npcSpeed, dt, npcMoving, false);
+      };
       if (talkNpc === index && lastBody) {
         npc.yaw = Math.atan2(lastBody.x - npc.x, lastBody.z - npc.z);
         npc.group.position.set(npc.x, 0, npc.z);
         npc.group.rotation.y = npc.yaw;
+        walkNpc();
         continue;
       }
       const target = npc.waypoints[npc.wp % npc.waypoints.length];
       if (clock < npc.waitUntil) {
         npc.group.position.set(npc.x, 0, npc.z);
         npc.group.rotation.y = npc.yaw;
+        walkNpc();
         continue;
       }
       const dx = target.x - npc.x;
@@ -2982,6 +3290,7 @@ export function createRuntime(scene: Scene) {
       npc.yaw = Math.atan2(dx, dz);
       npc.group.position.set(npc.x, 0, npc.z);
       npc.group.rotation.y = npc.yaw;
+      walkNpc();
     }
     if (eventLeft > 0) {
       eventLeft -= dt;
@@ -3054,6 +3363,7 @@ export function createRuntime(scene: Scene) {
         ride.body.flying = false;
         liftRide = null;
         if (cab) cab.doorTarget = 1;
+        triggerHaptic("door");
       }
     } else if (liftOpen) {
       const lift = lifts.find((item) => item.id === liftOpen!.liftId);
@@ -3097,6 +3407,14 @@ export function createRuntime(scene: Scene) {
         const lift = applyEmote(person, remote.state.emote || "", Math.PI - 2 * remote.state.yaw);
         person.position.y = lift;
       }
+      // Walk cycle from the remote's real displacement this frame.
+      if (!remote.state.car) {
+        const remoteSpeed = Math.min(30, Math.hypot(remote.group.position.x - remote.prevX, remote.group.position.z - remote.prevZ) / Math.max(dt, 0.001));
+        const remoteWalker = ensureWalker(person);
+        if (remoteWalker) animateWalk(remoteWalker, remoteSpeed, dt, remoteSpeed > 0.05, false);
+      }
+      remote.prevX = remote.group.position.x;
+      remote.prevZ = remote.group.position.z;
     }
     const emoteNow = Date.now() < world.emoteUntil ? world.emote : "";
     if (localBody) {
@@ -3104,6 +3422,21 @@ export function createRuntime(scene: Scene) {
       const lift = applyEmote(localBody, emoteNow, Math.PI - body.yaw);
       localBody.position.set(body.x, body.y + lift, body.z);
       paintPerson(localBody, true);
+      // Walk cycle: real displacement per frame (never the target speed —
+      // the legs must stop when a wall stops the player). ensureWalker runs
+      // every frame because dressPerson wipes pivots on a re-dress.
+      // animateWalk runs AFTER position.set, so its bob/lean survive.
+      const horizontalSpeed = prevLocal.set
+        ? Math.min(30, Math.hypot(body.x - prevLocal.x, body.z - prevLocal.z) / Math.max(dt, 0.001))
+        : 0;
+      prevLocal = { x: body.x, z: body.z, set: true };
+      const localWalker = ensureWalker(localBody);
+      if (localWalker && !driving) {
+        const stickMoving = Math.hypot(stickX, stickY) > 0.15;
+        // Blocked against a wall: stick held but no displacement — bump.
+        if (playing && stickMoving && horizontalSpeed < 0.05 && body.onGround) triggerHaptic("bump");
+        animateWalk(localWalker, horizontalSpeed, dt, (horizontalSpeed > 0.3 || stickMoving) && body.onGround, body.flying);
+      }
       const ring = localBody.getObjectByName("ring");
       if (ring) ring.visible = world.speaking;
       const selfTag = localBody.getObjectByName("tag");
@@ -3113,10 +3446,13 @@ export function createRuntime(scene: Scene) {
     if (playing && !paused && !opts.orbit && !spectator) {
       const zone = zoneAt(body);
       insideName = zone?.id ?? "";
+      if (insideName && insideName !== prevInsideName) triggerHaptic("door");
+      prevInsideName = insideName;
       if (zone?.id === "project-0" && world.mintSet && !world.me?.holder && !driving) {
         const limit = zone.minX + 5;
         if (body.x < limit) {
           body.x = limit + 0.2;
+          triggerHaptic("error");
           say("Holders only. Connect a wallet that holds $ORBITX.");
         }
       }
@@ -3158,7 +3494,7 @@ export function createRuntime(scene: Scene) {
       else if (driving && nearGate(body, 0, 8)) prompt = "Press E — hover time trial";
       else if (driving) prompt = "Press E to get out";
       else if (zone && nearService(body, zone)) {
-        prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zoneTitle(zone);
+        prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "garage" ? "Press E to open the garage" : isDeptKind(zone.kind as string) ? `Press E — ${zoneTitle(zone)}` : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zoneTitle(zone);
       } else if (nearestAnchor(body, 3.3)) {
         // A close door / lift / board beats the race gate, same as
         // interact(): the mall door sits 5.6 units from the street-race
@@ -3166,11 +3502,11 @@ export function createRuntime(scene: Scene) {
         // "street race" at the door instead of "Walk in".
         const anchor = nearestAnchor(body, 3.3)!;
         const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
-        const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "garage" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel";
+        const walkIn = anchor.kind === "shop" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel";
         // The tower door announces itself as an office entrance, never as a
         // photo spot — the anchor branch already runs before the photo check
         // below, so the door wins wherever the two ranges meet.
-        prompt = anchor.kind === "office" ? "Press E — Enter office" : walkIn ? `Walk in — ${title}` : `Press E — ${title}`;
+        prompt = anchor.kind === "garage" ? "Press E — Hover Garage" : anchor.kind === "office" ? "Press E — Enter office" : walkIn ? `Walk in — ${title}` : `Press E — ${title}`;
       } else if (nearGate(body, 0, 8)) prompt = "Press E — street race";
       else if (sprint) prompt = `Sprint! Reach the gold line — ${((performance.now() - sprint.startAt) / 1000).toFixed(1)}s`;
       else if (dance) prompt = `Dance! Press E on the beat — ${dance.hits}/${DANCE_BEATS} hits, beat ${Math.min(dance.beat + 1, DANCE_BEATS)} of ${DANCE_BEATS}`;
@@ -3212,7 +3548,7 @@ export function createRuntime(scene: Scene) {
     });
     let tookCamera = false;
     if (!opts.orbit && (playing || localBody)) {
-      tookCamera = placeCamera(camera, body);
+      tookCamera = placeCamera(camera, body, dt);
     }
     if (playing && !opts.orbit) {
       const pose = {
@@ -3295,7 +3631,19 @@ export function createRuntime(scene: Scene) {
     return safe;
   }
 
-  function placeCamera(camera: PerspectiveCamera, body: Body) {
+  // Camera glide: smooths the walking + driving chase branches only
+  // (never first-person / spectator). Snaps on teleports / shot changes —
+  // past 14 units the smoother snaps on its own; snapCamNext is belt-and-
+  // braces for camera-mode changes and applyShot.
+  function smoothCamera(desired: Vector3, dt: number) {
+    if (snapCamNext) {
+      camSmoother.snapTo(desired);
+      snapCamNext = false;
+    }
+    return camSmoother.update(desired, dt);
+  }
+
+  function placeCamera(camera: PerspectiveCamera, body: Body, dt: number) {
     if (spectator) {
       hands.visible = false;
       if (orbitOn) {
@@ -3338,19 +3686,23 @@ export function createRuntime(scene: Scene) {
         camera.lookAt(car.x + fx * 12, 1.15 - chasePitch * 2.2, car.z + fz * 12);
         return true;
       }
-      const dist = (camMode === "selfie" ? 5.2 : camMode === "far" ? 11 : 7.2) * camZoom;
+      // Chase distance scales with the car: 6 + length (limo ≈ 12.4,
+      // board ≈ 6.9). Flying cars lift the camera with their altitude.
+      const carLen = (car.group.userData.length as number) || 3.45;
+      const dist = (camMode === "selfie" ? 5.2 : camMode === "far" ? 11 : 6 + carLen) * camZoom;
       const side = camMode === "shoulder" ? 1.3 : 0;
       const sign = camMode === "selfie" ? 1 : -1;
       const lookYaw = yaw + chaseYaw;
       const desired = {
         x: car.x + Math.sin(lookYaw) * dist * sign + Math.cos(lookYaw) * side,
-        y: camMode === "selfie" ? 2.2 : 3.6 + chasePitch * 1.6,
+        y: (camMode === "selfie" ? 2.2 : 3.6 + chasePitch * 1.6) + car.alt,
         z: car.z - Math.cos(lookYaw) * dist * sign + Math.sin(lookYaw) * side,
       };
-      const pulled = pullCamera({ x: car.x, y: 1.3, z: car.z }, desired);
-      camera.position.set(pulled.x, Math.max(1.4, pulled.y), pulled.z);
+      const pulled = pullCamera({ x: car.x, y: 1.3 + car.alt, z: car.z }, desired);
+      const smoothed = smoothCamera(new Vector3(pulled.x, Math.max(1.4, pulled.y), pulled.z), dt);
+      camera.position.copy(smoothed);
       camera.up.set(0, 1, 0);
-      camera.lookAt(car.x, 0.9, car.z);
+      camera.lookAt(car.x, 0.9 + car.alt, car.z);
       return true;
     }
     const dist = (camMode === "selfie" ? 2.6 : camMode === "far" ? 9.2 : 4.8) * camZoom;
@@ -3372,7 +3724,8 @@ export function createRuntime(scene: Scene) {
       z: body.z + fz * dist * sign * Math.cos(pitch) + rz * side,
     };
     const pulled = pullCamera({ x: body.x, y: focusY, z: body.z }, desired);
-    camera.position.set(pulled.x, Math.max(body.y + 0.4, pulled.y), pulled.z);
+    const smoothed = smoothCamera(new Vector3(pulled.x, Math.max(body.y + 0.4, pulled.y), pulled.z), dt);
+    camera.position.copy(smoothed);
     camera.up.set(0, 1, 0);
     camera.lookAt(body.x, camMode === "selfie" ? body.y + 1.5 : focusY, body.z);
     return true;
@@ -3923,6 +4276,7 @@ export function createRuntime(scene: Scene) {
         if (cab) cab.doorTarget = 1;
       }
     }
+    snapCamNext = true;
     publish();
   }
 
@@ -4095,6 +4449,258 @@ export function createRuntime(scene: Scene) {
     }
   }
 
+  // GTA garage buy — mirrors buy() (vehicles WIRING.md §2). City Sol
+  // only, no burn: vehicles are a purchase, not a burn event.
+  async function buyCar(id: string, color: string) {
+    const v = getVehicle(id);
+    if (!v) {
+      triggerHaptic("error");
+      return "Unknown vehicle.";
+    }
+    if (world.online) {
+      if (!currentUniverse) {
+        const message = "Pick a universe on the menu first.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+      try {
+        const data = await world.buyCar(id, color, currentUniverse);
+        applyMe();
+        spawnActiveCar();
+        triggerHaptic("success");
+        publish();
+        say(String(data.message || "Bought."));
+        return String(data.message || "Bought.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused the purchase.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+    }
+    // Offline: local wallet only, never synced — the panel says so.
+    if (localVehicles.some((owned) => owned.id === id)) {
+      localActiveVehicle = id;
+      saveLocalVehicles();
+      spawnActiveCar();
+      publish();
+      say("Already yours. Equipped. Saved on this device only.");
+      return "Already yours. Equipped.";
+    }
+    if (wallet.balance < v.price) {
+      const message = "Not enough City Sol.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+    wallet.balance -= v.price;
+    saveWallet(wallet);
+    localVehicles = [...localVehicles, { id, color }];
+    localActiveVehicle = id;
+    saveLocalVehicles();
+    spawnActiveCar();
+    triggerHaptic("success");
+    publish();
+    say(`Bought ${v.name} for ${v.price} City Sol. Saved on this device only.`);
+    return `Bought ${v.name} for ${v.price} City Sol.`;
+  }
+
+  async function selectCar(id: string) {
+    if (!world.online && !localVehicles.some((v) => v.id === id)) {
+      triggerHaptic("error");
+      return "You do not own that vehicle.";
+    }
+    if (world.online) {
+      if (!currentUniverse) {
+        const message = "Pick a universe on the menu first.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+      try {
+        await world.selectCar(id, currentUniverse);
+        applyMe();
+        spawnActiveCar();
+        triggerHaptic("success");
+        publish();
+        say("Selected.");
+        return "Selected.";
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused the switch.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+    }
+    localActiveVehicle = id;
+    saveLocalVehicles();
+    spawnActiveCar();
+    publish();
+    say("Selected. Saved on this device only.");
+    return "Selected.";
+  }
+
+  // GTA home buy — City Sol only, per (player, universe).
+  async function buyHome(homeId: string) {
+    const home = homeById(homeId);
+    if (!home) {
+      triggerHaptic("error");
+      return "Unknown home.";
+    }
+    if (world.online) {
+      if (!currentUniverse) {
+        const message = "Pick a universe on the menu first.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+      try {
+        const data = await world.buyHome(homeId, currentUniverse);
+        applyMe();
+        triggerHaptic("success");
+        publish();
+        say(String(data.message || `Bought ${home.name} for ${home.price} City Sol.`));
+        return String(data.message || "Bought.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused the purchase.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+    }
+    // Offline: same checks as the server (buyHomeLocal), local save only.
+    // No universe picked yet means the device-only save, universe 1.
+    const server = (currentUniverse ?? 1) as 1 | 2 | 3 | 4 | 5;
+    const result = buyHomeLocal(localHomes, world.id || wallet.name, wallet.name, homeId, server, wallet.balance);
+    if (!result.ok) {
+      say(result.message);
+      triggerHaptic("error");
+      return result.message;
+    }
+    wallet.balance -= result.price;
+    saveWallet(wallet);
+    localHomes = result.save;
+    saveLocalHomes();
+    triggerHaptic("success");
+    publish();
+    say(`Bought ${home.name} for ${result.price} City Sol. Saved on this device only.`);
+    return `Bought ${home.name} for ${result.price} City Sol.`;
+  }
+
+  // Ownership on the CURRENT universe, for the Home panel. Online it asks
+  // the server; offline it reads the local save.
+  async function homeStatus() {
+    if (world.online && currentUniverse) {
+      try {
+        const data = await world.homeStatus(currentUniverse);
+        return { ok: true as const, homeServer: Number(data.homeServer || 0), mine: (data.mine as OwnedHome[]) || [] };
+      } catch (err) {
+        return { ok: false as const, message: err instanceof Error ? err.message : "Could not load homes.", homeServer: 0, mine: [] as OwnedHome[] };
+      }
+    }
+    const server = currentUniverse ?? 0;
+    return { ok: true as const, homeServer: localHomes.homeServer, mine: localHomes.homes.filter((h) => h.server === server) };
+  }
+
+  function setUniverse(id: number) {
+    if (!isUniverseId(id)) return;
+    currentUniverse = id;
+    try {
+      localStorage.setItem("orbitx-universe", String(id));
+    } catch {
+      // The selection still applies for this session.
+    }
+    publish();
+  }
+
+  // Join a universe (menu / Multiverse panel): loads that universe's own
+  // save, re-spawns that universe's active car, updates the HUD tag.
+  async function joinUniverse(id: number) {
+    if (!isUniverseId(id)) throw new Error("Pick Universe 1 to 5.");
+    const result = await universeJoin(id);
+    currentUniverse = result.universe.id;
+    universeIsHome = result.isHome;
+    try {
+      localStorage.setItem("orbitx-universe", String(id));
+    } catch {
+      // The selection still applies for this session.
+    }
+    applyMe();
+    spawnActiveCar();
+    publish();
+    return result;
+  }
+
+  async function travelUniverse(id: number) {
+    if (!isUniverseId(id)) throw new Error("Pick Universe 1 to 5.");
+    const result = await universeTravel(id);
+    currentUniverse = result.universe.id;
+    universeIsHome = result.isHome;
+    try {
+      localStorage.setItem("orbitx-universe", String(id));
+    } catch {
+      // The selection still applies for this session.
+    }
+    applyMe();
+    spawnActiveCar();
+    publish();
+    return result;
+  }
+
+  // District offices — City Sol leases, per (player, universe).
+  async function claimDistrictOffice(suite: string, termDays: 1 | 7 | 30, project: string, logo: string, site: string) {
+    if (!world.online || !currentUniverse) {
+      const message = "Sign in and pick a universe to claim an office.";
+      say(message);
+      triggerHaptic("error");
+      return { ok: false as const, message };
+    }
+    try {
+      const data = await world.districtOfficeClaim(suite, currentUniverse, termDays, project, logo, site);
+      applyMe();
+      triggerHaptic("success");
+      publish();
+      say(String(data.message || "Claimed."));
+      return { ok: true as const, message: String(data.message || "Claimed."), offices: (data.offices as unknown[]) || [] };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Claim failed.";
+      say(message);
+      triggerHaptic("error");
+      return { ok: false as const, message };
+    }
+  }
+
+  async function loadDistrictOffices(district: string) {
+    if (!world.online || !currentUniverse) {
+      return { ok: false as const, message: "Sign in and pick a universe first.", offices: [] as unknown[] };
+    }
+    try {
+      const data = await world.districtOfficeClaims(district, currentUniverse);
+      return { ok: true as const, offices: (data.offices as unknown[]) || [] };
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Could not load the directory.", offices: [] as unknown[] };
+    }
+  }
+
+  async function releaseDistrictOffice(suite: string) {
+    if (!world.online || !currentUniverse) {
+      return { ok: false as const, message: "Sign in and pick a universe first." };
+    }
+    try {
+      const data = await world.districtOfficeRelease(suite, currentUniverse);
+      applyMe();
+      publish();
+      say(String(data.message || "Released."));
+      return { ok: true as const, message: String(data.message || "Released."), offices: (data.offices as unknown[]) || [] };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Release failed.";
+      say(message);
+      triggerHaptic("error");
+      return { ok: false as const, message };
+    }
+  }
+
   async function buy(id: string) {
     const item = SHOP.find((entry) => entry.id === id);
     if (!item) return "Unknown item.";
@@ -4103,11 +4709,13 @@ export function createRuntime(scene: Scene) {
         const data = await world.spend(id);
         applyMe();
         equip(item);
+        triggerHaptic("success");
         say(String(data.message || "Bought."));
         return String(data.message || "Bought.");
       } catch (err) {
         const message = err instanceof Error ? err.message : "The city refused the purchase.";
         say(message);
+        triggerHaptic("error");
         return message;
       }
     }
@@ -4118,6 +4726,8 @@ export function createRuntime(scene: Scene) {
     }
     const result = spend(wallet, item.price, id);
     if (result.ok) equip(item);
+    if (result.ok) triggerHaptic("success");
+    else triggerHaptic("error");
     say(result.message);
     return result.message;
   }
@@ -4195,9 +4805,11 @@ export function createRuntime(scene: Scene) {
     radioUploadUrl,
     radioRegister,
     cycleCamera() {
+      triggerHaptic("tap");
       const index = CAMS.indexOf(camMode);
       camMode = CAMS[(index + 1) % CAMS.length];
       localStorage.setItem("orbitx-cam", camMode);
+      snapCamNext = true;
       say(camTitle());
     },
     zoomCamera(factor: number) {
@@ -4256,6 +4868,7 @@ export function createRuntime(scene: Scene) {
         saveQuestsDone();
         const amount = offer.reward ?? 0;
         say(earn(wallet, amount, `${npc.name}'s quest`));
+        triggerHaptic("jobPay");
         showLine(offer.done.replace("{reward}", String(amount)));
         return;
       }
@@ -4498,14 +5111,22 @@ export function createRuntime(scene: Scene) {
     buyLot(id: string) {
       void world.buyLot(id).then((data) => {
         applyMe();
+        triggerHaptic("success");
         say(String(data.message || "Bought."));
-      }).catch((err) => say(err.message));
+      }).catch((err) => {
+        triggerHaptic("error");
+        say(err.message);
+      });
     },
     claimDaily() {
       void world.claimDaily().then((data) => {
         applyMe();
+        triggerHaptic("success");
         say(String(data.message || "Claimed."));
-      }).catch((err) => say(err.message));
+      }).catch((err) => {
+        triggerHaptic("error");
+        say(err.message);
+      });
     },
     setAnnouncement(index: number, text: string) {
       void world.setAnnouncement(`hq-${index}`, text).then((data) => say(String(data.message || "Saved."))).catch((err) => say(err.message));
@@ -4644,6 +5265,49 @@ export function createRuntime(scene: Scene) {
       hideNames = !hideNames;
       hideChat = hideNames;
       publish();
+    },
+    // GTA wiring: garage, homes, universes, haptics (the functions above
+    // — App.tsx calls these).
+    buyCar(id: string, color: string) {
+      return buyCar(id, color);
+    },
+    selectCar(id: string) {
+      return selectCar(id);
+    },
+    buyHome(homeId: string) {
+      return buyHome(homeId);
+    },
+    homeStatus() {
+      return homeStatus();
+    },
+    setUniverse(id: number) {
+      setUniverse(id);
+    },
+    getUniverse() {
+      return currentUniverse;
+    },
+    joinUniverse(id: number) {
+      return joinUniverse(id);
+    },
+    travelUniverse(id: number) {
+      return travelUniverse(id);
+    },
+    claimDistrictOffice(suite: string, termDays: 1 | 7 | 30, project: string, logo: string, site: string) {
+      return claimDistrictOffice(suite, termDays, project, logo, site);
+    },
+    loadDistrictOffices(district: string) {
+      return loadDistrictOffices(district);
+    },
+    releaseDistrictOffice(suite: string) {
+      return releaseDistrictOffice(suite);
+    },
+    setHaptics(on: boolean) {
+      setHapticsEnabled(on);
+      publish();
+    },
+    drivingAlt() {
+      const car = cars[carIndex];
+      return driving && car ? car.alt : 0;
     },
     destroy() {
       world.stop();

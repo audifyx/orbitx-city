@@ -1,5 +1,7 @@
 import { accountToken, readAccount } from "../auth";
 import { connectLive } from "./live";
+import type { OwnedVehicle } from "./vehicles";
+import type { OwnedHome } from "./homes";
 import {
   EMPTY_LEADERS,
   EMPTY_RACE,
@@ -37,6 +39,11 @@ export interface CityMe {
   color: string;
   hat: string;
   car: string;
+  // GTA expansion — per-(player, universe) save fields (server agent owns
+  // the ops; the client only mirrors what the server returns).
+  vehicles?: OwnedVehicle[];
+  activeVehicle?: string | null;
+  homes?: { homeServer: number; homes: OwnedHome[] };
   friends: { id: string; name: string }[];
   inbox: { id: string; name: string }[];
   party: string;
@@ -350,6 +357,54 @@ class CityWorld {
     const data = await this.call("property-buy", { id });
     this.applyDigest(data);
     return data;
+  }
+
+  // GTA vehicles — mirror spend()/buyLot() via the private call(). The
+  // server id comes from the menu's universe selection (servers 1-5);
+  // callers must not call before a universe is picked.
+  async buyCar(id: string, color: string, server: number) {
+    const data = await this.call("buy-car", { id, color, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async selectCar(id: string, server: number) {
+    const data = await this.call("select-car", { id, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  // GTA homes — per (player, server), City Sol only.
+  async buyHome(homeId: string, server: number) {
+    const data = await this.call("buy-home", { home: homeId, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async homeStatus(server: number) {
+    return this.call("home-status", { server });
+  }
+
+  // GTA district offices — mirror the HQ office-claim call pattern, with
+  // the server id on every call so a Server 1 claim never leaks to Server 2.
+  async districtOfficeClaim(suite: string, server: number, term_days: number, project: string, logo: string, site: string) {
+    const data = await this.call("district-office-claim", { suite, server, term_days, project, logo, site });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async districtOfficeClaims(district: string, server: number) {
+    return this.call("district-office-claims", { district, server });
+  }
+
+  async districtOfficeRelease(suite: string, server: number) {
+    const data = await this.call("district-office-release", { suite, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async districtOfficeStatus(server: number) {
+    return this.call("district-office-status", { server });
   }
 
   async buyBusiness(kind: string) {
