@@ -107,6 +107,7 @@ import {
 } from "./life";
 import { createLifeView } from "./lifeview";
 import {
+  joinProximity as joinProximityVoice,
   joinVoice,
   leaveVoice,
   setDeafened as deafenMic,
@@ -128,7 +129,7 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "voice";
 
 export interface PersonCard {
   id: string;
@@ -259,6 +260,10 @@ export interface Snap {
   muted: boolean;
   deafened: boolean;
   pushToTalk: boolean;
+  /** Am I speaking right now (mic live + above the analyser threshold). */
+  speaking: boolean;
+  /** Proximity voice is on (the lobby is the "nearby" room). */
+  voiceProximity: boolean;
   voiceProvider: string;
   voiceError: string;
   quality: string;
@@ -1941,6 +1946,8 @@ export function createRuntime(scene: Scene) {
       muted: world.muted,
       deafened: world.deafened,
       pushToTalk: world.pushToTalk,
+      speaking: world.speaking,
+      voiceProximity: world.proximity,
       voiceProvider: world.provider,
       voiceError: world.voiceError,
       quality: quality(),
@@ -5988,6 +5995,10 @@ export function createRuntime(scene: Scene) {
     joinLobby(id: string) {
       void joinVoice(id);
       say(id ? `Voice lobby: ${id}` : "Left the voice lobby.");
+    },
+    joinProximity() {
+      void joinProximityVoice();
+      say("Proximity voice on — talk to players near you.");
     },
     leaveLobby() {
       leaveVoice();

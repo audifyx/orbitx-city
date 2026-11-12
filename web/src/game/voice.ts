@@ -14,6 +14,54 @@ let liveRoom: { disconnect: () => void; localParticipant: { setMicrophoneEnabled
 let analyser: AnalyserNode | null = null;
 let context: AudioContext | null = null;
 
+/** Proximity voice: the synthetic room everyone in proximity mode joins,
+ * and the range (world units) inside which you can hear each other. */
+export const PROXIMITY_ROOM = "nearby";
+export const PROXIMITY_RANGE = 30;
+/** Hang up beyond this — the extra 6 units over the range is hysteresis
+ * so walking along the edge does not flap the call on and off. */
+export const PROXIMITY_FALLOFF = 36;
+/** When true, only players within PROXIMITY_RANGE are dialled (see
+ * meshStep); when false the lobby rules apply (same named room). */
+let proximity = false;
+
+/** Distance from me to a player, from the last sync's presence (up to
+ * 250ms stale — fine for a 30-unit voice range). Infinity if either side
+ * is unknown. */
+function distanceTo(id: string): number {
+  const me = world.people.find((person) => person.id === world.id);
+  const other = world.people.find((person) => person.id === id);
+  if (!me || !other) return Infinity;
+  return Math.hypot(other.x - me.x, other.z - me.z);
+}
+
+/** 1.0 up close, fading to 0.3 at the edge of range — a player walking
+ * away sounds quieter before they drop out. Unknown distance = full. */
+function distanceVolume(distance: number): number {
+  if (!Number.isFinite(distance)) return 1;
+  if (distance <= 10) return 1;
+  if (distance >= PROXIMITY_RANGE) return 0.3;
+  return 1 - (0.7 * (distance - 10)) / (PROXIMITY_RANGE - 10);
+}
+
+/** The audio volume for a peer: the player's manual per-person volume
+ * times the distance fade. */
+function peerVolume(id: string): number {
+  return (world.volumes[id] ?? 1) * distanceVolume(distanceTo(id));
+}
+
+// Debug hook for the two-client test and future debugging — the peer
+// connection states, the peer count, and whether proximity is on. No
+// audio, no names, no PII.
+if (typeof window !== "undefined") {
+  (window as unknown as { __orbitxVoice?: unknown }).__orbitxVoice = {
+    peerCount: () => peers.size,
+    connectionStates: () => [...peers.values()].map((link) => link.pc.connectionState),
+    proximity: () => proximity,
+    room: () => room,
+  };
+}
+
 export function voiceState() {
   return {
     muted: world.muted,
@@ -27,6 +75,10 @@ export function voiceState() {
 
 export async function joinVoice(nextRoom: string) {
   room = nextRoom;
+  // Proximity mode is the "nearby" room: the mesh only dials players
+  // within range (see meshStep). Any named room is lobby mode.
+  proximity = nextRoom === PROXIMITY_ROOM;
+  world.proximity = proximity;
   world.lobby = nextRoom;
   // Send the lobby change on the next flush — don't wait for a frame.
   world.pushLobby();
@@ -58,6 +110,8 @@ function disarmMeshTimer() {
 
 export function leaveVoice() {
   world.lobby = "";
+  world.proximity = false;
+  proximity = false;
   world.pushLobby();
   room = "";
   disarmMeshTimer();
@@ -65,6 +119,10 @@ export function leaveVoice() {
   liveRoom = null;
   for (const link of peers.values()) hangup(link);
   peers.clear();
+}
+
+export function joinProximity() {
+  return joinVoice(PROXIMITY_ROOM);
 }
 
 export function setMuted(on: boolean) {
@@ -166,9 +224,32 @@ function flushCandidates(id: string) {
 
 async function meshStep() {
   const members = world.people.filter((person) => person.lobby === room && person.id !== world.id);
-  for (const member of members) {
-    if (peers.has(member.id) || pending.has(member.id)) continue;
-    if (world.id > member.id) void callPeer(member.id);
+  if (proximity) {
+    // Proximity mode: only dial players within voice range, and hang up
+    // anyone who walks away (beyond the falloff, so the edge does not
+    // flap). A player who leaves entirely (no presence row) is hung up
+    // too — their row expires, so absence is real, not a missed beat.
+    const nearby = members.filter((member) => distanceTo(member.id) <= PROXIMITY_RANGE);
+    for (const member of nearby) {
+      if (peers.has(member.id) || pending.has(member.id)) continue;
+      if (world.id > member.id) void callPeer(member.id);
+    }
+    for (const [id, link] of peers) {
+      const person = world.people.find((item) => item.id === id);
+      const distance = person ? distanceTo(id) : Infinity;
+      if (!person || distance > PROXIMITY_FALLOFF) {
+        hangup(link);
+        peers.delete(id);
+        continue;
+      }
+      // A player walking away sounds quieter before they drop out.
+      link.audio.volume = peerVolume(id);
+    }
+  } else {
+    for (const member of members) {
+      if (peers.has(member.id) || pending.has(member.id)) continue;
+      if (world.id > member.id) void callPeer(member.id);
+    }
   }
   for (const signal of world.takeSignals()) {
     if (signal.room !== room) continue;
@@ -196,7 +277,7 @@ function makePeer(id: string) {
   localStream?.getTracks().forEach((track) => pc.addTrack(track, localStream as MediaStream));
   const audio = document.createElement("audio");
   audio.autoplay = true;
-  audio.volume = world.volumes[id] ?? 1;
+  audio.volume = peerVolume(id);
   audio.muted = world.deafened;
   pc.ontrack = (event) => {
     audio.srcObject = event.streams[0];

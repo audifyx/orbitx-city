@@ -106,6 +106,8 @@ class CityWorld {
   lobbies: VoiceRoom[] = [];
   party: { id: string; members: { id: string; name: string }[] } | null = null;
   lobby = "";
+  /** True while proximity voice is on (the lobby is the "nearby" room). */
+  proximity = false;
   speaking = false;
   emote = "";
   emoteUntil = 0;

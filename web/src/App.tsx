@@ -233,6 +233,8 @@ const EMPTY: Snap = {
   pushToTalk: false,
   voiceProvider: "",
   voiceError: "",
+  speaking: false,
+  voiceProximity: false,
   quality: "high",
   time: "sunset",
   me: { x: 0, z: 0, yaw: 0 },
