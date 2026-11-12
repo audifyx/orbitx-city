@@ -1790,7 +1790,8 @@ function publicPlayer(player) {
     rent: player.rent || {},
     homeServer: player.homeServer ?? null,
     homes: sanitizeHomes(player.homes),
-    garage: sanitizeGarage(player.homes?.garage),    crib: sanitizeCrib(player.homes),
+    garage: sanitizeGarage(player.homes?.garage),
+    crib: sanitizeCrib(player.homes),
     vehicles: sanitizeVehicles(player.vehicles),
     activeVehicle: player.activeVehicle || null,
     rental: sanitizeRental(player.rental),
@@ -4294,7 +4295,8 @@ async function crazySetSeason(player, save, body) {
   save.homes = homes;
   await saveSave(save);
   return { ok: true, season: crazyEffectiveSeason(homes), override: season, me: publicPlayer(save) };
-}// --- CRIB (home life) --------------------------------------------------
+}
+// --- CRIB (home life) --------------------------------------------------
 // Bills, sleep/energy, pets, home upgrades, walls & floors, working
 // stuff (TV / fridge / lights). City Sol only — no real money, no burn,
 // no wallet. Per (player, server), like homes.
@@ -5490,7 +5492,8 @@ export async function POST(request) {
     // the save like the base pay; the leaderboard keeps the base pay.
     const food = ensureFood(save);
     const fedBonus = food.fedUntil > Date.now() && pay > 0 ? Math.max(1, Math.round(pay * 0.1)) : 0;
-    if (fedBonus > 0) save.balance += fedBonus;    // Keep the legacy global job fields in step so old clients that read
+    if (fedBonus > 0) save.balance += fedBonus;
+    // Keep the legacy global job fields in step so old clients that read
     // them do not see a stale job. noteEarn also credits the global
     // `earned` total (the leaderboard reads it).
     player.job = null;
@@ -5500,7 +5503,8 @@ export async function POST(request) {
     await mirrorBalance(player, save);
     await savePlayer(player);
     const extra = bonus ? ` Quest paid ${bonus} City Sol.` : "";
-    return json({ ok: true, message: `${id} paid ${finalPay} City Sol.${rested ? " Rested bonus +10%." : ""}${fedBonus > 0 ? ` Satisfied bonus +${fedBonus}.` : ""} Job streak ${save.jobStreak}.${extra}`, me: publicPlayer(save) });  }
+    return json({ ok: true, message: `${id} paid ${finalPay} City Sol.${rested ? " Rested bonus +10%." : ""}${fedBonus > 0 ? ` Satisfied bonus +${fedBonus}.` : ""} Job streak ${save.jobStreak}.${extra}`, me: publicPlayer(save) });
+  }
 
   // Real billboards: pay SOL from the in-app wallet, Jupiter swaps
   // SOL -> ORBITX, and the received ORBITX is burned. 100% buy + burn.
@@ -5705,8 +5709,10 @@ export async function POST(request) {
     else if (op === "people-party-end") result = await peoplePartyEnd(player, save);
     else if (op === "people-rent-out") result = await peopleRentOut(player, save, body);
     else if (op === "people-end-rent") result = await peopleEndRent(player, save, body);
-    else result = await peopleCollectRent(player, save);    return json(result, result.ok ? 200 : result.status || 400);
-  }  // CRIB (home life) — bills, sleep/energy, pets, upgrades, decor,
+    else result = await peopleCollectRent(player, save);
+    return json(result, result.ok ? 200 : result.status || 400);
+  }
+  // CRIB (home life) — bills, sleep/energy, pets, upgrades, decor,
   // TV / fridge / lights. All City Sol, all per (player, server).
   if (op === "crib-status" || op === "crib-pay-bill" || op === "crib-sleep" || op === "crib-energy" || op === "crib-buy-pet" || op === "crib-feed-pet" || op === "crib-buy-food" || op === "crib-eat" || op === "crib-upgrade" || op === "crib-decor" || op === "crib-lights" || op === "crib-tv") {
     const server = parseServerId(body.server);
