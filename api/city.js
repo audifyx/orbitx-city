@@ -48,6 +48,116 @@ const CATALOG = {
   "trail-gold": { price: 75, kind: "trail", value: "gold" },
 };
 
+// --- Grocery (OrbitX Grocery) -------------------------------------------
+// Food catalog: City Sol only, no burn. The server is the price + hunger
+// authority; the client mirrors this list for display only.
+// Storage: the per-server save's `daily` JSON column — daily.food is the
+// inventory ({ itemId: count }) and daily.hunger is 0..100. No new column
+// (no DDL): api/live.js ensureDaily() carries both keys across the day
+// rollover, so a new day never wipes food or hunger. A missing hunger
+// reads as 100 (a full stomach). The client drains hunger (1 point per
+// 150s of active play, runtime.ts) and reports it via food-hunger; the
+// server never drains on its own, so a paused/away player never starves.
+const FOOD_CATALOG = [
+  { id: "water", name: "Water", price: 5, hunger: 5, kind: "drink" },
+  { id: "chips", name: "Chips", price: 10, hunger: 10, kind: "snack" },
+  { id: "soda", name: "Soda", price: 12, hunger: 8, kind: "drink" },
+  { id: "donut", name: "Donut", price: 12, hunger: 12, kind: "snack" },
+  { id: "fruit", name: "Fruit", price: 15, hunger: 12, kind: "snack" },
+  { id: "coffee", name: "Coffee", price: 15, hunger: 8, kind: "drink" },
+  { id: "energy-drink", name: "Energy Drink", price: 20, hunger: 10, kind: "drink" },
+  { id: "sandwich", name: "Sandwich", price: 30, hunger: 25, kind: "meal" },
+  { id: "salad", name: "Salad", price: 35, hunger: 25, kind: "meal" },
+  { id: "burger", name: "Burger", price: 40, hunger: 35, kind: "meal" },
+  { id: "groceries-bag", name: "Groceries Bag", price: 50, hunger: 30, kind: "meal" },
+  { id: "pizza", name: "Pizza", price: 60, hunger: 45, kind: "meal" },
+];
+const FOOD_BY_ID = Object.fromEntries(FOOD_CATALOG.map((item) => [item.id, item]));
+const HUNGER_MAX = 100;
+
+// Food inventory + hunger on a save's daily blob: unknown item ids and
+// non-positive counts are dropped, hunger is clamped 0..100 and defaults
+// to full. Mutates save.daily in place (via ensureDaily), so the caller
+// just needs saveSave() to persist.
+function foodState(save) {
+  const daily = ensureDaily(save);
+  const raw = daily.food && typeof daily.food === "object" ? daily.food : {};
+  const food = {};
+  for (const [id, count] of Object.entries(raw)) {
+    if (FOOD_BY_ID[id] && Number.isFinite(Number(count)) && Number(count) > 0) food[id] = Math.floor(Number(count));
+  }
+  daily.food = food;
+  daily.hunger = Number.isFinite(Number(daily.hunger))
+    ? Math.max(0, Math.min(HUNGER_MAX, Math.round(Number(daily.hunger))))
+    : HUNGER_MAX;
+  return { food, hunger: daily.hunger };
+}
+
+async function foodListOp(save) {
+  const { food, hunger } = foodState(save);
+  return { ok: true, catalog: FOOD_CATALOG, food, hunger, me: publicPlayer(save) };
+}
+
+async function foodBuyOp(save, body) {
+  const item = FOOD_BY_ID[String(body.id || "")];
+  if (!item) return { ok: false, message: "That food is not on the shelf.", status: 400 };
+  const qty = Math.floor(Number(body.qty ?? 1));
+  if (!Number.isFinite(qty) || qty < 1 || qty > 99) return { ok: false, message: "Buy 1–99 at a time.", status: 400 };
+  const cost = item.price * qty;
+  if (save.balance < cost) return { ok: false, message: "Not enough City Sol.", status: 400 };
+  const { food, hunger } = foodState(save);
+  // City Sol only: no burn, no burned increment — food is a purchase,
+  // not a burn event.
+  save.balance -= cost;
+  food[item.id] = (food[item.id] || 0) + qty;
+  await saveSave(save);
+  return {
+    ok: true,
+    message: qty > 1 ? `Bought ${qty} × ${item.name} for ${cost} City Sol.` : `Bought ${item.name} for ${cost} City Sol.`,
+    catalog: FOOD_CATALOG,
+    food,
+    hunger,
+    me: publicPlayer(save),
+  };
+}
+
+async function foodEatOp(save, body) {
+  const item = FOOD_BY_ID[String(body.id || "")];
+  if (!item) return { ok: false, message: "That food is not on the shelf.", status: 400 };
+  const { food, hunger } = foodState(save);
+  if (!food[item.id]) return { ok: false, message: `You have no ${item.name} — buy some at OrbitX Grocery.`, status: 400 };
+  food[item.id] -= 1;
+  if (food[item.id] <= 0) delete food[item.id];
+  const next = Math.min(HUNGER_MAX, hunger + item.hunger);
+  save.daily.hunger = next;
+  await saveSave(save);
+  return {
+    ok: true,
+    message: next >= HUNGER_MAX ? `Ate ${item.name}. Full.` : `Ate ${item.name} (+${item.hunger}).`,
+    catalog: FOOD_CATALOG,
+    food,
+    hunger: next,
+    me: publicPlayer(save),
+  };
+}
+
+async function foodHungerOp(save, body) {
+  // Client drain report: the game loop (runtime.ts) is the drain
+  // authority — 1 point per 150s of active play. The server only clamps
+  // and stores, never drains on its own, so a paused/away player never
+  // loses hunger. A report higher than stored (a second tab that just
+  // ate, or a stale client) is ignored — hunger only falls through
+  // this op; eating goes through food-eat.
+  const { food, hunger } = foodState(save);
+  const reported = Math.floor(Number(body.hunger));
+  if (!Number.isFinite(reported)) return { ok: false, message: "Bad hunger value.", status: 400 };
+  const next = Math.max(0, Math.min(HUNGER_MAX, reported));
+  if (next >= hunger) return { ok: true, catalog: FOOD_CATALOG, food, hunger, me: publicPlayer(save) };
+  save.daily.hunger = next;
+  await saveSave(save);
+  return { ok: true, catalog: FOOD_CATALOG, food, hunger: next, me: publicPlayer(save) };
+}
+
 const LOOKS = new Set([
   "tjr",
   "ansem",
@@ -3440,6 +3550,29 @@ export async function POST(request) {
     else if (op === "rent-car") result = await rentCar(save, body);
     else if (op === "rental-status") result = await rentalStatusOp(save);
     else result = await returnRental(save, body);
+    if (result.ok) await mirrorBalance(player, save);
+    return json(result, result.ok ? 200 : result.status || 400);
+  }
+
+  // Grocery — per-server food + hunger (OrbitX Grocery). Same pattern as
+  // the garage: the save is this server's own money + inventory ledger
+  // (daily.food / daily.hunger on the save's daily JSON column — no new
+  // DB column). Guests use their guest save, exactly like cars and homes:
+  // their food and hunger live on that save, keyed by their guest token.
+  // food-list is a read: never mint a save for it.
+  if (op === "food-list" || op === "food-buy" || op === "food-eat" || op === "food-hunger") {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Unknown server." }, 400);
+    const save = await ensureSave(player, server, { mint: op !== "food-list" });
+    if (!save) {
+      if (op === "food-list") return json({ ok: true, catalog: FOOD_CATALOG, food: {}, hunger: HUNGER_MAX, me: publicPlayer(player) });
+      return json({ ok: false, message: "No save on this server yet." }, 400);
+    }
+    let result;
+    if (op === "food-list") result = await foodListOp(save);
+    else if (op === "food-buy") result = await foodBuyOp(save, body);
+    else if (op === "food-eat") result = await foodEatOp(save, body);
+    else result = await foodHungerOp(save, body);
     if (result.ok) await mirrorBalance(player, save);
     return json(result, result.ok ? 200 : result.status || 400);
   }

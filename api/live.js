@@ -215,6 +215,12 @@ export function ensureDaily(player) {
     progress: {},
     paid: {},
     quests: questsFor(day),
+    // Grocery (api/city.js food ops): food inventory + hunger live on the
+    // per-server save's daily blob, NOT on the daily quest cycle — a new
+    // day must never wipe the player's food or starve them. Carry both
+    // keys across the rollover; anything else in the blob is still reset.
+    ...(prev.food && typeof prev.food === "object" ? { food: prev.food } : {}),
+    ...(Number.isFinite(Number(prev.hunger)) ? { hunger: Number(prev.hunger) } : {}),
   };
   return player.daily;
 }
