@@ -1729,6 +1729,7 @@ function addTrainLine(boxes: Box[], cols: Collider[]): { zones: Zone[] } {
   roomSign("train-plaza-in", 1, -2.6, 41.8, Math.PI, 9, 1.2, ["PLAZA CENTRAL"], "Trains to Westgate · Eastgate · Free");
   zones.push(floorZone("train-plaza", "Plaza Central Station", "park", BX0, BZ0, 84, 14.5, -7, 1, 0, 29, 0, 2.6, 27.2, Math.PI));
   return { zones };
+}
 // Loop Train station: a platform beside the monorail's south straight
 // (the track centreline runs z=110 at y=TRACK_Y=30) + a glass lift from
 // the street below. The train dwells here every loop; boarding is free —
