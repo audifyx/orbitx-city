@@ -55,14 +55,16 @@ export function burnAmount(price: number) {
   return Math.max(1, Math.round(price * BURN_RATE));
 }
 
-export function spend(wallet: Wallet, price: number, itemId: string): { ok: boolean; burned: number; message: string } {
+export function spend(wallet: Wallet, price: number, itemId: string, burn = true): { ok: boolean; burned: number; message: string } {
   if (wallet.owned.includes(itemId)) {
     return { ok: true, burned: 0, message: "Already yours. Equipped." };
   }
   if (wallet.balance < price) {
     return { ok: false, burned: 0, message: "Not enough City Sol." };
   }
-  const burned = burnAmount(price);
+  // Clothes are City Sol only — no burn (buy+burn is ads/banners only);
+  // every other shop kind keeps the quarter-price burn tally.
+  const burned = burn ? burnAmount(price) : 0;
   wallet.balance -= price;
   wallet.burned += burned;
   wallet.owned.push(itemId);
@@ -70,7 +72,9 @@ export function spend(wallet: Wallet, price: number, itemId: string): { ok: bool
   return {
     ok: true,
     burned,
-    message: `Spent ${price} City Sol. Burned ${burned}. Burned total ${wallet.burned}.`,
+    message: burn
+      ? `Spent ${price} City Sol. Burned ${burned}. Burned total ${wallet.burned}.`
+      : `Spent ${price} City Sol.`,
   };
 }
 

@@ -6352,7 +6352,7 @@ export function createRuntime(scene: Scene) {
       say("Equipped.");
       return "Equipped.";
     }
-    const result = spend(wallet, item.price, id);
+    const result = spend(wallet, item.price, id, item.kind !== "clothes");
     if (result.ok) equip(item);
     if (result.ok) triggerHaptic("success");
     else triggerHaptic("error");

@@ -989,7 +989,7 @@ export default function App() {
                             <article key={item.id}>
                               <div>
                                 <b>{item.name}{equipped ? " — worn" : ""}</b>
-                                <span>{item.price} City Sol · burns {part}</span>
+                                <span>{item.price} City Sol{isClothes ? "" : ` · burns ${part}`}</span>
                               </div>
                               {isClothes && item.slot ? (
                                 owned ? (

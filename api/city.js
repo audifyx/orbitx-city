@@ -2725,7 +2725,10 @@ async function spendItem(player, save, itemId) {
     return { ok: true, message: "Already yours. Equipped.", me: publicPlayer(save) };
   }
   if (save.balance < item.price) return { ok: false, message: "Not enough City Sol." };
-  const burned = burnOf(item.price);
+  // Clothes are City Sol only — no burn, per the clothes-shop brief
+  // (buy+burn is ads/banners only). Every other shop kind keeps the
+  // existing quarter-price City Sol burn tally.
+  const burned = item.kind === "clothes" ? 0 : burnOf(item.price);
   save.balance -= item.price;
   save.burned += burned;
   player.burned += burned;
@@ -2744,7 +2747,9 @@ async function spendItem(player, save, itemId) {
   await mirrorBalance(player, save);
   return {
     ok: true,
-    message: `Spent ${item.price} City Sol. Burned ${burned}. Burned total ${player.burned}.`,
+    message: item.kind === "clothes"
+      ? `Spent ${item.price} City Sol.`
+      : `Spent ${item.price} City Sol. Burned ${burned}. Burned total ${player.burned}.`,
     me: publicPlayer(save),
   };
 }

@@ -38,6 +38,10 @@ test("buying a shirt equips it and the outfit survives reload", async () => {
   const { id, token } = await freshPlayer();
   const bought = await call("spend", { item: "clothes-tee-red", server: 1 }, token);
   assert.equal(bought.data.ok, true);
+  // Clothes are City Sol only — no burn (buy+burn is ads/banners only).
+  assert.equal(bought.data.me.burned, 0, "buying clothes burns nothing");
+  assert.match(bought.data.message, /Spent 30 City Sol\./);
+  assert.ok(!/Burned/.test(bought.data.message), "no Burned wording on a clothes buy");
   assert.ok(bought.data.me.owned.includes("clothes-tee-red"), "owned lists the shirt");
   assert.ok(bought.data.me.owned.includes("worn:shirt:tee-red"), "worn marker set on buy");
   assert.equal(bought.data.me.clothes.shirt, "tee-red");
