@@ -13,6 +13,36 @@ import { accountToken, signOutAccount, type Account } from "./auth";
 import { DecorBar, EmoteWheel, FeaturePanel, PhoneExtra, RaceBanner, SpectateBar, featureTitle } from "./Features";
 import { EMPTY_LEADERS, EMPTY_RACE } from "./game/life";
 import { CAR_SHOP, FLY_CONTROLS, VEHICLE_COLORS, getVehicle } from "./game/vehicles";
+// CARS expansion — customize / wash / repair / garage upgrades.
+import {
+  CUSTOM_PAINT_HEX,
+  CUSTOM_PAINT_NAMES,
+  CUSTOM_PAINT_PRICE,
+  ENGINE_NAMES,
+  ENGINE_PRICES,
+  GARAGE_SHOWROOM_PRICE,
+  GARAGE_WORKSHOP_PRICE,
+  NEON_COLORS,
+  NEON_HEX,
+  NEON_NAMES,
+  NEON_PRICE,
+  RIM_NAMES,
+  RIM_PRICES,
+  RIM_STYLES,
+  SPOILER_NAMES,
+  SPOILER_PRICES,
+  SPOILER_STYLES,
+  TINT_NAMES,
+  TINT_PRICES,
+  TIRE_NAMES,
+  TIRE_PRICES,
+  garageCap,
+  garageUpgradePrice,
+  normalizeMods,
+  normalizeWear,
+  repairCost,
+  washCost,
+} from "./game/vehicles";
 import {
   ALL_UNIVERSES_FULL_MESSAGE,
   UNIVERSE_IDS,
@@ -438,6 +468,38 @@ export default function App() {
   const [hgBusy, setHgBusy] = useState(false);
   // Garage rentals: 0.5 City Sol/day, paid up front (2/3/7 days).
   const [garageRentDays, setGarageRentDays] = useState<2 | 3 | 7>(2);
+  // CARS expansion — which owned car the customize form is open for.
+  const [customizeId, setCustomizeId] = useState<string | null>(null);
+  // CARS expansion — one-call wrappers for the customize / wash / repair /
+  // upgrade runtime ops (same busy + message pattern as buy/select/rent).
+  const doCustomize = async (id: string, mod: string, value: unknown) => {
+    const rt = gameRef.current?.runtime;
+    if (!rt || garageBusy) return;
+    setGarageBusy(true);
+    setGarageMsg(await rt.customizeCar(id, mod, value));
+    setGarageBusy(false);
+  };
+  const doWash = async (id: string) => {
+    const rt = gameRef.current?.runtime;
+    if (!rt || garageBusy) return;
+    setGarageBusy(true);
+    setGarageMsg(await rt.washCar(id));
+    setGarageBusy(false);
+  };
+  const doRepair = async (id: string) => {
+    const rt = gameRef.current?.runtime;
+    if (!rt || garageBusy) return;
+    setGarageBusy(true);
+    setGarageMsg(await rt.repairCar(id));
+    setGarageBusy(false);
+  };
+  const doUpgradeGarage = async (upgrade: string) => {
+    const rt = gameRef.current?.runtime;
+    if (!rt || garageBusy) return;
+    setGarageBusy(true);
+    setGarageMsg(await rt.upgradeGarage(upgrade));
+    setGarageBusy(false);
+  };
   // District-offices panel (cloned from the HQ offices panel, per server).
   const [districtSel, setDistrictSel] = useState<DistrictId>("harbor");
   const [districtOffices, setDistrictOffices] = useState<DistrictOfficeDirectoryRow[]>([]);
@@ -1851,6 +1913,214 @@ export default function App() {
                     </button>
                   ))}
                 </span>
+                {/* CARS expansion — my cars: wear, wash/repair, customize. */}
+                {snap.vehicles.length > 0 && (
+                  <div>
+                    <h3>My cars</h3>
+                    <p className="muted">Dirt builds as you drive, damage builds when you crash — a dirty or banged-up car drives worse. Wash and repair it here.</p>
+                    {snap.vehicles.map((car) => {
+                      const v = getVehicle(car.id);
+                      if (!v) return null;
+                      const mods = normalizeMods(car.mods);
+                      const wear = normalizeWear(car);
+                      const active = snap.activeVehicle === car.id;
+                      const washPrice = Math.round(washCost(wear.dirt) * (snap.garage.workshop ? 0.75 : 1));
+                      const repairPrice = Math.round(repairCost(wear.damage) * (snap.garage.workshop ? 0.75 : 1));
+                      const modLine = [
+                        mods.rims !== "stock" ? `${RIM_NAMES[mods.rims]} rims` : null,
+                        mods.spoiler !== "none" ? SPOILER_NAMES[mods.spoiler] : null,
+                        mods.neon ? `${NEON_NAMES[mods.neon]} underglow` : null,
+                        mods.tint > 0 ? TINT_NAMES[mods.tint] : null,
+                        mods.engine > 0 ? ENGINE_NAMES[mods.engine] : null,
+                        mods.tires > 0 ? TIRE_NAMES[mods.tires] : null,
+                      ].filter(Boolean).join(" · ") || "Stock";
+                      return (
+                        <article key={car.id}>
+                          <div>
+                            <b>{v.name}{active ? " — driving" : ""}</b>
+                            <span>{modLine}</span>
+                            <span>Dirt {wear.dirt}/100 · Damage {wear.damage}/100{snap.garage.workshop ? " · Workshop: 25% off wash + repair" : ""}</span>
+                            <span className="days">
+                              <span style={{ display: "inline-block", width: "120px", height: "8px", background: "#222", verticalAlign: "middle" }}>
+                                <span style={{ display: "inline-block", width: `${wear.dirt}%`, height: "8px", background: "#a67c52" }} />
+                              </span>
+                              <span style={{ display: "inline-block", width: "120px", height: "8px", background: "#222", verticalAlign: "middle" }}>
+                                <span style={{ display: "inline-block", width: `${wear.damage}%`, height: "8px", background: "#c0392b" }} />
+                              </span>
+                            </span>
+                          </div>
+                          <div>
+                            <button type="button" disabled={garageBusy || wear.dirt <= 0 || snap.balance < washPrice} onClick={() => void doWash(car.id)}>
+                              {wear.dirt <= 0 ? "Clean" : `Wash — ${washPrice} City Sol`}
+                            </button>
+                            <button type="button" disabled={garageBusy || wear.damage <= 0 || snap.balance < repairPrice} onClick={() => void doRepair(car.id)}>
+                              {wear.damage <= 0 ? "Undamaged" : `Repair — ${repairPrice} City Sol`}
+                            </button>
+                            <button type="button" onClick={() => setCustomizeId(customizeId === car.id ? null : car.id)}>
+                              {customizeId === car.id ? "Close" : "Customize"}
+                            </button>
+                          </div>
+                          {customizeId === car.id && (
+                            <div>
+                              <p className="muted">Paint — {CUSTOM_PAINT_PRICE} City Sol each (premium paints; shop colours are free at buy time).</p>
+                              <span className="days">
+                                {Object.entries(CUSTOM_PAINT_HEX).map(([key, hex]) => (
+                                  <button
+                                    key={key}
+                                    type="button"
+                                    className={car.color === key ? "on" : ""}
+                                    style={{
+                                      background: `#${hex.toString(16).padStart(6, "0")}`,
+                                      color: ((hex >> 16) & 255) * 0.299 + ((hex >> 8) & 255) * 0.587 + (hex & 255) * 0.114 > 140 ? "#000" : "#fff",
+                                    }}
+                                    disabled={garageBusy || car.color === key}
+                                    onClick={() => void doCustomize(car.id, "paint", key)}
+                                  >
+                                    {CUSTOM_PAINT_NAMES[key] ?? key}
+                                  </button>
+                                ))}
+                              </span>
+                              <p className="muted">Rims</p>
+                              <span className="days">
+                                {RIM_STYLES.map((s) => (
+                                  <button key={s} type="button" className={mods.rims === s ? "on" : ""} disabled={garageBusy || mods.rims === s} onClick={() => void doCustomize(car.id, "rims", s)}>
+                                    {RIM_NAMES[s]} — {RIM_PRICES[s]} City Sol
+                                  </button>
+                                ))}
+                              </span>
+                              <p className="muted">Spoiler</p>
+                              <span className="days">
+                                {SPOILER_STYLES.map((s) => (
+                                  <button key={s} type="button" className={mods.spoiler === s ? "on" : ""} disabled={garageBusy || mods.spoiler === s} onClick={() => void doCustomize(car.id, "spoiler", s)}>
+                                    {SPOILER_NAMES[s]} — {SPOILER_PRICES[s]} City Sol
+                                  </button>
+                                ))}
+                              </span>
+                              <p className="muted">Neon underglow — {NEON_PRICE} City Sol</p>
+                              <span className="days">
+                                <button type="button" className={mods.neon === null ? "on" : ""} disabled={garageBusy || mods.neon === null} onClick={() => void doCustomize(car.id, "neon", null)}>
+                                  Off — free
+                                </button>
+                                {NEON_COLORS.map((c) => (
+                                  <button
+                                    key={c}
+                                    type="button"
+                                    className={mods.neon === c ? "on" : ""}
+                                    style={{ background: `#${NEON_HEX[c].toString(16).padStart(6, "0")}`, color: "#000" }}
+                                    disabled={garageBusy || mods.neon === c}
+                                    onClick={() => void doCustomize(car.id, "neon", c)}
+                                  >
+                                    {NEON_NAMES[c]}
+                                  </button>
+                                ))}
+                              </span>
+                              <p className="muted">Window tint</p>
+                              <span className="days">
+                                {TINT_PRICES.map((price, level) => (
+                                  <button key={level} type="button" className={mods.tint === level ? "on" : ""} disabled={garageBusy || mods.tint === level} onClick={() => void doCustomize(car.id, "tint", level)}>
+                                    {TINT_NAMES[level]} — {price} City Sol
+                                  </button>
+                                ))}
+                              </span>
+                              <p className="muted">Engine — buy the stages in order{!snap.garage.workshop ? " (Stage 3 needs your home workshop)" : ""}</p>
+                              <span className="days">
+                                {ENGINE_PRICES.map((price, level) => (
+                                  <button
+                                    key={level}
+                                    type="button"
+                                    className={mods.engine === level ? "on" : ""}
+                                    disabled={garageBusy || level !== mods.engine + 1 || (level === 3 && !snap.garage.workshop)}
+                                    onClick={() => void doCustomize(car.id, "engine", level)}
+                                  >
+                                    {ENGINE_NAMES[level]} — {price} City Sol
+                                  </button>
+                                ))}
+                              </span>
+                              <p className="muted">Tires — buy the levels in order{!snap.garage.workshop ? " (Race tires need your home workshop)" : ""}</p>
+                              <span className="days">
+                                {TIRE_PRICES.map((price, level) => (
+                                  <button
+                                    key={level}
+                                    type="button"
+                                    className={mods.tires === level ? "on" : ""}
+                                    disabled={garageBusy || level !== mods.tires + 1 || (level === 2 && !snap.garage.workshop)}
+                                    onClick={() => void doCustomize(car.id, "tires", level)}
+                                  >
+                                    {TIRE_NAMES[level]} — {price} City Sol
+                                  </button>
+                                ))}
+                              </span>
+                            </div>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+                {/* CARS expansion — garage upgrades. */}
+                <div>
+                  <h3>Garage upgrades</h3>
+                  <p className="muted">Your garage fits {garageCap(snap.garage)} cars — {snap.vehicles.length} parked. Upgrades stay on {snap.universe ? snap.universe.name : "this universe"}.</p>
+                  <article>
+                    <div>
+                      <b>Parking</b>
+                      <span>+2 slots per tier, max 9 cars</span>
+                    </div>
+                    {(() => {
+                      const next = garageUpgradePrice("slots", snap.garage);
+                      return (
+                        <button type="button" disabled={garageBusy || next == null || snap.balance < next} onClick={() => void doUpgradeGarage("slots")}>
+                          {next == null ? "Maxed out" : `+2 slots — ${next} City Sol`}
+                        </button>
+                      );
+                    })()}
+                  </article>
+                  <article>
+                    <div>
+                      <b>Workshop</b>
+                      <span>25% off wash + repair · unlocks Stage 3 engine + Race tires · tune at your home garage</span>
+                    </div>
+                    <button type="button" disabled={garageBusy || snap.garage.workshop || snap.balance < GARAGE_WORKSHOP_PRICE} onClick={() => void doUpgradeGarage("workshop")}>
+                      {snap.garage.workshop ? "Installed" : `Install — ${GARAGE_WORKSHOP_PRICE} City Sol`}
+                    </button>
+                  </article>
+                  <article>
+                    <div>
+                      <b>Showroom</b>
+                      <span>Your whole collection on display at OrbitX Motors, lit up on the apron</span>
+                    </div>
+                    <button type="button" disabled={garageBusy || snap.garage.showroom || snap.balance < GARAGE_SHOWROOM_PRICE} onClick={() => void doUpgradeGarage("showroom")}>
+                      {snap.garage.showroom ? "Installed" : `Install — ${GARAGE_SHOWROOM_PRICE} City Sol`}
+                    </button>
+                  </article>
+                </div>
+                {/* CARS expansion — showroom display. */}
+                {snap.garage.showroom && snap.vehicles.length > 0 && (
+                  <div>
+                    <h3>Showroom — on display</h3>
+                    <p className="muted">Your collection, parked on the Motors apron in front of the shop. Walk out and look — any of them is drivable.</p>
+                    {snap.vehicles.map((car) => {
+                      const v = getVehicle(car.id);
+                      if (!v) return null;
+                      const mods = normalizeMods(car.mods);
+                      const modLine = [
+                        mods.rims !== "stock" ? `${RIM_NAMES[mods.rims]} rims` : null,
+                        mods.spoiler !== "none" ? SPOILER_NAMES[mods.spoiler] : null,
+                        mods.neon ? `${NEON_NAMES[mods.neon]} underglow` : null,
+                        mods.engine > 0 ? ENGINE_NAMES[mods.engine] : null,
+                      ].filter(Boolean).join(" · ") || "Stock";
+                      return (
+                        <article key={car.id}>
+                          <div>
+                            <b>{v.name}</b>
+                            <span>{modLine}</span>
+                          </div>
+                          {snap.activeVehicle === car.id ? <button type="button" disabled>Driving</button> : null}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
                 {CAR_SHOP.map((section) => (
                   <div key={section.title}>
                     <h3>{section.title}</h3>

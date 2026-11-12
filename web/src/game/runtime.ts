@@ -75,7 +75,6 @@ import {
   CUSTOM_PAINT_HEX,
   dirtPaintHex,
   driveParamsFor,
-  garageCap,
   garageUpgradePrice,
   getVehicle,
   modPrice,
