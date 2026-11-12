@@ -823,6 +823,11 @@ export function createRuntime(scene: Scene) {
   let lookY = 0;
   let holdJump = false;
   let holdDown = false;
+  // Touch Gas / Brake hold buttons (right thumb, shown while driving) —
+  // the left stick alone had to do gas AND steer, and its circular clamp
+  // capped a diagonal gas+steer push at 0.707 on both axes.
+  let holdGas = false;
+  let holdBrake = false;
   let paused = false;
   let typing = false;
   let playing = false;
@@ -1537,6 +1542,8 @@ export function createRuntime(scene: Scene) {
     driving = false;
     carIndex = -1;
     carSpeed = 0;
+    holdGas = false;
+    holdBrake = false;
     ownedCarIndex = -1;
     driveParams = null;
     prevW = false;
@@ -2719,6 +2726,11 @@ export function createRuntime(scene: Scene) {
   function exitCar(body: Body) {
     const car = cars[carIndex];
     driving = false;
+    // A held Gas/Brake button can unmount while held (panel opens, car
+    // exits) and its pointerup never fires — clear the holds here or the
+    // next car would drive itself.
+    holdGas = false;
+    holdBrake = false;
     if (car) {
       // Flying cars land first — the player steps out on the ground, never
       // mid-air. Boards are small: step off 1.2 units, not 2.6.
@@ -2750,7 +2762,13 @@ export function createRuntime(scene: Scene) {
       carSpeed = 0;
       return;
     }
-    const { f, s } = moveAxes(keys);
+    let { f, s } = moveAxes(keys);
+    // Touch Gas / Brake buttons override the stick's forward axis: the
+    // right thumb holds the throttle while the left thumb steers with a
+    // pure sideways push, so gas and full steer work at the same time.
+    // (The stick's up-push still works as gas for players who prefer it.)
+    if (holdGas) f = Math.max(f, 1);
+    if (holdBrake) f = Math.min(f, -1);
     const ctrl = keys.has("ControlLeft") || keys.has("ControlRight");
     const car = cars[carIndex];
     if (!car) return;
@@ -2766,7 +2784,11 @@ export function createRuntime(scene: Scene) {
     // engaged — top speed was 11.25, barely faster than walking (5.2).
     // With boost the equilibrium is 11.25 * 1.6 = 18 u/s.
     const boost = ctrl ? 1.6 : 1;
-    const wNow = keys.has("KeyW");
+    // "W" for boards is any push: keyboard W, the Gas button, or the stick
+    // pushed up. (Before, only KeyW pushed a board, so boards were
+    // unrideable on a phone — the stick's up-push did nothing.)
+    const stickActive = Math.hypot(stickX, stickY) > 0.15;
+    const wNow = keys.has("KeyW") || holdGas || (stickActive && stickY > 0.5);
     if (params.pushToGo) {
       // Skateboard: W is a tap-to-push impulse, not held throttle.
       if (wNow && !prevW) carSpeed = Math.min(carSpeed + 3, params.maxSpeed);
@@ -2789,19 +2811,20 @@ export function createRuntime(scene: Scene) {
     if (carSpeed > max) carSpeed = max;
     if (carSpeed < params.reverse) carSpeed = params.reverse;
     const moving = Math.abs(carSpeed) > 0.4 ? Math.sign(carSpeed) : 0;
-    // Steering: smoothed (no more binary full-lock) and speed-sensitive
-    // (full authority at a crawl, ~half at top speed). The sign is +:
-    // forward is (sin yaw, -cos yaw), so increasing yaw rotates the car
-    // toward its right — the same convention as look (yaw+ turns the view
-    // right) and the chase camera behind the car. The old "-" made D (and
-    // a right push of the phone stick, same s) turn LEFT; verified against
-    // the forward vector, the camera, and the look convention in this
-    // file, for both keyboard and touch. No live device test was possible
-    // from this VM.
+    // Steering: smoothed (no more binary full-lock) and a bicycle model —
+    // full lock turns a CONSTANT radius, so the car corners the same arc
+    // at any speed instead of plowing straight at cruise speed. The old
+    // 1/(1+|v|*0.055) falloff gave a 13-unit radius at 12 u/s and 24 at
+    // boost on the 10-unit roads — wider than the road, so corners needed
+    // a crawl. Radius comes from the vehicle's steer stat (sedan 1.5 ->
+    // 6 units, heavy 0.8 -> ~11, nimble 2.4 -> 3.75); yaw rate caps at
+    // 2.4 rad/s so boost does not spin the car, and the low-speed turn is
+    // gentle (no spinning while creeping). steerSm already carries the
+    // moving sign, so reverse steers the same way as before.
     const steerTarget = s * moving;
     steerSm += (steerTarget - steerSm) * Math.min(1, dt * 7);
-    const steerAuthority = 1 / (1 + Math.abs(carSpeed) * 0.055);
-    car.yaw += steerSm * steerAuthority * params.steer * dt;
+    const turnRadius = 9 / params.steer;
+    car.yaw += steerSm * Math.min(Math.abs(carSpeed) / turnRadius, 2.4) * dt;
     // The chase camera recentres behind the car: when the player is not
     // actively looking around, chaseYaw decays back to 0.
     if (lookX === 0) chaseYaw *= Math.exp(-dt * 0.9);
@@ -5334,9 +5357,11 @@ export function createRuntime(scene: Scene) {
       lookX += dx;
       lookY += dy;
     },
-    hold(action: "jump" | "down", down: boolean) {
+    hold(action: "jump" | "down" | "gas" | "brake", down: boolean) {
       if (action === "jump") holdJump = down;
-      else holdDown = down;
+      else if (action === "down") holdDown = down;
+      else if (action === "gas") holdGas = down;
+      else holdBrake = down;
     },
     toggleFly(body?: Body) {
       const who = body ?? lastBody;
@@ -5363,6 +5388,8 @@ export function createRuntime(scene: Scene) {
       if (on) {
         stickX = 0;
         stickY = 0;
+        holdGas = false;
+        holdBrake = false;
       }
     },
     setTyping(on: boolean) {

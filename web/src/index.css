@@ -899,6 +899,39 @@ body.touch .touch-ui {
   letter-spacing: 0.12em;
 }
 
+/* Driving controls (touch, while driving only): big Gas / Brake hold
+   buttons above the pad grid and below the minimap's touch default
+   (bottom 190px), so the right thumb holds the throttle while the left
+   thumb steers. The parent .touch-ui is display:none unless body.touch,
+   so these never show on desktop. */
+.drive-buttons {
+  position: fixed;
+  z-index: 5;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 112px);
+  display: flex;
+  gap: 8px;
+}
+
+.drive-buttons button {
+  width: 76px;
+  min-height: 64px;
+  font-size: 16px;
+  font-weight: 700;
+  border-radius: 12px;
+}
+
+/* Brake: white. Gas: gold. Black text on both, per the contrast rule. */
+.drive-buttons button:first-child {
+  background: #fff;
+  color: #000;
+}
+
+.drive-buttons button:last-child {
+  background: #e0b33a;
+  color: #000;
+}
+
 @media (max-width: 720px) {
   h1 {
     font-size: 32px;

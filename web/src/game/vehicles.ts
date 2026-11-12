@@ -1271,8 +1271,9 @@ export function buildVehicle(id: string, color?: string): Group {
 // ---------------------------------------------------------------------------
 // Physics — maps catalog stats onto the existing drive() numbers.
 // Existing drive() baseline (runtime.ts): accel += f * 18 * dt, drag
-// *= 1 - 1.6*dt, max 12 (22 with Ctrl), reverse -6, steering
-// yaw -= s * moving * 1.5 * dt, lean target steer * 0.28.
+// *= 1 - 1.6*dt, max 12 (22 with Ctrl), reverse -6, steering is a
+// bicycle model — full lock turns a constant radius (9 / steer units,
+// yaw rate capped at 2.4 rad/s), lean target steer * 0.28.
 // driveParamsFor() returns the per-vehicle replacements; see WIRING.md for
 // the exact drive() edit. Flying / bike / ATV / board rules are in the
 // fields below, not in magic numbers elsewhere.

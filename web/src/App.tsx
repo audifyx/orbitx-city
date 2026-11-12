@@ -697,6 +697,17 @@ export default function App() {
             </button>
             <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.toggleSpectator(); }}>Clip</button>
           </div>
+          {/* Driving controls (touch, while driving only): Gas and Brake
+              as big hold buttons above the pad grid, so the right thumb
+              holds the throttle while the left thumb steers with the
+              stick — the stick alone had to do gas AND steer, and its
+              circular clamp capped a diagonal push at 0.707 on each. */}
+          {snap.driving ? (
+            <div className="drive-buttons">
+              <Hold label="Brake" onDown={() => gameRef.current?.runtime.hold("brake", true)} onUp={() => gameRef.current?.runtime.hold("brake", false)} />
+              <Hold label="Gas" onDown={() => { triggerHaptic("tap"); gameRef.current?.runtime.hold("gas", true); }} onUp={() => gameRef.current?.runtime.hold("gas", false)} />
+            </div>
+          ) : null}
         </div>
       ) : null}
       {/* Minimap lives outside the HUD so it can be dragged anywhere and
