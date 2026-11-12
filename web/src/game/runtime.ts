@@ -44,7 +44,6 @@ import {
   PARCEL_REWARD,
   PHOTO_REWARD,
   PHOTO_SPOTS,
-  SHOP,
   STADIUM_BASE,
   STADIUM_FINISH_X,
   STADIUM_MIN,
@@ -60,15 +59,14 @@ import {
   type EventInfo,
   type MuseumExhibit,
   type PhotoSpot,
-  type ShopItem,
   loadContent,
 } from "./content";
 import { burnAmount, earn, loadWallet, saveWallet, spend } from "./economy";
 import { createNet, type ChatLine, type NetAdapter, type NetState } from "./net";
-import { dressPerson, loadLooks, lookById, lookName, looksReady } from "./avatar";
+import { allLooks, dressPerson, loadLooks, lookById, lookName, looksReady } from "./avatar";
 import { GOLD, MATERIALS } from "./materials";
-import { readAccount } from "../auth";
-import { world } from "./world";
+import { accountToken, readAccount } from "../auth";
+import { world, type CityMe } from "./world";
 import {
   buildVehicle,
   driveParamsFor,
@@ -95,7 +93,7 @@ import {
   universeTravel,
   type UniverseId,
 } from "./multiverse";
-import { bridgeGateFor } from "./states";
+import { bridgeGateFor, stateById } from "./states";
 import {
   EMOTES,
   FURNITURE,
@@ -130,7 +128,7 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions";
 
 export interface PersonCard {
   id: string;
@@ -173,6 +171,30 @@ export interface RadioTrack {
   createdAt: string;
 }
 
+export interface MissionCard {
+  id: string;
+  name: string;
+  desc: string;
+  reward: number;
+  steps: string[];
+  step: number;
+  done: boolean;
+  unlocked: boolean;
+}
+
+// Shop catalog item — same shape as content.ts ShopItem, plus the "trail"
+// kind the server sells (a glowing ring under the avatar). The canonical
+// 22-item catalog lives in SHOP_CATALOG below (fix-client); it mirrors
+// api/city.js CATALOG, which is the price authority.
+export interface ShopCatalogItem {
+  id: string;
+  kind: "color" | "car" | "hat" | "trail";
+  name: string;
+  value: string;
+  price: number;
+}
+}
+
 export interface Snap {
   playing: boolean;
   touch: boolean;
@@ -196,7 +218,7 @@ export interface Snap {
   projects: CityContent["projects"];
   billboards: BillboardInfo[];
   events: EventInfo[];
-  shop: ShopItem[];
+  shop: ShopCatalogItem[];
   eventLabel: string;
   panel: PanelName | "";
   lift: { name: string; floors: number[]; stops: string[]; current: number } | null;
@@ -262,6 +284,18 @@ export interface Snap {
   talk: { name: string; role: string; line: string; index: number; total: number; jobId: string; jobName: string; offerLabel: string } | null;
   photos: { taken: number; spots: string[] };
   wishes: number;
+  // Mission chain + new earning (fix-client): server is the authority.
+  missions: MissionCard[];
+  missionMsg: string;
+  missionsLoaded: boolean;
+  // Busk: epoch ms when the 60s server cooldown ends (0 = ready).
+  buskReadyAt: number;
+  // Photo Safari: server place ids photographed today (max 120/day).
+  photosToday: string[];
+  photoMsg: string;
+  // Trail the player owns ("none" | "neon" | "gold") — renders as the
+  // avatar ground ring.
+  trail: string;
   // GTA expansion: garage / multiverse / emergency / district panels.
   vehicles: OwnedVehicle[];
   activeVehicle: string | null;
@@ -296,6 +330,73 @@ const COLORS: Record<string, number> = {
   red: 0xd43a2e,
   silver: 0xc9ced6,
 };
+
+// City tour — CANONICAL pay schedule, per step, in order (api/city.js
+// MISSIONS is the authority): plaza 15, shop 20, cafe 20, hall 25,
+// tower 30, dock 80. The offline path must pay this exact schedule,
+// never a flat 20/step.
+const TOUR_PAY = [15, 20, 20, 25, 30, 80];
+
+// Shop — the canonical 22 items, City Sol, mirroring api/city.js CATALOG
+// (the server is the price authority; this list is display + the offline
+// price check). content.ts SHOP only carries 13 of these and has
+// hat-visor's value wrong ("cap" — the server grants "visor"), so the
+// panel and the offline buy must read this catalog, not SHOP.
+const SHOP_CATALOG: ShopCatalogItem[] = [
+  { id: "color-white", kind: "color", name: "Cloud suit", value: "white", price: 20 },
+  { id: "color-gold", kind: "color", name: "Gold suit", value: "gold", price: 40 },
+  { id: "color-cyan", kind: "color", name: "Cyan suit", value: "cyan", price: 30 },
+  { id: "color-sunset", kind: "color", name: "Sunset suit", value: "sunset", price: 35 },
+  { id: "color-black", kind: "color", name: "Night suit", value: "black", price: 25 },
+  { id: "color-red", kind: "color", name: "Ember suit", value: "red", price: 25 },
+  { id: "color-silver", kind: "color", name: "Silver suit", value: "silver", price: 30 },
+  { id: "car-black", kind: "car", name: "Night hover", value: "black", price: 50 },
+  { id: "car-white", kind: "car", name: "Pearl hover", value: "white", price: 50 },
+  { id: "car-gold", kind: "car", name: "Gold hover", value: "gold", price: 80 },
+  { id: "car-cyan", kind: "car", name: "Cyan hover", value: "cyan", price: 60 },
+  { id: "car-red", kind: "car", name: "Ember hover", value: "red", price: 55 },
+  { id: "car-silver", kind: "car", name: "Silver hover", value: "silver", price: 55 },
+  { id: "hat-cap", kind: "hat", name: "Cap", value: "cap", price: 15 },
+  { id: "hat-antenna", kind: "hat", name: "Antenna", value: "antenna", price: 25 },
+  { id: "hat-crown", kind: "hat", name: "Crown", value: "crown", price: 100 },
+  { id: "hat-visor", kind: "hat", name: "Visor", value: "visor", price: 20 },
+  { id: "hat-tophat", kind: "hat", name: "Top Hat", value: "tophat", price: 60 },
+  { id: "hat-beanie", kind: "hat", name: "Beanie", value: "beanie", price: 30 },
+  { id: "hat-headphones", kind: "hat", name: "Headphones", value: "headphones", price: 45 },
+  { id: "trail-neon", kind: "trail", name: "Neon trail", value: "neon", price: 50 },
+  { id: "trail-gold", kind: "trail", name: "Gold trail", value: "gold", price: 75 },
+];
+
+// Photo Safari landmarks (server place ids) — the 8 spots the photo op
+// pays for, 15 City Sol each, once per landmark per day. Coords are the
+// door/spot the player stands at; the radius is generous so the panel's
+// "Take photo" works from the approach, not only dead-centre.
+export const PHOTO_LANDMARKS: { id: string; name: string; x: number; z: number }[] = [
+  { id: "plaza", name: "Plaza fountain", x: 0, z: 12 },
+  { id: "tower", name: "ORBITX Tower", x: -30, z: 8 },
+  { id: "dock", name: "Harbor pier", x: 0, z: 232 },
+  { id: "hall", name: "Community Hall", x: 41.6, z: 90 },
+  { id: "cafe", name: "Cafe Nova", x: -5.6, z: 54 },
+  { id: "shop", name: "OrbitX Shop", x: 5.6, z: 54 },
+  { id: "market", name: "Night Market", x: -18, z: 77.6 },
+  { id: "museum", name: "OrbitX Museum", x: -99, z: 176 },
+];
+// How the client recognises the mission "visit" places. Tour-stop coords
+// and door anchors disagree by a few units (the hall door is at 41.6, 90,
+// the tour stop at 54, 18), so each place lists every point that counts.
+const MISSION_PLACE_POINTS: { id: string; x: number; z: number; r: number }[] = [
+  { id: "plaza", x: 0, z: 12, r: 6 },
+  { id: "shop", x: 18, z: 54, r: 6 },
+  { id: "shop", x: 5.6, z: 54, r: 6 },
+  { id: "cafe", x: -18, z: 54, r: 6 },
+  { id: "cafe", x: -5.6, z: 54, r: 6 },
+  { id: "hall", x: 54, z: 18, r: 6 },
+  { id: "hall", x: 41.6, z: 90, r: 6 },
+  { id: "tower", x: 0, z: -8, r: 6 },
+  { id: "dock", x: 0, z: 148, r: 6 },
+  { id: "dock", x: 0, z: 210.6, r: 6 },
+  { id: "market", x: -18, z: 77.6, r: 6 },
+];
 
 const BOOK_KEY = "orbitx-demo-ads-v1";
 
@@ -432,6 +533,49 @@ function addHat(group: Group, box: BoxGeometry, hat: string) {
     tip.scale.set(0.16, 0.16, 0.16);
     tip.position.y = 2.38;
     node.add(pole, tip);
+  } else if (hat === "visor") {
+    // Open-top sun visor: a band across the forehead + a brim forward.
+    // (Was falling through to the crown — the server grants "visor".)
+    const band = new Mesh(box, MATERIALS.black);
+    band.scale.set(0.46, 0.1, 0.46);
+    band.position.y = 1.88;
+    const brim = new Mesh(box, MATERIALS.black);
+    brim.scale.set(0.4, 0.06, 0.26);
+    brim.position.set(0, 1.84, 0.3);
+    node.add(band, brim);
+  } else if (hat === "tophat") {
+    const crownTop = new Mesh(box, MATERIALS.black);
+    crownTop.scale.set(0.36, 0.52, 0.36);
+    crownTop.position.y = 2.1;
+    const brim = new Mesh(box, MATERIALS.black);
+    brim.scale.set(0.56, 0.07, 0.56);
+    brim.position.y = 1.84;
+    const band = new Mesh(box, GOLD);
+    band.scale.set(0.38, 0.1, 0.38);
+    band.position.y = 1.9;
+    node.add(crownTop, brim, band);
+  } else if (hat === "beanie") {
+    const cap = new Mesh(box, MATERIALS.black);
+    cap.scale.set(0.46, 0.2, 0.46);
+    cap.position.y = 1.88;
+    const fold = new Mesh(box, MATERIALS.gray);
+    fold.scale.set(0.48, 0.08, 0.48);
+    fold.position.y = 1.8;
+    const pom = new Mesh(box, MATERIALS.gray);
+    pom.scale.set(0.14, 0.12, 0.14);
+    pom.position.y = 2.02;
+    node.add(cap, fold, pom);
+  } else if (hat === "headphones") {
+    const band = new Mesh(box, MATERIALS.black);
+    band.scale.set(0.5, 0.07, 0.14);
+    band.position.y = 1.92;
+    const cupL = new Mesh(box, MATERIALS.gray);
+    cupL.scale.set(0.1, 0.2, 0.16);
+    cupL.position.set(-0.24, 1.7, 0);
+    const cupR = new Mesh(box, MATERIALS.gray);
+    cupR.scale.set(0.1, 0.2, 0.16);
+    cupR.position.set(0.24, 1.7, 0);
+    node.add(band, cupL, cupR);
   } else {
     const crown = new Mesh(box, GOLD);
     crown.scale.set(0.5, 0.22, 0.5);
@@ -443,6 +587,11 @@ function addHat(group: Group, box: BoxGeometry, hat: string) {
   }
   group.add(node);
 }
+
+// Shared unit box for paintPerson's shop-hat post-process (visor /
+// tophat / headphones are not branches in avatar.ts dressPerson, so the
+// local player would otherwise render no hat at all for them).
+const HAT_BOX = new BoxGeometry(1, 1, 1);
 
 function makeCar(skin: string, style: number, vehicleId?: string) {
   // Catalog car — buildVehicle already returns rotation.order YXZ, named
@@ -624,6 +773,9 @@ export function createRuntime(scene: Scene) {
   // Per-vehicle drive params, cached on enterCar.
   let driveParams: DriveParams | null = null;
   let prevW = false;
+  // Steering input, smoothed (drive() eases toward the target instead of
+  // taking the raw binary stick/key value).
+  let steerSm = 0;
   // Walk-cycle displacement: previous local position, for real speed.
   let prevLocal = { x: 0, z: 0, set: false };
   // Camera glide (walking + driving chase only, never first-person).
@@ -1266,6 +1418,15 @@ export function createRuntime(scene: Scene) {
     wallet.color = me.color;
     wallet.hat = me.hat;
     wallet.car = me.car;
+    // Trail comes back on me (publicPlayer) — the server is the authority,
+    // the local copy is only the offline fallback.
+    const nextTrail = (me as CityMe & { trail?: string }).trail;
+    if (nextTrail === "neon" || nextTrail === "gold" || nextTrail === "none") {
+      if (trail !== nextTrail) {
+        trail = nextTrail;
+        saveTrail();
+      }
+    }
     if (Array.isArray(me.vehicles)) {
       localVehicles = [...me.vehicles];
       saveLocalVehicles();
@@ -1342,9 +1503,22 @@ export function createRuntime(scene: Scene) {
 
   async function begin(next: City, isPlay: boolean) {
     await loadLooks();
+    // Config-fetch failure guard: if /config/characters.json failed,
+    // avatar.ts silently falls back to a one-character roster (TJR).
+    // Say so visibly instead of letting the player wonder where the
+    // twelve characters went. (loadContent's project/billboard/event
+    // fetch already falls back to built-in defaults, which are the same
+    // data — nothing to guard there. App.tsx shows the same warning on
+    // the menu, before the player picks.)
+    if (allLooks().length <= 1) {
+      say("Character list failed to load — only TJR is available. Check your connection and reload.");
+    }
     world.stop();
     if (isPlay) await world.start(readAccount()?.name || wallet.name);
     if (world.online) applyMe();
+    // Load the mission chain up front (not only when the panel opens) so
+    // the chat / drive / job / daily / buy hooks can advance it.
+    if (world.online) void loadMissions();
     const params = new URLSearchParams(location.search);
     lookId = params.get("look") || localStorage.getItem("orbitx-look") || world.me?.look || "tjr";
     if (!lookById(lookId).id) lookId = "tjr";
@@ -1595,7 +1769,7 @@ export function createRuntime(scene: Scene) {
       projects: content.projects,
       billboards: content.billboards.map((item) => faceFor(item)),
       events: world.online && world.events.length ? [...content.events, ...world.events] : content.events,
-      shop: SHOP,
+      shop: SHOP_CATALOG,
       eventLabel: eventLeft > 0 ? `Fountain lights in ${Math.ceil(eventLeft)}` : burstLeft > 0 ? "Fountain lights" : "",
       panel,
       lift: liftPanel,
@@ -1677,6 +1851,13 @@ export function createRuntime(scene: Scene) {
       talk,
       photos: { taken: photosTaken, spots: [...photoSpots] },
       wishes,
+      missions: missions.map((item) => ({ ...item, steps: [...item.steps] })),
+      missionMsg,
+      missionsLoaded,
+      buskReadyAt,
+      photosToday: [...photosToday],
+      photoMsg,
+      trail,
       vehicles: [...localVehicles],
       activeVehicle: localActiveVehicle,
       universe: currentUniverse
@@ -1984,12 +2165,24 @@ export function createRuntime(scene: Scene) {
   function takePhoto(spot: PhotoSpot) {
     photosTaken += 1;
     const first = !photoSpots.includes(spot.id);
+    if (first) photoSpots.push(spot.id);
+    savePhotos();
+    if (world.online) {
+      // Online a photo pays through the server op (15 City Sol per
+      // landmark, once a day) — never the local wallet as well. The
+      // E-spots map onto the server's landmark ids: fountain → plaza,
+      // pier → dock; tower is already "tower".
+      const place = spot.id === "fountain" ? "plaza" : spot.id === "pier" ? "dock" : spot.id;
+      if (place === "plaza" || place === "tower" || place === "dock") {
+        void sendPhoto(place, spot.x, spot.z);
+        publish();
+        return;
+      }
+    }
     if (first) {
-      photoSpots.push(spot.id);
       earn(wallet, PHOTO_REWARD, `Photo — ${spot.name}`);
       triggerHaptic("jobPay");
     }
-    savePhotos();
     burst(spot.x, 2.2, spot.z);
     say(
       first
@@ -2224,9 +2417,28 @@ export function createRuntime(scene: Scene) {
       publish();
     }
     if (now >= busk.endAt) {
-      const amount = BUSK_BASE + busk.hits * BUSK_PER_HIT;
       const hits = busk.hits;
       busk = null;
+      if (world.online) {
+        // Online the set pays through the server op: flat 20 City Sol,
+        // 60s cooldown per universe. A cooldown rejection still says so.
+        void cityOp("busk", { server: serverId() })
+          .then((data) => {
+            if (data.me) applySaveMe(data.me);
+            say(String(data.message || `Busked for the crowd — paid 20 City Sol.`));
+            triggerHaptic("jobPay");
+            publish();
+          })
+          .catch((err) => {
+            const message = err instanceof Error ? err.message : "The city held that busk.";
+            const wait = /(\d+)s/.exec(message);
+            if (wait) buskReadyAt = Date.now() + Number(wait[1]) * 1000;
+            say(message);
+            publish();
+          });
+        return;
+      }
+      const amount = BUSK_BASE + hits * BUSK_PER_HIT;
       say(earn(wallet, amount, `Busking (${hits}/${BUSK_BEATS} on the beat)`));
       triggerHaptic("jobPay");
       publish();
@@ -2476,6 +2688,7 @@ export function createRuntime(scene: Scene) {
     driving = true;
     carIndex = index;
     carSpeed = 0;
+    steerSm = 0;
     chaseYaw = 0;
     chasePitch = 0.22;
     body.flying = false;
@@ -2499,6 +2712,9 @@ export function createRuntime(scene: Scene) {
       droveQuest = true;
       void world.questPing("drive").then(() => applyMe()).catch(() => {});
     }
+    // Mission chain: entering a car is the "drive" step (client-attested;
+    // the server enforces order/cooldown/one-time).
+    void attemptMission();
   }
 
   function exitCar(body: Body) {
@@ -2545,20 +2761,51 @@ export function createRuntime(scene: Scene) {
       maxSpeed: 12, accel: 18, steer: 1.5, reverse: -6, lean: 0.28, drag: 1.6,
       climb: 0, maxAltitude: 0, offroad: false, pushToGo: false, hover: 0.12,
     };
+    // Ctrl is boost: it scales the ACCEL as well as the cap. The old code
+    // only raised the cap (maxSpeed * 1.6) while the drag equilibrium
+    // (accel / drag = 18 / 1.6 = 11.25 u/s) sat below it, so boost never
+    // engaged — top speed was 11.25, barely faster than walking (5.2).
+    // With boost the equilibrium is 11.25 * 1.6 = 18 u/s.
+    const boost = ctrl ? 1.6 : 1;
     const wNow = keys.has("KeyW");
     if (params.pushToGo) {
       // Skateboard: W is a tap-to-push impulse, not held throttle.
       if (wNow && !prevW) carSpeed = Math.min(carSpeed + 3, params.maxSpeed);
+    } else if (f < 0 && carSpeed > 0.5) {
+      // S brakes while rolling forward — strong decel toward a stop, and
+      // reverse only engages once the car is nearly stopped. (Before, S
+      // reversed straight away, so there was no brake at all.)
+      carSpeed = Math.max(0, carSpeed - params.accel * 2.2 * dt);
     } else {
-      carSpeed += f * params.accel * dt;
+      carSpeed += f * params.accel * boost * dt;
     }
     prevW = wNow;
     carSpeed *= 1 - params.drag * dt;
-    const max = ctrl ? params.maxSpeed * 1.6 : params.maxSpeed;
+    // Coasting ends: extra drag with no throttle, and a full stop below
+    // 0.3 u/s instead of a crawl that never dies. (Boards keep their
+    // push-and-glide feel — the snap only kills the sub-0.3 creep.)
+    if (f === 0 && !params.pushToGo) carSpeed *= 1 - params.drag * 1.5 * dt;
+    if (Math.abs(carSpeed) < 0.3) carSpeed = 0;
+    const max = params.maxSpeed * boost;
     if (carSpeed > max) carSpeed = max;
     if (carSpeed < params.reverse) carSpeed = params.reverse;
     const moving = Math.abs(carSpeed) > 0.4 ? Math.sign(carSpeed) : 0;
-    car.yaw -= s * moving * params.steer * dt;
+    // Steering: smoothed (no more binary full-lock) and speed-sensitive
+    // (full authority at a crawl, ~half at top speed). The sign is +:
+    // forward is (sin yaw, -cos yaw), so increasing yaw rotates the car
+    // toward its right — the same convention as look (yaw+ turns the view
+    // right) and the chase camera behind the car. The old "-" made D (and
+    // a right push of the phone stick, same s) turn LEFT; verified against
+    // the forward vector, the camera, and the look convention in this
+    // file, for both keyboard and touch. No live device test was possible
+    // from this VM.
+    const steerTarget = s * moving;
+    steerSm += (steerTarget - steerSm) * Math.min(1, dt * 7);
+    const steerAuthority = 1 / (1 + Math.abs(carSpeed) * 0.055);
+    car.yaw += steerSm * steerAuthority * params.steer * dt;
+    // The chase camera recentres behind the car: when the player is not
+    // actively looking around, chaseYaw decays back to 0.
+    if (lookX === 0) chaseYaw *= Math.exp(-dt * 0.9);
     // Flying: Space climbs (the touch Jump button too), Shift/C descends.
     if (params.climb > 0) {
       if (keys.has("Space") || holdJump) car.alt = Math.min(car.alt + params.climb * dt, params.maxAltitude);
@@ -2567,12 +2814,28 @@ export function createRuntime(scene: Scene) {
     const nx = car.x + Math.sin(car.yaw) * carSpeed * dt;
     const nz = car.z - Math.cos(car.yaw) * carSpeed * dt;
     // Above 2 units the car is over the colliders — skip collision entirely.
-    if (car.alt > 2 || !blocked(nx, nz)) {
+    // Parked cars are solid too (otherCarHit): before, the `blocked`
+    // callback only covered world colliders, so parked cars were ghosts.
+    const blockedAt = (x: number, z: number) => blocked(x, z) || otherCarHit(x, z);
+    if (car.alt > 2 || !blockedAt(nx, nz)) {
       car.x = nx;
       car.z = nz;
     } else {
-      carSpeed *= -0.25;
-      triggerHaptic("carHit");
+      // Slide along the wall instead of stopping dead: try each axis alone.
+      const canX = !blockedAt(nx, car.z);
+      const canZ = !blockedAt(car.x, nz);
+      if (canX && !canZ) {
+        car.x = nx;
+        carSpeed *= 0.6;
+      } else if (canZ && !canX) {
+        car.z = nz;
+        carSpeed *= 0.6;
+      } else {
+        // Soft stop, not a bounce: keep the direction, kill most of the
+        // speed. (The old code flipped the car into reverse at -0.25x.)
+        carSpeed *= 0.2;
+        triggerHaptic("carHit");
+      }
     }
     // Bridge gates: the car crosses WITH the driver — same landing (x/z/yaw)
     // as the walking hop in engine tick. Rects are 4 units deep on the travel
@@ -2586,9 +2849,17 @@ export function createRuntime(scene: Scene) {
         car.z = gate.landing.z;
         car.yaw = gate.landing.yaw;
         triggerHaptic("door");
+        // Drivers get the same arrival line the walking hop shows (engine
+        // tick's bridgeNotice) — tick() never runs while driving, so
+        // without this the hop is silent. Wording reused verbatim.
+        say(
+          gate.to === "home"
+            ? "OrbitX City — back home."
+            : `${stateById(gate.to).name} — ${stateById(gate.to).tagline}`,
+        );
       }
     }
-    const steer = s * moving;
+    const steer = steerSm;
     car.lean += (steer * params.lean - car.lean) * Math.min(1, dt * 8);
     const bob = Math.sin(clock * 5) * 0.05;
     car.group.position.set(car.x, params.hover + car.alt + bob, car.z);
@@ -2619,6 +2890,25 @@ export function createRuntime(scene: Scene) {
       const along = dx * fx + dz * fz;
       const side = dx * -fz + dz * fx;
       return Math.abs(along) < len / 2 + 0.4 && Math.abs(side) < wid / 2 + 0.4;
+    });
+  }
+
+  // Parked cars are solid while driving: the driven car's footprint
+  // (half-length ~1.8, half-width ~1.0, sedan-sized with margin) tested
+  // against each parked car's oriented box. drive() passes this in
+  // through blockedAt alongside the world's `blocked` callback.
+  function otherCarHit(x: number, z: number) {
+    return cars.some((other, index) => {
+      if (index === carIndex) return false;
+      const len = (other.group.userData.length as number) || 3.45;
+      const wid = (other.group.userData.width as number) || 1.62;
+      const dx = x - other.x;
+      const dz = z - other.z;
+      const fx = Math.sin(other.yaw);
+      const fz = -Math.cos(other.yaw);
+      const along = dx * fx + dz * fz;
+      const side = dx * -fz + dz * fx;
+      return Math.abs(along) < len / 2 + 1.8 && Math.abs(side) < wid / 2 + 1.0;
     });
   }
 
@@ -3185,7 +3475,9 @@ export function createRuntime(scene: Scene) {
     tourLock = true;
     if (!world.online) {
       tourStep += 1;
-      say(earn(wallet, step === tourStops.length - 1 ? 80 : 20, "City tour"));
+      // Offline pays the same schedule the server pays (TOUR_PAY), never
+      // a flat 20/step — online and offline must agree.
+      say(earn(wallet, TOUR_PAY[step] ?? 20, "City tour"));
       triggerHaptic("jobPay");
       tourLock = false;
       return;
@@ -3201,6 +3493,227 @@ export function createRuntime(scene: Scene) {
   }
 
   let tourStep = 0;
+
+  // Mission chain + new earning (fix-client). The server is the authority:
+  // mission-list / mission-step / busk / photo all pay the per-server save
+  // (me comes back on each response); the client only tracks what to show.
+  let missions: MissionCard[] = [];
+  let missionMsg = "";
+  let missionsLoaded = false;
+  // Client-side throttle for mission-step attempts — the server enforces a
+  // 3s step cooldown; attempting faster only earns rejections.
+  let lastMissionTry = 0;
+  // Last mission "visit" place the player stood at — attempts fire on
+  // place CHANGE only, never every frame.
+  let lastPlace = "";
+  // Busk: epoch ms when the server's 60s cooldown ends (0 = ready).
+  let buskReadyAt = 0;
+  // Photo Safari: server place ids photographed today.
+  let photosToday: string[] = [];
+  let photoMsg = "";
+  // Trail the player owns ("none" | "neon" | "gold"). The wallet in
+  // economy.ts has no trail field, so it persists in localStorage and is
+  // refreshed from the server's me whenever one arrives.
+  const TRAIL_KEY = "orbitx-city-trail-v1";
+  let trail = (() => {
+    try {
+      const saved = localStorage.getItem(TRAIL_KEY) || "none";
+      return saved === "neon" || saved === "gold" ? saved : "none";
+    } catch {
+      return "none";
+    }
+  })();
+  function saveTrail() {
+    try {
+      localStorage.setItem(TRAIL_KEY, trail);
+    } catch {
+      // The trail still applies for this session if storage is unavailable.
+    }
+  }
+
+  // --- Mission chain + busk + photo safari (server ops, per-server saves)
+  // world.ts is not this agent's file, so these call /api/city directly
+  // with the same bearer pattern world.call uses (account token first,
+  // guest player token second).
+  function serverId() {
+    return currentUniverse ?? 1;
+  }
+
+  function todayISO() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  async function cityOp(op: string, extra: Record<string, unknown> = {}) {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    const token = accountToken() || world.token || localStorage.getItem("orbitx-token") || "";
+    if (token) headers.authorization = `Bearer ${token}`;
+    const response = await fetch("/api/city", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ op, ...extra }),
+    });
+    const data = (await response.json()) as Record<string, unknown>;
+    if (!response.ok || data.ok === false) throw new Error(String(data.message || "City server said no."));
+    return data;
+  }
+
+  // The save's me (per-server ledger) — same pattern as the garage/homes
+  // wiring: the op's me replaces world.me and applyMe() refreshes the
+  // displayed balance from it. Cosmetics are synced from the global player
+  // server-side, so only balance/earned actually change ledgers.
+  function applySaveMe(me: unknown) {
+    if (!me || typeof me !== "object") return;
+    world.me = me as CityMe;
+    applyMe();
+    applyServerDaily(me);
+  }
+
+  // Daily blob on a save me: photos done today + the busk cooldown.
+  function applyServerDaily(me: unknown) {
+    const daily = (me as { daily?: { photos?: Record<string, string>; buskAt?: number } })?.daily;
+    if (!daily || typeof daily !== "object") return;
+    if (daily.photos && typeof daily.photos === "object") {
+      const today = todayISO();
+      photosToday = Object.entries(daily.photos)
+        .filter(([, day]) => day === today)
+        .map(([place]) => place);
+    }
+    if (daily.buskAt) buskReadyAt = Number(daily.buskAt) + 60000;
+  }
+
+  // Which mission "visit" place the player is standing at, if any. Zone
+  // interiors first (the shop/cafe/hall/market/museum rooms), then the
+  // outdoor points (plaza fountain, tower, harbor).
+  function placeAt(body: Body): string {
+    const zone = zoneAt(body);
+    if (zone && ["plaza", "shop", "cafe", "hall", "tower", "dock", "market", "museum"].includes(zone.id)) return zone.id;
+    for (const point of MISSION_PLACE_POINTS) {
+      if (Math.hypot(body.x - point.x, body.z - point.z) <= point.r) return point.id;
+    }
+    return "";
+  }
+
+  async function loadMissions() {
+    if (!world.online) {
+      missionMsg = "Missions need the city server — playing on this device only.";
+      publish();
+      return;
+    }
+    try {
+      const data = await cityOp("mission-list", { server: serverId() });
+      if (Array.isArray(data.missions)) missions = data.missions as MissionCard[];
+      missionsLoaded = true;
+      missionMsg = "";
+      if (data.me) applySaveMe(data.me);
+      publish();
+    } catch (err) {
+      missionMsg = err instanceof Error ? err.message : "Could not load missions.";
+      publish();
+    }
+  }
+
+  // Attempt the current step of a mission; the server validates kind,
+  // order, cooldown and one-time completion, so a wrong attempt just
+  // fails silently. Returns true when a step (or the mission) completed.
+  async function attemptMission(missionId = "") {
+    if (!world.online || !missionsLoaded) return false;
+    if (Date.now() - lastMissionTry < 3000) return false;
+    const target = missionId
+      ? missions.find((item) => item.id === missionId)
+      : missions.find((item) => item.unlocked && !item.done);
+    if (!target || target.done || !target.unlocked) return false;
+    lastMissionTry = Date.now();
+    try {
+      const data = await cityOp("mission-step", {
+        server: serverId(),
+        mission: target.id,
+        step: target.step,
+        place: lastBody ? placeAt(lastBody) : "",
+      });
+      if (data.mission && typeof data.mission === "object") {
+        const updated = data.mission as MissionCard;
+        const index = missions.findIndex((item) => item.id === updated.id);
+        if (index >= 0) missions[index] = updated;
+        else missions.push(updated);
+      }
+      if (data.me) applySaveMe(data.me);
+      if (data.paid || data.done) {
+        say(String(data.message || "Mission step done."));
+        triggerHaptic("jobPay");
+      }
+      publish();
+      return true;
+    } catch {
+      // Wrong step / wrong place / cooldown — the server said no; the
+      // panel shows progress, not the rejection.
+      return false;
+    }
+  }
+
+  // Visit steps fire on place CHANGE only — never every frame.
+  function tickMissionPlace(body: Body) {
+    if (!world.online || !missionsLoaded) return;
+    const place = placeAt(body);
+    if (!place || place === lastPlace) return;
+    lastPlace = place;
+    void attemptMission();
+  }
+
+  // Busk action: start the plaza rhythm set (the same set E starts at the
+  // corner). The set's pay now comes from the server op when online.
+  function buskNow() {
+    if (busk) {
+      say("Already busking — keep the beat!");
+      return;
+    }
+    if (Date.now() < buskReadyAt) {
+      say(`Take a breather — busk again in ${Math.ceil((buskReadyAt - Date.now()) / 1000)}s.`);
+      return;
+    }
+    if (!lastBody || Math.hypot(lastBody.x - BUSK_SPOT.x, lastBody.z - BUSK_SPOT.z) > 4) {
+      say("Busk at the plaza corner — stand by the fountain's east edge.");
+      return;
+    }
+    startBusk();
+  }
+
+  // Photo Safari: 15 City Sol per landmark, once per landmark per day.
+  async function sendPhoto(place: string, x: number, z: number) {
+    if (!world.online) return;
+    try {
+      const data = await cityOp("photo", { server: serverId(), place });
+      if (data.me) applySaveMe(data.me);
+      if (!photosToday.includes(place)) photosToday.push(place);
+      burst(x, 2.2, z);
+      say(String(data.message || `Photo of ${place} — paid 15 City Sol.`));
+      triggerHaptic("jobPay");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "The city held that photo.";
+      // "Already photographed X today" still tells us the spot is done.
+      if (/Already photographed/.test(message) && !photosToday.includes(place)) photosToday.push(place);
+      say(message);
+    }
+    publish();
+  }
+
+  // Panel entry point: checks the player is actually at the landmark.
+  function takeSafariPhoto(place: string) {
+    const spot = PHOTO_LANDMARKS.find((item) => item.id === place);
+    if (!spot) return;
+    if (photosToday.includes(place)) {
+      photoMsg = `Already photographed ${spot.name} today — come back tomorrow.`;
+      say(photoMsg);
+      publish();
+      return;
+    }
+    if (!lastBody || Math.hypot(lastBody.x - spot.x, lastBody.z - spot.z) > 8) {
+      photoMsg = `Get closer to ${spot.name} to photograph it.`;
+      say(photoMsg);
+      publish();
+      return;
+    }
+    void sendPhoto(place, spot.x, spot.z);
+  }
 
   async function pay(id: string) {
     const amounts: Record<string, number> = { courier: 45, taxi: 90, guide: 60, mechanic: 55, photographer: 40, promoter: 50, dock: 65, dj: 55, banker: 50, barista: 45, vendor: 55, security: 75, mail: 70, lifeguard: 65, cleaner: 55, bus: 80, fire: 75, doctor: 70, cop: 85, paramedic: 80, teacher: 60, coinhunt: 40, fishing: 45, shootout: 50, treasure: 45 };
@@ -3220,6 +3733,9 @@ export function createRuntime(scene: Scene) {
       let msg = String(data.message || "Paid.");
       if (restedBonus) msg += " " + earn(wallet, restedBonus, "Rested bonus (+10% job pay)");
       say(msg);
+      // Mission chain: a completed job is the "job" step (server-verified
+      // against the job streak snapshot).
+      void attemptMission();
       return true;
     } catch (err) {
       say(err instanceof Error ? err.message : "The city held the pay.");
@@ -3259,6 +3775,7 @@ export function createRuntime(scene: Scene) {
       tickJobs(body, dt);
       tickGames(body);
       tickTour(body);
+      tickMissionPlace(body);
       tickDance(body);
       tickSprint(body);
       tickBusk(body);
@@ -3452,7 +3969,25 @@ export function createRuntime(scene: Scene) {
         animateWalk(localWalker, horizontalSpeed, dt, (horizontalSpeed > 0.3 || stickMoving) && body.onGround, body.flying);
       }
       const ring = localBody.getObjectByName("ring");
-      if (ring) ring.visible = world.speaking;
+      if (ring) {
+        // The ground ring does double duty: the bought trail renders as a
+        // permanent ring in its colour; with no trail it is the speaking
+        // indicator (cyan, only while talking).
+        const ringMat = (ring as Mesh).material as MeshStandardMaterial;
+        if (trail === "neon") {
+          ring.visible = true;
+          ringMat.color.set(0x7ef6ff);
+          ringMat.emissive.set(0x19d8ff);
+        } else if (trail === "gold") {
+          ring.visible = true;
+          ringMat.color.set(0xe0b33a);
+          ringMat.emissive.set(0xe0b33a);
+        } else {
+          ring.visible = world.speaking;
+          ringMat.color.set(0x7ef6ff);
+          ringMat.emissive.set(0x19d8ff);
+        }
+      }
       const selfTag = localBody.getObjectByName("tag");
       if (selfTag) selfTag.visible = !hideNames && !spectator;
     }
@@ -3612,6 +4147,13 @@ export function createRuntime(scene: Scene) {
     if (dressed.get(group) === key) return;
     dressed.set(group, key);
     dressPerson(group, lookById(id), { color, hat, owned: trust ? wallet.owned : [], trustOwned: trust });
+    // Shop hats visor / tophat / headphones have no branch in avatar.ts
+    // dressPerson, so the player (and remotes) would render no hat at all
+    // for them — addHat renders them here instead. Beanie already has a
+    // dressPerson branch; cap / antenna / crown do too.
+    if (hat === "visor" || hat === "tophat" || hat === "headphones") {
+      addHat(group, HAT_BOX, hat);
+    }
   }
 
   function camTitle() {
@@ -3630,7 +4172,10 @@ export function createRuntime(scene: Scene) {
   }
 
   function pullCamera(from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }) {
-    const steps = 18;
+    // 48 samples, not 18: the pulled point used to snap between sample
+    // points in ~0.5u jumps as the car moved past a wall; at 48 the
+    // steps are ~0.2u and the camera smoother below hides the rest.
+    const steps = 48;
     let safe = { x: from.x, y: from.y, z: from.z };
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
@@ -4716,7 +5261,7 @@ export function createRuntime(scene: Scene) {
   }
 
   async function buy(id: string) {
-    const item = SHOP.find((entry) => entry.id === id);
+    const item = SHOP_CATALOG.find((entry) => entry.id === id);
     if (!item) return "Unknown item.";
     if (world.online) {
       try {
@@ -4725,6 +5270,9 @@ export function createRuntime(scene: Scene) {
         equip(item);
         triggerHaptic("success");
         say(String(data.message || "Bought."));
+        // Mission chain: a bought item is the "buy" step (server-verified
+        // against the owned-count snapshot).
+        void attemptMission();
         return String(data.message || "Bought.");
       } catch (err) {
         const message = err instanceof Error ? err.message : "The city refused the purchase.";
@@ -4746,9 +5294,13 @@ export function createRuntime(scene: Scene) {
     return result.message;
   }
 
-  function equip(item: ShopItem) {
+  function equip(item: ShopCatalogItem) {
     if (item.kind === "color") wallet.color = item.value;
     if (item.kind === "hat") wallet.hat = item.value;
+    if (item.kind === "trail") {
+      trail = item.value;
+      saveTrail();
+    }
     if (item.kind === "car") {
       wallet.car = item.value;
       if (carIndex >= 0) retint(cars[carIndex].group, item.value);
@@ -4950,6 +5502,8 @@ export function createRuntime(scene: Scene) {
       chatScope = scope;
       if (world.online) {
         void world.say(clean, scope, lastBody?.x ?? 0, lastBody?.z ?? 0);
+        // Mission chain: saying hello is the "chat" step (client-attested).
+        void attemptMission();
       } else {
         chat.push({ id: net.id, name: wallet.name, text: clean, self: true });
         if (chat.length > 24) chat.shift();
@@ -5138,10 +5692,26 @@ export function createRuntime(scene: Scene) {
         applyMe();
         triggerHaptic("success");
         say(String(data.message || "Claimed."));
+        // Mission chain: a claimed daily is the "daily" step
+        // (server-verified against the daily claim).
+        void attemptMission();
       }).catch((err) => {
         triggerHaptic("error");
         say(err.message);
       });
+    },
+    // Mission chain + new earning (fix-client) — the Missions panel.
+    loadMissions() {
+      void loadMissions();
+    },
+    attemptMission(missionId = "") {
+      void attemptMission(missionId);
+    },
+    buskNow() {
+      buskNow();
+    },
+    takeSafariPhoto(place: string) {
+      takeSafariPhoto(place);
     },
     setAnnouncement(index: number, text: string) {
       void world.setAnnouncement(`hq-${index}`, text).then((data) => say(String(data.message || "Saved."))).catch((err) => say(err.message));
