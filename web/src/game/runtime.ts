@@ -105,11 +105,20 @@ import {
   homeById,
   homesOwnedOn,
   isHomeOwnedOn,
-  type GarageLayout,
-  type HomeDef,
+  type GarageLayout,  HOMES,  type HomeDef,
   type OwnedHome,
   type PlayerHomesSave,
 } from "./homes";
+import {
+  buildCrazyRender,
+  crazyOf,
+  doorPointFor,
+  drawTheaterFrame,
+  effectiveSeason,
+  type CrazyHomeExtras,
+  type CrazyRender,
+  type CrazySeason,
+} from "./crazy";
 import {
   isUniverseId,
   universeDisplayName,
@@ -323,6 +332,16 @@ export interface Snap {
    * the same store twice still switches the tab (App syncs on this). */
   shopStoreNonce: number;
   indoors: string;
+  /** CRAZY: "pool" | "hottub" while the player is in the water, else null. */
+  swimming: "pool" | "hottub" | null;
+  /** CRAZY: home id whose rooftop deck the player is standing on, else null. */
+  onRooftop: string | null;
+  /** CRAZY: home id whose theater show is playing, else null. */
+  theaterPlaying: string | null;
+  /** CRAZY: the effective season on the block right now. */
+  crazySeason: CrazySeason;
+  /** CRAZY: the player's season override ("auto" = date-driven). */
+  seasonOverride: string;
   prompt: string;
   balance: number;
   burned: number;
@@ -1043,7 +1062,7 @@ export function createRuntime(scene: Scene) {
   function loadLocalHomes(): PlayerHomesSave {
     try {
       const parsed = JSON.parse(localStorage.getItem(HOMES_KEY) || "null") as PlayerHomesSave | null;
-      if (parsed && Array.isArray(parsed.homes)) return { homeServer: parsed.homeServer ?? 0, homes: parsed.homes };
+      if (parsed && Array.isArray(parsed.homes)) return { homeServer: parsed.homeServer ?? 0, homes: parsed.homes, season: typeof parsed.season === "string" ? parsed.season : undefined };
     } catch {
       // Fall through to a fresh save.
     }
@@ -1069,7 +1088,22 @@ export function createRuntime(scene: Scene) {
   // parked copy hide — otherwise every owned car parks, active or not,
   // so two owned cars always means two cars in the bay.
   let activeCarHomeId: string | null = null;
-  // Universe picked on the menu (servers 1-5). Persisted so a reload keeps
+  // ---- CRAZY home extras (pool / theater / rooftop / plants / seasons) ----
+  // Rendered as one dynamic group the runtime rebuilds when the owned-home
+  // data changes (see rebuildCrazy); the season override lives on the
+  // save's `homes.season` and the extras on each owned record's `crazy`.
+  let crazyRender: CrazyRender | null = null;
+  let crazyCols: import("./city").Collider[] = [];
+  let crazySig = "";
+  /** "pool" | "hottub" while the player is in the water, else null. */
+  let swimPool: "pool" | "hottub" | null = null;
+  /** Home id whose rooftop deck the player is standing on, else null. */
+  let onRooftop: string | null = null;
+  /** Home id whose theater show is playing, else null. */
+  let theaterPlaying: string | null = null;
+  let theaterFrame = 0;
+  /** NPC indices seated for the current show (waypoints saved to restore). */
+  let theaterGuests: Array<{ index: number; waypoints: Array<{ x: number; z: number }>; wp: number; yaw: number }> = [];  // Universe picked on the menu (servers 1-5). Persisted so a reload keeps
   // the pick; the server id rides on every per-server op.
   let currentUniverse: number | null = (() => {
     const saved = Number(localStorage.getItem("orbitx-universe") || "");
@@ -1670,14 +1704,16 @@ export function createRuntime(scene: Scene) {
     root.add(mesh);
   }
 
-  // The colliders the engine walks on: the city's full set minus the one lift
-  // door blocker that is currently open (so the rider can step out of the cab).
+  // The colliders the engine walks on: the city's full set (plus the CRAZY
+  // extras — rooftop decks, rails, theater seats) minus the one lift door
+  // blocker that is currently open (so the rider can step out of the cab).
   function refreshActiveCols() {
+    const base = crazyCols.length ? [...cityCols, ...crazyCols] : cityCols;
     if (!liftOpen) {
-      activeCols = cityCols;
+      activeCols = base;
     } else {
       const tag = `lift-door:${liftOpen.liftId}:${liftOpen.floor}`;
-      activeCols = cityCols.filter((c) => c.tag !== tag);
+      activeCols = base.filter((c) => c.tag !== tag);
     }
     rebuildColGrid();
   }
@@ -1831,6 +1867,15 @@ export function createRuntime(scene: Scene) {
     liftRide = null;
     liftOpen = null;
     liftPanel = null;
+    // CRAZY extras live under root too, so the group goes with it — drop
+    // the references (the signature reset forces a rebuild on next sync).
+    crazyRender = null;
+    crazyCols = [];
+    crazySig = "";
+    swimPool = null;
+    onRooftop = null;
+    theaterPlaying = null;
+    theaterGuests = [];
     refreshActiveCols();
   }
 
@@ -1884,7 +1929,14 @@ export function createRuntime(scene: Scene) {
           }
         : null;
     if (me.homes) {
-      localHomes = { homeServer: (me.homes.homeServer ?? 0) as PlayerHomesSave["homeServer"], homes: [...(me.homes.homes ?? [])] };
+      const seasonOverride = (me.homes as unknown as { season?: unknown }).season;
+      localHomes = {
+        homeServer: (me.homes.homeServer ?? 0) as PlayerHomesSave["homeServer"],
+        homes: [...(me.homes.homes ?? [])],
+        // Season override rides on the same `homes` JSON object (see
+        // sanitizeHomes) — without it the block never changes season.
+        season: typeof seasonOverride === "string" ? seasonOverride : localHomes.season,
+      };
       saveLocalHomes();
       // Edit Home: owned inventory + placed pieces ride on me.homes.
       // While a piece is being carried the local list is the truth for
@@ -1899,7 +1951,7 @@ export function createRuntime(scene: Scene) {
         // carry instead of duplicating the piece.
         carrying = null;
       }
-    }
+      rebuildCrazy();    }
     wallet.name = me.name;
     saveWallet(wallet);
     // Homes or cars may have changed on the server — re-park the garages.
@@ -2234,6 +2286,7 @@ export function createRuntime(scene: Scene) {
     clearRoot();
     cityCols = next.colliders;
     refreshActiveCols();
+    rebuildCrazy();
     anchors = next.anchors;
     zones = next.zones;
     lifts = next.lifts;
@@ -2432,6 +2485,11 @@ export function createRuntime(scene: Scene) {
       carFlying: driving && carIndex >= 0 && !!(cars[carIndex] && (cars[carIndex].alt > 0 || cars[carIndex].autoAlt != null)),
       ridingBoard: driving && carIndex >= 0 && !!driveParams && driveParams.pushToGo,
       indoors: insideName,
+      swimming: swimPool,
+      onRooftop,
+      theaterPlaying,
+      crazySeason: effectiveSeason(localHomes.season),
+      seasonOverride: localHomes.season ?? "auto",
       prompt,
       balance: wallet.balance,
       burned: wallet.burned,
@@ -5080,7 +5138,9 @@ export function createRuntime(scene: Scene) {
         publish();
       }
     }
-    // NPC patrol: walk the loop of waypoints around the home spot, pausing
+    // CRAZY extras: pool swim, theater screen, rooftop presence (also in
+    // orbit view, so the show keeps playing on the screen).
+    tickCrazy(body);    // NPC patrol: walk the loop of waypoints around the home spot, pausing
     // at each stop; face the player while talking.
     for (const [index, npc] of npcs.entries()) {
       // Walk-cycle speed from real displacement (same rule as the player).
@@ -6954,7 +7014,7 @@ export function createRuntime(scene: Scene) {
     localHomes = result.save;
     saveLocalHomes();
     syncHomeGarages();
-    triggerHaptic("success");
+    rebuildCrazy();    triggerHaptic("success");
     publish();
     say(`Bought ${home.name} for ${result.price} City Sol. Saved on this device only.`);
     return `Bought ${home.name} for ${result.price} City Sol.`;
@@ -7245,6 +7305,291 @@ export function createRuntime(scene: Scene) {
         partyProps.add(table, leg, leg2);
         root.add(partyProps);
       }
+    }
+  }
+
+  // ---- CRAZY home extras -------------------------------------------------
+  // Pool / hot tub, home theater, penthouse rooftop, plants, seasons.
+  // City Sol only; the server (api/city.js CRAZY section) is the authority
+  // and the data lives on the owned record in the existing `homes` JSON.
+  // Offline the extras need the server — the local save has no CRAZY ops.
+
+  /** The server for CRAZY ops: the picked universe, else 1 (demo save). */
+  function crazyServer(): 1 | 2 | 3 | 4 | 5 {
+    return (currentUniverse ?? 1) as 1 | 2 | 3 | 4 | 5;
+  }
+
+  /** Rebuild the CRAZY render group from the owned homes on this universe.
+   * Skipped when nothing changed (applyMe runs on every poll, and a
+   * rebuild is a fresh set of InstancedMeshes). */
+  function rebuildCrazy() {
+    const server = crazyServer();
+    const owned = localHomes.homes
+      .filter((h) => h.server === server)
+      .map((h) => ({ home: homeById(h.homeId), extras: crazyOf(h) }))
+      .filter((entry): entry is { home: HomeDef; extras: CrazyHomeExtras } => !!entry.home);
+    const season: CrazySeason = effectiveSeason(localHomes.season);
+    const sig = JSON.stringify({ server, season, owned: owned.map(({ home, extras }) => [home.id, extras]) });
+    if (sig === crazySig) return;
+    crazySig = sig;
+    // A show on a theater that is gone (or on another universe) stops.
+    if (theaterPlaying && !owned.some(({ home, extras }) => home.id === theaterPlaying && extras.theater)) {
+      stopTheater();
+    }
+    if (crazyRender) root.remove(crazyRender.group);
+    crazyRender = buildCrazyRender(owned, HOMES, season);
+    root.add(crazyRender.group);
+    crazyCols = crazyRender.colliders;
+    refreshActiveCols();
+  }
+
+  /** One CRAZY server op. Applies the returned `me` (balance + homes) and
+   * refreshes the render; returns the server's message. */
+  async function crazyOp(op: string, extra: Record<string, unknown> = {}) {
+    if (!world.online) {
+      const message = "CRAZY extras need the city server — play online to buy them.";
+      say(message);
+      triggerHaptic("error");
+      return { ok: false as const, message };
+    }
+    try {
+      const data = await cityOp(op, { server: crazyServer(), ...extra });
+      if (data.me) applySaveMe(data.me);
+      rebuildCrazy();
+      triggerHaptic("success");
+      const message = String(data.message || "Done.");
+      say(message);
+      publish();
+      return { ok: true as const, message, data };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "The city refused that.";
+      say(message);
+      triggerHaptic("error");
+      return { ok: false as const, message };
+    }
+  }
+
+  /** CRAZY status for the Home panel: owned homes on this universe (each
+   * with its extras + tier), the effective season and the override. */
+  async function crazyStatus() {
+    if (world.online && currentUniverse) {
+      try {
+        const data = await cityOp("crazy-status", { server: currentUniverse });
+        if (data.me) applySaveMe(data.me);
+        const mine = (data.mine as OwnedHome[]) || [];
+        return {
+          ok: true as const,
+          mine,
+          season: String(data.season || "summer") as CrazySeason,
+          seasonOverride: String(data.seasonOverride || "auto"),
+        };
+      } catch (err) {
+        return {
+          ok: false as const,
+          message: err instanceof Error ? err.message : "Could not load CRAZY extras.",
+          mine: [] as OwnedHome[],
+          season: "summer" as CrazySeason,
+          seasonOverride: "auto",
+        };
+      }
+    }
+    const server = currentUniverse ?? 0;
+    return {
+      ok: true as const,
+      mine: localHomes.homes.filter((h) => h.server === server),
+      season: effectiveSeason(localHomes.season),
+      seasonOverride: localHomes.season ?? "auto",
+    };
+  }
+
+  function crazyBuyPool(homeId: string, kind: "pool" | "hottub") {
+    return crazyOp("crazy-buy-pool", { home: homeId, kind });
+  }
+  function crazyBuyTheater(homeId: string) {
+    return crazyOp("crazy-buy-theater", { home: homeId });
+  }
+  function crazyBuyRooftop(homeId: string) {
+    return crazyOp("crazy-rooftop", { home: homeId });
+  }
+  function crazyBuyPlant(homeId: string, kind: string) {
+    return crazyOp("crazy-buy-plant", { home: homeId, kind });
+  }
+  function crazyWaterPlant(homeId: string, plantId: string) {
+    return crazyOp("crazy-water-plant", { home: homeId, plant: plantId });
+  }
+  function crazyHarvestPlant(homeId: string, plantId: string) {
+    return crazyOp("crazy-harvest-plant", { home: homeId, plant: plantId });
+  }
+  function crazyBuyDecor(homeId: string, kind: string) {
+    return crazyOp("crazy-buy-decor", { home: homeId, kind });
+  }
+  function crazySetSeason(season: string) {
+    return crazyOp("crazy-season", { season });
+  }
+
+  /** Start the show on an owned home's theater: the screen plays and the
+   * nearest NPCs (up to 6, within 60 units of the home) come sit and watch
+   * with you. Seats are the theater rows from crazy.ts. */
+  function watchTheater(homeId: string) {
+    const render = crazyRender;
+    if (!render || !render.screens.has(homeId)) {
+      say("No theater here yet — buy one from the Home panel first.");
+      publish();
+      return;
+    }
+    stopTheater(true);
+    theaterPlaying = homeId;
+    theaterFrame = 0;
+    const seats = render.seats.get(homeId) ?? [];
+    const screen = render.screens.get(homeId);
+    const taken = new Set<number>();
+    for (const seat of seats) {
+      let best = -1;
+      let bestD = 60;
+      npcs.forEach((npc, index) => {
+        if (taken.has(index)) return;
+        const dist = Math.hypot(npc.x - seat.x, npc.z - seat.z);
+        if (dist < bestD) {
+          best = index;
+          bestD = dist;
+        }
+      });
+      if (best < 0) continue;
+      const npc = npcs[best];
+      if (!npc) continue;
+      taken.add(best);
+      theaterGuests.push({ index: best, waypoints: npc.waypoints, wp: npc.wp, yaw: npc.yaw });
+      npc.x = seat.x;
+      npc.z = seat.z;
+      npc.waypoints = [{ x: seat.x, z: seat.z }];
+      npc.wp = 0;
+      npc.waitUntil = Number.POSITIVE_INFINITY;
+      if (screen) npc.yaw = Math.atan2(screen.mesh.position.x - seat.x, screen.mesh.position.z - seat.z);
+    }
+    say(theaterGuests.length ? `Showtime — ${theaterGuests.length} friend${theaterGuests.length === 1 ? "" : "s"} came to watch.` : "Showtime — the screen is playing.");
+    triggerHaptic("success");
+    publish();
+  }
+
+  /** Stop the show: the screen goes idle and the seated NPCs go back to
+   * their patrol loops. */
+  function stopTheater(silent = false) {
+    if (!theaterPlaying && !theaterGuests.length) return;
+    for (const guest of theaterGuests) {
+      const npc = npcs[guest.index];
+      if (!npc) continue;
+      npc.waypoints = guest.waypoints;
+      npc.wp = guest.wp;
+      npc.yaw = guest.yaw;
+      npc.waitUntil = 0;
+    }
+    theaterGuests = [];
+    const homeId = theaterPlaying;
+    theaterPlaying = null;
+    if (homeId && crazyRender) {
+      const screen = crazyRender.screens.get(homeId);
+      if (screen) {
+        drawTheaterFrame(screen.canvas, screen.ctx, 0, "", false);
+        screen.texture.needsUpdate = true;
+      }
+    }
+    if (!silent) say("Show's over.");
+  }
+
+  /** Up to an owned penthouse rooftop deck (the stair bulkhead is the way
+   * down — the trip itself is this button). */
+  function goToRooftop(homeId: string) {
+    const deck = crazyRender?.rooftops.get(homeId);
+    if (!deck || !lastBody) {
+      say("No rooftop here yet — penthouses can buy one from the Home panel.");
+      publish();
+      return;
+    }
+    if (driving) exitCar(lastBody);
+    lastBody.x = deck.x;
+    lastBody.z = deck.z;
+    lastBody.y = deck.deckY;
+    lastBody.vy = 0;
+    lastBody.flying = false;
+    onRooftop = homeId;
+    say("Rooftop — the whole city from up here.");
+    triggerHaptic("door");
+    publish();
+  }
+
+  /** Back down from a rooftop deck to the front door. */
+  function goDownstairs(homeId: string) {
+    const home = homeById(homeId);
+    const anchor = anchors.find((a) => a.id === homeId);
+    if (!lastBody) return;
+    if (anchor) stepInside(anchor, lastBody);
+    else if (home) {
+      const pt = doorPointFor(home);
+      lastBody.x = pt.x + pt.nx * 2;
+      lastBody.z = pt.z + pt.nz * 2;
+      lastBody.y = 0;
+      lastBody.vy = 0;
+      lastBody.flying = false;
+    }
+    onRooftop = null;
+    say("Back downstairs.");
+    publish();
+  }
+
+  // ---- CRAZY per-frame: pool swim, theater screen, rooftop presence ----
+  function tickCrazy(body: Body) {
+    // Swim: standing in an owned pool / hot tub floats the player at the
+    // waterline (gravity pulls them down each tick; this re-floats them
+    // after physics, before the frame renders). Out of the water the
+    // player drops back to the ground.
+    let inPool: "pool" | "hottub" | null = null;
+    let waterY = 0;
+    if (!driving && !body.flying && crazyRender) {
+      for (const pool of crazyRender.pools) {
+        if (body.x > pool.minX && body.x < pool.maxX && body.z > pool.minZ && body.z < pool.maxZ && body.y < 1.2) {
+          inPool = pool.kind;
+          waterY = pool.waterY;
+          break;
+        }
+      }
+    }
+    if (inPool) {
+      body.y = waterY;
+      body.vy = 0;
+      body.onGround = true;
+    }
+    if (inPool !== swimPool) {
+      swimPool = inPool;
+      if (inPool) say(inPool === "pool" ? "Swimming — walk out to get dry." : "In the hot tub — nice.");
+      publish();
+    }
+    // Rooftop presence: standing on a deck (feet near its deckY, inside
+    // the home footprint) marks the rooftop for the Home panel.
+    let roof: string | null = null;
+    if (crazyRender && body.y > 3.2) {
+      for (const [homeId, deck] of crazyRender.rooftops) {
+        const home = deck.home;
+        if (body.x > home.x0 && body.x < home.x0 + home.w && body.z > home.z0 && body.z < home.z0 + home.d && Math.abs(body.y - deck.deckY) < 1.5) {
+          roof = homeId;
+          break;
+        }
+      }
+    }
+    if (roof !== onRooftop) {
+      onRooftop = roof;
+      publish();
+    }
+    // Theater: advance the show a few frames a second while it plays.
+    if (theaterPlaying && crazyRender) {
+      const screen = crazyRender.screens.get(theaterPlaying);
+      if (screen) {
+        theaterFrame++;
+        if (theaterFrame % 4 === 0) {
+          drawTheaterFrame(screen.canvas, screen.ctx, theaterFrame, "ORBITX FM", true);
+          screen.texture.needsUpdate = true;
+        }
+      } else {
+        stopTheater();      }
     }
   }
 
@@ -8465,6 +8810,47 @@ export function createRuntime(scene: Scene) {
     peopleCollectRent() {
       return peopleCollectRent();
     },
+    // CRAZY home extras — pool / theater / rooftop / plants / seasons.
+    // All City Sol, all per (player, universe), all on the owned record.
+    crazyStatus() {
+      return crazyStatus();
+    },
+    crazyBuyPool(homeId: string, kind: "pool" | "hottub") {
+      return crazyBuyPool(homeId, kind);
+    },
+    crazyBuyTheater(homeId: string) {
+      return crazyBuyTheater(homeId);
+    },
+    crazyBuyRooftop(homeId: string) {
+      return crazyBuyRooftop(homeId);
+    },
+    crazyBuyPlant(homeId: string, kind: string) {
+      return crazyBuyPlant(homeId, kind);
+    },
+    crazyWaterPlant(homeId: string, plantId: string) {
+      return crazyWaterPlant(homeId, plantId);
+    },
+    crazyHarvestPlant(homeId: string, plantId: string) {
+      return crazyHarvestPlant(homeId, plantId);
+    },
+    crazyBuyDecor(homeId: string, kind: string) {
+      return crazyBuyDecor(homeId, kind);
+    },
+    crazySetSeason(season: string) {
+      return crazySetSeason(season);
+    },
+    watchTheater(homeId: string) {
+      watchTheater(homeId);
+    },
+    stopTheater() {
+      stopTheater();
+      publish();
+    },
+    goToRooftop(homeId: string) {
+      goToRooftop(homeId);
+    },
+    goDownstairs(homeId: string) {
+      goDownstairs(homeId);    },
     // Fast travel to a property the player owns: one tap in the HUD's
     // "My Props" panel lands the player inside the place (the same
     // stepInside() the door prompt uses — HQ lobby, tower lobby, or the
