@@ -126,7 +126,8 @@ import {
   universeTravel,
   type UniverseId,
 } from "./multiverse";
-import { bridgeGateFor, stateById } from "./states";
+import { bridgeGateFor, DOCKS, stateById } from "./states";
+import { isWater, WATER_SURFACE_Y } from "./water";
 import {
   EMOTES,
   FURNITURE,
@@ -2038,6 +2039,11 @@ export function createRuntime(scene: Scene) {
       spawnShowroomCars();
       return;
     }
+    // A boat never spawns on the Motors forecourt (land) — a bought or
+    // rented boat moors at the home south ferry dock, where the water is.
+    // A car never reuses a dock spot either: if the shop-row car was a
+    // boat, the next car goes back to the forecourt.
+    const isBoatSpawn = getVehicle(entry.id)?.kind === "boat";
     let x = 202;
     let z = -69;
     let yaw = Math.PI / 2;
@@ -2051,11 +2057,19 @@ export function createRuntime(scene: Scene) {
       if (shopSpot >= 0) {
         const old = cars[shopSpot];
         root.remove(old.group);
-        x = old.x;
-        z = old.z;
-        yaw = old.yaw;
+        if (!isBoatSpawn && !isWater(old.x, old.z)) {
+          x = old.x;
+          z = old.z;
+          yaw = old.yaw;
+        }
         cars.splice(shopSpot, 1);
       }
+    }
+    if (isBoatSpawn) {
+      const dock = DOCKS.find((d) => d.id === "south-home")!;
+      x = dock.boat.x;
+      z = dock.boat.z;
+      yaw = dock.boat.yaw;
     }
     group.position.set(x, 0.12, z);
     group.rotation.y = Math.PI / 2 - yaw;
@@ -2402,6 +2416,18 @@ export function createRuntime(scene: Scene) {
       root.add(group);
       cars.push({ id: spawn.id, group, x: spawn.x, z: spawn.z, yaw: spawn.yaw, lean: 0, alt: 0, autoAlt: null });
     });
+    // Ferry docks (states.ts DOCKS): one free Orbit Ferry moored at every
+    // strait shore. Boarding is free — enterCar never checks ownership —
+    // and the boats respawn with the city on every begin() (clearRoot
+    // empties cars[] first, so no duplicates). White on the home shores,
+    // cyan on the state shores.
+    for (const dock of DOCKS) {
+      const group = buildVehicle("boat-ferry", dock.side === "home" ? "white" : "cyan");
+      group.position.set(dock.boat.x, WATER_SURFACE_Y, dock.boat.z);
+      group.rotation.y = Math.PI / 2 - dock.boat.yaw;
+      root.add(group);
+      cars.push({ id: `dock-${dock.id}`, group, x: dock.boat.x, z: dock.boat.z, yaw: dock.boat.yaw, lean: 0, vehicleId: "boat-ferry", alt: 0, autoAlt: null });
+    }
     beacon = new Mesh(box, MATERIALS.cyanhot);
     beacon.scale.set(0.35, 1.4, 0.35);
     beacon.visible = false;
@@ -3660,6 +3686,7 @@ export function createRuntime(scene: Scene) {
     // that Jump climbs the car.
     if (driveParams && driveParams.climb > 0) say(touch ? FLY_CONTROLS.touchNote : FLY_CONTROLS.note);
     else if (kind === "skateboard") say(touch ? "Hold Gas to push." : "Hold W to push.");
+    else if (kind === "boat") say(touch ? "Hold Gas to sail. Steer with the stick. E to get out." : "Hold W to sail — A / D to steer. E to get out.");
     else say("Press E to get out.");
     if (!droveQuest && world.online) {
       droveQuest = true;
@@ -3692,8 +3719,17 @@ export function createRuntime(scene: Scene) {
         car.group.position.y = driveParams?.hover ?? 0.12;
       }
       const drop = (car.group.userData.kind as string) === "skateboard" ? 1.2 : 2.6;
-      body.x = car.x + Math.cos(car.yaw) * drop;
-      body.z = car.z + Math.sin(car.yaw) * drop;
+      if ((car.group.userData.kind as string) === "boat") {
+        // Boats exit forward, off the bow — the side exit would put the
+        // player in the water beside the hull, while the bow is beached
+        // at the water's edge. Forward (2.6 = the bow margin in drive())
+        // lands them on the far shore.
+        body.x = car.x + Math.sin(car.yaw) * drop;
+        body.z = car.z - Math.cos(car.yaw) * drop;
+      } else {
+        body.x = car.x + Math.cos(car.yaw) * drop;
+        body.z = car.z + Math.sin(car.yaw) * drop;
+      }
       body.y = 0;
     }
     carIndex = -1;
@@ -3725,6 +3761,8 @@ export function createRuntime(scene: Scene) {
     const ctrl = keys.has("ControlLeft") || keys.has("ControlRight");
     const car = cars[carIndex];
     if (!car) return;
+    // Boats sail on the water, not the road — see the boat branch below.
+    const isBoat = (car.group.userData.kind as string) === "boat";
     // Per-vehicle physics (cached on enterCar; ambient cars fall back to
     // the city sedan's numbers, which match the old hard-coded constants).
     const params: DriveParams = driveParams ?? {
@@ -3813,11 +3851,45 @@ export function createRuntime(scene: Scene) {
     }
     const nx = car.x + Math.sin(car.yaw) * carSpeed * dt;
     const nz = car.z - Math.cos(car.yaw) * carSpeed * dt;
+    // Boat fit test: the bow and the stern (half-length + a 0.4 margin
+    // past the nose, so the hull never clips the shore slab) must both
+    // stay over water, the centre must stay clear of the pier decks, and
+    // parked boats stay solid.
+    const boatOk = (x: number, z: number) => {
+      const halfLen = ((car.group.userData.length as number) || 4.4) / 2 + 0.4;
+      const fx = Math.sin(car.yaw);
+      const fz = -Math.cos(car.yaw);
+      return (
+        isWater(x + fx * halfLen, z + fz * halfLen) &&
+        isWater(x - fx * halfLen, z - fz * halfLen) &&
+        !boatPierHit(x, z) &&
+        !otherCarHit(x, z)
+      );
+    };
     // Above 2 units the car is over the colliders — skip collision entirely.
     // Parked cars are solid too (otherCarHit): before, the `blocked`
     // callback only covered world colliders, so parked cars were ghosts.
     const blockedAt = (x: number, z: number) => blocked(x, z) || otherCarHit(x, z);
-    if (car.alt > 2 || !blockedAt(nx, nz)) {
+    if (isBoat) {
+      // Boats sail on the water: world colliders do not apply — the boat
+      // passes under the magic-bridge decks in its lane — but the hull
+      // must stay in the water, so it stops at the shore and the player
+      // steps out on the far side on foot. Same slide-along-the-shore as
+      // cars get along walls.
+      if (boatOk(nx, nz)) {
+        car.x = nx;
+        car.z = nz;
+      } else if (boatOk(nx, car.z)) {
+        car.x = nx;
+        carSpeed *= 0.6;
+      } else if (boatOk(car.x, nz)) {
+        car.z = nz;
+        carSpeed *= 0.6;
+      } else {
+        carSpeed *= 0.2;
+        triggerHaptic("carHit");
+      }
+    } else if (car.alt > 2 || !blockedAt(nx, nz)) {
       car.x = nx;
       car.z = nz;
     } else {
@@ -3848,7 +3920,9 @@ export function createRuntime(scene: Scene) {
     // axis and a substep moves at most ~1 unit, so the car cannot tunnel
     // through; landings sit 2 units clear of the opposite gate, so no
     // ping-pong. Flying cars above the colliders skip it (they fly over).
-    if (car.alt <= 2) {
+    // Boats skip it too: the whole point of the ferry is to SAIL the
+    // strait, not hop it — and the boat's lane never crosses a gate rect.
+    if (!isBoat && car.alt <= 2) {
       const gate = bridgeGateFor(car.x, car.z);
       if (gate) {
         car.x = gate.landing.x;
@@ -3868,7 +3942,9 @@ export function createRuntime(scene: Scene) {
     const steer = steerSm;
     car.lean += (steer * params.lean - car.lean) * Math.min(1, dt * 8);
     const bob = Math.sin(clock * 5) * 0.05;
-    car.group.position.set(car.x, params.hover + car.alt + bob, car.z);
+    // Boats float on the water surface (WATER_SURFACE_Y), not on the road
+    // hover — no altitude, no flying, just a gentle bob.
+    car.group.position.set(car.x, isBoat ? WATER_SURFACE_Y + bob : params.hover + car.alt + bob, car.z);
     car.group.rotation.y = Math.PI / 2 - car.yaw;
     // Wheels spin with the road speed. Helicopter main rotors and
     // propellers ("rotor" / "prop" meshes, see vehicles.ts) spin while
@@ -3972,6 +4048,18 @@ export function createRuntime(scene: Scene) {
       const side = dx * -fz + dz * fx;
       return Math.abs(along) < len / 2 + 1.8 && Math.abs(side) < wid / 2 + 1.0;
     });
+  }
+
+  // Ferry piers are solid to boats (centre test, boat half-width margin):
+  // a boat cannot sail through the wooden deck it moors beside. Cars
+  // never reach the piers — they are out in the water — so this only
+  // runs on the boat branch of drive().
+  function boatPierHit(x: number, z: number): boolean {
+    return DOCKS.some(
+      (d) =>
+        x >= d.pier.x0 - 1.2 && x <= d.pier.x1 + 1.2 &&
+        z >= d.pier.z0 - 1.2 && z <= d.pier.z1 + 1.2,
+    );
   }
 
   function consumeLook(body: Body) {
@@ -5516,7 +5604,10 @@ export function createRuntime(scene: Scene) {
         // only the car fallback and the zone title remain. Nothing in
         // range: clear the prompt (leaving it untouched kept "Press E to
         // drive" on screen 30-40 m after the player walked away).
-        if (nearestCar(body, 7) >= 0) prompt = "Press E to drive";
+        const nearCar = nearestCar(body, 7);
+        if (nearCar >= 0) {
+          prompt = (cars[nearCar]?.group.userData.kind as string) === "boat" ? "Press E to sail — free ferry" : "Press E to drive";
+        }
         else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : zone.kind === "grocery" ? "OrbitX Grocery — checkout at the back" : zone.id.startsWith("home-") && ownHomeId(zone.id) ? `${zoneTitle(zone)} — press X to edit your home` : lot?.ownerId === world.id ? `${lot.name} — press X to decorate` : zoneTitle(zone);
         else prompt = "";
       }
