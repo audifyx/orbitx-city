@@ -1016,13 +1016,19 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
         d: fbd,
         h: height,
         style,
-        door: "",
-        enterable: false,
+        // 2026-11-12: blocks are real buildings now — a door on the
+        // street face and a furnished ground floor (see the shell loop
+        // below). `tiers` is dropped on purpose: pretty renders tiered
+        // facades as solid stacked boxes with no door gap, so a tiered
+        // block would stay sealed; as a flat hollow shell it reads as a
+        // tall enterable building instead.
+        door: face,
+        enterable: true,
         hero: false,
         face,
         roof,
         roofMat,
-        tiers,
+        tiers: undefined,
         storefront,
         awning,
         cornice,
@@ -1038,21 +1044,47 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
       while (y < height && guard < 8) {
         guard++;
         const slice = Math.min(8, height - y);
-        y = shell(
-          boxes,
-          cols,
-          fbx,
-          y,
-          fbz,
-          fbw,
-          slice,
-          fbd,
-          (u, ly, f) => {
-            const len = f === "n" || f === "s" ? fbw : fbd;
-            return facadeSample(style, len)(u, ly);
-          },
-          "black",
-        );
+        if (y === 0) {
+          // Ground floor: a real enterable interior, not a sealed shell.
+          // shellOpen leaves the 4-wide door gap in the wall colliders
+          // (the same gap pretty's hollow() renders), then furnishBlock
+          // fills the room. Upper slices stay sealed shells — the
+          // ceiling collider (y 3.5..3.75) keeps the player on the
+          // ground floor. shellOpen returns nothing, so y advances the
+          // same way shell() would (slice + the roof slab).
+          shellOpen(
+            boxes,
+            cols,
+            fbx,
+            0,
+            fbz,
+            fbw,
+            slice,
+            fbd,
+            (u, ly, f, len) => (hole(f, face, u, ly, len) ? "air" : facadeSample(style, len)(u, ly)),
+            "black",
+            face,
+          );
+          const def = blockKindFor(fbx, fbz, style);
+          zones.push(furnishBlock(boxes, cols, fbx, fbz, fbw, fbd, face, def, `block-${x0}-${z0}`));
+          y = slice + 1;
+        } else {
+          y = shell(
+            boxes,
+            cols,
+            fbx,
+            y,
+            fbz,
+            fbw,
+            slice,
+            fbd,
+            (u, ly, f) => {
+              const len = f === "n" || f === "s" ? fbw : fbd;
+              return facadeSample(style, len)(u, ly);
+            },
+            "black",
+          );
+        }
         // Setback decisions run on the ORIGINAL rect so the main rng draws
         // in exactly the original order; the visible rect mirrors the step.
         if (y < height && bw > 16 && bd > 16 && height - y > 8 && rng() > 0.35) {
@@ -2957,6 +2989,254 @@ function furnishNightclub(boxes: Box[], cols: Collider[], x0: number, z0: number
     signY: 2.35,
     signZ: cz + 5,
     signRot: Math.PI / 2,
+  };
+}
+
+// ---- filler blocks: real interiors for the sealed `block-*` shells ----
+// 2026-11-12 audit: 65 base-city blocks were sealed shells — hollow voxel
+// walls, a solid collider, a pretty solid box, no door, no inside. Each
+// one now gets a furnished ground-floor interior (same finish language as
+// the venues: wallpaper/paint, ceiling + beams, plants, rug, counter,
+// side furniture, paintings) and its own zone, with the door on its
+// street face. Every furniture offset is derived from w/d and clamped,
+// never a fixed number, so the smallest block (14x13) fits without
+// clipping a wall and the 4-wide door lane stays clear of solid
+// furniture. `id` is the facade id (unique), so the runtime's
+// zones.find(id === "shop") lookups still hit the real venues first.
+
+type BlockKindDef = { kind: Zone["kind"]; name: string; accent: Mat; floor: Mat };
+
+const BLOCK_KINDS: BlockKindDef[] = [
+  { kind: "shop", name: "Corner Shop", accent: "gold", floor: "cream" },
+  { kind: "cafe", name: "Street Cafe", accent: "warm", floor: "wood" },
+  { kind: "market", name: "Corner Market", accent: "red", floor: "cream" },
+  { kind: "bank", name: "Neighborhood Bank", accent: "cyan", floor: "stone" },
+  { kind: "library", name: "Reading Room", accent: "wood", floor: "wood" },
+  { kind: "gym", name: "Corner Gym", accent: "red", floor: "black" },
+  { kind: "museum", name: "Mini Museum", accent: "gold", floor: "cream" },
+  { kind: "hall", name: "Community Hall", accent: "white", floor: "wood" },
+  { kind: "office", name: "District Office", accent: "cyan", floor: "cream" },
+  { kind: "hotel", name: "Roadside Inn", accent: "warm", floor: "wood" },
+];
+
+// Deterministic pick from the footprint — no rng draws, so the main
+// sequence (heights, styles, street life) never moves.
+function blockKindFor(x0: number, z0: number, style: number): BlockKindDef {
+  const h = Math.abs(Math.floor(x0) * 31 + Math.floor(z0) * 17 + style * 7);
+  return BLOCK_KINDS[h % BLOCK_KINDS.length] as BlockKindDef;
+}
+
+// Room-space point: `a` runs along the door wall, `t` runs inward from
+// the door wall (0 = door wall, T = back wall).
+function blockPoint(door: Face, x0: number, z0: number, w: number, d: number, a: number, t: number) {
+  if (door === "n") return { x: x0 + a, z: z0 + t };
+  if (door === "s") return { x: x0 + w - a, z: z0 + d - t };
+  if (door === "w") return { x: x0 + t, z: z0 + a };
+  return { x: x0 + w - t, z: z0 + d - a };
+}
+
+// Furnished ground-floor interior for one filler block. w/d are the
+// (possibly wing-shrunk) footprint the shell loop built; the room fits
+// any w>=13, d>=13. Returns the block's zone (id = the facade id).
+function furnishBlock(
+  boxes: Box[],
+  cols: Collider[],
+  x0: number,
+  z0: number,
+  w: number,
+  d: number,
+  door: Face,
+  def: BlockKindDef,
+  id: string,
+): Zone {
+  const { kind, name, accent, floor } = def;
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  const alongX = door === "n" || door === "s";
+  const S = alongX ? w : d; // span along the door wall
+  const T = alongX ? d : w; // depth, door wall -> back wall
+  // put/col in room coords: (a along the door wall, t inward), with a
+  // size (sa along the wall, st deep) and a centre height y.
+  const rput = (a: number, t: number, sa: number, y: number, sy: number, st: number, mat: Mat) => {
+    const p = blockPoint(door, x0, z0, w, d, a, t);
+    put(boxes, p.x, y, p.z, alongX ? sa : st, sy, alongX ? st : sa, mat);
+  };
+  const rcol = (a: number, t: number, sa: number, y: number, sy: number, st: number) => {
+    const p = blockPoint(door, x0, z0, w, d, a, t);
+    cols.push(col(p.x, y, p.z, alongX ? sa : st, sy, alongX ? st : sa));
+  };
+
+  // Shell finish: floor, ceiling, cladding, striped wallpaper, beams,
+  // plants flanking the door.
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, floor);
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  wallpaperWalls(boxes, x0, z0, w, d, door, "white", accent);
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+
+  // Rug: centre, or pulled toward the door when a centre piece exists.
+  const big = S >= 17 && T >= 16;
+  const rugT = big ? T * 0.3 : T * 0.52;
+  rput(S / 2, rugT, Math.min(6, S - 6), 0.145, 0.05, Math.min(4, T - 6), accent);
+
+  // Back piece on the wall opposite the door, centred (the door lane
+  // ends here, at the service point). Width clamped clear of the corners.
+  const backW = Math.min(6.4, S - 6.4);
+  const backT = T - 2.4;
+  if (kind === "library") {
+    rput(S / 2, backT, backW, 1.1, 2.2, 1.15, "wood");
+    rcol(S / 2, backT, backW, 1.1, 2.2, 1.15);
+    for (let i = 0; i < 3; i++) {
+      rput(S / 2 - 2 + i * 2, backT, 0.4, 2.4, 0.4, 0.4, (["red", "cyan", "gold"] as Mat[])[i] as Mat);
+    }
+  } else if (kind === "gym") {
+    rput(S / 2, backT, backW, 0.9, 1.8, 1.0, "black");
+    rcol(S / 2, backT, backW, 0.9, 1.8, 1.0);
+    rput(S / 2, backT, 1.6, 1.95, 0.3, 0.6, "gold");
+  } else if (kind === "museum") {
+    rput(S / 2, backT, backW, 0.45, 0.9, 1.1, "stone");
+    rcol(S / 2, backT, backW, 0.45, 0.9, 1.1);
+    rput(S / 2, backT, 0.7, 1.2, 0.5, 0.7, "gold");
+  } else if (kind === "hall") {
+    // Low stage platform (walkable, no collider) + curtain panel on the
+    // back wall above it.
+    rput(S / 2, backT, Math.min(9, S - 4), 0.06, 0.12, 2.2, "wood");
+    rput(S / 2, T - 1.4, Math.min(9, S - 4), 1.7, 1.6, 0.1, accent);
+  } else {
+    rput(S / 2, backT, backW, 0.55, 1.05, 1.15, kind === "hotel" ? "stone" : "wood");
+    rcol(S / 2, backT, backW, 0.55, 1.05, 1.15);
+    rput(S / 2, backT, backW + 0.2, 1.15, 0.12, 1.25, "stone");
+    rput(S / 2, backT, 0.35, 1.55, 0.55, 0.35, "gold");
+    if (kind === "cafe") {
+      for (const side of [-1, 1]) {
+        rput(S / 2 + side * 2.8, T - 3.8, 0.45, 0.4, 0.45, 0.45, "black");
+        rcol(S / 2 + side * 2.8, T - 3.8, 0.45, 0.4, 0.45, 0.45);
+      }
+    } else if (kind === "bank") {
+      for (const side of [-1, 1]) {
+        rput(S / 2 + side * 2.8, T - 3.6, 0.15, 0.55, 1.1, 0.15, "gold");
+      }
+    } else if (kind === "office") {
+      for (const side of [-1, 1]) {
+        rput(S / 2 + side * 2.8, T - 3.8, 0.45, 0.4, 0.45, 0.45, "black");
+        rcol(S / 2 + side * 2.8, T - 3.8, 0.45, 0.4, 0.45, 0.45);
+      }
+    }
+  }
+
+  // Side furniture: two units per side wall, at 38% and 66% of the depth
+  // — clear of the door-corner plants (t~2.6), the back-corner plants
+  // (t~T-2.6) and the back piece.
+  // Each unit is one solid piece with a couple of bits on top.
+  const sideUnit = (a: number, t: number) => {
+    if (kind === "shop" || kind === "market") {
+      rput(a, t, 0.9, 1.2, 2.4, 2.4, "wood");
+      rcol(a, t, 0.9, 1.2, 2.4, 2.4);
+      for (let i = 0; i < 2; i++) {
+        rput(a, t - 0.6 + i * 1.2, 0.4, 2.6, 0.4, 0.4, (["cyan", "gold"] as Mat[])[i] as Mat);
+      }
+    } else if (kind === "cafe") {
+      rput(a, t, 1.0, 0.75, 0.1, 1.4, "wood");
+      rput(a, t, 0.2, 0.35, 0.7, 0.2, "black");
+      rcol(a, t, 1.0, 0.4, 0.8, 1.4);
+      rput(a + (a < S / 2 ? 1.1 : -1.1), t, 0.45, 0.4, 0.45, 0.45, "black");
+      rcol(a + (a < S / 2 ? 1.1 : -1.1), t, 0.45, 0.4, 0.45, 0.45);
+    } else if (kind === "library") {
+      rput(a, t, 0.9, 1.1, 2.2, 2.4, "wood");
+      rcol(a, t, 0.9, 1.1, 2.2, 2.4);
+      for (let i = 0; i < 3; i++) {
+        rput(a, t - 0.7 + i * 0.7, 0.4, 2.4, 0.4, 0.4, (["red", "cyan", "gold"] as Mat[])[i] as Mat);
+      }
+    } else if (kind === "gym") {
+      rput(a, t, 1.0, 0.4, 0.45, 2.4, "wood");
+      rcol(a, t, 1.0, 0.4, 0.45, 2.4);
+      rput(a, t - 0.6, 0.4, 0.75, 0.3, 0.4, "black");
+      rput(a, t + 0.6, 0.4, 0.75, 0.3, 0.4, "black");
+    } else if (kind === "museum") {
+      rput(a, t, 1.0, 0.55, 1.1, 1.1, "stone");
+      rcol(a, t, 1.0, 0.55, 1.1, 1.1);
+      rput(a, t, 0.5, 1.35, 0.5, 0.5, "cyan");
+    } else if (kind === "bank") {
+      rput(a, t, 0.9, 0.45, 0.85, 1.1, "black");
+      rcol(a, t, 0.9, 0.45, 0.85, 1.1);
+      rput(a, t, 0.15, 0.55, 1.1, 0.15, "gold");
+    } else if (kind === "hotel") {
+      rput(a, t, 1.1, 0.4, 0.45, 2.4, "warm");
+      rcol(a, t, 1.1, 0.4, 0.45, 2.4);
+      rput(a, t, 0.5, 0.7, 0.25, 0.5, "gold");
+    } else if (kind === "office") {
+      rput(a, t, 1.0, 0.55, 0.9, 2.2, "wood");
+      rcol(a, t, 1.0, 0.55, 0.9, 2.2);
+      rput(a, t, 0.5, 1.2, 0.6, 0.1, "cyan");
+    } else {
+      // hall: bench.
+      rput(a, t, 1.0, 0.4, 0.45, 2.4, "wood");
+      rcol(a, t, 1.0, 0.4, 0.45, 2.4);
+      rput(a, t, 0.5, 0.7, 0.2, 0.5, accent);
+    }
+  };
+  for (const a of [1.9, S - 1.9]) {
+    sideUnit(a, T * 0.38);
+    sideUnit(a, T * 0.66);
+  }
+
+  // Centre piece in big rooms only (the door lane runs around it, the
+  // way the venue islands do).
+  if (big) {
+    if (kind === "museum") {
+      rput(S / 2, T * 0.5, 1.0, 0.55, 1.1, 1.1, "stone");
+      rcol(S / 2, T * 0.5, 1.0, 0.55, 1.1, 1.1);
+      rput(S / 2, T * 0.5, 0.5, 1.35, 0.5, 0.5, "gold");
+    } else if (kind === "gym") {
+      rput(S / 2, T * 0.5, 3.2, 0.06, 0.12, 2.2, "red");
+    } else if (kind !== "hall") {
+      rput(S / 2, T * 0.5, 3.2, 0.5, 1.0, 1.6, "wood");
+      rcol(S / 2, T * 0.5, 3.2, 0.5, 1.0, 1.6);
+      rput(S / 2, T * 0.5, 3.4, 1.05, 0.12, 1.8, "stone");
+    }
+  }
+
+  // Paintings on the side walls at mid-depth (roomy enough to clear the
+  // side units), a floor lamp mid-room, plants in the back corners.
+  const sideRot = (atStart: boolean): number => {
+    if (door === "n") return atStart ? Math.PI / 2 : -Math.PI / 2;
+    if (door === "s") return atStart ? -Math.PI / 2 : Math.PI / 2;
+    if (door === "w") return atStart ? 0 : Math.PI;
+    return atStart ? Math.PI : 0;
+  };
+  if (T >= 15) {
+    for (const atStart of [true, false]) {
+      const a = atStart ? 1.65 : S - 1.65;
+      const p = blockPoint(door, x0, z0, w, d, a, T / 2);
+      voxelPainting(boxes, p.x, 1.9, p.z, sideRot(atStart), 1.6, 1.4);
+    }
+  }
+  {
+    const lamp = blockPoint(door, x0, z0, w, d, S - 2.6, T * 0.5);
+    floorLamp(boxes, cols, lamp.x, lamp.z);
+  }
+  for (const a of [2.6, S - 2.6]) {
+    const p = blockPoint(door, x0, z0, w, d, a, T - 2.6);
+    pottedPlant(boxes, cols, p.x, p.z);
+  }
+
+  const back = opposite(door, x0, z0, w, d, 2.4);
+  const service = opposite(door, x0, z0, w, d, 4.1);
+  return {
+    id,
+    name,
+    kind,
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX: service.x,
+    serviceZ: service.z,
+    signX: back.x + (door === "w" ? -0.55 : door === "e" ? 0.55 : 0),
+    signY: 2.35,
+    signZ: back.z + (door === "n" ? -0.55 : door === "s" ? 0.55 : 0),
+    signRot: back.rot,
   };
 }
 
