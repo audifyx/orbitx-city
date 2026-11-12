@@ -349,6 +349,9 @@ export interface Snap {
   // GTA expansion: garage / multiverse / emergency / district panels.
   vehicles: OwnedVehicle[];
   activeVehicle: string | null;
+  // True when the active car drove out of a home garage — its parked
+  // copy hides and the garage panel says it waits out front.
+  activeCarOut: boolean;
   // GTA garage rental — the live rental, or null (server is the authority).
   rental: ActiveRental | null;
   universe: { id: number; name: string; isHome: boolean } | null;
@@ -871,6 +874,10 @@ export function createRuntime(scene: Scene) {
   let garageHomeId: string | null = null;
   let homeGarageGroups: Group[] = [];
   let homeGarageSig = "";
+  // The home whose garage the active car drove out of (null = it is at
+  // the Motors forecourt / not out of a garage). Only then does its
+  // parked copy hide — otherwise every owned car parks, active or not,
+  // so two owned cars always means two cars in the bay.
   // Universe picked on the menu (servers 1-5). Persisted so a reload keeps
   // the pick; the server id rides on every per-server op.
   let currentUniverse: number | null = (() => {
@@ -1600,8 +1607,11 @@ export function createRuntime(scene: Scene) {
     ownedCarIndex = -1;
     // The garage groups live under root too — drop them with it, and
     // clear the signature so the next sync rebuilds them on the new root.
+    // The active car respawns at the Motors forecourt on a rebuild, so
+    // it is not "out of a garage" any more either.
     homeGarageGroups = [];
     homeGarageSig = "";
+    activeCarHomeId = null;
     remotes.clear();
     beacon = null;
     packageMesh = null;
@@ -1694,7 +1704,11 @@ export function createRuntime(scene: Scene) {
     return localVehicles.find((v) => v.id === localActiveVehicle) ?? { id: localActiveVehicle, color: wallet.car };
   }
 
-  function spawnActiveCar(spot?: { x: number; z: number; yaw: number }) {
+  function spawnActiveCar(spot?: { x: number; z: number; yaw: number }, atHomeId?: string | null) {
+    // A spawn at a garage drive-out spot marks the car "out of a garage"
+    // (its parked copy hides until it comes back); every other spawn —
+    // shop forecourt, world build, rental end — parks it again.
+    activeCarHomeId = atHomeId ?? null;
     if (ownedCarIndex >= 0) {
       const old = cars[ownedCarIndex];
       if (old) root.remove(old.group);
@@ -1743,9 +1757,10 @@ export function createRuntime(scene: Scene) {
   // --- Home garages: park your own cars at home --------------------------
   // The bay + parked cars for every home owned on the current universe.
   // Pure display (buildVehicle models in their owned colours) plus the
-  // GARAGE sign on the home's front wall. The ACTIVE car is never parked
-  // here — it is the one out driving — so no car ever shows twice. A
-  // home the player does not own gets no bay, no sign, no cars.
+  // GARAGE sign on the home's front wall. Every owned car parks here —
+  // the only one that hides is the car that drove out of a garage (see
+  // activeCarHomeId): it is waiting out front, not in the bay. A home
+  // the player does not own gets no bay, no sign, no cars.
 
   /** The server the garage reads: the picked universe, else 1 (the offline buy-home default). */
   function garageServer(): 1 | 2 | 3 | 4 | 5 {
@@ -1772,6 +1787,7 @@ export function createRuntime(scene: Scene) {
       homes: owned.map((h) => h.homeId),
       cars: localVehicles.map((v) => `${v.id}:${v.color ?? ""}`),
       active: localActiveVehicle,
+      activeHome: activeCarHomeId,
     });
     if (sig === homeGarageSig) return;
     homeGarageSig = sig;
@@ -1820,10 +1836,10 @@ export function createRuntime(scene: Scene) {
       sign.rotation.y = layout.sign.rot;
       group.add(sign);
       // The owned cars, parked nose-out in their slots — every owned car
-      // except the active one, which is out driving.
+      // except the one that drove out of a garage, which waits out front.
       let slot = 0;
       for (const v of localVehicles) {
-        if (v.id === localActiveVehicle) continue;
+        if (v.id === localActiveVehicle && activeCarHomeId !== null) continue;
         if (slot >= layout.slots.length) break;
         const spot = layout.slots[slot] as { x: number; z: number; yaw: number };
         slot++;
@@ -2258,6 +2274,7 @@ export function createRuntime(scene: Scene) {
       trail,
       vehicles: [...localVehicles],
       activeVehicle: localActiveVehicle,
+      activeCarOut: activeCarHomeId !== null,
       rental: localRental ? { ...localRental } : null,
       universe: currentUniverse
         ? { id: currentUniverse, name: universeDisplayName(currentUniverse as UniverseId), isHome: universeIsHome }
@@ -5845,7 +5862,7 @@ export function createRuntime(scene: Scene) {
     return `Bought ${v.name} for ${v.price} City Sol.`;
   }
 
-  async function selectCar(id: string, spot?: { x: number; z: number; yaw: number }) {
+  async function selectCar(id: string, spot?: { x: number; z: number; yaw: number }, homeId?: string | null) {
     if (!world.online && !localVehicles.some((v) => v.id === id)) {
       triggerHaptic("error");
       return "You do not own that vehicle.";
@@ -5860,7 +5877,7 @@ export function createRuntime(scene: Scene) {
       try {
         await world.selectCar(id, currentUniverse);
         applyMe();
-        spawnActiveCar(spot);
+        spawnActiveCar(spot, homeId);
         triggerHaptic("success");
         publish();
         say("Selected.");
@@ -5874,7 +5891,7 @@ export function createRuntime(scene: Scene) {
     }
     localActiveVehicle = id;
     saveLocalVehicles();
-    spawnActiveCar(spot);
+    spawnActiveCar(spot, homeId);
     publish();
     say("Selected. Saved on this device only.");
     return "Selected.";
@@ -5891,7 +5908,7 @@ export function createRuntime(scene: Scene) {
     const layout = garageLayoutFor(home, localVehicles.length);
     const slotIndex = Math.max(0, localVehicles.findIndex((v) => v.id === id));
     const spot = layout.driveOut[Math.min(slotIndex, layout.driveOut.length - 1)] as { x: number; z: number; yaw: number };
-    const message = await selectCar(id, spot);
+    const message = await selectCar(id, spot, home.id);
     if (message.startsWith("Selected")) {
       say("Selected — it is waiting out front. Walk out and press E to drive.");
       return "Selected — it is waiting out front. Walk out and press E to drive.";

@@ -613,9 +613,9 @@ export function isHomeOwnedOn(save: PlayerHomesSave, homeId: string, server: Ser
 // The garage is a bay in front of the home, to one side of the door so
 // the front path stays clear. The cars in it are the player's OWNED cars
 // from the per-server save (save.vehicles) — no new data, no new column.
-// The active car is never parked here: it is the one out driving (or
-// waiting on the OrbitX Motors forecourt / the garage drive-out spot),
-// so the bay never shows a car twice.
+// Every owned car parks here; the only one that hides is the car that
+// drove out of a garage (activeCarHomeId in runtime.ts) — it waits out
+// front until another car is picked or it is respawned at the shop.
 
 /** Max cars shown parked in one home garage (the panel lists them all). */
 export const GARAGE_MAX_SLOTS = 4;
@@ -682,7 +682,7 @@ export function garageLayoutFor(home: HomeDef, carCount: number): GarageLayout {
     slots,
     driveOut,
     service: { x: cx + fx * bayOut + sx * bayLat, z: cz + fz * bayOut + sz * bayLat },
-    sign: { x: cx + fx * (fd + 0.18) + sx * bayLat, y: 3.0, z: cz + fz * (fd + 0.18) + sz * bayLat, rot: Math.atan2(fx, fz) },
+    sign: { x: cx + fx * (fd + 0.18) + sx * bayLat, y: 4.2, z: cz + fz * (fd + 0.18) + sz * bayLat, rot: Math.atan2(fx, fz) },
   };
 }
 

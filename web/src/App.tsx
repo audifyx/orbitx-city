@@ -304,6 +304,7 @@ const EMPTY: Snap = {
   trail: "none",
   vehicles: [],
   activeVehicle: null,
+  activeCarOut: false,
   rental: null,
   universe: null,
   haptics: false,
@@ -1761,7 +1762,11 @@ export default function App() {
                               {car.color ?? v.defaultColor}
                             </span>
                             <span>Speed {v.stats.speed}/10 · Accel {v.stats.accel}/10 · Handling {v.stats.handling}/10 · {v.stats.seats} seats</span>
-                            {active ? <span>The selected car — it is waiting out front.</span> : <span>Parked in the garage.</span>}
+                            {active ? (
+                              <span>{snap.activeCarOut ? "The selected car — it is waiting out front." : "The selected car — parked in the garage."}</span>
+                            ) : (
+                              <span>Parked in the garage.</span>
+                            )}
                           </div>
                           {active ? (
                             <button type="button" disabled>Selected</button>
