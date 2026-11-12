@@ -1769,7 +1769,6 @@ function buildBoat(v: VehicleDef, color?: string): Group {
   group.userData.wheelR = 0;
   return group;
 }
-}
 
 /**
  * Build a THREE.Group for a catalog vehicle.
