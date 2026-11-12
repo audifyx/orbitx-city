@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
 import type { AdOrder, PanelName, RadioTrack, Runtime, Snap } from "./game/runtime";
+import { PHOTO_LANDMARKS } from "./game/runtime";
+import { loadLooks } from "./game/avatar";
 import { adUsdPrice } from "./game/content";
 import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
@@ -166,6 +168,13 @@ const EMPTY: Snap = {
   talk: null,
   photos: { taken: 0, spots: [] },
   wishes: 0,
+  missions: [],
+  missionMsg: "",
+  missionsLoaded: false,
+  buskReadyAt: 0,
+  photosToday: [],
+  photoMsg: "",
+  trail: "none",
   vehicles: [],
   activeVehicle: null,
   universe: null,
@@ -341,6 +350,27 @@ export default function App() {
     };
   }, []);
 
+  // Keep the mission chain fresh while the Missions panel is open — the
+  // list, progress and rewards all come from the server, never local.
+  useEffect(() => {
+    if (panel !== "missions") return;
+    gameRef.current?.runtime.loadMissions();
+  }, [panel]);
+
+  // Config-fetch failure guard (menu): if /config/characters.json fails,
+  // avatar.ts silently falls back to a one-character roster (TJR). Show
+  // that visibly on the menu instead of letting the player wonder where
+  // the twelve characters went.
+  const [looksFailed, setLooksFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void loadLooks().then((list) => {
+      if (live && list.length <= 1) setLooksFailed(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   // Keep the office directory live while the Offices panel is open — the
   // list, prices and claim state all come from the server, never local.
   useEffect(() => {
@@ -620,6 +650,7 @@ export default function App() {
         <div className="actions">
           <button type="button" onClick={() => open("shop")}>Shop</button>
           <button type="button" onClick={() => open("jobs")}>Jobs</button>
+          <button type="button" onClick={() => open("missions")}>Missions</button>
           <button type="button" onClick={() => open("ads")}>Ads</button>
           <button type="button" onClick={() => open("radio")}>Radio</button>
           <button type="button" onClick={() => open("offices")}>Offices</button>
@@ -675,6 +706,7 @@ export default function App() {
               <strong>
                 {panel === "shop" && "OrbitX shop"}
                 {panel === "jobs" && "Jobs"}
+                {panel === "missions" && "Missions"}
                 {panel === "ads" && "Book a billboard"}
                 {panel === "radio" && "Radio"}
                 {panel === "offices" && "OrbitX Tower offices"}
@@ -713,6 +745,83 @@ export default function App() {
                     </article>
                   );
                 })}
+              </div>
+            )}
+            {panel === "missions" && (
+              <div className="list">
+                <p className="muted">
+                  Six missions, in order — each one pays City Sol into this universe&apos;s save. 800 in total. Steps are confirmed by the city server: visit a place, say hello in chat, take a car for a drive, work a job, claim your daily, or buy from the shop.
+                </p>
+                {snap.missionMsg ? <p>{snap.missionMsg}</p> : null}
+                {!snap.missionsLoaded && !snap.missionMsg ? <p>Loading missions…</p> : null}
+                {snap.missions.map((mission, index) => {
+                  const prev = snap.missions[index - 1];
+                  return (
+                    <article key={mission.id}>
+                      <div>
+                        <b>{mission.name} — {mission.reward} City Sol</b>
+                        <span>{mission.desc}</span>
+                        <span>
+                          {mission.steps.map((step, i) => (
+                            <span key={step}>
+                              {i < mission.step || mission.done ? "✓ " : i === mission.step ? "→ " : "· "}
+                              {step}
+                              {i < mission.steps.length - 1 ? " · " : ""}
+                            </span>
+                          ))}
+                        </span>
+                        <span>
+                          {mission.done
+                            ? "Done."
+                            : !mission.unlocked
+                              ? `Locked — finish ${prev?.name ?? "the previous mission"} first.`
+                              : `Step ${mission.step + 1} of ${mission.steps.length}`}
+                        </span>
+                      </div>
+                      {mission.unlocked && !mission.done ? (
+                        <button type="button" onClick={() => gameRef.current?.runtime.attemptMission(mission.id)}>
+                          Check step
+                        </button>
+                      ) : null}
+                    </article>
+                  );
+                })}
+                <h3>Busk</h3>
+                <p className="muted">Play the plaza corner — 20 City Sol per set, once a minute per universe. Stand at the corner and the set starts; press E right on each beat.</p>
+                <article>
+                  <div>
+                    <b>Busk at the plaza</b>
+                    <span>
+                      {snap.buskReadyAt > Date.now()
+                        ? `Cooldown — ready in ${Math.ceil((snap.buskReadyAt - Date.now()) / 1000)}s.`
+                        : "Ready — stand at the plaza corner and play."}
+                    </span>
+                  </div>
+                  <button type="button" onClick={() => gameRef.current?.runtime.buskNow()}>
+                    Busk
+                  </button>
+                </article>
+                <h3>Photo Safari</h3>
+                <p className="muted">15 City Sol per landmark, once per landmark per day. {snap.photosToday.length}/8 done today — max 120 a day.</p>
+                {PHOTO_LANDMARKS.map((spot) => {
+                  const done = snap.photosToday.includes(spot.id);
+                  return (
+                    <article key={spot.id}>
+                      <div>
+                        <b>{done ? "✓ " : ""}{spot.name}</b>
+                        <span>{done ? "Photographed today." : "15 City Sol — stand at the landmark and snap it."}</span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={done}
+                        onClick={() => gameRef.current?.runtime.takeSafariPhoto(spot.id)}
+                      >
+                        {done ? "Done" : "Take photo"}
+                      </button>
+                    </article>
+                  );
+                })}
+                {snap.photoMsg ? <p>{snap.photoMsg}</p> : null}
               </div>
             )}
             {panel === "jobs" && (
@@ -1567,6 +1676,14 @@ export default function App() {
       ) : null}
       {menu && (
         <section className={menuStep === "roster" ? "menu menu-roster" : "menu"} id="menu">
+          {menu && looksFailed ? (
+            <p
+              className="menu-warning"
+              style={{ background: "#f4f6fa", color: "#111318", padding: "10px 14px", borderRadius: 8, maxWidth: 560, margin: "12px auto", textAlign: "center" }}
+            >
+              Character list failed to load — only TJR is available right now. Check your connection and reload to see all twelve characters.
+            </p>
+          ) : null}
           {menuStep === "home" ? (
             <MenuHome
               gate={gate}
