@@ -26,6 +26,7 @@
 
 import {
   BoxGeometry,
+  Color,
   CylinderGeometry,
   Group,
   Mesh,
@@ -1633,7 +1634,7 @@ function partMaterial(mat: PartMat, paint: MeshStandardMaterial, tint = 0): Mate
     case "glass": {
       // Window tint: darker + less see-through as the level rises.
       const t = Math.max(0, Math.min(3, tint)) / 3;
-      const c = new THREEColor().setHex(0xbfe6ff).lerp(new THREEColor().setHex(0x0a0f14), t);
+      const c = new Color().setHex(0xbfe6ff).lerp(new Color().setHex(0x0a0f14), t);
       return new MeshStandardMaterial({
         color: c.getHex(), emissive: 0x3d7fa8, emissiveIntensity: 0.55 * (1 - t * 0.8),
         roughness: 0.12, metalness: 0.35, transparent: true, opacity: 0.85 - t * 0.4,
@@ -1666,8 +1667,8 @@ function partMaterial(mat: PartMat, paint: MeshStandardMaterial, tint = 0): Mate
 export function dirtPaintHex(hex: number, dirt: number): number {
   const d = Math.max(0, Math.min(100, dirt)) / 100;
   if (d <= 0) return hex;
-  const c = new THREEColor(hex);
-  c.lerp(new THREEColor(0x6b543a), d * 0.6);
+  const c = new Color(hex);
+  c.lerp(new Color(0x6b543a), d * 0.6);
   return c.getHex();
 }
 

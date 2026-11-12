@@ -311,6 +311,7 @@ const EMPTY: Snap = {
   activeVehicle: null,
   activeCarOut: false,
   rental: null,
+  garage: { slots: 0, workshop: false, showroom: false },
   universe: null,
   haptics: false,
   emergency: null,

@@ -70,13 +70,28 @@ import { GOLD, MATERIALS } from "./materials";
 import { accountToken, readAccount } from "../auth";
 import { world, type CityMe } from "./world";
 import {
+  accumulateWear,
   buildVehicle,
+  CUSTOM_PAINT_HEX,
+  dirtPaintHex,
   driveParamsFor,
+  garageCap,
+  garageUpgradePrice,
   getVehicle,
+  modPrice,
+  normalizeGarage,
+  normalizeMods,
+  normalizeWear,
+  paintHex,
+  repairCost,
+  washCost,
+  DEFAULT_GARAGE,
   FLY_CONTROLS,
   VEHICLE_COLORS,
   type DriveParams,
+  type GarageUpgrades,
   type OwnedVehicle,
+  type VehicleMods,
 } from "./vehicles";
 import { ensureWalker, animateWalk, makeCameraSmoother } from "./movement";
 import { triggerHaptic, isHapticsEnabled, setHapticsEnabled } from "./haptics";
@@ -367,6 +382,8 @@ export interface Snap {
   activeCarOut: boolean;
   // GTA garage rental — the live rental, or null (server is the authority).
   rental: ActiveRental | null;
+  // CARS expansion — garage upgrades on this universe's save.
+  garage: GarageUpgrades;
   universe: { id: number; name: string; isHome: boolean } | null;
   haptics: boolean;
   emergency: { kind: string; name: string } | null;
@@ -854,11 +871,16 @@ function makeCar(skin: string, style: number, vehicleId?: string) {
   return group;
 }
 
-function retint(group: Group, skin: string) {
+function retint(group: Group, skin: string, dirt = 0) {
   const paints = group.userData.paints as MeshStandardMaterial[] | undefined;
   if (!paints) return;
-  const color = COLORS[skin] ?? VEHICLE_COLORS[skin] ?? COLORS.black;
-  for (const material of paints) material.color.setHex(color);
+  // paintHex resolves shop colours, "#rrggbb" AND premium custom paints
+  // (matte-black, chrome…); COLORS covers the legacy wallet colour keys.
+  // A dirty car stays dirty through a repaint — the wash resets it.
+  const known = skin.startsWith("#") || skin in VEHICLE_COLORS || skin in CUSTOM_PAINT_HEX;
+  const color = known ? paintHex(skin, "black") : COLORS[skin] ?? VEHICLE_COLORS.black;
+  const dirty = dirtPaintHex(color, dirt);
+  for (const material of paints) material.color.setHex(dirty);
 }
 
 export function wantsTouch() {
@@ -898,6 +920,27 @@ export function createRuntime(scene: Scene) {
   function saveLocalVehicles() {
     try {
       localStorage.setItem(VEHICLES_KEY, JSON.stringify({ vehicles: localVehicles, activeVehicle: localActiveVehicle }));
+    } catch {
+      // The offline garage still works for this session.
+    }
+  }
+
+  // CARS expansion — garage upgrades, per-(player, universe) on the
+  // server (save.homes.garage). Offline they live in their own
+  // localStorage key, the same pattern as localVehicles.
+  const GARAGE_KEY = "orbitx-demo-garage-v1";
+  function loadLocalGarage(): GarageUpgrades {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(GARAGE_KEY) || "null") as Partial<GarageUpgrades> | null;
+      return normalizeGarage(parsed);
+    } catch {
+      return { ...DEFAULT_GARAGE };
+    }
+  }
+  let localGarage = loadLocalGarage();
+  function saveLocalGarage() {
+    try {
+      localStorage.setItem(GARAGE_KEY, JSON.stringify(localGarage));
     } catch {
       // The offline garage still works for this session.
     }
@@ -956,6 +999,13 @@ export function createRuntime(scene: Scene) {
   // Skateboard push cadence: seconds until the next push impulse may fire
   // while the push control is held (see drive()).
   let pushCooldown = 0;
+  // CARS wear, tracked while driving the owned car: distance since the
+  // last sync (dirt) and crashes since the last sync (damage). Flushed
+  // to the server every 20s and on exitCar; the server clamps the report.
+  let wearDistance = 0;
+  let wearCrashes = 0;
+  let wearSyncAt = 0;
+  let lastCrashAt = 0;
   // Steering input, smoothed (drive() eases toward the target instead of
   // taking the raw binary stick/key value).
   let steerSm = 0;
@@ -1712,6 +1762,13 @@ export function createRuntime(scene: Scene) {
       localVehicles = [...me.vehicles];
       saveLocalVehicles();
     }
+    // Garage upgrades come back on me (publicPlayer) — the server is the
+    // authority, the local copy is only the offline fallback.
+    const nextGarage = (me as CityMe & { garage?: GarageUpgrades }).garage ?? me.homes?.garage;
+    if (nextGarage) {
+      localGarage = normalizeGarage(nextGarage);
+      saveLocalGarage();
+    }
     if (typeof me.activeVehicle === "string" || me.activeVehicle === null) {
       localActiveVehicle = me.activeVehicle;
     }
@@ -1783,12 +1840,16 @@ export function createRuntime(scene: Scene) {
     const entry = activeVehicleEntry();
     if (!entry) {
       syncHomeGarages();
+      spawnShowroomCars();
       return;
     }
     let group: Group;
     try {
-      group = buildVehicle(entry.id, entry.color);
+      // The owned entry carries its mods + wear — the car spawns looking
+      // (and, on enterCar, driving) exactly as the player left it.
+      group = buildVehicle(entry.id, entry.color, { mods: normalizeMods(entry.mods), wear: normalizeWear(entry) });
     } catch {
+      spawnShowroomCars();
       return;
     }
     let x = 202;
@@ -1817,6 +1878,7 @@ export function createRuntime(scene: Scene) {
     ownedCarIndex = cars.length - 1;
     // The active car just left (or joined) the garage — re-park the rest.
     syncHomeGarages();
+    spawnShowroomCars();
   }
 
   // --- Home garages: park your own cars at home --------------------------
@@ -1951,6 +2013,47 @@ export function createRuntime(scene: Scene) {
     triggerHaptic("tap");
     publish();
   }
+
+
+  // Showroom: when the player owns the showroom upgrade, the rest of the
+  // collection parks on display in a row along the south edge of the
+  // OrbitX Motors apron (z = -74.5, clear of the scenery display cars at
+  // z = -62 and the bought-car bay at (202, -69)) — real buildVehicle
+  // models in their own mods + wear. They are parked cars: solid, and the
+  // player can get in any of them and drive it. The row rebuilds whenever
+  // the active car respawns; a car being driven is never yanked out of the
+  // row mid-drive.
+  function spawnShowroomCars() {
+    const drivenCar = driving && carIndex >= 0 ? cars[carIndex] : null;
+    const ownedCar = ownedCarIndex >= 0 ? cars[ownedCarIndex] : null;
+    for (let i = cars.length - 1; i >= 0; i--) {
+      const car = cars[i];
+      if (!car.id.startsWith("showroom-") || car === drivenCar) continue;
+      root.remove(car.group);
+      cars.splice(i, 1);
+    }
+    if (drivenCar) carIndex = cars.indexOf(drivenCar);
+    if (ownedCar) ownedCarIndex = cars.indexOf(ownedCar);
+    if (!localGarage.showroom) return;
+    const displayed = new Set(drivenCar?.vehicleId ? [drivenCar.vehicleId] : []);
+    localVehicles
+      .filter((v) => v.id !== localActiveVehicle)
+      .slice(0, 8)
+      .forEach((entry, i) => {
+        if (displayed.has(entry.id)) return;
+        let group: Group;
+        try {
+          group = buildVehicle(entry.id, entry.color, { mods: normalizeMods(entry.mods), wear: normalizeWear(entry) });
+        } catch {
+          return;
+        }
+        const x = 190 + i * 4.5;
+        const z = -74.5;
+        group.position.set(x, 0.12, z);
+        group.rotation.y = 0;
+        root.add(group);
+        cars.push({ id: `showroom-${entry.id}`, group, x, z, yaw: Math.PI / 2, lean: 0, vehicleId: entry.id, alt: 0, autoAlt: null });
+      });  }
 
   function upsertRemote(state: NetState) {
     if (!state?.id || state.id === world.id || state.id === net.id) return;
@@ -2363,6 +2466,7 @@ export function createRuntime(scene: Scene) {
       activeVehicle: localActiveVehicle,
       activeCarOut: activeCarHomeId !== null,
       rental: localRental ? { ...localRental } : null,
+      garage: { ...localGarage },
       universe: currentUniverse
         ? { id: currentUniverse, name: universeDisplayName(currentUniverse as UniverseId), isHome: universeIsHome }
         : null,
@@ -3296,14 +3400,17 @@ export function createRuntime(scene: Scene) {
     const car = cars[index];
     if (!car) return;
     car.alt = 0;
+    // Per-vehicle physics — the owned entry's mods + wear change the
+    // numbers (engine/tires up, dirt/damage down). Ambient cars fall back
+    // to stock via normalizeMods/normalizeWear.
+    const ownedEntry = car.vehicleId ? localVehicles.find((v) => v.id === car.vehicleId) : undefined;
     try {
-      driveParams = driveParamsFor(car.vehicleId ?? "city-sedan");
+      driveParams = driveParamsFor(car.vehicleId ?? "city-sedan", { mods: normalizeMods(ownedEntry?.mods), wear: normalizeWear(ownedEntry) });
     } catch {
       driveParams = null;
     }
     // Catalog cars wear their owned paint, not the repaint-only wallet color.
-    const owned = car.vehicleId ? localVehicles.find((v) => v.id === car.vehicleId) : undefined;
-    retint(car.group, owned?.color ?? wallet.car);
+    retint(car.group, ownedEntry?.color ?? wallet.car, ownedEntry ? normalizeWear(ownedEntry).dirt : 0);
     const kind = (car.group.userData.kind as string) || "car";
     // Touch gets the touch wording — the desktop note ("Hold Space…")
     // names a key a phone does not have, so the player never learned
@@ -3321,6 +3428,9 @@ export function createRuntime(scene: Scene) {
   }
 
   function exitCar(body: Body) {
+    // Wear syncs first, while carIndex still points at the driven car —
+    // flushWear resolves the entry from it (a rental resolves to nothing).
+    flushWear();
     const car = cars[carIndex];
     driving = false;
     // A held Gas/Brake button can unmount while held (panel opens, car
@@ -3480,6 +3590,12 @@ export function createRuntime(scene: Scene) {
       } else {
         // Soft stop, not a bounce: keep the direction, kill most of the
         // speed. (The old code flipped the car into reverse at -0.25x.)
+        // A dead stop at speed is a crash: damage for the owned car
+        // (1s cooldown, so pushing against a wall is one crash, not sixty).
+        if (carIndex === ownedCarIndex && Math.abs(carSpeed) > 3 && Date.now() - lastCrashAt > 1000) {
+          lastCrashAt = Date.now();
+          wearCrashes += 1;
+        }
         carSpeed *= 0.2;
         triggerHaptic("carHit");
       }
@@ -3526,6 +3642,56 @@ export function createRuntime(scene: Scene) {
     body.z = car.z;
     body.yaw = car.yaw;
     body.vy = 0;
+    // CARS wear: every unit driven dirties the owned car a little; the
+    // running total syncs to the server every 20s (see flushWear).
+    if (carIndex === ownedCarIndex && ownedCarIndex >= 0) {
+      wearDistance += Math.abs(carSpeed) * dt;
+      if (Date.now() - wearSyncAt > 20000) {
+        wearSyncAt = Date.now();
+        flushWear();
+      }
+    }
+  }
+
+  // Flush the wear counters to the car the player owns: the local entry
+  // updates at once (so the garage panel bars move), the server applies
+  // the same accumulateWear rule. The entry resolves from the DRIVEN
+  // car's id, not localActiveVehicle — a live rental takes the shop-row
+  // spot, and rentals never wear (they are not in localVehicles, so the
+  // lookup misses and the counters just reset). The live car's paint is
+  // retinted in place so dirt shows without respawning the car.
+  function flushWear() {
+    if (wearDistance < 1 && wearCrashes === 0) return;
+    const distance = wearDistance;
+    const crashes = wearCrashes;
+    wearDistance = 0;
+    wearCrashes = 0;
+    const drivenId = driving && carIndex >= 0 ? cars[carIndex]?.vehicleId : localActiveVehicle;
+    const entry = drivenId ? localVehicles.find((v) => v.id === drivenId) : undefined;
+    if (!entry) return;
+    const next = accumulateWear(normalizeWear(entry), distance, crashes);
+    entry.dirt = next.dirt;
+    entry.damage = next.damage;
+    saveLocalVehicles();
+    if (driving && carIndex >= 0 && cars[carIndex]?.vehicleId === entry.id) {
+      retint(cars[carIndex].group, entry.color, next.dirt);
+    }
+    if (world.online) {
+      if (!currentUniverse) {
+        publish();
+        return;
+      }
+      void world.syncVehicleWear(entry.id, Math.round(distance), crashes, currentUniverse)
+        .then(() => {
+          applyMe();
+          publish();
+        })
+        .catch(() => {
+          // The local entry already carries the wear; the next flush
+          // retries the server write.
+        });
+    }
+    publish();
   }
 
   function carBlocks(x: number, y: number, z: number) {
@@ -6061,6 +6227,15 @@ export function createRuntime(scene: Scene) {
       triggerHaptic("error");
       return "Unknown vehicle.";
     }
+    // CARS: the garage holds 3 cars + 2 per slots tier (max 9) — the
+    // server enforces the same cap; refuse early here with the same
+    // message so the panel explains it before the buy is attempted.
+    if (localVehicles.length >= garageCap(localGarage)) {
+      const message = "Your garage is full — upgrade it to park more cars.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
     if (world.online) {
       if (!currentUniverse) {
         const message = "Pick a universe on the menu first.";
@@ -6161,8 +6336,268 @@ export function createRuntime(scene: Scene) {
     if (message.startsWith("Selected")) {
       say("Selected — it is waiting out front. Walk out and press E to drive.");
       return "Selected — it is waiting out front. Walk out and press E to drive.";
+    }    return message;
+  }
+
+  // CARS expansion — customize / wash / repair / garage upgrades.
+  // Online the server is the price authority (same shape as buyCar);
+  // offline the same prices apply against the local wallet and the
+  // changes are saved on this device only.
+  async function customizeCar(id: string, mod: string, value: unknown) {
+    const entry = localVehicles.find((v) => v.id === id);
+    if (!entry) {
+      triggerHaptic("error");
+      return "You do not own that vehicle.";
     }
+    if (world.online) {
+      if (!currentUniverse) {
+        const message = "Pick a universe on the menu first.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+      try {
+        const data = await world.customizeCar(id, mod, value, currentUniverse);
+        applyMe();
+        spawnActiveCar();
+        triggerHaptic("success");
+        publish();
+        say(String(data.message || "Fitted."));
+        return String(data.message || "Fitted.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused the mod.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+    }
+    if (mod === "paint" && typeof value === "string" && value in VEHICLE_COLORS) {
+      const message = "That paint is free in the shop — premium paints only here.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+    const price = modPrice(mod, value);
+    if (price == null) {
+      const message = "That mod is not available.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+    const mods = normalizeMods(entry.mods);
+    if (mod === "paint" && entry.color === value) {
+      say("Already that colour.");
+      return "Already that colour.";
+    }
+    if (mod === "rims" && mods.rims === value) {
+      say("Those rims are already fitted.");
+      return "Those rims are already fitted.";
+    }
+    if (mod === "spoiler" && mods.spoiler === value) {
+      say("That spoiler is already fitted.");
+      return "That spoiler is already fitted.";
+    }
+    if (mod === "neon" && mods.neon === value) {
+      say(value === null ? "No underglow fitted." : "That underglow is already fitted.");
+      return value === null ? "No underglow fitted." : "That underglow is already fitted.";
+    }
+    if (mod === "tint" && mods.tint === Math.floor(Number(value))) {
+      say("That tint is already fitted.");
+      return "That tint is already fitted.";
+    }
+    if (mod === "engine" || mod === "tires") {
+      const level = Math.floor(Number(value));
+      const current = mod === "engine" ? mods.engine : mods.tires;
+      const top = mod === "engine" ? 3 : 2;
+      if (level !== current + 1) {
+        const message = level <= current ? "Already fitted." : "Buy the stages in order.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+      if (level === top && !localGarage.workshop) {
+        const message = "That stage needs your home workshop — upgrade the garage first.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+    }
+    if (wallet.balance < price) {
+      const message = "Not enough City Sol.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+    wallet.balance -= price;
+    saveWallet(wallet);
+    if (mod === "paint") entry.color = String(value);
+    else if (mod === "rims") (mods as VehicleMods).rims = value as VehicleMods["rims"];
+    else if (mod === "spoiler") (mods as VehicleMods).spoiler = value as VehicleMods["spoiler"];
+    else if (mod === "neon") (mods as VehicleMods).neon = value as string | null;
+    else if (mod === "tint") mods.tint = Math.floor(Number(value));
+    else if (mod === "engine") mods.engine = Math.floor(Number(value));
+    else if (mod === "tires") mods.tires = Math.floor(Number(value));
+    entry.mods = mods;
+    saveLocalVehicles();
+    spawnActiveCar();
+    triggerHaptic("success");
+    publish();
+    const message = price === 0 ? "Fitted — free. Saved on this device only." : `Fitted for ${price} City Sol. Saved on this device only.`;
+    say(message);
     return message;
+  }
+
+  async function washCar(id: string) {
+    const entry = localVehicles.find((v) => v.id === id);
+    if (!entry) {
+      triggerHaptic("error");
+      return "You do not own that vehicle.";
+    }
+    if (world.online) {
+      if (!currentUniverse) {
+        const message = "Pick a universe on the menu first.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+      try {
+        const data = await world.washCar(id, currentUniverse);
+        applyMe();
+        spawnActiveCar();
+        triggerHaptic("success");
+        publish();
+        say(String(data.message || "Washed."));
+        return String(data.message || "Washed.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused the wash.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+    }
+    const wear = normalizeWear(entry);
+    if (wear.dirt <= 0) {
+      say("Already clean.");
+      return "Already clean.";
+    }
+    const cost = Math.round(washCost(wear.dirt) * (localGarage.workshop ? 0.75 : 1));
+    if (wallet.balance < cost) {
+      const message = "Not enough City Sol.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+    wallet.balance -= cost;
+    saveWallet(wallet);
+    entry.dirt = 0;
+    saveLocalVehicles();
+    spawnActiveCar();
+    triggerHaptic("success");
+    publish();
+    const message = `Washed clean for ${cost} City Sol. Saved on this device only.`;
+    say(message);
+    return message;
+  }
+
+  async function repairCar(id: string) {
+    const entry = localVehicles.find((v) => v.id === id);
+    if (!entry) {
+      triggerHaptic("error");
+      return "You do not own that vehicle.";
+    }
+    if (world.online) {
+      if (!currentUniverse) {
+        const message = "Pick a universe on the menu first.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+      try {
+        const data = await world.repairCar(id, currentUniverse);
+        applyMe();
+        spawnActiveCar();
+        triggerHaptic("success");
+        publish();
+        say(String(data.message || "Repaired."));
+        return String(data.message || "Repaired.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused the repair.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+    }
+    const wear = normalizeWear(entry);
+    if (wear.damage <= 0) {
+      say("No damage to fix.");
+      return "No damage to fix.";
+    }
+    const cost = Math.round(repairCost(wear.damage) * (localGarage.workshop ? 0.75 : 1));
+    if (wallet.balance < cost) {
+      const message = "Not enough City Sol.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+    wallet.balance -= cost;
+    saveWallet(wallet);
+    entry.damage = 0;
+    saveLocalVehicles();
+    spawnActiveCar();
+    triggerHaptic("success");
+    publish();
+    const message = `Repaired for ${cost} City Sol. Saved on this device only.`;
+    say(message);
+    return message;
+  }
+
+  async function upgradeGarage(upgrade: string) {
+    if (world.online) {
+      if (!currentUniverse) {
+        const message = "Pick a universe on the menu first.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+      try {
+        const data = await world.upgradeGarage(upgrade, currentUniverse);
+        applyMe();
+        spawnActiveCar();
+        triggerHaptic("success");
+        publish();
+        say(String(data.message || "Upgraded."));
+        return String(data.message || "Upgraded.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused the upgrade.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+    }
+    const price = garageUpgradePrice(upgrade, localGarage);
+    if (price == null) {
+      const message = "That upgrade is already owned — or maxed out.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+    if (wallet.balance < price) {
+      const message = "Not enough City Sol.";
+      say(message);
+      triggerHaptic("error");
+      return message;
+    }
+    wallet.balance -= price;
+    saveWallet(wallet);
+    if (upgrade === "slots") localGarage.slots += 1;
+    else if (upgrade === "workshop") localGarage.workshop = true;
+    else if (upgrade === "showroom") localGarage.showroom = true;
+    saveLocalGarage();
+    spawnActiveCar();
+    triggerHaptic("success");
+    publish();
+    const message = `Garage upgraded for ${price} City Sol. Saved on this device only.`;
+    say(message);    return message;
   }
 
   // Shared rental-end path: the car goes back and the player is left on
@@ -7479,8 +7914,19 @@ export function createRuntime(scene: Scene) {
       lastBody.vy = 0;
       lastBody.yaw = Math.atan2(-layout.bay.fx, layout.bay.fz);
       lastBody.pitch = 0.08;
-      openHomeGarage(homeId);
+      openHomeGarage(homeId);    },
+    // CARS wiring: customize / wash / repair / garage upgrades.
+    customizeCar(id: string, mod: string, value: unknown) {
+      return customizeCar(id, mod, value);
     },
+    washCar(id: string) {
+      return washCar(id);
+    },
+    repairCar(id: string) {
+      return repairCar(id);
+    },
+    upgradeGarage(upgrade: string) {
+      return upgradeGarage(upgrade);    },
     rentCar(id: string, color: string, days: number) {
       return rentCar(id, color, days);
     },

@@ -1,6 +1,6 @@
 import { accountToken, readAccount } from "../auth";
 import { connectLive } from "./live";
-import type { OwnedVehicle } from "./vehicles";
+import type { OwnedVehicle, GarageUpgrades } from "./vehicles";
 import type { OwnedHome } from "./homes";
 import {
   EMPTY_LEADERS,
@@ -49,6 +49,9 @@ export interface CityMe {
   // the ops; the client only mirrors what the server returns).
   vehicles?: OwnedVehicle[];
   activeVehicle?: string | null;
+  // CARS expansion — garage upgrades on this universe's save
+  // (save.homes.garage): { slots, workshop, showroom }.
+  garage?: GarageUpgrades;
   // GTA garage rental — the live rental on this universe's save, or null.
   rental?: { id: string; color: string; days: number; daysLeft: number; expiresAt: number } | null;
   homes?: {
@@ -58,6 +61,8 @@ export interface CityMe {
     // copy). The server mirrors these from save.homes JSON.
     furniture?: Record<string, { id: string; item: string; x: number; z: number; rot: number }[]>;
     furnitureOwned?: string[];
+    // CARS expansion — garage upgrades on this universe's save.
+    garage?: GarageUpgrades;
   };
   friends: { id: string; name: string }[];
   inbox: { id: string; name: string }[];
@@ -252,9 +257,10 @@ class CityWorld {
       !incoming.rental &&
       !incoming.vehicles?.length &&
       !incoming.activeVehicle &&
-      (cur.rental || cur.vehicles?.length || cur.activeVehicle)
+      !incoming.garage &&
+      (cur.rental || cur.vehicles?.length || cur.activeVehicle || cur.garage)
     ) {
-      return { ...incoming, rental: cur.rental, vehicles: cur.vehicles, activeVehicle: cur.activeVehicle };
+      return { ...incoming, rental: cur.rental, vehicles: cur.vehicles, activeVehicle: cur.activeVehicle, garage: cur.garage };
     }
     return incoming;
   }
@@ -465,6 +471,40 @@ class CityWorld {
 
   async returnRental(server: number) {
     const data = await this.call("return-rental", { server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  // CARS expansion — customize / wash / repair / garage upgrades / wear.
+  // Same shape as buyCar: the server is the price authority, `me` comes
+  // back on every answer and replaces this.me (mergeGarageMe in the sync
+  // path keeps it from being wiped by a stale global-row `me`).
+  async customizeCar(id: string, mod: string, value: unknown, server: number) {
+    const data = await this.call("customize-car", { id, mod, value, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async washCar(id: string, server: number) {
+    const data = await this.call("wash-car", { id, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async repairCar(id: string, server: number) {
+    const data = await this.call("repair-car", { id, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async upgradeGarage(upgrade: string, server: number) {
+    const data = await this.call("upgrade-garage", { upgrade, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async syncVehicleWear(id: string, distance: number, crashes: number, server: number) {
+    const data = await this.call("sync-vehicle-wear", { id, distance, crashes, server });
     if (data.me) this.me = data.me as CityMe;
     return data;
   }
