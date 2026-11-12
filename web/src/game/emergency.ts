@@ -1028,6 +1028,226 @@ export function buildAllDistricts(parts: CityParts): DistrictBuild[] {
 }
 
 // ---------------------------------------------------------------------------
+// District bridges — PHYSICAL decks from the road grid to each tower
+// ---------------------------------------------------------------------------
+// The four towers sit outside the home city's road grid (roads end at
+// +/-184; the towers start at +/-196..230), so the player used to cross
+// open grass to reach them. Each district gets one proper bridge deck —
+// asphalt, sidewalks, gold rails with real colliders, lamps, a sign —
+// running from the road grid to its tower door, so adjacent districts are
+// bridged to each other through the hub without ever walking grass.
+//
+// Routing: the deck follows the tower door's axis where it is clear, and
+// steps sideways around the department that fronts the door where it is
+// not (the emergency department fronts the North tower, the fire
+// department fronts the East tower, the police department fronts the West
+// tower, the hospital fronts the Harbor tower) — and around the venues and
+// homes that sit in the outer ring (the casino fronts the North tower's
+// west lane, the museum fronts the Harbor tower's east lane, Home 2 fronts
+// the West tower's east lane). The rects below are offsets from the
+// district's tower origin in the DISTRICTS table — anchored to the
+// district, never to a single building — so they survive any building
+// move. Each rect was checked against DEPT_OFFSETS and the built venue /
+// home footprints (seed 1): no deck touches a tower wall, a department, a
+// venue or a home except where it lands on its tower.
+// ---------------------------------------------------------------------------
+
+export interface BaseBridgeSegment {
+  /** Per-segment id, e.g. "bridge-north-a". */
+  id: string;
+  /** The bridge this segment belongs to, e.g. "bridge-north". */
+  bridgeId: string;
+  name: string;
+  /** Deck centre (world coords). */
+  x: number;
+  z: number;
+  /** true = the deck runs east-west (long axis X), false = north-south. */
+  alongX: boolean;
+  len: number;
+  width: number;
+  /** Sign lines — only the approach segment carries one. */
+  sign?: [string, string];
+  /** Which end the sign stands on AND the player approaches from:
+   * "a" = west / north end, "b" = east / south end, "none" = no approach
+   * (a second segment of an L: both ends are junctions / walls). */
+  approachEnd: "a" | "b" | "none";
+  /**
+   * A gap in one long-edge rail, where a second segment joins this one:
+   * the rail is built as runs on either side of [from, to] (world coords
+   * along the rail), so the player can turn from one segment onto the
+   * other. Without it the rail collider would wall off the junction.
+   */
+  railGap?: { side: "n" | "s" | "e" | "w"; from: number; to: number };
+}
+
+/**
+ * Segment rects as offsets from the district tower origin (x0, z0).
+ * One or two segments per district: a single straight bridge where the
+ * road lines up with the tower, an L (two segments) where the blocks wall
+ * off the direct line and the bridge has to turn a corner to reach the
+ * door. Every rect is anchored to the district (tower origin), never to a
+ * single building, so the bridges survive any building move.
+ */
+const BASE_BRIDGE_SEGMENTS: Record<DistrictId, Array<{
+  suffix: string;
+  dx0: number; dz0: number; dx1: number; dz1: number;
+  /** Force the deck's long axis (the crossing direction). Defaults to
+   * whichever span is longer — wrong for a near-square deck like north-b,
+   * whose crossing runs east-west across an 11-unit span. */
+  alongX?: boolean;
+  sign: boolean;
+  approachEnd: "a" | "b" | "none";
+  railGap?: { side: "n" | "s" | "e" | "w"; from: number; to: number };
+}>> = {
+  // North: door south. The emergency dept (x0+5..x0+23, z0+32..z0+44)
+  // fronts the door and the casino fronts the tower's west lane, so
+  // segment A runs WEST of the casino, on the x=-36 road line, from the
+  // z=-180 road to the fire department's south face. Segment B turns east
+  // along the fire dept's south face and stops 4 short of the tower's
+  // west face — the deck must end short of the wall, or its side rails
+  // would box the player in at the end with no way to turn south. From
+  // there the player turns south around the deck's end and walks the
+  // tower's south frontage to the door.
+  // (The fire dept is the district's frontage: its door faces the tower.)
+  north: [
+    { suffix: "a", dx0: -29, dz0: 20, dx1: -15, dz1: 46, sign: true, approachEnd: "b", railGap: { side: "e", from: -210, to: -198 } },
+    { suffix: "b", dx0: -15, dz0: 20, dx1: -4, dz1: 32, alongX: true, sign: false, approachEnd: "none" },
+  ],
+  // East: door west. The fire dept fronts the door and the x=151..173
+  // block wall + the fire dept form one continuous wall from the road
+  // grid to the tower, so the bridge comes in from the SOUTH: segment A
+  // runs east along the z=-36 road's east end to the hospital's south-west
+  // corner, segment B turns north along the fire dept's east side and
+  // stops 4 short of the dept's south face, so the player can turn east
+  // around the deck's end and walk along the road (z≈-8) to the door slot
+  // between the tower and the fire dept. A deck ending flush on the wall
+  // would box the player in behind its own side rails.
+  // Segment B is kept WEST of the tower's east road (x 190..250): that
+  // road's north guard rail (z=-11.4, x 190..250) would wall the deck
+  // off mid-span, so B ends at x=190, clear of the rail's west end.
+  east: [
+    { suffix: "a", dx0: -21, dz0: -29, dx1: 4, dz1: -15, sign: true, approachEnd: "a", railGap: { side: "n", from: 176, to: 190 } },
+    { suffix: "b", dx0: -20, dz0: -15, dx1: -6, dz1: 4, sign: false, approachEnd: "none" },
+  ],
+  // West: door east. The police dept fronts the door, Home 2 fronts the
+  // north lane and the x=-173 block fronts the east lane, so the bridge
+  // comes in from the SOUTH: segment A runs west along the z=-36 road's
+  // west end to open ground south of the tower, segment B turns north
+  // along the police dept's west side and stops 4 short of the dept's
+  // south face, so the player can turn west around the deck's end and
+  // walk along the road (z≈-8) to the door slot between the tower and the
+  // police dept. A deck ending flush on the wall would box the player in
+  // behind its own side rails. Segment B is kept EAST of the
+  // tower's west road (x -250..-190): that road's north guard rail
+  // (z=-11.4, x -250..-190) would wall the deck off mid-span, so B starts
+  // at x=-190, clear of the rail's east end.
+  west: [
+    { suffix: "a", dx0: 28, dz0: -28, dx1: 50, dz1: -14, sign: true, approachEnd: "b", railGap: { side: "n", from: -190, to: -176 } },
+    { suffix: "b", dx0: 34, dz0: -14, dx1: 48, dz1: 4, sign: false, approachEnd: "none" },
+  ],
+  // Harbor: door north. The hospital fronts the door and the museum
+  // fronts its east lane, so the single deck runs WEST of the hospital,
+  // from the z=180 road to 4 north of the tower's north face, so the
+  // player can turn east around the deck's end and walk the tower's north
+  // frontage to the door. A deck ending flush on the north face would box
+  // the player in behind its own side rails.
+  harbor: [
+    { suffix: "a", dx0: -14, dz0: -22, dx1: 0, dz1: -4, sign: true, approachEnd: "a" },
+  ],
+};
+
+function baseBridgeSegments(district: District): BaseBridgeSegment[] {
+  return BASE_BRIDGE_SEGMENTS[district.id].map((r) => {
+    const x0 = district.towerX0 + r.dx0;
+    const x1 = district.towerX0 + r.dx1;
+    const z0 = district.towerZ0 + r.dz0;
+    const z1 = district.towerZ0 + r.dz1;
+    const alongX = r.alongX ?? (x1 - x0 >= z1 - z0);
+    return {
+      id: `bridge-${district.id}-${r.suffix}`,
+      bridgeId: `bridge-${district.id}`,
+      name: `${district.towerName} Bridge`,
+      x: (x0 + x1) / 2,
+      z: (z0 + z1) / 2,
+      alongX,
+      len: alongX ? x1 - x0 : z1 - z0,
+      width: alongX ? z1 - z0 : x1 - x0,
+      sign: r.sign ? [`${district.towerName} Bridge`.toUpperCase(), "TO ORBITX CITY"] : undefined,
+      approachEnd: r.approachEnd,
+      railGap: r.railGap,
+    };
+  });
+}
+
+/**
+ * One physical district bridge segment, same deck as states.ts
+ * buildDistrictBridge (asphalt 0.015 above the road so no top faces are
+ * coplanar, sidewalks, gold rails with real colliders, lamps, sign on the
+ * approach segment). No portal, no gate — you walk or drive across it
+ * normally. A railGap leaves an opening in one long-edge rail where the
+ * next segment joins, so an L turns instead of walling itself off.
+ */
+function buildBaseDistrictBridge(parts: CityParts, def: BaseBridgeSegment): void {
+  const { x: cx, z: cz, alongX, len, width } = def;
+  const railOff = width / 2 - 0.6;
+  box(parts, cx, 0.075, cz, alongX ? len : width, 0.12, alongX ? width : len, "asphalt");
+  if (alongX) {
+    box(parts, cx, 0.115, cz - width / 2 + 1, len, 0.12, 2, "sidewalk");
+    box(parts, cx, 0.115, cz + width / 2 - 1, len, 0.12, 2, "sidewalk");
+  } else {
+    box(parts, cx - width / 2 + 1, 0.115, cz, 2, 0.12, len, "sidewalk");
+    box(parts, cx + width / 2 - 1, 0.115, cz, 2, 0.12, len, "sidewalk");
+  }
+  // One rail per long edge, as runs: a railGap splits the rail so the
+  // joining segment can turn in (runs under 2 units are dropped).
+  const railRuns = (side: "n" | "s" | "e" | "w"): Array<[number, number]> => {
+    const start = alongX ? cx - len / 2 : cz - len / 2;
+    const end = alongX ? cx + len / 2 : cz + len / 2;
+    const gap = def.railGap && def.railGap.side === side ? def.railGap : null;
+    if (!gap) return [[start, end]];
+    const runs: Array<[number, number]> = [[start, gap.from], [gap.to, end]];
+    return runs.filter(([a, b]) => b - a >= 2);
+  };
+  for (const s of [-1, 1]) {
+    const side: "n" | "s" | "e" | "w" = alongX ? (s < 0 ? "n" : "s") : (s < 0 ? "w" : "e");
+    const fixed = alongX ? cz + s * railOff : cx + s * railOff;
+    for (const [a, b] of railRuns(side)) {
+      const mid = (a + b) / 2;
+      const runLen = b - a;
+      const rx = alongX ? mid : fixed;
+      const rz = alongX ? fixed : mid;
+      box(parts, rx, 0.7, rz, alongX ? runLen : 0.4, 0.5, alongX ? 0.4 : runLen, "gold");
+      col(parts, rx, 0.7, rz, alongX ? runLen : 0.4, 1.2, alongX ? 0.4 : runLen);
+    }
+  }
+  const steps = Math.max(1, Math.floor(len / 12));
+  for (let i = 0; i < steps; i++) {
+    const o = (i - (steps - 1) / 2) * 12;
+    const lx = alongX ? cx + o : cx;
+    const lz = alongX ? cz : cz + o;
+    box(parts, lx, 1.5, lz, 0.3, 3, 0.3, "black");
+    box(parts, lx, 3.1, lz, 0.9, 0.5, 0.9, "gold");
+  }
+  // Sign on the approach segment only, at the approach end (the end the
+  // player arrives from): "a" = west / north end, "b" = east / south end.
+  if (def.sign) {
+    const signAtA = def.approachEnd === "a";
+    const signX = alongX ? (signAtA ? cx - len / 2 + 2 : cx + len / 2 - 2) : cx;
+    const signZ = alongX ? cz : (signAtA ? cz - len / 2 + 2 : cz + len / 2 - 2);
+    signArt(parts, `${def.bridgeId}-sign`, signX, 4.2, signZ, alongX ? Math.PI / 2 : 0, 14, 3, [def.sign[0], def.sign[1]], "Walk or drive across");
+  }
+}
+
+/** All base-city district bridges: 4 bridges in 7 deck segments. */
+export function buildAllDistrictBridges(parts: CityParts): BaseBridgeSegment[] {
+  return DISTRICTS.flatMap((d) => {
+    const segs = baseBridgeSegments(d);
+    for (const seg of segs) buildBaseDistrictBridge(parts, seg);
+    return segs;
+  });
+}
+
+// ---------------------------------------------------------------------------
 // District offices — a parameterized clone of the OrbitX HQ office pattern
 // (api/city.js OFFICES / OFFICE_PRICES, content.ts OFFICE_SUITES).
 //

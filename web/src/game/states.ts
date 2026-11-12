@@ -619,6 +619,14 @@ export function buildStateRegion(stateId: StateId, city: City, seed = 1): void {
   buildDistrictBlocks(city, state, rng);
   buildEmergencyServices(city, state);
   buildOfficeTower(city, state);
+  // District bridges + the ground under them: the region used to sit on
+  // nothing (only the home city had a ground slab), so every district
+  // crossing was a walk across floating road strips. The ground slab makes
+  // the whole region solid; the bridges give each district pair a proper
+  // walkable + drivable crossing. Anchored to the region axes only — never
+  // to a building — so the spacing pass cannot break them.
+  buildRegionGround(city, state);
+  buildDistrictBridgesForState(city, state);
   // A few locals on the plaza so the state feels lived-in on arrival.
   const { x: cx, z: cz } = REGION_CENTERS[stateId];
   const colors = ["sunset", "cyan", "gold"] as const;
@@ -633,6 +641,178 @@ export function buildStateRegion(stateId: StateId, city: City, seed = 1): void {
 /** All three states, in one call. */
 export function buildAllRegions(city: City, seed = 1): void {
   for (const s of STATES) buildStateRegion(s.id, city, seed);
+}
+
+// ---------------------------------------------------------------------------
+// Region ground — the fix for "no ground jus floating"
+// ---------------------------------------------------------------------------
+// The home city has one ground slab (city.ts addRoads: 760x760 grass, top
+// y=0). The states NEVER had one: roads, plaza, buildings and sidewalks
+// were thin boxes floating over the void, and the home slab's edge at
+// +/-380 "cut" the terrain on the way to every district crossing. The
+// physics ground is y=0 everywhere (engine.ts clamps it), so the player
+// never fell — they just walked on nothing.
+//
+// This lays the same grass slab under each region (380x380, top y=0) plus a
+// ground strip under the state-side magic-bridge deck, which sticks 60
+// units out of the region into the void. The void between the home slab and
+// the regions stays void by design — the magic bridge hops it.
+// ---------------------------------------------------------------------------
+
+/** Region rect (world coords) for one state. */
+export function regionRect(stateId: StateId): { x0: number; x1: number; z0: number; z1: number } {
+  const { x: cx, z: cz } = REGION_CENTERS[stateId];
+  return { x0: cx - REGION_HALF, x1: cx + REGION_HALF, z0: cz - REGION_HALF, z1: cz + REGION_HALF };
+}
+
+export function buildRegionGround(city: City, state: StateDef): void {
+  const { x: cx, z: cz } = REGION_CENTERS[state.id];
+  // The region slab: same shape as the home-city slab (city.ts addRoads),
+  // top at y=0, so every road, block, plaza and district crossing sits on
+  // solid grass.
+  pushBox(city, cx, -0.55, cz, REGION_HALF * 2, 1.1, REGION_HALF * 2, "grass");
+  // Ground under the state-side magic-bridge deck: the deck sticks out of
+  // the region into the void, so extend the slab to the deck's outer end
+  // (2 units of margin). The slab abuts the region slab exactly at the
+  // region edge — never overlapping it, so no coplanar top faces.
+  const bridge = BRIDGES.find((b) => b.gates[0].to === state.id);
+  if (!bridge) return;
+  const d = bridge.decks[1] as { x0: number; z0: number; x1: number; z1: number };
+  const r = regionRect(state.id);
+  let ax0 = d.x0 - 2;
+  let ax1 = d.x1 + 2;
+  let az0 = d.z0 - 2;
+  let az1 = d.z1 + 2;
+  if (d.x0 >= r.x1) ax0 = r.x1; // deck east of the region
+  if (d.x1 <= r.x0) ax1 = r.x0; // deck west of the region
+  if (d.z0 >= r.z1) az0 = r.z1; // deck south of the region
+  if (d.z1 <= r.z0) az1 = r.z0; // deck north of the region
+  if (ax1 - ax0 <= 0 || az1 - az0 <= 0) return;
+  pushBox(city, (ax0 + ax1) / 2, -0.55, (az0 + az1) / 2, ax1 - ax0, 1.1, az1 - az0, "grass");
+}
+
+// ---------------------------------------------------------------------------
+// District bridges — PHYSICAL decks between adjacent districts
+// ---------------------------------------------------------------------------
+// The magic bridges hop you across the 420-unit void between the home city
+// and a state. District bridges are the opposite: a short deck over the
+// grass between two neighbouring districts INSIDE one region. You walk or
+// drive across it normally — there is no portal, no gate, no hop.
+//
+// Placement: each deck sits ON the road that crosses the district boundary,
+// centred on the boundary line, so its ends land on district ground on both
+// sides. The road axes are the only anchors — the spacing pass moves
+// buildings, not roads, so a bridge can never be orphaned by a moved
+// building. Width 10 = a 6-wide driving lane + 2+2 sidewalks, inside the
+// 14-wide road corridor (10 asphalt + 2+2 sidewalks), so the deck cannot
+// touch a flanking building at all (seed 1: the closest facade face clears
+// the deck edge, and the rails clear every wall by half a unit) — and the
+// spacing pass can only push buildings further away.
+// ---------------------------------------------------------------------------
+
+export interface DistrictBridgeDef {
+  id: string;
+  name: string;
+  /** Deck centre (world coords). */
+  x: number;
+  z: number;
+  /** true = the deck runs east-west (long axis X), false = north-south. */
+  alongX: boolean;
+  /** Deck length along its long axis. */
+  len: number;
+  /** Deck width (across the long axis). */
+  width: number;
+  /** Sign lines, e.g. ["HARLEM — MIDTOWN", "DISTRICT BRIDGE"]. */
+  sign: [string, string];
+}
+
+/** Deck asphalt sits 0.015 above the road asphalt so no two top faces are
+ * coplanar (the deck crosses roads at the same height as the magic decks). */
+export const DISTRICT_BRIDGE_DECK_Y = 0.075;
+
+/**
+ * One physical district bridge: asphalt deck, sidewalks, gold rails with
+ * real colliders (you cannot drive or walk off the sides), lamps down the
+ * middle, and a sign board naming both districts. No portal, no gate.
+ */
+export function buildDistrictBridge(city: City, def: DistrictBridgeDef): void {
+  const { x: cx, z: cz, alongX, len, width } = def;
+  const railOff = width / 2 - 0.6;
+  // Deck + sidewalks. Sidewalk boxes sit 2 wide, 1 unit in from each edge.
+  pushBox(city, cx, DISTRICT_BRIDGE_DECK_Y, cz, alongX ? len : width, 0.12, alongX ? width : len, "asphalt");
+  if (alongX) {
+    pushBox(city, cx, 0.115, cz - width / 2 + 1, len, 0.12, 2, "sidewalk");
+    pushBox(city, cx, 0.115, cz + width / 2 - 1, len, 0.12, 2, "sidewalk");
+  } else {
+    pushBox(city, cx - width / 2 + 1, 0.115, cz, 2, 0.12, len, "sidewalk");
+    pushBox(city, cx + width / 2 - 1, 0.115, cz, 2, 0.12, len, "sidewalk");
+  }
+  // Gold rails along both long edges (real colliders — no falling off).
+  for (const s of [-1, 1]) {
+    const rx = alongX ? cx : cx + s * railOff;
+    const rz = alongX ? cz + s * railOff : cz;
+    pushBox(city, rx, 0.7, rz, alongX ? len : 0.4, 0.5, alongX ? 0.4 : len, "gold");
+    pushCol(city, rx, 0.7, rz, alongX ? len : 0.4, 1.2, alongX ? 0.4 : len);
+  }
+  // Lamps down the middle, every 12 units.
+  const steps = Math.max(1, Math.floor(len / 12));
+  for (let i = 0; i < steps; i++) {
+    const o = (i - (steps - 1) / 2) * 12;
+    const lx = alongX ? cx + o : cx;
+    const lz = alongX ? cz : cz + o;
+    pushBox(city, lx, 1.5, lz, 0.3, 3, 0.3, "black");
+    pushBox(city, lx, 3.1, lz, 0.9, 0.5, 0.9, "gold");
+  }
+  // Sign board at the deck's west / north end, facing the approach.
+  const signX = alongX ? cx - len / 2 + 2 : cx;
+  const signZ = alongX ? cz : cz - len / 2 + 2;
+  city.art.push({
+    id: `${def.id}-sign`,
+    x: signX,
+    y: 4.2,
+    z: signZ,
+    rotY: alongX ? Math.PI / 2 : 0,
+    w: 14,
+    h: 3,
+    lines: [def.sign[0], def.sign[1]],
+    sub: "Walk or drive across",
+  });
+}
+
+/**
+ * The four district bridges for one state. Adjacent quadrant pairs share a
+ * boundary road, and the crossing sits on it: NW-NE and SW-SE cross the
+ * central north-south avenue on the +/-108 east-west roads; NW-SW and
+ * NE-SE cross the central east-west avenue on the +/-108 north-south roads.
+ * +/-108 is the first crossing road clear of the plaza, the office
+ * superblock and the emergency-services plots.
+ */
+export function districtBridgesForState(state: StateDef): DistrictBridgeDef[] {
+  const { x: cx, z: cz } = REGION_CENTERS[state.id];
+  const byQuadrant = (q: DistrictQuadrant): DistrictDef =>
+    state.districts.find((d) => d.quadrant === q) as DistrictDef;
+  const pair = (a: DistrictQuadrant, b: DistrictQuadrant): [string, string] => [
+    `${byQuadrant(a).name} — ${byQuadrant(b).name}`.toUpperCase(),
+    "DISTRICT BRIDGE",
+  ];
+  const len = 36;
+  const width = 10;
+  return [
+    { id: `${state.id}-d-n`, name: `${byQuadrant("nw").name} — ${byQuadrant("ne").name} Bridge`, x: cx, z: cz - 108, alongX: true, len, width, sign: pair("nw", "ne") },
+    { id: `${state.id}-d-s`, name: `${byQuadrant("sw").name} — ${byQuadrant("se").name} Bridge`, x: cx, z: cz + 108, alongX: true, len, width, sign: pair("sw", "se") },
+    { id: `${state.id}-d-w`, name: `${byQuadrant("nw").name} — ${byQuadrant("sw").name} Bridge`, x: cx - 108, z: cz, alongX: false, len, width, sign: pair("nw", "sw") },
+    { id: `${state.id}-d-e`, name: `${byQuadrant("ne").name} — ${byQuadrant("se").name} Bridge`, x: cx + 108, z: cz, alongX: false, len, width, sign: pair("ne", "se") },
+  ];
+}
+
+/** One state's four district bridges, in one call. */
+export function buildDistrictBridgesForState(city: City, state: StateDef): void {
+  for (const def of districtBridgesForState(state)) buildDistrictBridge(city, def);
+}
+
+/** All twelve state district bridges (4 per state), in one call. */
+export function buildAllDistrictBridges(city: City): void {
+  for (const s of STATES) buildDistrictBridgesForState(city, s);
 }
 
 // ---------------------------------------------------------------------------

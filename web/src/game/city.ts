@@ -1,7 +1,7 @@
 import { makeRng, type Rng } from "./seed";
 import { buildAllRegions, buildAllBridges, WORLD_BOUNDS } from "./states";
 import { buildAllHomes } from "./homes";
-import { buildAllDistricts, type CityParts } from "./emergency";
+import { buildAllDistricts, buildAllDistrictBridges, type CityParts } from "./emergency";
 
 export type Mat =
   | "asphalt"
@@ -3977,6 +3977,11 @@ export function buildCity(seed: number): City {
     art: [] as Art[],
   };
   buildAllDistricts(emergencyParts);
+  // District bridges (emergency.ts): a proper deck from the road grid to
+  // each tower door, so adjacent districts are bridged through the hub
+  // without walking grass. The state regions build their own district
+  // bridges + ground inside buildAllRegions (states.ts).
+  buildAllDistrictBridges(emergencyParts);
   addStreetLife(boxes, colliders, rng);
   const rail = loopPoints();
   addMonorail(boxes, colliders, rail);
