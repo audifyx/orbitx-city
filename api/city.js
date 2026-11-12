@@ -1581,6 +1581,7 @@ function freshPlayer(id, name) {
 function sanitizeOwnedHome(home) {
   // Only the fields the client needs to render an owned home — never
   // leak anything else from the stored record.
+  const crazy = sanitizeCrazy(home?.crazy);
   return {
     homeId: String(home?.homeId || ""),
     server: Number(home?.server || 0),
@@ -1588,17 +1589,30 @@ function sanitizeOwnedHome(home) {
     ownerName: String(home?.ownerName || ""),
     price: Number(home?.price || 0),
     boughtAt: Number(home?.boughtAt || 0),
+    // Crib tiers (apartment → house → mansion → penthouse) live on the
+    // owned record when the crib builder ships them; the rooftop op reads
+    // this. Pass it through verbatim so the client can gate on it.
+    tier: typeof home?.tier === "string" ? home.tier : "",
+    // CRAZY extras (pool / theater / rooftop / plants / season decor) —
+    // stored on the owned home inside the existing `homes` JSON column,
+    // per (player, server). City Sol only, no new DB column.
+    crazy,
   };
 }
 
 function sanitizeHomes(homes) {
   const list = Array.isArray(homes?.homes) ? homes.homes : [];
+  // Season override for the CRAZY season system: "auto" (date-driven)
+  // or one of winter / halloween / spring / summer, stored on the same
+  // `homes` JSON object. The client reads it off `me.homes.season`.
+  const season = typeof homes?.season === "string" && CRAZY_SEASONS.includes(homes.season) ? homes.season : "auto";
   return {
     homeServer: Number(homes?.homeServer || 0),
     homes: list.map(sanitizeOwnedHome),
     furniture: sanitizeFurnitureMap(homes?.furniture),
     furnitureOwned: sanitizeFurnitureOwned(homes?.furnitureOwned),
     garage: sanitizeGarage(homes?.garage),
+    season,
   };
 }
 
@@ -1698,8 +1712,7 @@ function repairCost(damage) {
 function accumulateWear(wear, distance, crashes) {
   const d = Math.max(0, Math.min(100, wear.dirt + Math.floor(Math.max(0, distance) / 60)));
   const g = Math.max(0, Math.min(100, wear.damage + Math.max(0, Math.floor(crashes)) * 4));
-  return { dirt: d, damage: g };
-}
+  return { dirt: d, damage: g };}
 
 function sanitizeVehicles(vehicles) {
   if (!Array.isArray(vehicles)) return [];
@@ -3965,6 +3978,317 @@ async function peopleCollectRent(player, save) {
     me: publicPlayer(save),
   };}
 
+// --- CRAZY home extras: pool / hot tub, theater, rooftop, plants, seasons
+// City Sol only, no real SOL, no burn, no wallet. All data lives inside
+// the EXISTING `homes` JSON column of player_saves — no new DB column:
+//   save.homes = {
+//     homeServer, homes: [ { homeId, server, ownerId, ownerName, price,
+//       boughtAt, tier?, crazy: { pool, theater, rooftop, plants[], decor } } ],
+//     season: "auto" | "winter" | "halloween" | "spring" | "summer" }
+// `pool` is "pool" | "hottub" | null; `theater` / `rooftop` booleans;
+// `plants` is [{ id, kind, plantedAt, wateredMs, wateringSince }];
+// `decor` is { lights?, pumpkins?, flowers?, lanterns? } (booleans).
+// The season override is per-save (per server); "auto" means date-driven
+// for everyone. Growth stages are DERIVED from the timestamps on read,
+// never stored — a plant can only grow while watered, and watering keeps
+// it wet for CRAZY_WATER_WINDOW_MS.
+const CRAZY_SEASONS = ["winter", "halloween", "spring", "summer"];
+const CRAZY_POOL_PRICE = 900;
+const CRAZY_HOTTUB_PRICE = 450;
+const CRAZY_THEATER_PRICE = 1200;
+const CRAZY_ROOFTOP_PRICE = 1500;
+const CRAZY_PLANT_PRICES = { sunflower: 40, rose: 60, palm: 150 };
+const CRAZY_PLANT_HARVEST_MULT = 2;
+const CRAZY_MAX_PLANTS = 6;
+const CRAZY_DECOR_PRICES = { lights: 250, pumpkins: 200, flowers: 150, lanterns: 180 };
+const CRAZY_WATER_WINDOW_MS = 10 * 60 * 1000;
+const CRAZY_GROW_SMALL_MS = 60 * 1000;
+const CRAZY_GROW_GROWN_MS = 5 * 60 * 1000;
+
+function crazySeasonForDate(when = Date.now()) {
+  const month = new Date(when).getMonth(); // 0 = January
+  if (month === 9) return "halloween";
+  if (month === 11 || month === 0 || month === 1) return "winter";
+  if (month >= 2 && month <= 4) return "spring";
+  return "summer";
+}
+
+function crazyEffectiveSeason(homes) {
+  const override = homes && typeof homes.season === "string" ? homes.season : "auto";
+  if (override === "auto" || !CRAZY_SEASONS.includes(override)) return crazySeasonForDate();
+  return override;
+}
+
+function freshCrazy() {
+  return { pool: null, theater: false, rooftop: false, plants: [], decor: {} };
+}
+
+function crazyFor(home) {
+  const raw = home && typeof home.crazy === "object" && home.crazy !== null ? home.crazy : {};
+  const crazy = freshCrazy();
+  if (raw.pool === "pool" || raw.pool === "hottub") crazy.pool = raw.pool;
+  crazy.theater = !!raw.theater;
+  crazy.rooftop = !!raw.rooftop;
+  crazy.plants = Array.isArray(raw.plants) ? raw.plants.filter((p) => p && typeof p.id === "string") : [];
+  crazy.decor = raw.decor && typeof raw.decor === "object" ? raw.decor : {};
+  return crazy;
+}
+
+// Watered growth credited so far, in ms: what was banked plus the
+// still-wet window. Pure — it never mutates the plant, so reads are safe.
+function crazyPlantGrowthMs(plant, now = Date.now()) {
+  const banked = Number(plant?.wateredMs || 0);
+  const since = Number(plant?.wateringSince || 0);
+  if (!since || now <= since) return banked;
+  return banked + Math.min(now - since, CRAZY_WATER_WINDOW_MS);
+}
+
+// 0 = seedling, 1 = small, 2 = grown (harvestable).
+function crazyPlantStage(plant, now = Date.now()) {
+  const growth = crazyPlantGrowthMs(plant, now);
+  if (growth >= CRAZY_GROW_GROWN_MS) return 2;
+  if (growth >= CRAZY_GROW_SMALL_MS) return 1;
+  return 0;
+}
+
+// Bank the watered time earned so far (a re-water or a harvest banks
+// the wet minutes already earned, capped at one window per watering),
+// and start a fresh wet window. Called only by the water / harvest ops —
+// reads compute growth purely, so they never mutate the plant.
+function crazyBankPlant(plant, now = Date.now()) {
+  const since = Number(plant?.wateringSince || 0);
+  if (!since) return;
+  plant.wateredMs = Number(plant.wateredMs || 0) + Math.min(Math.max(0, now - since), CRAZY_WATER_WINDOW_MS);
+  plant.wateringSince = 0;
+}
+
+function sanitizeCrazyPlant(plant, now = Date.now()) {
+  return {
+    id: String(plant?.id || ""),
+    kind: String(plant?.kind || ""),
+    stage: crazyPlantStage(plant, now),
+    watered: Number(plant?.wateringSince || 0) > 0 && now - Number(plant.wateringSince || 0) < CRAZY_WATER_WINDOW_MS,
+    plantedAt: Number(plant?.plantedAt || 0),
+  };
+}
+
+function sanitizeCrazy(raw) {
+  const crazy = crazyFor({ crazy: raw });
+  const now = Date.now();
+  return {
+    pool: crazy.pool,
+    theater: crazy.theater,
+    rooftop: crazy.rooftop,
+    plants: crazy.plants.map((p) => sanitizeCrazyPlant(p, now)),
+    decor: {
+      lights: !!crazy.decor.lights,
+      pumpkins: !!crazy.decor.pumpkins,
+      flowers: !!crazy.decor.flowers,
+      lanterns: !!crazy.decor.lanterns,
+    },
+  };
+}
+
+// The owned home record for (homeId, server), or null. The caller owns
+// the balance check + saveSave; this only resolves the record.
+function crazyOwnedHome(save, homeId, server) {
+  const homes = save.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
+  const found = (homes.homes || []).find((h) => h.homeId === homeId && h.server === server);
+  return found ? { homes, found } : { homes, found: null };
+}
+
+function crazyPay(save, player, amount) {
+  if (save.balance < amount) return { ok: false, message: `Not enough City Sol — that is ${amount}.`, status: 400 };
+  save.balance -= amount;
+  player.balance = save.balance;
+  return { ok: true };
+}
+
+async function crazyBuyPool(player, save, body) {
+  const homeId = String(body.home || "");
+  const kind = String(body.kind || "");
+  if (kind !== "pool" && kind !== "hottub") return { ok: false, message: "Pool or hot tub?", status: 400 };
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const { homes, found } = crazyOwnedHome(save, homeId, server);
+  if (!found) return { ok: false, message: "Buy the home first — the pool goes in your own yard.", status: 400 };
+  const crazy = crazyFor(found);
+  if (crazy.pool) return { ok: false, message: "This home already has a pool or hot tub.", status: 400 };
+  const price = kind === "pool" ? CRAZY_POOL_PRICE : CRAZY_HOTTUB_PRICE;
+  const paid = crazyPay(save, player, price);
+  if (!paid.ok) return paid;
+  crazy.pool = kind;
+  found.crazy = crazy;
+  save.homes = homes;
+  await saveSave(save);
+  await savePlayer(player);
+  return { ok: true, home: homeId, kind, price, me: publicPlayer(save) };
+}
+
+async function crazyBuyTheater(player, save, body) {
+  const homeId = String(body.home || "");
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const { homes, found } = crazyOwnedHome(save, homeId, server);
+  if (!found) return { ok: false, message: "Buy the home first — the theater goes in your own home.", status: 400 };
+  const crazy = crazyFor(found);
+  if (crazy.theater) return { ok: false, message: "This home already has a theater.", status: 400 };
+  const paid = crazyPay(save, player, CRAZY_THEATER_PRICE);
+  if (!paid.ok) return paid;
+  crazy.theater = true;
+  found.crazy = crazy;
+  save.homes = homes;
+  await saveSave(save);
+  await savePlayer(player);
+  return { ok: true, home: homeId, price: CRAZY_THEATER_PRICE, me: publicPlayer(save) };
+}
+
+async function crazyBuyRooftop(player, save, body) {
+  const homeId = String(body.home || "");
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const { homes, found } = crazyOwnedHome(save, homeId, server);
+  if (!found) return { ok: false, message: "Buy the home first — the rooftop sits on your own penthouse.", status: 400 };
+  // The rooftop belongs to the penthouse TIER (crib builder's work: the
+  // tier lives on the owned record). Until that tier exists on the record,
+  // there is no penthouse to put a rooftop on — say so plainly instead of
+  // selling a rooftop for a house.
+  if (found.tier !== "penthouse") {
+    return { ok: false, message: "Rooftops are for penthouse homes — the penthouse tier is not on this home yet.", status: 400 };
+  }
+  const crazy = crazyFor(found);
+  if (crazy.rooftop) return { ok: false, message: "This penthouse already has a rooftop.", status: 400 };
+  const paid = crazyPay(save, player, CRAZY_ROOFTOP_PRICE);
+  if (!paid.ok) return paid;
+  crazy.rooftop = true;
+  found.crazy = crazy;
+  save.homes = homes;
+  await saveSave(save);
+  await savePlayer(player);
+  return { ok: true, home: homeId, price: CRAZY_ROOFTOP_PRICE, me: publicPlayer(save) };
+}
+
+async function crazyBuyPlant(player, save, body) {
+  const homeId = String(body.home || "");
+  const kind = String(body.kind || "");
+  const price = CRAZY_PLANT_PRICES[kind];
+  if (price == null) return { ok: false, message: "Unknown plant.", status: 400 };
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const { homes, found } = crazyOwnedHome(save, homeId, server);
+  if (!found) return { ok: false, message: "Buy the home first — plants grow in your own yard.", status: 400 };
+  const crazy = crazyFor(found);
+  if (crazy.plants.length >= CRAZY_MAX_PLANTS) {
+    return { ok: false, message: `This yard is full — ${CRAZY_MAX_PLANTS} plants max. Harvest one first.`, status: 400 };
+  }
+  const paid = crazyPay(save, player, price);
+  if (!paid.ok) return paid;
+  const plant = {
+    id: `plant-${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`,
+    kind,
+    plantedAt: Date.now(),
+    wateredMs: 0,
+    wateringSince: 0,
+  };
+  crazy.plants.push(plant);
+  found.crazy = crazy;
+  save.homes = homes;
+  await saveSave(save);
+  await savePlayer(player);
+  return { ok: true, home: homeId, plant: sanitizeCrazyPlant(plant), price, me: publicPlayer(save) };
+}
+
+async function crazyWaterPlant(player, save, body) {
+  const homeId = String(body.home || "");
+  const plantId = String(body.plant || "");
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const { homes, found } = crazyOwnedHome(save, homeId, server);
+  if (!found) return { ok: false, message: "That home is not yours on this server.", status: 400 };
+  const crazy = crazyFor(found);
+  const plant = crazy.plants.find((p) => p.id === plantId);
+  if (!plant) return { ok: false, message: "No such plant.", status: 400 };
+  const now = Date.now();
+  if (crazyPlantStage(plant, now) >= 2) {
+    return { ok: false, message: "That plant is fully grown — harvest it or let it be.", status: 400 };
+  }
+  // Bank the wet minutes already earned, then start a fresh 10-minute
+  // wet window — re-watering never loses the growth already earned.
+  crazyBankPlant(plant, now);
+  plant.wateringSince = now;
+  found.crazy = crazy;
+  save.homes = homes;
+  await saveSave(save);
+  return { ok: true, home: homeId, plant: sanitizeCrazyPlant(plant, now), me: publicPlayer(save) };
+}
+
+async function crazyHarvestPlant(player, save, body) {
+  const homeId = String(body.home || "");
+  const plantId = String(body.plant || "");
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const { homes, found } = crazyOwnedHome(save, homeId, server);
+  if (!found) return { ok: false, message: "That home is not yours on this server.", status: 400 };
+  const crazy = crazyFor(found);
+  const index = crazy.plants.findIndex((p) => p.id === plantId);
+  if (index < 0) return { ok: false, message: "No such plant.", status: 400 };
+  const plant = crazy.plants[index];
+  const now = Date.now();
+  // Settle the wet window first: harvest judges the banked total.
+  crazyBankPlant(plant, now);
+  if (crazyPlantStage(plant, now) < 2) {
+    // Persist the settle even on the error path, so the banked minutes
+    // are never credited twice by a later harvest attempt.
+    found.crazy = crazy;
+    save.homes = homes;
+    await saveSave(save);
+    return { ok: false, message: "Not grown yet — water it and give it time.", status: 400 };
+  }
+  const pay = (CRAZY_PLANT_PRICES[plant.kind] || 0) * CRAZY_PLANT_HARVEST_MULT;
+  crazy.plants.splice(index, 1);
+  found.crazy = crazy;
+  save.homes = homes;
+  save.balance += pay;
+  player.balance = save.balance;
+  await saveSave(save);
+  await savePlayer(player);
+  return { ok: true, home: homeId, kind: plant.kind, paid: pay, me: publicPlayer(save) };
+}
+
+async function crazyBuyDecor(player, save, body) {
+  const homeId = String(body.home || "");
+  const kind = String(body.kind || "");
+  const price = CRAZY_DECOR_PRICES[kind];
+  if (price == null) return { ok: false, message: "Unknown decoration.", status: 400 };
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const { homes, found } = crazyOwnedHome(save, homeId, server);
+  if (!found) return { ok: false, message: "Buy the home first — decorations go on your own home.", status: 400 };
+  const crazy = crazyFor(found);
+  if (crazy.decor[kind]) return { ok: false, message: "Your home already has that decoration.", status: 400 };
+  const paid = crazyPay(save, player, price);
+  if (!paid.ok) return paid;
+  crazy.decor[kind] = true;
+  found.crazy = crazy;
+  save.homes = homes;
+  await saveSave(save);
+  await savePlayer(player);
+  return { ok: true, home: homeId, kind, price, me: publicPlayer(save) };
+}
+
+async function crazySetSeason(player, save, body) {
+  const season = String(body.season || "");
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  if (season !== "auto" && !CRAZY_SEASONS.includes(season)) {
+    return { ok: false, message: "Season is auto, winter, halloween, spring or summer.", status: 400 };
+  }
+  const homes = save.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
+  homes.season = season;
+  save.homes = homes;
+  await saveSave(save);
+  return { ok: true, season: crazyEffectiveSeason(homes), override: season, me: publicPlayer(save) };
+}
 // --- Mission chain + new earning ops (fix-server) ------------------------
 // All pay into the per-server save (City Sol only). See MISSION_CHAIN
 // for the mission list and the per-step trust model.
@@ -4947,9 +5271,42 @@ export async function POST(request) {
       rentals: people.rentals,
       party: people.party,
       guests: people.guests,
-      relationships: people.relationships,
-      me: save ? publicPlayer(save) : publicPlayer(player),
+      relationships: people.relationships,      season: crazyEffectiveSeason(homes),
+      seasonOverride: typeof homes.season === "string" ? homes.season : "auto",      me: save ? publicPlayer(save) : publicPlayer(player),
     });
+  }
+
+  // CRAZY home extras — pool / hot tub, theater, rooftop, plants,
+  // season decor, season override. All City Sol, all per (player,
+  // server), all stored in the existing `homes` JSON column. The
+  // rooftop is penthouse-gated (the crib builder's tier).
+  if (
+    op === "crazy-buy-pool" || op === "crazy-buy-theater" || op === "crazy-rooftop" ||
+    op === "crazy-buy-plant" || op === "crazy-water-plant" || op === "crazy-harvest-plant" ||
+    op === "crazy-buy-decor" || op === "crazy-season" || op === "crazy-status"
+  ) {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5) first." }, 400);
+    const save = await ensureSave(player, server, { mint: op !== "crazy-status" });
+    if (!save) {
+      return json({ ok: true, mine: [], season: crazySeasonForDate(), seasonOverride: "auto", me: publicPlayer(player) });
+    }
+    let result;
+    if (op === "crazy-buy-pool") result = await crazyBuyPool(player, save, body);
+    else if (op === "crazy-buy-theater") result = await crazyBuyTheater(player, save, body);
+    else if (op === "crazy-rooftop") result = await crazyBuyRooftop(player, save, body);
+    else if (op === "crazy-buy-plant") result = await crazyBuyPlant(player, save, body);
+    else if (op === "crazy-water-plant") result = await crazyWaterPlant(player, save, body);
+    else if (op === "crazy-harvest-plant") result = await crazyHarvestPlant(player, save, body);
+    else if (op === "crazy-buy-decor") result = await crazyBuyDecor(player, save, body);
+    else if (op === "crazy-season") result = await crazySetSeason(player, save, body);
+    else {
+      const homes = save.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
+      const mine = (homes.homes || []).filter((h) => h.server === server).map(sanitizeOwnedHome);
+      result = { ok: true, mine, season: crazyEffectiveSeason(homes), seasonOverride: typeof homes.season === "string" ? homes.season : "auto", me: publicPlayer(save) };
+    }
+    if (result.ok) await mirrorBalance(player, save);
+    return json(result, result.ok ? 200 : result.status || 400);
   }
 
   // Home furniture — shop + Edit Home, per-server homes (City Sol only).
@@ -4964,8 +5321,7 @@ export async function POST(request) {
     if (op === "furniture-list") result = furnitureListOp(save);
     else if (op === "furniture-buy") result = await furnitureBuyOp(player, save, body);
     else if (op === "furniture-save") result = await furnitureSaveOp(save, body);
-    else result = await furnitureSellOp(player, save, body);
-    if (result.ok) await mirrorBalance(player, save);
+    else result = await furnitureSellOp(player, save, body);    if (result.ok) await mirrorBalance(player, save);
     return json(result, result.ok ? 200 : result.status || 400);
   }
 
@@ -4991,7 +5347,6 @@ export async function POST(request) {
     else if (op === "people-end-rent") result = await peopleEndRent(player, save, body);
     else result = await peopleCollectRent(player, save);    return json(result, result.ok ? 200 : result.status || 400);
   }
-
   // District office suites — same City Sol leases as the HQ, scoped by
   // (suite, server) in the one office_claims table. The attached `me`
   // is the server-scoped save, not the global player row.
