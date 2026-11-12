@@ -3455,6 +3455,319 @@ async function buyHome(player, save, body) {
   return { ok: true, home: homeId, price, server, me: publicPlayer(save) };
 }
 
+// --- PEOPLE: roommates + guests, house parties, property empire, meet people
+// City Sol only, no burn, no wallet. NO new DB column: every bit of PEOPLE
+// state lives inside the EXISTING player_saves.homes JSON (the same TEXT
+// column buyHome already writes), next to homeServer/homes:
+//
+//   save.homes.rentals: { [homeId]: { tenant, weeklyRent, nextRentAt, startedAt, collected } }
+//   save.homes.people:  { [npcName]: { talks, lastTalkAt } }          // relationships
+//   save.homes.party:   { homeId, startedAt, endsAt, cost, guests: [name] } | null
+//   save.homes.guests:  { [name]: { kind: "npc"|"friend", homeId, until, party?: bool } }
+//
+// Relationships are per (player, server) — same scope as homes. `daily`
+// was NOT used: ensureDaily() rebuilds it every new day, which would wipe
+// friendships overnight. Rent is 5% of the home price per week, first
+// payout 7 days after rent-out, at most 4 unpaid weeks accrue (same cap
+// pattern as the lot-rent arrears in live.js). A party costs 50 City Sol
+// and lasts 10 minutes; a guest visit lasts 10 minutes.
+const PEOPLE_WEEK_MS = 7 * 86400000;
+const PEOPLE_TALK_COOLDOWN_MS = 5000;
+const PEOPLE_GUEST_MS = 10 * 60 * 1000;
+const PEOPLE_PARTY_MS = 10 * 60 * 1000;
+const PEOPLE_PARTY_COST = 50;
+const PEOPLE_MAX_PARTY_GUESTS = 5;
+const PEOPLE_MAX_UNPAID_WEEKS = 4;
+// Tenants are fictional renters (not the 14 talkable NPCs — those keep
+// their patrols). The tenant for a home is deterministic from its id.
+const PEOPLE_TENANTS = ["Alex", "Sam", "Jordan", "Casey", "Morgan", "Riley", "Taylor", "Jamie", "Robin", "Avery"];
+// Mirror of content.ts NPC_LINES (name -> role). The server is the
+// authority for who can be talked to; the client renders the same list.
+const PEOPLE_NPCS = {
+  Rio: "Plaza regular",
+  Mina: "Barista, Cafe Nova",
+  Sol: "Shopkeeper, OrbitX Shop",
+  Nox: "Mall regular",
+  Pia: "Vendor, Night Market",
+  Kai: "Dock hand, Harbor",
+  Juno: "Hall host & DJ",
+  Theo: "Photographer",
+  Vera: "Usher, OrbitX Cinema",
+  Otis: "Librarian, OrbitX Library",
+  Remy: "Trainer, Harbor Gym",
+  Wren: "Gardener, Sunset Park",
+  Nadia: "Teller, OrbitX Bank",
+  Felix: "Arcade champion",
+};
+const PEOPLE_REL_STEPS = [
+  { min: 0, label: "Stranger" },
+  { min: 1, label: "Acquaintance" },
+  { min: 3, label: "Friend" },
+  { min: 8, label: "Close Friend" },
+  { min: 15, label: "Best Friend" },
+];
+
+function peopleRelLevel(talks) {
+  let level = 0;
+  for (let i = 0; i < PEOPLE_REL_STEPS.length; i++) {
+    if (Number(talks || 0) >= PEOPLE_REL_STEPS[i].min) level = i;
+  }
+  return level;
+}
+
+function peopleRelLabel(level) {
+  return PEOPLE_REL_STEPS[Math.min(level, PEOPLE_REL_STEPS.length - 1)].label;
+}
+
+/** Weekly rent for a home: 5% of its price, rounded to the nearest 10. */
+function peopleWeeklyRent(price) {
+  return Math.max(10, Math.round((Number(price || 0) * 0.05) / 10) * 10);
+}
+
+function peopleTenantFor(homeId) {
+  let hash = 0;
+  for (const ch of String(homeId || "")) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return PEOPLE_TENANTS[hash % PEOPLE_TENANTS.length];
+}
+
+/** Normalize the PEOPLE keys on a homes blob (tolerates old saves). */
+function ensurePeople(homes) {
+  if (!homes || !Array.isArray(homes.homes)) homes = { homeServer: 0, homes: [] };
+  if (!homes.rentals || typeof homes.rentals !== "object" || Array.isArray(homes.rentals)) homes.rentals = {};
+  if (!homes.people || typeof homes.people !== "object" || Array.isArray(homes.people)) homes.people = {};
+  if (homes.party !== null && (typeof homes.party !== "object" || Array.isArray(homes.party))) homes.party = null;
+  if (homes.party === undefined) homes.party = null;
+  if (!homes.guests || typeof homes.guests !== "object" || Array.isArray(homes.guests)) homes.guests = {};
+  return homes;
+}
+
+/** Drop expired guests and an ended party (party guests leave with it). */
+function prunePeople(homes, now = Date.now()) {
+  const party = homes.party;
+  if (party && Number(party.endsAt || 0) <= now) {
+    for (const name of Object.keys(homes.guests)) {
+      if (homes.guests[name]?.party) delete homes.guests[name];
+    }
+    homes.party = null;
+  }
+  for (const name of Object.keys(homes.guests)) {
+    if (Number(homes.guests[name]?.until || 0) <= now) delete homes.guests[name];
+  }
+  return homes;
+}
+
+function peopleRelationship(npc, rec) {
+  const talks = Number(rec?.talks || 0);
+  const level = peopleRelLevel(talks);
+  return {
+    npc,
+    role: PEOPLE_NPCS[npc] || "Citizen",
+    talks,
+    level,
+    label: peopleRelLabel(level),
+    // Friends (level 2+) can be invited over; Close Friends (3+) come to parties.
+    canVisit: level >= 2,
+    canParty: level >= 3,
+    lastTalkAt: Number(rec?.lastTalkAt || 0),
+  };
+}
+
+/** Whole weeks of rent owed right now (0 when nothing is due yet). */
+function peopleRentalDue(rental, now = Date.now()) {
+  const next = Number(rental?.nextRentAt || 0);
+  if (!next || now < next) return 0;
+  return Math.min(PEOPLE_MAX_UNPAID_WEEKS, Math.floor((now - next) / PEOPLE_WEEK_MS) + 1);
+}
+
+function peopleRentalPublic(homeId, rental, now = Date.now()) {
+  const weeksDue = peopleRentalDue(rental, now);
+  return {
+    homeId,
+    tenant: String(rental?.tenant || ""),
+    weeklyRent: Number(rental?.weeklyRent || 0),
+    nextRentAt: Number(rental?.nextRentAt || 0),
+    startedAt: Number(rental?.startedAt || 0),
+    collected: Number(rental?.collected || 0),
+    weeksDue,
+    due: weeksDue * Number(rental?.weeklyRent || 0),
+  };
+}
+
+function peoplePartyPublic(party, now = Date.now()) {
+  if (!party) return null;
+  return {
+    homeId: String(party.homeId || ""),
+    startedAt: Number(party.startedAt || 0),
+    endsAt: Number(party.endsAt || 0),
+    endsInMs: Math.max(0, Number(party.endsAt || 0) - now),
+    cost: Number(party.cost || 0),
+    guests: Array.isArray(party.guests) ? [...party.guests] : [],
+  };
+}
+
+function peopleGuestsPublic(guests, now = Date.now()) {
+  return Object.entries(guests || {})
+    .filter(([, g]) => Number(g?.until || 0) > now)
+    .map(([name, g]) => ({
+      name,
+      kind: g?.kind === "friend" ? "friend" : "npc",
+      homeId: String(g?.homeId || ""),
+      until: Number(g?.until || 0),
+      endsInMs: Math.max(0, Number(g?.until || 0) - now),
+    }));
+}
+
+/** The whole PEOPLE snapshot for one save: relationships + rentals + party + guests. */
+function peopleStatusFor(save, now = Date.now()) {
+  const homes = save ? ensurePeople(save.homes) : { homeServer: 0, homes: [], rentals: {}, people: {}, party: null, guests: {} };
+  if (save) prunePeople(homes, now);
+  return {
+    relationships: Object.keys(PEOPLE_NPCS).map((npc) => peopleRelationship(npc, homes.people[npc] || {})),
+    rentals: Object.entries(homes.rentals).map(([homeId, rental]) => peopleRentalPublic(homeId, rental, now)),
+    party: peoplePartyPublic(homes.party, now),
+    guests: peopleGuestsPublic(homes.guests, now),
+  };
+}
+
+/** Homes this save owns on one server (server-scoped, like buyHome). */
+function peopleOwnedHomes(save, server) {
+  const homes = save?.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
+  return (homes.homes || []).filter((h) => h.server === server);
+}
+
+/** First owned home on this server, or the requested one if owned + not rented. */
+function peoplePickHome(save, server, homeId) {
+  const owned = peopleOwnedHomes(save, server);
+  if (homeId) {
+    const found = owned.find((h) => h.homeId === homeId);
+    if (!found) return { ok: false, message: "You do not own that home on this server." };
+    return { ok: true, home: found };
+  }
+  if (!owned.length) return { ok: false, message: "Buy a home on this server first." };
+  return { ok: true, home: owned[0] };
+}
+
+async function peopleTalk(player, save, body) {
+  const npc = String(body.npc || "");
+  if (!PEOPLE_NPCS[npc]) return { ok: false, message: "That is not someone you can talk to here.", status: 400 };
+  const now = Date.now();
+  const homes = ensurePeople(save.homes);
+  const rec = homes.people[npc] && typeof homes.people[npc] === "object" ? homes.people[npc] : { talks: 0, lastTalkAt: 0 };
+  if (now - Number(rec.lastTalkAt || 0) < PEOPLE_TALK_COOLDOWN_MS) {
+    return { ok: true, relationship: peopleRelationship(npc, rec), visited: false, message: `${npc} is still mid-sentence — give it a moment.`, me: publicPlayer(save) };
+  }
+  const beforeLevel = peopleRelLevel(rec.talks || 0);
+  rec.talks = Number(rec.talks || 0) + 1;
+  rec.lastTalkAt = now;
+  homes.people[npc] = rec;
+  const relationship = peopleRelationship(npc, rec);
+  // Reaching Friend: they like you enough to come over — if you own a
+  // home on this server, they visit it now (10 minutes, visible inside).
+  let visited = false;
+  let message = `You chatted with ${npc} — ${relationship.label} (${relationship.talks} chat${relationship.talks === 1 ? "" : "s"}).`;
+  if (beforeLevel < 2 && relationship.level >= 2) {
+    const server = Number(save.serverId ?? save.server ?? 0);
+    const owned = peopleOwnedHomes(save, server);
+    if (owned.length) {
+      const home = owned[0];
+      homes.guests[npc] = { kind: "npc", homeId: home.homeId, until: now + PEOPLE_GUEST_MS };
+      visited = true;
+      message = `${npc} is a Friend now — they are coming over to your place!`;
+    } else {
+      message = `${npc} is a Friend now — buy a home and they will come over.`;
+    }
+  }
+  save.homes = homes;
+  await saveSave(save);
+  return { ok: true, relationship, visited, ...peopleStatusFor(save, now), message, me: publicPlayer(save) };
+}
+
+async function peopleInvite(player, save, body) {
+  const now = Date.now();
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const homes = ensurePeople(save.homes);
+  prunePeople(homes, now);
+  const pick = peoplePickHome(save, server, String(body.home || ""));
+  if (!pick.ok) return { ok: false, message: pick.message, status: 400 };
+  const home = pick.home;
+  if (homes.rentals[home.homeId]) {
+    return { ok: false, message: "That home is rented out — the tenant lives there now.", status: 400 };
+  }
+  const npc = String(body.npc || "");
+  const friendId = String(body.player || "");
+  let name = "";
+  let kind = "npc";
+  if (npc) {
+    if (!PEOPLE_NPCS[npc]) return { ok: false, message: "That is not someone you can invite.", status: 400 };
+    const relationship = peopleRelationship(npc, homes.people[npc] || {});
+    if (!relationship.canVisit) {
+      return { ok: false, message: `${npc} is ${relationship.label} — chat ${3 - relationship.talks} more time${3 - relationship.talks === 1 ? "" : "s"} to become Friends first.`, status: 400 };
+    }
+    name = npc;
+  } else if (friendId) {
+    const friend = (player.friends || []).find((f) => f.id === friendId);
+    if (!friend) return { ok: false, message: "Invite a friend from your friends list first.", status: 400 };
+    name = friend.name;
+    kind = "friend";
+  } else {
+    return { ok: false, message: "Pick someone to invite — an NPC friend or a friend from your list.", status: 400 };
+  }
+  homes.guests[name] = { kind, homeId: home.homeId, until: now + PEOPLE_GUEST_MS };
+  save.homes = homes;
+  await saveSave(save);
+  return { ok: true, ...peopleStatusFor(save, now), message: `${name} is on their way over — they will hang out at your place for 10 minutes.`, me: publicPlayer(save) };
+}
+
+async function peoplePartyStart(player, save, body) {
+  const now = Date.now();
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const homes = ensurePeople(save.homes);
+  prunePeople(homes, now);
+  if (homes.party) {
+    return { ok: false, message: "A party is already going — it ends soon, then you can throw another.", status: 400 };
+  }
+  const pick = peoplePickHome(save, server, String(body.home || ""));
+  if (!pick.ok) return { ok: false, message: pick.message, status: 400 };
+  const home = pick.home;
+  if (homes.rentals[home.homeId]) {
+    return { ok: false, message: "That home is rented out — throw the party at a place you live in.", status: 400 };
+  }
+  if (save.balance < PEOPLE_PARTY_COST) {
+    return { ok: false, message: `A party costs ${PEOPLE_PARTY_COST} City Sol for food and drinks.`, status: 400 };
+  }
+  // Who shows up: Close Friends first, then Friends, most-talked first.
+  const ranked = Object.keys(PEOPLE_NPCS)
+    .map((npc) => peopleRelationship(npc, homes.people[npc] || {}))
+    .filter((rel) => rel.level >= 2)
+    .sort((a, b) => b.level - a.level || b.talks - a.talks)
+    .slice(0, PEOPLE_MAX_PARTY_GUESTS);
+  save.balance -= PEOPLE_PARTY_COST;
+  const party = {
+    homeId: home.homeId,
+    startedAt: now,
+    endsAt: now + PEOPLE_PARTY_MS,
+    cost: PEOPLE_PARTY_COST,
+    guests: ranked.map((rel) => rel.npc),
+  };
+  homes.party = party;
+  for (const rel of ranked) {
+    homes.guests[rel.npc] = { kind: "npc", homeId: home.homeId, until: party.endsAt, party: true };
+  }
+  save.homes = homes;
+  await saveSave(save);
+  await mirrorBalance(player, save);
+  return {
+    ok: true,
+    ...peopleStatusFor(save, now),
+    message: ranked.length
+      ? `Party on! ${ranked.map((r) => r.npc).join(", ")} came over — music, food and drinks are out for 10 minutes.`
+      : `Party on! Food and drinks are out for 10 minutes — make some Friends and they will show up next time.`,
+    me: publicPlayer(save),
+  };
+}
+
 // --- Home furniture ops (shop + Edit Home) ---
 
 function furnitureListOp(save) {
@@ -3463,8 +3776,7 @@ function furnitureListOp(save) {
     ok: true,
     catalog: furnitureCatalogPublic(),
     owned: sanitizeFurnitureOwned(homes.furnitureOwned),
-    placed: sanitizeFurnitureMap(homes.furniture),
-    me: publicPlayer(save),
+    placed: sanitizeFurnitureMap(homes.furniture),    me: publicPlayer(save),
   };
 }
 
@@ -3531,6 +3843,125 @@ async function furnitureSellOp(player, save, body) {
   await saveSave(save);
   return { ok: true, message: `Sold ${item.name} for ${refund} City Sol.`, refund, owned, me: publicPlayer(save) };
 }
+
+async function peoplePartyEnd(player, save) {
+  const homes = ensurePeople(save.homes);
+  if (!homes.party) return { ok: false, message: "No party is going right now.", status: 400 };
+  for (const name of Object.keys(homes.guests)) {
+    if (homes.guests[name]?.party) delete homes.guests[name];
+  }
+  homes.party = null;
+  save.homes = homes;
+  await saveSave(save);
+  return { ok: true, ...peopleStatusFor(save, Date.now()), message: "Party over — everyone headed home.", me: publicPlayer(save) };
+}
+
+async function peopleRentOut(player, save, body) {
+  const now = Date.now();
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const homeId = String(body.home || "");
+  if (HOME_PRICES[homeId] == null) return { ok: false, message: "Unknown home.", status: 400 };
+  const homes = ensurePeople(save.homes);
+  prunePeople(homes, now);
+  const owned = peopleOwnedHomes(save, server).find((h) => h.homeId === homeId);
+  if (!owned) return { ok: false, message: "You do not own that home on this server.", status: 400 };
+  if (homes.rentals[homeId]) return { ok: false, message: "That home is already rented out.", status: 400 };
+  if (homes.party?.homeId === homeId) {
+    return { ok: false, message: "A party is going at that home — rent it out after the party ends.", status: 400 };
+  }
+  const weeklyRent = peopleWeeklyRent(owned.price || HOME_PRICES[homeId]);
+  homes.rentals[homeId] = {
+    tenant: peopleTenantFor(homeId),
+    weeklyRent,
+    nextRentAt: now + PEOPLE_WEEK_MS,
+    startedAt: now,
+    collected: 0,
+  };
+  save.homes = homes;
+  await saveSave(save);
+  return {
+    ok: true,
+    ...peopleStatusFor(save, now),
+    message: `Rented out to ${homes.rentals[homeId].tenant} — ${weeklyRent} City Sol a week, first payout in 7 days.`,
+    me: publicPlayer(save),
+  };
+}
+
+async function peopleEndRent(player, save, body) {
+  const now = Date.now();
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const homeId = String(body.home || "");
+  const homes = ensurePeople(save.homes);
+  prunePeople(homes, now);
+  const rental = homes.rentals[homeId];
+  if (!rental) return { ok: false, message: "That home is not rented out.", status: 400 };
+  // Ending a lease settles what the tenant owes first — the money is yours.
+  // peopleRentalDue returns WEEKS owed, not money: multiply by the weekly
+  // rent (the first draft added the week count itself to the balance).
+  const weeks = peopleRentalDue(rental, now);
+  const due = weeks * Number(rental.weeklyRent || 0);
+  if (weeks > 0) {
+    save.balance += due;
+    rental.collected = Number(rental.collected || 0) + due;
+  }
+  const tenant = rental.tenant;
+  delete homes.rentals[homeId];
+  save.homes = homes;
+  await saveSave(save);
+  await mirrorBalance(player, save);
+  return {
+    ok: true,
+    ...peopleStatusFor(save, now),
+    collected: due,
+    message: due > 0
+      ? `Lease ended — ${tenant} moved out and paid ${due} City Sol owed (${weeks} week${weeks === 1 ? "" : "s"}).`
+      : `Lease ended — ${tenant} moved out. The home is yours again.`,
+    me: publicPlayer(save),
+  };
+}
+
+async function peopleCollectRent(player, save) {
+  const now = Date.now();
+  const homes = ensurePeople(save.homes);
+  prunePeople(homes, now);
+  let collected = 0;
+  const paid = [];
+  for (const [homeId, rental] of Object.entries(homes.rentals)) {
+    const weeks = peopleRentalDue(rental, now);
+    if (!weeks) continue;
+    const due = weeks * Number(rental.weeklyRent || 0);
+    rental.nextRentAt = Number(rental.nextRentAt || 0) + weeks * PEOPLE_WEEK_MS;
+    rental.collected = Number(rental.collected || 0) + due;
+    collected += due;
+    paid.push({ homeId, tenant: rental.tenant, weeks, amount: due });
+  }
+  if (!collected) {
+    const next = Object.values(homes.rentals).map((r) => Number(r.nextRentAt || 0)).filter(Boolean);
+    const soonest = next.length ? Math.max(0, Math.min(...next) - now) : 0;
+    const days = Math.ceil(soonest / 86400000);
+    return {
+      ok: true,
+      ...peopleStatusFor(save, now),
+      collected: 0,
+      message: next.length ? `No rent due yet — next payout in ${days} day${days === 1 ? "" : "s"}.` : "Nothing rented out — rent out a home you own to earn weekly City Sol.",
+      me: publicPlayer(save),
+    };
+  }
+  save.balance += collected;
+  save.earned = Number(save.earned || 0) + collected;
+  save.homes = homes;
+  await saveSave(save);
+  await mirrorBalance(player, save);
+  return {
+    ok: true,
+    ...peopleStatusFor(save, now),
+    collected,
+    paid,
+    message: `Collected ${collected} City Sol in rent.`,
+    me: publicPlayer(save),
+  };}
 
 // --- Mission chain + new earning ops (fix-server) ------------------------
 // All pay into the per-server save (City Sol only). See MISSION_CHAIN
@@ -4504,10 +4935,17 @@ export async function POST(request) {
     const save = await ensureSave(player, server, { mint: false });
     const homes = save?.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
     const mine = (homes.homes || []).filter((h) => h.server === server).map(sanitizeOwnedHome);
+    // PEOPLE: rentals + party + guests ride along so the Home panel can
+    // show rent-out, party and visitor state without a second round-trip.
+    const people = save ? peopleStatusFor(save) : { relationships: [], rentals: [], party: null, guests: [] };
     return json({
       ok: true,
       homeServer: homes.homeServer || player.homeServer || 0,
       mine,
+      rentals: people.rentals,
+      party: people.party,
+      guests: people.guests,
+      relationships: people.relationships,
       me: save ? publicPlayer(save) : publicPlayer(player),
     });
   }
@@ -4527,6 +4965,29 @@ export async function POST(request) {
     else result = await furnitureSellOp(player, save, body);
     if (result.ok) await mirrorBalance(player, save);
     return json(result, result.ok ? 200 : result.status || 400);
+  }
+
+  // PEOPLE — roommates + guests, house parties, property empire, meet people.
+  // All City Sol, all stored in the save's homes JSON (no new column).
+  // Status is a read (never mints a save); the rest use ensureSave.
+  if (op === "people-status") {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5) first." }, 400);
+    const save = await ensureSave(player, server, { mint: false });
+    return json({ ok: true, server, ...(save ? peopleStatusFor(save) : { relationships: Object.keys(PEOPLE_NPCS).map((npc) => peopleRelationship(npc, {})), rentals: [], party: null, guests: [] }), me: save ? publicPlayer(save) : publicPlayer(player) });
+  }
+  if (op === "npc-talk" || op === "people-invite" || op === "people-party-start" || op === "people-party-end" || op === "people-rent-out" || op === "people-end-rent" || op === "people-collect-rent") {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5) first." }, 400);
+    const save = await ensureSave(player, server);
+    let result;
+    if (op === "npc-talk") result = await peopleTalk(player, save, body);
+    else if (op === "people-invite") result = await peopleInvite(player, save, body);
+    else if (op === "people-party-start") result = await peoplePartyStart(player, save, body);
+    else if (op === "people-party-end") result = await peoplePartyEnd(player, save);
+    else if (op === "people-rent-out") result = await peopleRentOut(player, save, body);
+    else if (op === "people-end-rent") result = await peopleEndRent(player, save, body);
+    else result = await peopleCollectRent(player, save);    return json(result, result.ok ? 200 : result.status || 400);
   }
 
   // District office suites — same City Sol leases as the HQ, scoped by
@@ -4588,7 +5049,11 @@ export async function POST(request) {
     const homes = save?.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
     const myHomes = (homes.homes || []).filter((h) => h.server === server).map(sanitizeOwnedHome);
     const lots = await ownedLots(player.id, server, save);
-    return json({ ok: true, server, lots, offices: mine, homes: myHomes });
+    // PEOPLE: rentals + party + guests + relationships ride along so the
+    // My Properties panel can show the property empire without a second
+    // round-trip (same fields home-status already returns).
+    const people = save ? peopleStatusFor(save) : { relationships: [], rentals: [], party: null, guests: [] };
+    return json({ ok: true, server, lots, offices: mine, homes: myHomes, rentals: people.rentals, party: people.party, guests: people.guests, relationships: people.relationships });
   }
 
   if (op === "profile") {
