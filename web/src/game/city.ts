@@ -1713,6 +1713,44 @@ function addTrainLine(boxes: Box[], cols: Collider[]): { zones: Zone[] } {
   roomSign("train-plaza-in", 1, -2.6, 41.8, Math.PI, 9, 1.2, ["PLAZA CENTRAL"], "Trains to Westgate · Eastgate · Free");
   zones.push(floorZone("train-plaza", "Plaza Central Station", "park", BX0, BZ0, 84, 14.5, -7, 1, 0, 29, 0, 2.6, 27.2, Math.PI));
   return { zones };
+// Loop Train station: a platform beside the monorail's south straight
+// (the track centreline runs z=110 at y=TRACK_Y=30) + a glass lift from
+// the street below. The train dwells here every loop; boarding is free —
+// press E on the platform while a train is stopped, ride the loop, press
+// E again at the stop to step off. The platform sits on the north edge of
+// the z=108 road (the block behind it starts at z=117, and the buildings
+// there are set back a further 3 units, so the slab never meets a wall).
+// The lift shaft (centre 0,114) stands on the road; its door faces south
+// onto the street and onto the platform, so both anchors sit clear of it.
+function addLoopStation(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; lifts: Lift[]; art: Art[] } {
+  const px = 0;
+  const pz = 115;
+  // Platform slab: x -10..10, z 112..118, top at y=30 (level with the
+  // track), with a gold edge strip on the track side.
+  put(boxes, px, TRACK_Y - 0.5, pz, 20, 1, 6, "stone");
+  cols.push(col(px, TRACK_Y - 0.5, pz, 20, 1, 6));
+  put(boxes, px, TRACK_Y + 0.03, 112.1, 20, 0.06, 0.2, "gold");
+  // Canopy over the waiting half of the platform, on two gold posts.
+  put(boxes, -8, TRACK_Y + 3.4, pz, 0.3, 3.4, 0.3, "gold");
+  put(boxes, 8, TRACK_Y + 3.4, pz, 0.3, 3.4, 0.3, "gold");
+  put(boxes, px, TRACK_Y + 3.6, pz, 17.5, 0.25, 6.5, "white");
+  put(boxes, px, TRACK_Y + 3.75, pz, 17.5, 0.1, 6.5, "cyan");
+  cols.push(col(-8, TRACK_Y + 1.7, pz, 0.3, 3.4, 0.3));
+  cols.push(col(8, TRACK_Y + 1.7, pz, 0.3, 3.4, 0.3));
+  // Glass lift shaft, centre (0,114), door faces south ("s"): street
+  // level below, platform level above. Floors are the walking-surface Y.
+  buildGlassShaft(boxes, cols, "loop-lift", -2, 112, 4, 4, TRACK_Y + 2.8, [0, TRACK_Y], "s");
+  return {
+    anchors: [
+      { id: "loop-lift-0", name: "Loop Train Lift", kind: "lift", x: 0, y: 0, z: 117.6, yaw: Math.PI, slot: 0, liftId: "loop-lift", liftFloor: 0 },
+      { id: "loop-lift-1", name: "Loop Train Lift", kind: "lift", x: 0, y: TRACK_Y, z: 117.2, yaw: Math.PI, slot: 1, liftId: "loop-lift", liftFloor: 1 },
+    ],
+    lifts: [{ id: "loop-lift", name: "Loop Train Lift", x: 0, z: 114, w: 4, d: 4, floors: [0, TRACK_Y], stops: ["Street", "Loop Platform"], landing: "s" }],
+    art: [
+      { id: "loop-station-sign", x: 0, y: TRACK_Y + 4.6, z: 117.5, rotY: 0, w: 6, h: 1.8, lines: ["LOOP TRAIN"], sub: "Free rides · around the city" },
+      { id: "loop-station-street-sign", x: 0, y: 3.4, z: 116.3, rotY: 0, w: 4.6, h: 1.5, lines: ["LOOP TRAIN"], sub: "Lift to the platform · free" },
+    ],
+  };
 }
 
 function addHills(boxes: Box[], cols: Collider[], rng: Rng) {
@@ -5463,6 +5501,7 @@ export function buildCity(seed: number): City {
   const rail = loopPoints();
   addMonorail(boxes, colliders, rail);
   const trainLine = addTrainLine(boxes, colliders);
+  const station = addLoopStation(boxes, colliders);
   addHills(boxes, colliders, rng);
 
   let sz = 62;
@@ -5485,12 +5524,12 @@ export function buildCity(seed: number): City {
     spawn: { x: sx, y: 0, z: sz, yaw: 0, pitch: 0.44 },
     focus: { x: 0, y: Math.max(36, towerTop * 0.45), z: -10 },
     fountain: FOUNTAIN,
-    anchors: [...fixed.anchors, ...built.anchors, ...mall.anchors, ...office.anchors, ...emergencyParts.anchors, tower.anchor],
+    anchors: [...fixed.anchors, ...built.anchors, ...mall.anchors, ...office.anchors, ...emergencyParts.anchors, tower.anchor, ...station.anchors],
     boards: fixed.boards,
     zones: [...fixed.zones, ...built.zones, ...mall.zones, ...office.zones, ...emergencyParts.zones, tower.zone, ...trainLine.zones],
     facades: [...facades, ...emergencyParts.facades],
-    art: [...art, ...emergencyParts.art],
-    lifts: [...mall.lifts, ...office.lifts, ...emergencyParts.lifts],
+    art: [...art, ...emergencyParts.art, ...station.art],
+    lifts: [...mall.lifts, ...office.lifts, ...emergencyParts.lifts, ...station.lifts],
     cars: [
       // CARSHOP: no stray parked cars — the only city-list car is the
       // player's own car (wallet paint) at the north plaza spot. Bought

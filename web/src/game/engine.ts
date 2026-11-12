@@ -22,7 +22,7 @@ import {
 } from "three";
 import { buildCity, type City, type Mat, type RailPoint, type ShipPath } from "./city";
 import { MATERIALS } from "./materials";
-import { createRuntime, wantsTouch, type Body, type Runtime } from "./runtime";
+import { createRuntime, wantsTouch, type Body, type Runtime, type TrainPose } from "./runtime";
 import { isWater, WATER_SURFACE_Y } from "./water";
 import { createMoveSmoother } from "./movement";
 import { applyDayNightLighting, applyEnvironment, applyGraphicsPreset, upgradeMaterials, type GraphicsQuality } from "./graphics";
@@ -240,6 +240,19 @@ export function createGame(
   let rail: RailPoint[] = [];
   let railDist: number[] = [];
   let railLen = 1;
+  // Loop-train running state: each train keeps its own distance along
+  // the loop, speed, and dwell timer. The station stop is the rail
+  // distance closest to the Loop Station platform (0, 30, 110); a train
+  // brakes into it, dwells 6s so players can board / step off, then
+  // rolls on. The two trains start half a loop apart and follow the same
+  // position-based profile, so they keep their spacing.
+  let trainDist: number[] = [0, 0];
+  let trainSpeed: number[] = [18, 18];
+  let trainDwell: number[] = [0, 0];
+  let stationDist = 0;
+  const STATION_POINT = { x: 0, z: 110 };
+  const TRAIN_CRUISE = 18;
+  const TRAIN_DWELL = 6;
   let shipPaths: ShipPath[] = [];
   let boot = 0;
   let fountain = { x: 0, z: 12 };
@@ -501,6 +514,24 @@ export function createGame(
       railDist.push(railDist[i] + Math.hypot(b.x - a.x, b.z - a.z));
     }
     railLen = Math.max(1, railDist[railDist.length - 1] || 1);
+    // The station stop: the rail distance whose point sits closest to the
+    // Loop Station platform. Scanned once per build (arcs are chorded, so
+    // the analytic distance would be a few units off).
+    stationDist = 0;
+    {
+      let best = Infinity;
+      for (let d = 0; d < railLen; d += 0.25) {
+        const p = pointAt(d);
+        const dd = Math.hypot(p.x - STATION_POINT.x, p.z - STATION_POINT.z);
+        if (dd < best) {
+          best = dd;
+          stationDist = d;
+        }
+      }
+    }
+    trainDist = [0, railLen * 0.5];
+    trainSpeed = [TRAIN_CRUISE, TRAIN_CRUISE];
+    trainDwell = [0, 0];
     if (rail.length > 2) {
       trains.push(makeTrain(MATERIALS.white, MATERIALS.cyan, MATERIALS.cyanhot, MATERIALS.black));
       trains.push(makeTrain(MATERIALS.white, MATERIALS.cyan, MATERIALS.cyanhot, MATERIALS.black));
@@ -790,16 +821,62 @@ export function createGame(
         if (runtime.driving()) runtime.drive(step, player, keys, carHit);
         else if (runtime.ridingTrain()) runtime.rideTrain(step, player);
         else if (runtime.ridingBus()) runtime.rideBus(step, player);
-        else tick(step);
+        // A rider is carried by the train — runtime.after() snaps the body
+        // to the train pose each frame, so the walk physics must not run
+        // (it would drop the rider through the car floor to the street).
+        else if (!runtime.riding()) tick(step);
         left -= step;
       }
     }
 
     MATERIALS.cyanhot.emissiveIntensity = 1.35 + Math.sin(clock * 2.4) * 0.22;
 
-    const travel = clock * 18;
-    if (trains[0]) placeTrain(trains[0], travel);
-    if (trains[1]) placeTrain(trains[1], travel + railLen * 0.5);
+    // Loop trains: brake into the station stop, dwell, roll on. The brake
+    // profile is a function of the distance ahead (sqrt curve, 90-unit
+    // braking zone), so the stop is smooth and lands on the mark; the
+    // stop check runs before the move so a slow frame can never jump the
+    // station and sail past it.
+    const trainPoses: TrainPose[] = [];
+    for (let i = 0; i < trains.length; i++) {
+      if (trainDwell[i] > 0) {
+        trainDwell[i] -= dt;
+        trainSpeed[i] = 0;
+        if (trainDwell[i] <= 0) {
+          trainDwell[i] = 0;
+          trainDist[i] = (stationDist + 1) % railLen;
+          trainSpeed[i] = 2;
+        }
+      } else {
+        const ahead = (((stationDist - trainDist[i]) % railLen) + railLen) % railLen;
+        const target = Math.min(TRAIN_CRUISE, TRAIN_CRUISE * Math.sqrt(Math.min(1, ahead / 90)));
+        trainSpeed[i] = Math.min(target, trainSpeed[i] + 14 * dt);
+        const step = trainSpeed[i] * dt;
+        if (ahead <= step + 0.15) {
+          trainDist[i] = stationDist;
+          trainSpeed[i] = 0;
+          trainDwell[i] = TRAIN_DWELL;
+        } else {
+          trainDist[i] = (trainDist[i] + step) % railLen;
+        }
+      }
+      placeTrain(trains[i], trainDist[i]);
+      const p = pointAt(trainDist[i]);
+      const dl = Math.hypot(p.dx, p.dz) || 1;
+      trainPoses.push({
+        x: p.x,
+        y: p.y + 1.55,
+        z: p.z,
+        dx: p.dx / dl,
+        dz: p.dz / dl,
+        dwelling: trainDwell[i] > 0,
+      });
+    }
+    (window as unknown as { __ORBITX_TRAIN?: { dist: number[]; dwell: number[]; speed: number[]; station: number } }).__ORBITX_TRAIN = {
+      dist: [...trainDist],
+      dwell: [...trainDwell],
+      speed: [...trainSpeed],
+      station: stationDist,
+    };
     for (let i = 0; i < ships.length; i++) {
       const path = shipPaths[i];
       const a = clock * path.speed + path.phase;
@@ -842,7 +919,7 @@ export function createGame(
       setPrettyNight(0.5);
     }
     scene.fog = runtime.indoors() ? null : baseFog;
-    const tookCamera = runtime.after(dt, player, camera, { orbit: mode === "orbit", fountain });
+    const tookCamera = runtime.after(dt, player, camera, { orbit: mode === "orbit", fountain, trains: trainPoses });
     if (mode === "orbit") {
       const t = clock * 0.07;
       camera.position.set(Math.sin(t) * 190, 78, Math.cos(t) * 132 + 10);

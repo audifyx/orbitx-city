@@ -176,6 +176,18 @@ export interface Body {
   onGround: boolean;
 }
 
+// One loop-train pose per frame, from the engine (which owns the trains):
+// the middle car's centre (x, y, z), the unit travel direction (dx, dz),
+// and whether the train is dwelling at the Loop Station stop.
+export interface TrainPose {
+  x: number;
+  y: number;
+  z: number;
+  dx: number;
+  dz: number;
+  dwelling: boolean;
+}
+
 export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice";
 export interface PersonCard {
   id: string;
@@ -1271,6 +1283,13 @@ export function createRuntime(scene: Scene) {
   let inBelowGrade = false;
   const trainNose = new Vector3(1, 0, 0);
   const trainDir = new Vector3();
+  // Loop-train ride: the engine hands the live train poses to after()
+  // every frame (opts.trains). While riding, the body is snapped to the
+  // middle car's floor and carried around the loop; the player looks
+  // around freely (first-person, body.yaw/pitch) and steps off at the
+  // Loop Station when the train dwells there. Free — no fare, no wallet.
+  let trainPoses: TrainPose[] = [];
+  let riding: { train: number } | null = null;
   let chaseYaw = 0;
   let chasePitch = 0.18;
   let stickX = 0;
@@ -2375,6 +2394,7 @@ export function createRuntime(scene: Scene) {
     trainState = { x: TRAIN_STATIONS[0].x, dir: 1, at: 0, next: 1, speed: 0, dwell: 2, stopped: true };
     trainDoorOpen = 0;
     inBelowGrade = false;
+    riding = null;
     holdGas = false;
     holdBrake = false;
     holdJump = false;
@@ -3469,6 +3489,15 @@ export function createRuntime(scene: Scene) {
       publish();
       return;
     }
+    // Riding the loop train: E steps off, but only while the train dwells
+    // at the Loop Station — mid-loop the player waits for the stop.
+    if (riding) {
+      const pose = trainPoses[riding.train];
+      if (pose && pose.dwelling) stepOffTrain(body);
+      else say("The loop train stops at the Loop Station — enjoy the view for now.");
+      publish();
+      return;
+    }
     // A running dance set eats E as a beat hit — the player is on the floor,
     // not opening doors, until the set ends or they leave the hall or club.
     if (dance && (zoneAt(body)?.id === "hall" || zoneAt(body)?.id === "nightclub")) {
@@ -3529,6 +3558,15 @@ export function createRuntime(scene: Scene) {
       } else if (zone.kind === "museum") say("OrbitX Museum — four exhibits, +10 City Sol for each first view.");
       else say(zoneTitle(zone));
       publish();
+      return;
+    }
+    // Loop-train boarding beats the lift call button: standing on the
+    // platform while a train dwells at the stop, E boards the train —
+    // the lift anchor (3.3 units away) is for when no train is at the
+    // stop. Boarding is free.
+    const boarding = boardingTrain(body);
+    if (boarding >= 0) {
+      boardLoopTrain(body, boarding);
       return;
     }
     // Your own garage: E opens the garage panel (pick a car to drive),
@@ -3726,6 +3764,49 @@ export function createRuntime(scene: Scene) {
       }
     });
     return best;
+  }
+
+  // Loop train: the station platform is the slab at y=30 beside the
+  // south straight (x -10..10, z 112..118). A train is boardable only
+  // while it dwells at the stop, and only from the platform — never from
+  // the street below or mid-loop. Free: no fare, no wallet, no burn.
+  const LOOP_PLATFORM_Y = 30;
+  const LOOP_BOARD_SPOT = { x: 0, z: 113 };
+  function dwellingTrain(): number {
+    for (let i = 0; i < trainPoses.length; i++) {
+      if (trainPoses[i].dwelling) return i;
+    }
+    return -1;
+  }
+  function boardingTrain(body: Body): number {
+    if (Math.abs(body.y - LOOP_PLATFORM_Y) > 2) return -1;
+    if (Math.hypot(body.x - LOOP_BOARD_SPOT.x, body.z - LOOP_BOARD_SPOT.z) > 5) return -1;
+    return dwellingTrain();
+  }
+  function boardLoopTrain(body: Body, index: number) {
+    const pose = trainPoses[index];
+    if (!pose) return;
+    riding = { train: index };
+    body.flying = false;
+    body.vy = 0;
+    // Face the way the train is going — the first view is the track
+    // ahead; drag / mouse look takes it from there.
+    body.yaw = Math.atan2(pose.dx, -pose.dz);
+    say("Riding the loop train — free ride, enjoy the view. Press E to get off at the Loop Station.");
+    publish();
+  }
+  function stepOffTrain(body: Body) {
+    // Step off onto the platform, facing the lift / street. Only called
+    // while the train dwells at the stop, so the platform is right there.
+    riding = null;
+    body.x = LOOP_BOARD_SPOT.x;
+    body.z = LOOP_BOARD_SPOT.z + 0.5;
+    body.y = LOOP_PLATFORM_Y;
+    body.yaw = Math.PI;
+    body.vy = 0;
+    body.flying = false;
+    say("Stepped off at the Loop Station.");
+    publish();
   }
 
   function enterCar(body: Body, index: number) {
@@ -5539,7 +5620,7 @@ export function createRuntime(scene: Scene) {
     }
   }
 
-  function after(dt: number, body: Body, camera: PerspectiveCamera, opts: { orbit: boolean; fountain: { x: number; z: number } }) {
+  function after(dt: number, body: Body, camera: PerspectiveCamera, opts: { orbit: boolean; fountain: { x: number; z: number }; trains?: TrainPose[] }) {
     try {
     clock += dt;
     lastBody = body;
@@ -5598,6 +5679,25 @@ export function createRuntime(scene: Scene) {
     }
     flyFlag = body.flying;
     consumeLook(body);
+    if (opts.trains) trainPoses = opts.trains;
+    // A rider is carried by the train: snap the body to the middle car's
+    // floor, a touch forward of centre (the car's centre sits over a
+    // track pillar at the station stop). The engine skips the walk
+    // physics while riding, so this is the body's only motion — and the
+    // camera (placeCamera, below) stays first-person, so the player
+    // looks around freely while the city slides past.
+    if (riding) {
+      const pose = trainPoses[riding.train];
+      if (pose) {
+        body.x = pose.x + pose.dx * 2.5;
+        body.z = pose.z + pose.dz * 2.5;
+        body.y = pose.y - 1.43;
+        body.vy = 0;
+        body.flying = false;
+      } else {
+        riding = null;
+      }
+    }
     if (!opts.orbit) {
       tickJobs(body, dt);
       tickGames(body);
@@ -5799,7 +5899,7 @@ export function createRuntime(scene: Scene) {
     }
     const emoteNow = Date.now() < world.emoteUntil ? world.emote : "";
     if (localBody) {
-      localBody.visible = camMode !== "first" && !driving && !ridingTrain && !ridingBus && !spectator;
+      localBody.visible = camMode !== "first" && !driving && !ridingTrain && !ridingBus && !riding && !spectator;
       const lift = applyEmote(localBody, emoteNow, Math.PI - body.yaw);
       localBody.position.set(body.x, body.y + lift, body.z);
       paintPerson(localBody, true);
@@ -5906,6 +6006,7 @@ export function createRuntime(scene: Scene) {
           bus.dwelling && bus.atStop
             ? `Press E to get off — ${bus.atStop.name}`
             : `Riding the City Loop — next stop ${bus.nextStop()?.name ?? ""}`;
+      else if (riding) prompt = trainPoses[riding.train]?.dwelling ? "Press E — get off at the Loop Station" : "Riding the loop train — enjoy the view";
       else if (nearOwnBed(body)) prompt = energy >= 100 ? "Your bed — fully rested" : "Press E — sleep in your bed (energy back to 100)";
       else if (zone && nearService(body, zone)) {
         prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "grocery" ? "Press E — buy food at OrbitX Grocery" : zone.kind === "garage" ? "Press E to open the garage" : zone.kind === "carshop" ? "Press E — buy a car at OrbitX Motors" : isDeptKind(zone.kind as string) ? `Press E — ${zoneTitle(zone)}` : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zone.kind === "restaurant" ? `Press E — order at ${zoneTitle(zone)}` : zone.kind === "gym" ? "Press E — gym desk · work out" : zoneTitle(zone);
@@ -5913,7 +6014,11 @@ export function createRuntime(scene: Scene) {
         // By the inside of a closed door: E steps back outside.
         prompt = "Press E — Exit";
       } else if (homeGarageAt(body)) prompt = "Press E — open your garage";
-      else if (nearestAnchor(body, 3.3)) {        // A close door / lift / board beats the race gate, same as
+      else if (boardingTrain(body) >= 0) {
+        // A train dwelling at the Loop Station beats the lift call button
+        // in the prompt too, same as in interact().
+        prompt = "Press E — ride the loop train (free)";
+      } else if (nearestAnchor(body, 3.3)) {        // A close door / lift / board beats the race gate, same as
         // interact(): the mall door sits 5.6 units from the street-race
         // start gate, inside its 8-unit radius, so the prompt used to say
         // "street race" at the door instead of "Walk in".
@@ -6205,7 +6310,11 @@ export function createRuntime(scene: Scene) {
       camera.lookAt(tx, ty + 1.2, TRAIN_LINE_Z);
       return true;
     }
-    if (!driving && camMode === "first") {
+    // Riding the loop train is first-person whatever the camera mode is:
+    // the rider sits inside the middle car and looks around freely
+    // (body.yaw/pitch follow the drag, as on foot) while the city slides
+    // past. A shoulder cam would sit inside the car walls.
+    if ((!driving && camMode === "first") || riding) {
       camera.position.set(body.x, body.y + 1.62, body.z);
       camera.up.set(0, 1, 0);
       const cp = Math.cos(body.pitch);
@@ -8782,6 +8891,7 @@ export function createRuntime(scene: Scene) {
     driving: () => driving,
     ridingTrain: () => ridingTrain,
     ridingBus: () => ridingBus,
+    riding: () => !!riding,
     paused: () => paused,
     typing: () => typing,
     stickActive: () => Math.hypot(stickX, stickY) > 0.15,
