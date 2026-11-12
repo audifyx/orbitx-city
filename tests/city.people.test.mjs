@@ -4,7 +4,7 @@
 // All City Sol, all state in the save's homes JSON (no new DB column).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { POST } from "./city.js";
+import { POST } from "../api/city.js";
 
 async function call(op, body = {}, token = "") {
   const headers = { "content-type": "application/json" };

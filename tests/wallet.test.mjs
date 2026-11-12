@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createPublicKey, verify } from "node:crypto";
-import { POST } from "./city.js";
-import { b58decode } from "./live.js";
-import { buildSolTransfer, createSolanaKeypair, openSecret, sealSecret, setRpcForTests, signMessage } from "./wallet.js";
+import { POST } from "../api/city.js";
+import { b58decode } from "../api/live.js";
+import { buildSolTransfer, createSolanaKeypair, openSecret, sealSecret, setRpcForTests, signMessage } from "../api/wallet.js";
 
 process.env.WALLET_MASTER_KEY = Buffer.alloc(32, 9).toString("base64");
 setRpcForTests(async (method) => {

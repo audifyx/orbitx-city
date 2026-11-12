@@ -8,7 +8,7 @@
 // Run: node --test api/wardrobe.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { POST } from "./city.js";
+import { POST } from "../api/city.js";
 
 function req(op, body = {}, token = "") {
   return new Request("http://local/api/city", {

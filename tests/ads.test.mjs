@@ -4,16 +4,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createPublicKey, verify } from "node:crypto";
-import { AD_USD_PRICE, PLAZA_BOARDS, priceLamports } from "./ads.js";
-import { signVersionedTransaction, versionedMessage } from "./jupiter.js";
-import { b58decode, b58encode } from "./live.js";
+import { AD_USD_PRICE, PLAZA_BOARDS, priceLamports } from "../api/ads.js";
+import { signVersionedTransaction, versionedMessage } from "../api/jupiter.js";
+import { b58decode, b58encode } from "../api/live.js";
 import {
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   buildTokenBurn,
   createSolanaKeypair,
   signLegacyMessage,
-} from "./wallet.js";
+} from "../api/wallet.js";
 
 function spki(pubkeyBytes) {
   const prefix = Buffer.from("302a300506032b6570032100", "hex");

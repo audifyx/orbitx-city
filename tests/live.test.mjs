@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { handleLive } from "./live.js";
+import { handleLive } from "../api/live.js";
 
 function ctxFor() {
   const store = {
@@ -75,7 +75,7 @@ test("daily claim pays once and courier quest pays on the second job", async () 
   assert.equal(ada.balance, 265);
   const again = await handleLive(ctx, ada, "daily-claim", {});
   assert.equal(again.ok, false);
-  const { noteEarn } = await import("./live.js");
+  const { noteEarn } = await import("../api/live.js");
   noteEarn(ada, "courier", 45);
   assert.equal(ada.earned, 45);
   const bonus = noteEarn(ada, "courier", 45);
@@ -98,7 +98,7 @@ test("street race rejects a skipped gate and records a legal finish", async () =
   ada.race.at = Date.now() - 1000;
   const skip = await handleLive(ctx, ada, "race-hit", { x: 36, z: 36, car: false });
   assert.equal(skip.ok, false);
-  const { GATES } = await import("./live.js");
+  const { GATES } = await import("../api/live.js");
   for (const gate of GATES) {
     ada.race.at = Date.now() - 1000;
     const hit = await handleLive(ctx, ada, "race-hit", { x: gate.x, z: gate.z, car: false });

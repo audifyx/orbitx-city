@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "npm install --prefix web && npm run build --prefix web",
-    "dev": "npm run dev --prefix web"
+    "dev": "npm run dev --prefix web",
+    "test": "node --test tests/"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",
