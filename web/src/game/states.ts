@@ -368,6 +368,7 @@ export function buildRegionCore(city: City, state: StateDef): void {
     x: cx - tw / 2, z: cz - tw / 2, w: tw, d: tw, h: t.towerH,
     style: t.style, door: "s", enterable: true, hero: true,
     face: "s", roof: "stepped", roofMat: t.roofMat, cornice: t.cornice,
+    glass: "curtain",
   };
   city.facades.push(tower);
   pushWallColliders(city, cx - tw / 2, cz - tw / 2, tw, tw, 8, "s");
@@ -1262,6 +1263,7 @@ export function buildOfficeTower(city: City, state: StateDef): void {
     id: `${state.id}-tower`, x: lx0, z: lz0, w: lobbyW, d: lobbyD, h: lobbyH,
     style: t.style, door: "s", enterable: true, hero: false,
     face: "s", roof: "flat", roofMat: t.roofMat, cornice: t.cornice,
+    glass: "curtain",
   });
   pushWallColliders(city, lx0, lz0, lobbyW, lobbyD, lobbyH, "s");
   pushBox(city, cx, 0.08, cz - 58, lobbyW - 2.4, 0.08, lobbyD - 2.4, "plaza");
@@ -1286,10 +1288,15 @@ export function buildOfficeTower(city: City, state: StateDef): void {
   const upW = 30;
   const upD = 20;
   const upH = t.officeH;
+  // The upper tower's visible shell is its cream voxel wall (furnishStateTower),
+  // 0.3 proud of the pretty shell — so it gets proud curtain bands on the
+  // voxel plane and no wall holes. The east band splits around the lift
+  // balcony slot (face-centre offsets +2.5..+7, the slot at cz-55..cz-51.5).
   city.facades.push({
     id: `${state.id}-tower-upper`, x: cx - upW / 2, z: lz0 + 4, w: upW, d: upD, h: upH,
     style: (t.style + 1) % 6, door: "", enterable: true, hero: false,
     face: "s", roof: "stepped", roofMat: t.roofMat, cornice: t.cornice,
+    glass: "curtain", glassProud: 0.36, glassSkip: { face: "e", from: 2.5, to: 7 },
   });
   pushBox(city, cx, upH + 0.8, lz0 + 4 + upD / 2, 4, 1.6, 4, t.officeAccent);
   furnishStateTower(city, state);

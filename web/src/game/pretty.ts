@@ -1,4 +1,6 @@
 import {
+  BoxGeometry,
+  BufferGeometry,
   CanvasTexture,
   ConeGeometry,
   CylinderGeometry,
@@ -9,8 +11,8 @@ import {
   RepeatWrapping,
   Shape,
   SRGBColorSpace,
-  BoxGeometry,
 } from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { Facade, Face } from "./city";
 import { porchPosts, porchSlab } from "./city";
 
@@ -246,6 +248,118 @@ const GLASS_MAT = new MeshStandardMaterial({
   transparent: true,
   opacity: 0.45,
 });
+// ---- glazing pass: real glass for the office towers + homes. ----
+// Warm-lit home windows + cool curtain glass for the towers. Both register
+// in nightMats so the lit interior reads after dark (same day/night drive
+// as the facade glow). Transparent + framed: the pane sits in a real hole
+// in the wall on the street face, so you can see the lit interior from
+// outside and see out from inside; the frame is merged geometry, one mesh
+// per window.
+const WINDOW_GLASS_MAT = new MeshStandardMaterial({
+  color: 0xffd9a0,
+  emissive: 0xffc27a,
+  emissiveIntensity: 0.3,
+  roughness: 0.1,
+  metalness: 0.25,
+  transparent: true,
+  opacity: 0.5,
+});
+const CURTAIN_GLASS_MAT = new MeshStandardMaterial({
+  color: 0x9befff,
+  emissive: 0x1ad8ff,
+  emissiveIntensity: 0.35,
+  roughness: 0.08,
+  metalness: 0.45,
+  transparent: true,
+  opacity: 0.55,
+});
+const FRAME_MAT = new MeshStandardMaterial({ color: 0x1a2028, roughness: 0.5, metalness: 0.4 });
+nightMats.push({ mat: WINDOW_GLASS_MAT, day: 0.3, night: 1.9 });
+nightMats.push({ mat: CURTAIN_GLASS_MAT, day: 0.35, night: 1.5 });
+
+/** Glazing coverage, filled by mountPretty so the game page can report it. */
+export const glassStats = { homes: 0, offices: 0, windows: 0, panes: 0 };
+function resetGlassStats() {
+  glassStats.homes = 0;
+  glassStats.offices = 0;
+  glassStats.windows = 0;
+  glassStats.panes = 0;
+}
+
+// One merged frame geometry per window size (top/bottom rails, side
+// stiles, a centre mullion, a protruding sill), shared by every window of
+// that size. Local space: the window is centred on the origin, facing +z.
+const frameCache = new Map<string, BufferGeometry>();
+function windowFrameGeo(w: number, h: number, band = false): BufferGeometry {
+  const key = `${band ? "band" : "win"}:${w.toFixed(2)}x${h.toFixed(2)}`;
+  const hit = frameCache.get(key);
+  if (hit) return hit;
+  const bar = 0.16;
+  const parts: Array<{ x: number; y: number; z: number; sx: number; sy: number; sz: number }> = [
+    { x: 0, y: h / 2 + bar / 2, z: 0, sx: w + bar * 2, sy: bar, sz: 0.14 },
+    { x: 0, y: -h / 2 - bar / 2, z: 0, sx: w + bar * 2, sy: bar, sz: 0.14 },
+    { x: -w / 2 - bar / 2, y: 0, z: 0, sx: bar, sy: h + bar * 2, sz: 0.14 },
+    { x: w / 2 + bar / 2, y: 0, z: 0, sx: bar, sy: h + bar * 2, sz: 0.14 },
+  ];
+  if (!band) {
+    // Centre mullion + a sill that protrudes 0.14 out from the wall.
+    parts.push({ x: 0, y: 0, z: 0, sx: 0.1, sy: h, sz: 0.12 });
+    parts.push({ x: 0, y: -h / 2 - bar - 0.05, z: 0.08, sx: w + bar * 2 + 0.24, sy: 0.12, sz: 0.34 });
+  }
+  const geos = parts.map((p) => {
+    const g = new BoxGeometry(p.sx, p.sy, p.sz);
+    g.translate(p.x, p.y, p.z);
+    return g;
+  });
+  const merged = mergeGeometries(geos) ?? geos[0] as BufferGeometry;
+  for (const g of geos) if (g !== merged) g.dispose();
+  frameCache.set(key, merged);
+  return merged;
+}
+
+function glassPane(
+  group: Group,
+  mat: MeshStandardMaterial,
+  x: number,
+  y: number,
+  z: number,
+  sx: number,
+  sy: number,
+  sz: number,
+) {
+  const m = new Mesh(box, mat);
+  m.position.set(x, y, z);
+  m.scale.set(sx, sy, sz);
+  m.castShadow = false;
+  m.receiveShadow = false;
+  group.add(m);
+}
+
+function frameMesh(
+  group: Group,
+  w: number,
+  h: number,
+  x: number,
+  y: number,
+  z: number,
+  rotY: number,
+  band = false,
+) {
+  const m = new Mesh(windowFrameGeo(w, h, band), FRAME_MAT);
+  m.position.set(x, y, z);
+  m.rotation.y = rotY;
+  m.castShadow = false;
+  m.receiveShadow = false;
+  group.add(m);
+}
+
+/** Outward rotation for a face: the frame geometry faces +z locally. */
+function faceRotY(face: Face): number {
+  if (face === "n") return Math.PI;
+  if (face === "e") return Math.PI / 2;
+  if (face === "w") return -Math.PI / 2;
+  return 0;
+}
 const GOLD_MAT = new MeshStandardMaterial({
   color: 0xe0b33a,
   roughness: 0.35,
@@ -295,7 +409,25 @@ function addWall(
   group.add(mesh);
 }
 
-function hollow(facade: Facade, material: MeshStandardMaterial) {
+// ---- glazing pass on the hollow shell ----
+// The walls are built as solid runs around openings (the door gap + real
+// window holes on the ground floor). A window opening is a real hole: the
+// glass pane sits centred in the wall thickness, so from the street you
+// see the lit interior through it, and from inside you see out — while the
+// colliders (pushWallColliders, untouched) still block walking through.
+// Upper floors of office towers get proud glass curtain bands instead of
+// holes: one wide pane + rails per face per row.
+// `glaze` is false on low quality (walls stay as they were, no glass).
+
+interface WallOpening {
+  a0: number;
+  a1: number;
+  y0: number;
+  y1: number;
+  door?: boolean;
+}
+
+function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) {
   const group = new Group();
   const { x, z, w, d, h, door, passThrough } = facade;
   const t = 0.45;
@@ -339,54 +471,210 @@ function hollow(facade: Facade, material: MeshStandardMaterial) {
       group.add(handle);
     }
   };
-  // Only the pass-through face gets a gap; the door face stays closed.
-  const gapOn = (face: Face) => passThrough === face;
-  const place = (alongX: boolean) => {
+  // (gapOn/place are gone: the pass-through gap is now a buildWall
+  // opening below, so the wall is built around it with windows kept
+  // clear — same 4-wide car lane, no separate wall code.)
+  const glass = glaze ? facade.glass : undefined;
+  const glassWall = !!facade.glassWall;
+  // Visible exterior plane, outward from the facade rect edge. 0 for the
+  // pretty shell itself; voxel-shell towers (district office uppers) stick
+  // their cream voxel wall 0.3 proud, so their curtain bands sit 0.36 out
+  // and they get no wall holes (the voxel wall would hide them).
+  const proud = facade.glassProud ?? 0;
+
+  const winW = glass === "curtain" ? 2.6 : glassWall ? 3.4 : 2.2;
+  const winY0 = glassWall ? 0.8 : 1.0;
+  const winY1 = glassWall ? 2.8 : 2.6;
+
+  // Ranges on one face the windows must not overlap: the door gap, and
+  // the storefront glass zone on the storefront face.
+  const blockedFor = (face: Face, span: number, origin: number): Array<[number, number]> => {
+    const blocked: Array<[number, number]> = [];
+    if (door === face) {
+      const c = origin + span / 2;
+      blocked.push([c - gap / 2, c + gap / 2]);
+    }
+    if (passThrough === face) {
+      // Car lane through a tower astride a road/bridge line: same 4-wide
+      // gap as the door, so no window may overlap it.
+      const c = origin + span / 2;
+      blocked.push([c - gap / 2, c + gap / 2]);
+    }
+    if (facade.storefront && facade.face === face) {
+      const c = origin + span / 2;
+      const paneW = Math.min(span * 0.72, 12);
+      blocked.push([c - paneW / 2 - 0.6, c + paneW / 2 + 0.6]);
+    }
+    return blocked;
+  };
+
+  // Ground-floor window openings for one face.
+  // "home": two windows flanking the door, street face only.
+  // "curtain": windows spaced ~6.5 apart on every face.
+  const windowsFor = (face: Face, span: number, origin: number): WallOpening[] => {
+    if (!glass || proud > 0) return [];
+    const blocked = blockedFor(face, span, origin);
+    const overlaps = (a0: number, a1: number) =>
+      blocked.some(([b0, b1]) => a0 < b1 - 0.2 && a1 > b0 + 0.2);
+    if (glass === "home") {
+      if (face !== door) return [];
+      const out: WallOpening[] = [];
+      const c = origin + span / 2;
+      const gap0 = c - gap / 2;
+      const gap1 = c + gap / 2;
+      for (const [s0, s1] of [
+        [origin, gap0],
+        [gap1, origin + span],
+      ] as const) {
+        if (s1 - s0 < winW + 1.2) continue;
+        const wc = (s0 + s1) / 2;
+        out.push({ a0: wc - winW / 2, a1: wc + winW / 2, y0: winY0, y1: winY1 });
+      }
+      return out;
+    }
+    const n = Math.max(1, Math.floor((span - 1) / 6.5));
+    const slot = span / n;
+    const out: WallOpening[] = [];
+    for (let i = 0; i < n; i++) {
+      const wc = origin + slot * (i + 0.5);
+      const a0 = wc - winW / 2;
+      const a1 = wc + winW / 2;
+      if (a0 < origin + 0.6 || a1 > origin + span - 0.6) continue;
+      if (overlaps(a0, a1)) continue;
+      out.push({ a0, a1, y0: 1.0, y1: 2.6 });
+    }
+    return out;
+  };
+
+  // One wall, built as solid runs around its openings, with glass + frame
+  // in each window opening. `fixed` is the rect-edge coordinate of the
+  // face (z for n/s, x for e/w).
+  const buildWall = (face: Face, alongX: boolean, fixed: number) => {
     const span = alongX ? w : d;
     const origin = alongX ? x : z;
-    const gap0 = origin + (span - gap) / 2;
-    const gap1 = gap0 + gap;
-    if (alongX) {
-      addWall(group, (x + gap0) / 2, midY, z + t / 2, gap0 - x, h, t, material);
-      addWall(group, (gap1 + x + w) / 2, midY, z + t / 2, x + w - gap1, h, t, material);
-      addWall(group, (gap0 + gap1) / 2, 3 + (h - 3) / 2, z + t / 2, gap, h - 3, t, material);
-    } else {
-      addWall(group, x + t / 2, midY, (z + gap0) / 2, t, h, gap0 - z, material);
-      addWall(group, x + t / 2, midY, (gap1 + z + d) / 2, t, h, z + d - gap1, material);
-      addWall(group, x + t / 2, 3 + (h - 3) / 2, (gap0 + gap1) / 2, t, h - 3, gap, material);
+    const openings: WallOpening[] = [];
+    if (door === face) {
+      const c = origin + span / 2;
+      openings.push({ a0: c - gap / 2, a1: c + gap / 2, y0: 0, y1: 3, door: true });
+    } else if (passThrough === face) {
+      // Car lane through a tower astride a road/bridge line (water batch):
+      // same 4-wide open gap as the door. door: true only means "no glass
+      // in this opening" — no door slab is added for it (addDoor runs only
+      // on the door face, below).
+      const c = origin + span / 2;
+      openings.push({ a0: c - gap / 2, a1: c + gap / 2, y0: 0, y1: 3, door: true });
+    }
+    for (const op of windowsFor(face, span, origin)) openings.push(op);
+    openings.sort((a, b) => a.a0 - b.a0);
+    // Wall centre plane (inward from the rect edge) and outer face plane.
+    const wallC =
+      face === "n" ? fixed + t / 2 : face === "s" ? fixed - t / 2 : face === "w" ? fixed + t / 2 : fixed - t / 2;
+    const outer =
+      face === "n" ? fixed - 0.07 : face === "s" ? fixed + 0.07 : face === "w" ? fixed - 0.07 : fixed + 0.07;
+    const solid = (a0: number, a1: number) => {
+      if (a1 - a0 < 0.05) return;
+      const mid = (a0 + a1) / 2;
+      const len = a1 - a0;
+      if (alongX) addWall(group, mid, midY, wallC, len, h, t, material);
+      else addWall(group, wallC, midY, mid, t, h, len, material);
+    };
+    const around = (op: WallOpening) => {
+      const mid = (op.a0 + op.a1) / 2;
+      const len = op.a1 - op.a0;
+      if (op.y0 > 0.05) {
+        if (alongX) addWall(group, mid, op.y0 / 2, wallC, len, op.y0, t, material);
+        else addWall(group, wallC, op.y0 / 2, mid, t, op.y0, len, material);
+      }
+      if (op.y1 < h - 0.05) {
+        const hy = (op.y1 + h) / 2;
+        if (alongX) addWall(group, mid, hy, wallC, len, h - op.y1, t, material);
+        else addWall(group, wallC, hy, mid, t, h - op.y1, len, material);
+      }
+    };
+    let cursor = origin;
+    for (const op of openings) {
+      solid(cursor, op.a0);
+      around(op);
+      cursor = op.a1;
+    }
+    solid(cursor, origin + span);
+    // Glass + frame in each window opening (never the door).
+    for (const op of openings) {
+      if (op.door) continue;
+      const mid = (op.a0 + op.a1) / 2;
+      const cy = (op.y0 + op.y1) / 2;
+      const gw = op.a1 - op.a0;
+      const gh = op.y1 - op.y0;
+      const mat = glass === "curtain" ? CURTAIN_GLASS_MAT : WINDOW_GLASS_MAT;
+      if (alongX) {
+        glassPane(group, mat, mid, cy, wallC, gw - 0.08, gh - 0.08, 0.08);
+        frameMesh(group, gw, gh, mid, cy, outer, faceRotY(face));
+      } else {
+        glassPane(group, mat, wallC, cy, mid, 0.08, gh - 0.08, gw - 0.08);
+        frameMesh(group, gw, gh, outer, cy, mid, faceRotY(face));
+      }
+      glassStats.windows++;
     }
   };
-  // Every face is a full wall; the door face also gets the closed door.
-  if (door === "n") {
-    addWall(group, cx, midY, z + t / 2, w, h, t, material);
-    addDoor(true);
-  } else if (gapOn("n")) place(true);
-  else addWall(group, cx, midY, z + t / 2, w, h, t, material);
-  if (door === "s") {
-    addWall(group, cx, midY, z + d - t / 2, w, h, t, material);
-    addDoor(true);
-  } else if (gapOn("s")) {
-    const gap0 = x + (w - gap) / 2;
-    const gap1 = gap0 + gap;
-    addWall(group, (x + gap0) / 2, midY, z + d - t / 2, gap0 - x, h, t, material);
-    addWall(group, (gap1 + x + w) / 2, midY, z + d - t / 2, x + w - gap1, h, t, material);
-    addWall(group, (gap0 + gap1) / 2, 3 + (h - 3) / 2, z + d - t / 2, gap, h - 3, t, material);
-  } else addWall(group, cx, midY, z + d - t / 2, w, h, t, material);
-  if (door === "w") {
-    addWall(group, x + t / 2, midY, cz, t, h, d, material);
-    addDoor(false);
-  } else if (gapOn("w")) place(false);
-  else addWall(group, x + t / 2, midY, cz, t, h, d, material);
-  if (door === "e") {
-    addWall(group, x + w - t / 2, midY, cz, t, h, d, material);
-    addDoor(false);
-  } else if (gapOn("e")) {
-    const gap0 = z + (d - gap) / 2;
-    const gap1 = gap0 + gap;
-    addWall(group, x + w - t / 2, midY, (z + gap0) / 2, t, h, gap0 - z, material);
-    addWall(group, x + w - t / 2, midY, (gap1 + z + d) / 2, t, h, z + d - gap1, material);
-    addWall(group, x + w - t / 2, 3 + (h - 3) / 2, (gap0 + gap1) / 2, t, h - 3, gap, material);
-  } else addWall(group, x + w - t / 2, midY, cz, t, h, d, material);
+
+  buildWall("n", true, z);
+  buildWall("s", true, z + d);
+  buildWall("w", false, x);
+  buildWall("e", false, x + w);
+
+  // Closed real door (life-sim): the door face's gap gets the wood slab +
+  // white frame + gold handle, so the door stays shut. Entry is E at the
+  // door anchor. The pass-through face keeps its open 4-wide gap (the
+  // buildWall opening has door: true so no glass lands in it).
+  if (door === "n" || door === "s") addDoor(true);
+  else addDoor(false);
+
+  // ---- glass curtain bands on the upper floors (office towers only) ----
+  if (glass === "curtain") {
+    // Voxel-shell towers start above the lobby roof (y 9.8); hollow-shell
+    // towers get a clerestory band first (y 5.8). A row every 4 units.
+    const startY = proud > 0 ? 9.8 : 5.8;
+    const bandMat = CURTAIN_GLASS_MAT;
+    for (let y = startY; y + 0.9 < h - 0.4; y += 4) {
+      for (const face of ["n", "s", "w", "e"] as const) {
+        const alongX = face === "n" || face === "s";
+        const span = alongX ? w : d;
+        const origin = alongX ? x : z;
+        const centre = origin + span / 2;
+        // Segments along the face; the lift balcony slot on the upper
+        // tower's east face splits its band in two.
+        let segments: Array<[number, number]> = [[origin + 0.5, origin + span - 0.5]];
+        if (facade.glassSkip && facade.glassSkip.face === face) {
+          const s0 = centre + facade.glassSkip.from;
+          const s1 = centre + facade.glassSkip.to;
+          segments = [
+            [origin + 0.5, s0],
+            [s1, origin + span - 0.5],
+          ].filter(([a0, a1]) => a1 - a0 > 1) as Array<[number, number]>;
+        }
+        for (const [a0, a1] of segments) {
+          const mid = (a0 + a1) / 2;
+          const len = a1 - a0;
+          const off = proud + 0.06;
+          if (face === "n") {
+            glassPane(group, bandMat, mid, y, z - off, len, 1.8, 0.1);
+            frameMesh(group, len, 1.8, mid, y, z - off - 0.02, faceRotY(face), true);
+          } else if (face === "s") {
+            glassPane(group, bandMat, mid, y, z + d + off, len, 1.8, 0.1);
+            frameMesh(group, len, 1.8, mid, y, z + d + off + 0.02, faceRotY(face), true);
+          } else if (face === "w") {
+            glassPane(group, bandMat, x - off, y, mid, 0.1, 1.8, len);
+            frameMesh(group, len, 1.8, x - off - 0.02, y, mid, faceRotY(face), true);
+          } else {
+            glassPane(group, bandMat, x + w + off, y, mid, 0.1, 1.8, len);
+            frameMesh(group, len, 1.8, x + w + off + 0.02, y, mid, faceRotY(face), true);
+          }
+          glassStats.panes++;
+        }
+      }
+    }
+  }
+
   const roofMat = new MeshStandardMaterial({ color: 0x141820, roughness: 0.7, metalness: 0.2 });
   addWall(group, cx, h + 0.2, cz, w, 0.4, d, roofMat);
   return group;
@@ -842,8 +1130,13 @@ function solidTower(facade: Facade) {
 export function mountPretty(facades: Facade[], quality: QualityName) {
   const root = new Group();
   root.name = "pretty-city";
+  resetGlassStats();
   const plain = new MeshStandardMaterial({ color: 0x1c2430, roughness: 0.7, metalness: 0.2, emissive: 0x12343f, emissiveIntensity: 0.25 });
   for (const facade of facades) {
+    if (facade.glass) {
+      if (facade.id.startsWith("home-")) glassStats.homes++;
+      else glassStats.offices++;
+    }
     // The central tower is the only facade that renders as the stepped
     // solid tower. The mall and HQ are hero too but have their own
     // enterable exteriors — previously all three rendered the same tower
@@ -869,7 +1162,10 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
       continue;
     }
     if (facade.enterable && facade.door) {
-      root.add(hollow(facade, material));
+      // Glazing is visual only: the colliders are untouched, so the walls
+      // still block walking through except at the door. Low quality skips
+      // the glass (walls stay as they were).
+      root.add(hollow(facade, material, quality !== "low" && !!facade.glass));
     } else {
       const mesh = new Mesh(box, material);
       mesh.position.set(facade.x + facade.w / 2, facade.h / 2, facade.z + facade.d / 2);
@@ -887,6 +1183,9 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
     if (facade.cornice) addCornice(root, facade);
     if (facade.crown) addCrownBox(root, facade, material);
     if (facade.wing) addWing(root, facade, material);
+  }
+  if (typeof window !== "undefined") {
+    (window as unknown as { __ORBITX_GLASS: typeof glassStats }).__ORBITX_GLASS = { ...glassStats };
   }
   return root;
 }

@@ -98,6 +98,22 @@ export interface Facade {
   awning?: boolean;
   /** Gold trim band at the top of the walls. */
   cornice?: boolean;
+  /** Glazing pass (pretty.ts): "home" = real see-through windows flanking
+   * the door on the street face; "curtain" = the home treatment on every
+   * face plus glass curtain bands on the upper floors (office towers).
+   * Opt-in — only facades that set it are glazed. */
+  glass?: "home" | "curtain";
+  /** Wide glass wall on the street face (glass-modern homes). */
+  glassWall?: boolean;
+  /** Offset of the visible exterior plane from the facade rect edge, for
+   * facades whose visible shell is a voxel wall (district office upper
+   * towers: their cream voxel shell sits 0.3 proud of the pretty shell,
+   * so their curtain bands sit 0.36 out and they get no wall holes). */
+  glassProud?: number;
+  /** A gap in the curtain bands on one face, as [from, to] offsets from
+   * the face centre (district office upper towers: the lift balcony slot
+   * on the east face). */
+  glassSkip?: { face: Face; from: number; to: number };
 }
 
 export interface Collider {
@@ -5072,6 +5088,7 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
     roof: "flat",
     cornice: true,
     storefront: true,
+    glass: "curtain",
     crown: { w: 40, d: 40, h: 3 },
   });
   // Ground floor: lobby, double-height void over the north strip (z 5..29).

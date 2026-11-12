@@ -537,6 +537,10 @@ export function buildHome(city: City, home: HomeDef): void {
     style: arch.style, door, enterable: true, hero: false,
     face: door, roof: arch.roof, roofDir: door, roofMat: arch.roofMat,
     porch: arch.porch, chimney: arch.chimney, awning: arch.awning,
+    // Glazing: real see-through windows flanking the door on the street
+    // face. Glass-modern archetypes get a wide glass wall instead.
+    glass: "home",
+    glassWall: arch.key === "modern" || arch.key === "beach-house" || arch.key === "loft",
   };
   city.facades.push(facade);
   // Solid walls = colliders only (pretty draws the visuals, so no wall boxes
