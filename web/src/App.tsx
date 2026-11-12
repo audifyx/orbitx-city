@@ -283,6 +283,9 @@ const EMPTY: Snap = {
   jobTitle: "",
   objective: "",
   notice: "",
+  toasts: [],
+  alerts: [],
+  unreadAlerts: 0,
   chat: [],
   others: 0,
   netMode: "",
@@ -300,6 +303,7 @@ const EMPTY: Snap = {
   panel: "",
   lift: null,
   people: [],
+  npcs: [],
   friends: [],
   requests: [],
   party: [],
@@ -1217,6 +1221,18 @@ export default function App() {
           </span>
         </div>
       )}
+      {/* Notification pop-ups: tap one to dismiss it early. Live toasts
+       * auto-expire after 5s; the full history lives in the Alerts panel. */}
+      {!menu && !snap.hideHud && snap.toasts.length > 0 && (
+        <div className="toasts" aria-live="polite">
+          {snap.toasts.map((toast) => (
+            <button type="button" key={toast.id} className="toast" onClick={() => gameRef.current?.runtime.dismissToast(toast.id)}>
+              <span className="toast-icon">{toast.icon}</span>
+              <span className="toast-text">{toast.text}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {!menu && snap.prompt && !snap.hideHud ? <p className="prompt">{snap.prompt}</p> : null}
       {!menu && !snap.hideHud && (
         <div className="actions">
@@ -1227,6 +1243,8 @@ export default function App() {
           <button type="button" onClick={() => open("ads")}>Ads</button>
           <button type="button" onClick={() => open("radio")}>Radio</button>
           <button type="button" onClick={() => open("voice")}>Voice</button>
+          <button type="button" onClick={() => open("players")}>Players</button>
+          <button type="button" onClick={() => open("alerts")}>Alerts{snap.unreadAlerts > 0 ? ` (${snap.unreadAlerts})` : ""}</button>
           <button type="button" onClick={() => open("offices")}>Offices</button>
           <button type="button" onClick={() => open("myprops")}>My Props</button>
           <button type="button" onClick={() => open("transport")}>Transport</button>
@@ -1319,6 +1337,8 @@ export default function App() {
                 {panel === "ads" && "Book a billboard"}
                 {panel === "radio" && "Radio"}
                 {panel === "voice" && "Voice chat"}
+                {panel === "players" && "Players"}
+                {panel === "alerts" && "Notifications"}
                 {panel === "offices" && "OrbitX Tower offices"}
                 {panel === "myprops" && "My Properties"}
                 {panel === "transport" && "Transport"}
@@ -3074,6 +3094,8 @@ export default function App() {
               });
             }} />}
             {panel === "voice" && <VoicePanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
+            {panel === "players" && <PlayersPanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
+            {panel === "alerts" && <AlertsPanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             <FeaturePanel snap={{ ...snap, panel: panel as PanelName | "" }} rt={gameRef.current?.runtime ?? null} />
             {panel === "home" && (() => {
               const zoneId = snap.indoors || "";
@@ -4212,6 +4234,110 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
   );
 }
 
+// Players: teleport to anyone in the city, add friends, invite to a
+// party, answer requests. Teleport is FREE and same-universe only — the
+// list only shows players the game can actually see, so if nobody is
+// here it says so instead of teleporting you nowhere.
+function PlayersPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
+  const online = snap.server !== "This device";
+  const inCity = snap.people
+    .map((person) => ({ ...person, distance: Math.hypot(person.x - snap.me.x, person.z - snap.me.z) }))
+    .sort((a, b) => a.distance - b.distance);
+  const friendIds = new Set(snap.friends.map((friend) => friend.id));
+  const npcFriends = snap.cityPeople.relationships.filter((rel) => rel.level >= 2);
+  const npcByName = new Map(snap.npcs.map((npc) => [npc.name, npc]));
+  return (
+    <div className="list">
+      {!online ? <p>Players need the online city.</p> : null}
+      <h3>In the city now</h3>
+      {inCity.length === 0 ? (
+        <p>No other players in the city right now.</p>
+      ) : (
+        inCity.map((person) => (
+          <article key={person.id}>
+            <div><b>{person.name}</b><span>{person.distance < 15 ? "near you" : `${Math.round(person.distance)} units away`}{person.lobby ? " · in voice" : ""}</span></div>
+            <button type="button" onClick={() => rt?.teleportToPlayer(person.id)}>Teleport</button>
+            {friendIds.has(person.id) ? null : <button type="button" onClick={() => rt?.friendAsk(person.id)}>Add friend</button>}
+            <button type="button" onClick={() => rt?.partyInvite(person.id)}>Party invite</button>
+          </article>
+        ))
+      )}
+      <h3>Friends</h3>
+      {snap.friends.length === 0 ? (
+        <p>No friends yet — add someone from the city above.</p>
+      ) : (
+        snap.friends.map((friend) => {
+          const here = inCity.find((person) => person.id === friend.id);
+          return (
+            <article key={friend.id}>
+              <div><b>{friend.name}</b><span>{here ? `${Math.round(here.distance)} units away` : "not in the city"}</span></div>
+              {here ? <button type="button" onClick={() => rt?.teleportToPlayer(friend.id)}>Teleport</button> : null}
+              <button type="button" onClick={() => rt?.partyInvite(friend.id)}>Party invite</button>
+            </article>
+          );
+        })
+      )}
+      <h3>NPC friends</h3>
+      {npcFriends.length === 0 ? (
+        <p>Talk to the people around the city — friends (level 2+) show up here with a Teleport.</p>
+      ) : (
+        npcFriends.map((rel) => {
+          const npc = npcByName.get(rel.npc);
+          return (
+            <article key={rel.npc}>
+              <div><b>{rel.npc}</b><span>{rel.label} · {rel.role}</span></div>
+              {npc ? <button type="button" onClick={() => rt?.teleportToNpc(rel.npc)}>Teleport</button> : null}
+            </article>
+          );
+        })
+      )}
+      <h3>Requests</h3>
+      {snap.requests.length === 0 ? (
+        <p>No requests right now.</p>
+      ) : (
+        snap.requests.map((req) => (
+          <article key={req.id}>
+            <div><b>{req.name}</b><span>{req.kind === "party" ? "invited you to their party" : "wants to be friends"}</span></div>
+            <button type="button" onClick={() => (req.kind === "party" ? rt?.partyAccept(req.id) : rt?.friendAccept(req.id))}>Accept</button>
+            <button type="button" onClick={() => rt?.declineRequest(req.id, req.kind === "party" ? "party" : "friend")}>Decline</button>
+          </article>
+        ))
+      )}
+      <h3>Party</h3>
+      <span>{snap.party.length ? snap.party.map((member) => member.name).join(", ") : "No party yet."}</span>
+      <div className="days">
+        <button type="button" onClick={() => rt?.partyInvite("")}>Start a party</button>
+        {snap.party.length > 0 ? <button type="button" onClick={() => rt?.partyLeave()}>Leave party</button> : null}
+      </div>
+    </div>
+  );
+}
+
+// Alerts: the notification history — every pop-up the game fired, newest
+// first. Opening this panel marks them all read, so the badge clears
+// once you have looked.
+function AlertsPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
+  useEffect(() => {
+    rt?.markAlertsRead();
+    // Runs once, on open — the badge clears when you look.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <div className="list">
+      {snap.alerts.length === 0 ? (
+        <p>No notifications yet. Friend adds, party invites, voice joins, jobs, and buys will show up here.</p>
+      ) : (
+        snap.alerts.map((alert) => (
+          <article key={alert.id}>
+            <div><b>{alert.icon}</b><span>{alert.text}</span></div>
+            <span>{new Date(alert.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+          </article>
+        ))
+      )}
+    </div>
+  );
+}
+
 // Proximity voice chat: talk to players standing near you — no lobby
 // to join, just walk up to someone. Free, peer-to-peer, nothing recorded.
 function VoicePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
@@ -4360,8 +4486,9 @@ function Phone({ snap, rt, onLogout }: { snap: Snap; rt: Runtime | null; onLogou
       <h3>Friends</h3>
       {snap.requests.map((req) => (
         <article key={req.id}>
-          <div><b>{req.name}</b><span>wants to be friends</span></div>
-          <button type="button" onClick={() => rt?.friendAccept(req.id)}>Accept</button>
+          <div><b>{req.name}</b><span>{req.kind === "party" ? "invited you to their party" : "wants to be friends"}</span></div>
+          <button type="button" onClick={() => (req.kind === "party" ? rt?.partyAccept(req.id) : rt?.friendAccept(req.id))}>Accept</button>
+          <button type="button" onClick={() => rt?.declineRequest(req.id, req.kind === "party" ? "party" : "friend")}>Decline</button>
         </article>
       ))}
       {snap.friends.map((friend) => (
