@@ -3565,9 +3565,11 @@ function peopleRelationship(npc, rec) {
     talks,
     level,
     label: peopleRelLabel(level),
-    // Friends (level 2+) can be invited over; Close Friends (3+) come to parties.
+    // Friends (level 2+) can be invited over AND come to house parties
+    // (party-start invites level 2+, Close Friends first); level is also
+    // what gates the auto-visit when Friend is reached.
     canVisit: level >= 2,
-    canParty: level >= 3,
+    canParty: level >= 2,
     lastTalkAt: Number(rec?.lastTalkAt || 0),
   };
 }

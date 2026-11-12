@@ -60,7 +60,7 @@ function Talk({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   const talk = snap.talk;
   // PEOPLE: this NPC's relationship — chatting builds it (Stranger →
   // Acquaintance → Friend → Close Friend → Best Friend). Friends can be
-  // invited over to your place; Close Friends come to house parties.
+  // invited over to your place and come to house parties.
   const [rel, setRel] = useState<{ label: string; talks: number; level: number; canVisit: boolean; canParty: boolean } | null>(null);
   const [chatMsg, setChatMsg] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
@@ -126,9 +126,9 @@ function Talk({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
         {rel && rel.level < 2
           ? `Chat ${3 - rel.talks} more time${3 - rel.talks === 1 ? "" : "s"} to become Friends — Friends come over to your place.`
           : rel && rel.level === 2
-            ? "Friends come over — invite them from your home panel. 8 chats for Close Friend."
+            ? "Friend — invite them over from your home panel, and they will come to your house parties. 8 chats for Close Friend."
             : rel
-              ? "Close Friend — they will come to your house parties."
+              ? "Close Friend — first in line at your house parties."
               : "Chatting builds a relationship — 3 chats to become Friends."}
       </p>
       <button

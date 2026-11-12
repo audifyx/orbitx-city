@@ -61,6 +61,8 @@ test("people: npc-talk builds a relationship, Friend visits your home", async ()
   assert.equal(third.relationship.talks, 3);
   assert.equal(third.relationship.label, "Friend");
   assert.equal(third.relationship.canVisit, true);
+  // Friends (level 2+) come to house parties — Close Friends just rank first.
+  assert.equal(third.relationship.canParty, true);
   // Reaching Friend sends Vera over to the first owned home, 10 minutes.
   assert.equal(third.visited, true, third.message);
   assert.equal(third.guests.some((g) => g.name === "Vera" && g.homeId === "home-ny-01"), true);
