@@ -1029,7 +1029,7 @@ export const CAR_SHOP: CarShopSection[] = [
   },
   {
     title: "Flying Cars",
-    blurb: "Road cars that lift off. Hold Space to climb, Shift to come down.",
+    blurb: "Road cars that lift off. Fly takes off or lands, Jump climbs, Down comes down.",
     ids: FLYING_CARS.map((v) => v.id),
   },
   {
@@ -1353,9 +1353,14 @@ export function driveParamsFor(id: string): DriveParams {
   return base;
 }
 
-/** Flying controls, for the panel help text and WIRING.md. */
+/** Flying controls, for the panel help text and WIRING.md.
+ * `note` is the desktop wording (Space / Shift / C). `touchNote` is what
+ * a phone shows — a phone has no Space key, so showing the desktop note
+ * on a phone told the player to press a key that does not exist, and the
+ * player never learned that Jump climbs the car. */
 export const FLY_CONTROLS = {
   climbKey: "Space",
   descendKeys: ["Shift", "C"],
   note: "Hold Space to climb. Hold Shift or C to descend. Gravity is off while flying. Ceiling is the vehicle's maxAltitude; drop below it to land.",
+  touchNote: "Tap Fly to take off or land. Hold Jump to climb, Down to come down. Gravity is off while flying.",
 } as const;

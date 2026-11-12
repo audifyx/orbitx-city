@@ -197,6 +197,8 @@ const EMPTY: Snap = {
   touch: false,
   driving: false,
   flying: false,
+  flyingCar: false,
+  carFlying: false,
   indoors: "",
   prompt: "",
   balance: 0,
@@ -783,7 +785,7 @@ export default function App() {
             <span>{snap.account ? "Account" : "Guest"}</span>
           </div>
           <strong>CITY SOL {snap.balance}</strong>
-          {snap.flying ? <span className="flying-chip">FLYING</span> : null}
+          {snap.flying || snap.carFlying ? <span className="flying-chip">FLYING</span> : null}
           {snap.holder ? <span>HOLDER</span> : null}
           <span>Burned {snap.burned}</span>
           <span>{snap.jobTitle ? `${snap.jobTitle} — ${snap.objective}` : snap.objective}</span>
@@ -819,9 +821,15 @@ export default function App() {
           />
           <Stick onChange={(x, y) => gameRef.current?.runtime.setStick(x, y)} />
           <div className="pad-buttons">
-            <Hold label="Jump" onDown={() => gameRef.current?.runtime.hold("jump", true)} onUp={() => gameRef.current?.runtime.hold("jump", false)} />
-            <button type="button" className={snap.flying ? "on" : undefined} aria-pressed={snap.flying} onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.toggleFly(); }}>Fly</button>
-            <Hold label="Down" onDown={() => gameRef.current?.runtime.hold("down", true)} onUp={() => gameRef.current?.runtime.hold("down", false)} />
+            {/* While driving a flying vehicle the pad relabels: Jump climbs
+                the car and Down brings it down — the player otherwise has
+                no idea the Jump button flies the car (the old note named
+                the Space key, which a phone does not have). */}
+            <Hold label={snap.flyingCar ? "Climb" : "Jump"} onDown={() => gameRef.current?.runtime.hold("jump", true)} onUp={() => gameRef.current?.runtime.hold("jump", false)} />
+            {/* While driving a flying vehicle Fly takes off / lands the CAR
+                instead of ejecting the player — see runtime.toggleFly. */}
+            <button type="button" className={snap.flying || snap.carFlying ? "on" : undefined} aria-pressed={snap.flying || snap.carFlying} onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.toggleFly(); }}>{snap.flyingCar ? (snap.carFlying ? "Land" : "Take off") : "Fly"}</button>
+            <Hold label={snap.flyingCar ? "Descend" : "Down"} onDown={() => gameRef.current?.runtime.hold("down", true)} onUp={() => gameRef.current?.runtime.hold("down", false)} />
             <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.interact(); }}>Use</button>
             <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.cycleCamera(); }}>Camera</button>
             <button type="button" onClick={() => { triggerHaptic("tap"); open("chat"); }}>Chat</button>
@@ -1511,7 +1519,7 @@ export default function App() {
                             <b>{v.name}</b>
                             <span>{v.brand} — {v.blurb}</span>
                             <span>Speed {v.stats.speed}/10 · Accel {v.stats.accel}/10 · Handling {v.stats.handling}/10 · {v.stats.seats} seats · {v.price} City Sol</span>
-                            {v.fly ? <span>{FLY_CONTROLS.note}</span> : null}
+                            {v.fly ? <span>{snap.touch ? FLY_CONTROLS.touchNote : FLY_CONTROLS.note}</span> : null}
                             {v.kind === "skateboard" ? <span>Push W to go — no reverse.</span> : null}
                             <span className="days">
                               {Object.entries(VEHICLE_COLORS).map(([name, hex]) => (

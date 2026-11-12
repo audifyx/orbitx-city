@@ -219,6 +219,10 @@ export interface Snap {
   touch: boolean;
   driving: boolean;
   flying: boolean;
+  /** Driving a vehicle that can fly (climb > 0) — the pad relabels. */
+  flyingCar: boolean;
+  /** The driven car is airborne or auto-taking-off / auto-landing. */
+  carFlying: boolean;
   indoors: string;
   prompt: string;
   balance: number;
@@ -1082,7 +1086,10 @@ export function createRuntime(scene: Scene) {
   const chat: ChatLine[] = [];
   const remotes = new Map<string, Remote>();
   const boards = new Map<string, { mesh: Mesh; base: BillboardInfo; texture: CanvasTexture }>();
-  const cars: { id: string; group: Group; x: number; z: number; yaw: number; lean: number; vehicleId?: string; alt: number }[] = [];
+  // autoAlt: the car's auto-takeoff / auto-land target altitude, or null
+  // when the player is flying it by hand (Jump / Down). Set by the Fly
+  // button while driving a flying vehicle; manual Jump / Down cancels it.
+  const cars: { id: string; group: Group; x: number; z: number; yaw: number; lean: number; vehicleId?: string; alt: number; autoAlt: number | null }[] = [];
   let beacon: Mesh | null = null;
   let packageMesh: Mesh | null = null;
   let rider: Group | null = null;
@@ -1608,7 +1615,7 @@ export function createRuntime(scene: Scene) {
     group.position.set(x, 0.12, z);
     group.rotation.y = Math.PI / 2 - yaw;
     root.add(group);
-    cars.push({ id: "shop-row", group, x, z, yaw, lean: 0, vehicleId: entry.id, alt: 0 });
+    cars.push({ id: "shop-row", group, x, z, yaw, lean: 0, vehicleId: entry.id, alt: 0, autoAlt: null });
     ownedCarIndex = cars.length - 1;
   }
 
@@ -1744,7 +1751,7 @@ export function createRuntime(scene: Scene) {
       group.position.set(spawn.x, 0.12, spawn.z);
       group.rotation.y = Math.PI / 2 - spawn.yaw;
       root.add(group);
-      cars.push({ id: spawn.id, group, x: spawn.x, z: spawn.z, yaw: spawn.yaw, lean: 0, alt: 0 });
+      cars.push({ id: spawn.id, group, x: spawn.x, z: spawn.z, yaw: spawn.yaw, lean: 0, alt: 0, autoAlt: null });
     });
     beacon = new Mesh(box, MATERIALS.cyanhot);
     beacon.scale.set(0.35, 1.4, 0.35);
@@ -1880,6 +1887,8 @@ export function createRuntime(scene: Scene) {
       touch,
       driving,
       flying: flyFlag,
+      flyingCar: driving && carIndex >= 0 && !!driveParams && driveParams.climb > 0,
+      carFlying: driving && carIndex >= 0 && !!(cars[carIndex] && (cars[carIndex].alt > 0 || cars[carIndex].autoAlt != null)),
       indoors: insideName,
       prompt,
       balance: wallet.balance,
@@ -2844,7 +2853,10 @@ export function createRuntime(scene: Scene) {
     const owned = car.vehicleId ? localVehicles.find((v) => v.id === car.vehicleId) : undefined;
     retint(car.group, owned?.color ?? wallet.car);
     const kind = (car.group.userData.kind as string) || "car";
-    if (driveParams && driveParams.climb > 0) say(FLY_CONTROLS.note);
+    // Touch gets the touch wording — the desktop note ("Hold Space…")
+    // names a key a phone does not have, so the player never learned
+    // that Jump climbs the car.
+    if (driveParams && driveParams.climb > 0) say(touch ? FLY_CONTROLS.touchNote : FLY_CONTROLS.note);
     else if (kind === "skateboard") say("Tap W to push.");
     else say("Press E to get out.");
     if (!droveQuest && world.online) {
@@ -2866,9 +2878,12 @@ export function createRuntime(scene: Scene) {
     holdBrake = false;
     if (car) {
       // Flying cars land first — the player steps out on the ground, never
-      // mid-air. Boards are small: step off 1.2 units, not 2.6.
+      // mid-air. Boards are small: step off 1.2 units, not 2.6. Clear any
+      // auto-takeoff / auto-land target too, or the car would climb again
+      // on its own the next time it is driven.
       if (car.alt > 0) {
         car.alt = 0;
+        car.autoAlt = null;
         car.group.position.y = driveParams?.hover ?? 0.12;
       }
       const drop = (car.group.userData.kind as string) === "skateboard" ? 1.2 : 2.6;
@@ -2962,9 +2977,25 @@ export function createRuntime(scene: Scene) {
     // actively looking around, chaseYaw decays back to 0.
     if (lookX === 0) chaseYaw *= Math.exp(-dt * 0.9);
     // Flying: Space climbs (the touch Jump button too), Shift/C descends.
+    // The Fly button sets car.autoAlt — an auto-takeoff target (the
+    // ceiling) or an auto-land target (0). Manual Jump / Down cancels the
+    // auto move, so the player is always in charge of the altitude.
     if (params.climb > 0) {
-      if (keys.has("Space") || holdJump) car.alt = Math.min(car.alt + params.climb * dt, params.maxAltitude);
-      if (keys.has("ShiftLeft") || keys.has("ShiftRight") || keys.has("KeyC") || holdDown) car.alt = Math.max(car.alt - params.climb * dt, 0);
+      if (keys.has("Space") || holdJump) {
+        car.alt = Math.min(car.alt + params.climb * dt, params.maxAltitude);
+        car.autoAlt = null;
+      } else if (keys.has("ShiftLeft") || keys.has("ShiftRight") || keys.has("KeyC") || holdDown) {
+        car.alt = Math.max(car.alt - params.climb * dt, 0);
+        car.autoAlt = null;
+      } else if (car.autoAlt != null) {
+        const d = car.autoAlt - car.alt;
+        if (Math.abs(d) <= params.climb * dt) {
+          car.alt = car.autoAlt;
+          car.autoAlt = null;
+        } else {
+          car.alt += Math.sign(d) * params.climb * dt;
+        }
+      }
     }
     const nx = car.x + Math.sin(car.yaw) * carSpeed * dt;
     const nz = car.z - Math.cos(car.yaw) * carSpeed * dt;
@@ -5711,10 +5742,26 @@ export function createRuntime(scene: Scene) {
     toggleFly(body?: Body) {
       const who = body ?? lastBody;
       if (!who) return;
-      // Driving? Step out of the car first, then fly. Before, the button
-      // silently no-op'd while driving (the `driving` early return), so a
-      // player driving around who tapped Fly saw nothing happen at all.
-      if (driving) exitCar(who);
+      // Driving a FLYING vehicle? Fly the CAR (take off / land) — do NOT
+      // step out. Before, the button exited the car and flew the player
+      // on foot, so a player in a flying car who tapped Fly got kicked
+      // out of the car and concluded the flying car does not fly.
+      if (driving) {
+        const car = cars[carIndex];
+        if (car && driveParams && driveParams.climb > 0) {
+          if (car.autoAlt == null && car.alt <= 0) {
+            car.autoAlt = driveParams.maxAltitude;
+            say("Taking off — hold Down to come down, Fly to land.");
+          } else {
+            car.autoAlt = 0;
+            say("Landing.");
+          }
+          publish();
+          return;
+        }
+        // Ground vehicle: step out of the car first, then fly the player.
+        exitCar(who);
+      }
       who.flying = !who.flying;
       who.vy = 0;
       if (who.flying) {
