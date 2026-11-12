@@ -458,6 +458,18 @@ function furnishStateHome(city: City, home: HomeDef, arch: HomeArchetype): void 
   pushBox(city, bedX, 0.7, bedZ, 2.2, 0.22, 3.2, "white");
   pushBox(city, bedX, 0.85, bedZ - 1.4, 1.6, 0.3, 0.5, arch.rug);
   pushBox(city, bedX + 1.6, 0.4, bedZ + 1.6, 0.6, 0.7, 0.6, "black");
+  // Closet (style theme): a wardrobe in the bedroom nook, against the
+  // same side wall as the bed, north of it (clear of the rug, the
+  // nightstand and the sofa). The home way to change clothes — the Home
+  // panel's "Open closet" button opens the wardrobe from here.
+  const closetX = bedSE ? x0 + w - 1.4 : x0 + 1.4;
+  const closetZ = bedZ - 3.4;
+  pushBox(city, closetX, 1.1, closetZ, 0.9, 2.2, 1.6, "wood");
+  pushCol(city, closetX, 1.1, closetZ, 0.9, 2.2, 1.6);
+  // Two gold door handles on the room-facing side.
+  const handleX = bedSE ? closetX - 0.5 : closetX + 0.5;
+  pushBox(city, handleX, 1.1, closetZ - 0.4, 0.08, 0.3, 0.08, "gold");
+  pushBox(city, handleX, 1.1, closetZ + 0.4, 0.08, 0.3, 0.08, "gold");
   // Rug beside the bed, on the room side of it.
   pushBox(city, bedX + (bedSE ? -2.2 : 2.2), 0.145, bedZ, 2.5, 0.05, 3, arch.rug);
   // Paintings on the side walls (thin accent boxes) + a plant by the door.

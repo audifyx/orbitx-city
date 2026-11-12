@@ -65,6 +65,7 @@ import {
 import { stateById, stateOfficeSuites } from "./game/states";
 import { homeById, homePrice } from "./game/homes";
 import { triggerHaptic } from "./game/haptics";
+import { STORES, WARDROBE_CATALOG, WARDROBE_KINDS, fitSummary, kindLabel, wardrobeItem, type SavedFit, type StoreId } from "./game/wardrobe";
 
 const HELP =
   "WASD move · click or drag to look · arrows or Q/R turn · Space jump · F fly · E use or drive · C camera · hold Z emotes · O spectator · T chat · V talk";
@@ -772,6 +773,114 @@ export default function App() {
     gameRef.current?.runtime.setTyping(false);
   };
 
+  // Wardrobe (style theme): which store tab the Shop shows, the fit name
+  // being typed, and the last fit message. The shop panel and the
+  // wardrobe panel share the sections below (called as plain JSX, not a
+  // component, so the name input keeps focus while typing).
+  const [shopStore, setShopStore] = useState<StoreId | "classics">("thrift");
+  const [fitName, setFitName] = useState("");
+  const [fitMsg, setFitMsg] = useState("");
+
+  const buyItem = (id: string) => {
+    void gameRef.current?.runtime.buy(id);
+  };
+
+  const wardrobeSections = () => {
+    const runtime = gameRef.current?.runtime;
+    if (!runtime) return null;
+    const ownedWardrobe = WARDROBE_CATALOG.filter((item) => snap.owned.includes(item.id));
+    const wornName = (kind: (typeof WARDROBE_KINDS)[number]) => {
+      const value = snap.wardrobe[kind];
+      if (!value) return "Nothing worn";
+      return wardrobeItem(`${kind}-${value}`)?.name ?? value;
+    };
+    return (
+      <>
+        <h3>My wardrobe — what you own</h3>
+        {WARDROBE_KINDS.map((kind) => {
+          const items = ownedWardrobe.filter((item) => item.kind === kind);
+          return (
+            <div key={kind}>
+              <p className="muted">{kindLabel(kind)} — wearing: {wornName(kind)}</p>
+              {items.length ? (
+                items.map((item) => {
+                  const wearing = snap.wardrobe[kind] === item.value;
+                  return (
+                    <article key={item.id}>
+                      <div>
+                        <b>{item.name}</b>
+                        <span>{item.blurb}</span>
+                      </div>
+                      <button type="button" disabled={wearing} onClick={() => buyItem(item.id)}>
+                        {wearing ? "Wearing" : "Equip"}
+                      </button>
+                    </article>
+                  );
+                })
+              ) : (
+                <p className="muted">No {kindLabel(kind).toLowerCase()} yet — buy one below at the stores.</p>
+              )}
+            </div>
+          );
+        })}
+        <h3>My fits — save your look</h3>
+        <p className="muted">A fit is the outfit + shoes + chain + watch + glasses + hairstyle you are wearing right now. Save it, then wear it back in one tap.</p>
+        <div className="days">
+          <input
+            type="text"
+            value={fitName}
+            maxLength={24}
+            placeholder="Fit name — e.g. Gold Night"
+            onChange={(event) => setFitName(event.target.value)}
+            onFocus={() => gameRef.current?.runtime.setTyping(true)}
+            onBlur={() => gameRef.current?.runtime.setTyping(false)}
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              const msg = await runtime.saveFit(fitName);
+              setFitMsg(msg);
+              setFitName("");
+            }}
+          >
+            Save current fit
+          </button>
+        </div>
+        {fitMsg ? <p>{fitMsg}</p> : null}
+        {snap.fits.length ? (
+          snap.fits.map((fit: SavedFit) => (
+            <article key={fit.name}>
+              <div>
+                <b>{fit.name}</b>
+                <span>{fitSummary(fit)}</span>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  const msg = await runtime.wearFit(fit.name);
+                  setFitMsg(msg);
+                }}
+              >
+                Wear
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const msg = await runtime.deleteFit(fit.name);
+                  setFitMsg(msg);
+                }}
+              >
+                Delete
+              </button>
+            </article>
+          ))
+        ) : (
+          <p className="muted">No saved fits yet.</p>
+        )}
+      </>
+    );
+  };
+
   const stopRadio = () => {
     const audio = radioAudioRef.current;
     if (audio) {
@@ -1015,8 +1124,7 @@ export default function App() {
             <header>
               <strong>
                 {panel === "shop" && "OrbitX shop"}
-                {panel === "grocery" && "OrbitX Grocery"}
-                {panel === "jobs" && "Jobs"}
+                {panel === "grocery" && "OrbitX Grocery"}                {panel === "wardrobe" && "Wardrobe"}                {panel === "jobs" && "Jobs"}
                 {panel === "missions" && "Missions"}
                 {panel === "ads" && "Book a billboard"}
                 {panel === "radio" && "Radio"}
@@ -1044,6 +1152,21 @@ export default function App() {
             {panel === "shop" && (
               <div className="list">
                 <p>Balance {snap.balance} · Burned total {snap.burned}</p>
+                <p className="muted">Three clothing stores, three price tiers — thrift is cheap, streetwear is mid, designer is serious. Same kind of piece, different store, different price — and the designer one looks better.</p>
+                <div className="days">
+                  {STORES.map((store) => (
+                    <button key={store.id} type="button" className={shopStore === store.id ? "on" : ""} onClick={() => setShopStore(store.id)}>
+                      {store.name}
+                    </button>
+                  ))}
+                  <button type="button" className={shopStore === "classics" ? "on" : ""} onClick={() => setShopStore("classics")}>
+                    Classics
+                  </button>
+                </div>
+                {shopStore === "classics" ? (
+                  <>
+                    <h3>OrbitX classics</h3>
+                    <p className="muted">Suits, hover paints, hats and trails — the original shop. These burn 25% like always.</p>
                 {(() => {
                   // Clothes worn right now, from the `worn:<slot>:<value>`
                   // markers in `owned` (api/city.js setWorn).
@@ -1111,6 +1234,34 @@ export default function App() {
                     );
                   });
                 })()}
+                  </>
+                ) : (
+                  (() => {
+                    const store = STORES.find((entry) => entry.id === shopStore)!;
+                    const items = snap.shop.filter((item) => item.store === shopStore);
+                    return (
+                      <>
+                        <h3>{store.name} — {store.range}</h3>
+                        <p className="muted">{store.tagline} Clothes are a purchase, not a burn — no City Sol is burned on wardrobe.</p>
+                        {items.map((item) => {
+                          const owned = snap.owned.includes(item.id);
+                          const info = wardrobeItem(item.id);
+                          return (
+                            <article key={item.id}>
+                              <div>
+                                <b>{item.name}</b>
+                                <span>{item.price} City Sol · no burn{info ? ` · ${info.blurb}` : ""}</span>
+                              </div>
+                              <button type="button" onClick={() => buyItem(item.id)}>
+                                {owned ? "Equip" : "Buy"}
+                              </button>
+                            </article>
+                          );
+                        })}
+                      </>
+                    );
+                  })()
+                )}
                 <h3>Furniture — for your own home</h3>
                 <p className="muted">
                   Buy it here, then stand inside a home you own and press X (Edit Home) to place it where you want it. City Sol only — no burn.
@@ -1141,7 +1292,14 @@ export default function App() {
                     </article>
                   );
                 })}
+                {wardrobeSections()}
               </div>
+            )}
+            {panel === "wardrobe" && (
+              <div className="list">
+                <p className="muted">Your closet — change clothes here, no buying. New pieces live at the three stores in the Shop.</p>
+                <button type="button" onClick={() => open("shop")}>Go to the shops</button>
+                {wardrobeSections()}              </div>
             )}
             {panel === "grocery" && (
               <div className="list">
@@ -2645,8 +2803,7 @@ export default function App() {
                         <b>Edit Home</b>
                         <span>
                           {ownedFurniture ? `You own ${ownedFurniture} piece${ownedFurniture === 1 ? "" : "s"} of furniture — buy more in the shop.` : "No furniture yet — buy some in the shop first."}
-                        </span>
-                      </div>
+                        </span>                      </div>
                       <button
                         type="button"
                         onClick={() => {
@@ -2655,8 +2812,23 @@ export default function App() {
                         }}
                       >
                         Edit Home
-                      </button>
-                    </article>
+                    </button>
+                  </article>
+                  <article>
+                    <div>
+                      <b>Closet</b>
+                      <span>Your closet — change clothes from your wardrobe + saved fits</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic("tap");
+                        gameRef.current?.runtime.openWardrobe();
+                      }}
+                    >
+                      Open closet
+                    </button>
+                  </article>
                   ) : null}
                   {mineList}
                 </div>

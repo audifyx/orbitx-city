@@ -4125,6 +4125,16 @@ function furnishHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   put(boxes, bedX, 0.7, bedZ, 2.2, 0.22, 3.2, "white");
   put(boxes, bedX, 0.85, bedZ - 1.4, 1.6, 0.3, 0.5, "red");
   put(boxes, bedX + 1.6, 0.4, bedZ + 1.6, 0.6, 0.7, 0.6, "black");
+  // Closet (style theme): a wardrobe in the bedroom nook, against the
+  // same side wall as the bed, north of it. The Home panel's "Open
+  // closet" button opens the wardrobe from here.
+  const closetX = bedSE ? x0 + w - 1.4 : x0 + 1.4;
+  const closetZ = bedZ - 3.4;
+  put(boxes, closetX, 1.1, closetZ, 0.9, 2.2, 1.6, "wood");
+  cols.push(col(closetX, 1.1, closetZ, 0.9, 2.2, 1.6));
+  const handleX = bedSE ? closetX - 0.5 : closetX + 0.5;
+  put(boxes, handleX, 1.1, closetZ - 0.4, 0.08, 0.3, 0.08, "gold");
+  put(boxes, handleX, 1.1, closetZ + 0.4, 0.08, 0.3, 0.08, "gold");
   // Rug beside the bed, on the room side of it.
   put(boxes, bedX + (bedSE ? -2.2 : 2.2), 0.145, bedZ, 2.5, 0.05, 3, "red");
   // Paintings on the side walls + a plant by the door.
