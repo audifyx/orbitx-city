@@ -128,7 +128,7 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops";
 
 export interface PersonCard {
   id: string;
@@ -140,6 +140,24 @@ export interface PersonCard {
   lobby: string;
   x: number;
   z: number;
+}
+
+// One office lease as the server returns it for "my-properties" (the
+// publicOfficeClaim shape). The client resolves the suite's tower, floor
+// and display name from its own catalogs.
+export interface MyPropertyClaim {
+  suite: string;
+  server: number;
+  owner_id: string;
+  owner_name: string;
+  project: string;
+  logo: string;
+  site: string;
+  term_days: number;
+  start: string;
+  until: string;
+  price: number;
+  claimed_at: string;
 }
 
 export interface AdOrder {
@@ -5253,6 +5271,42 @@ export function createRuntime(scene: Scene) {
     return { ok: true as const, homeServer: localHomes.homeServer, mine: localHomes.homes.filter((h) => h.server === server) };
   }
 
+  // Everything the player owns on the CURRENT universe, for the HUD's
+  // "My Props" panel. One server round-trip (my-properties); offline the
+  // local save only knows homes and its owned-lot list, so offices come
+  // back empty.
+  async function myProperties() {
+    if (world.online && currentUniverse) {
+      try {
+        const data = await world.myProperties(currentUniverse);
+        return {
+          ok: true as const,
+          server: Number(data.server || currentUniverse),
+          lots: (data.lots as string[]) || [],
+          offices: (data.offices as MyPropertyClaim[]) || [],
+          homes: (data.homes as OwnedHome[]) || [],
+        };
+      } catch (err) {
+        return {
+          ok: false as const,
+          message: err instanceof Error ? err.message : "Could not load your properties.",
+          server: currentUniverse,
+          lots: [] as string[],
+          offices: [] as MyPropertyClaim[],
+          homes: [] as OwnedHome[],
+        };
+      }
+    }
+    const server = currentUniverse ?? 0;
+    return {
+      ok: true as const,
+      server,
+      lots: [...((world.me?.owned as string[]) || [])],
+      offices: [] as MyPropertyClaim[],
+      homes: localHomes.homes.filter((h) => h.server === server),
+    };
+  }
+
   function setUniverse(id: number) {
     if (!isUniverseId(id)) return;
     currentUniverse = id;
@@ -5974,6 +6028,27 @@ export function createRuntime(scene: Scene) {
     },
     homeStatus() {
       return homeStatus();
+    },
+    myProperties() {
+      return myProperties();
+    },
+    // Fast travel to a property the player owns: one tap in the HUD's
+    // "My Props" panel lands the player inside the place (the same
+    // stepInside() the door prompt uses — HQ lobby, tower lobby, or the
+    // house itself). Steps out of the car first so the player lands on
+    // foot, never in the driver's seat inside a building. App.tsx closes
+    // the panel and unpauses after calling this.
+    goToProperty(anchorId: string) {
+      const anchor = anchors.find((a) => a.id === anchorId);
+      if (!anchor || !lastBody) {
+        say("Could not find that place.");
+        publish();
+        return;
+      }
+      if (driving) exitCar(lastBody);
+      stepInside(anchor, lastBody);
+      panel = "";
+      publish();
     },
     setUniverse(id: number) {
       setUniverse(id);

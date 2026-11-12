@@ -2008,6 +2008,35 @@ function activeOfficeClaim(claims, suiteId, serverId) {
   );
 }
 
+// Every lot this player owns on this universe (the properties table is
+// the only per-server record of lot ownership — live.js writes it on
+// property-buy, keyed (id, server_id)). Supabase first, Neon second;
+// with neither (local dev, memory tier) fall back to the per-server
+// save's owned list, which syncSaveIdentity keeps in sync with the
+// global player record.
+async function ownedLots(playerId, serverId, save) {
+  const client = sb();
+  if (client) {
+    const { data, error } = await client
+      .from("properties")
+      .select("id, owner_id")
+      .eq("server_id", serverId);
+    if (!error && data) return data.filter((row) => row.owner_id === playerId).map((row) => row.id);
+    if (error) noteSupabase(error.message);
+    // A read error falls through to the save check below.
+  }
+  const sql = db();
+  if (sql) {
+    try {
+      const rows = await sql`SELECT id, owner_id FROM properties WHERE server_id = ${serverId}`;
+      return rows.filter((row) => row.owner_id === playerId).map((row) => row.id);
+    } catch {
+      // A missing table on a fresh Neon falls through to the save check.
+    }
+  }
+  return Array.isArray(save?.owned) ? [...save.owned] : [];
+}
+
 async function officeDirectory(serverId = 1) {
   const claims = await readOfficeClaims(serverId);
   return OFFICES.map((suite) => {
@@ -3148,6 +3177,28 @@ export async function POST(request) {
       .filter((row) => row.owner_id === player.id && row.until >= todayISO())
       .map(publicOfficeClaim);
     return districtReply({ ok: true, server, mine }, save);
+  }
+
+  // My Properties — one snapshot of everything this player owns on one
+  // universe: lots (HQ, apartments, shops), office leases, and homes.
+  // The HUD's "My Props" button reads this so the player gets to a
+  // property in two taps. Lots come from the properties table (the only
+  // per-server record of lot ownership); offices from office_claims;
+  // homes from the per-server save. Guests own nothing — the op still
+  // answers, with empty lists.
+  if (op === "my-properties") {
+    const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
+    const save = await saveKey(player.id, server);
+    if (save) syncSaveIdentity(save, player);
+    const claims = await readOfficeClaims(server);
+    const mine = claims
+      .filter((row) => row.owner_id === player.id && row.until >= todayISO())
+      .map(publicOfficeClaim);
+    const homes = save?.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
+    const myHomes = (homes.homes || []).filter((h) => h.server === server).map(sanitizeOwnedHome);
+    const lots = await ownedLots(player.id, server, save);
+    return json({ ok: true, server, lots, offices: mine, homes: myHomes });
   }
 
   if (op === "profile") {

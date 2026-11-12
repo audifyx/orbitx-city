@@ -385,6 +385,13 @@ class CityWorld {
     return this.call("home-status", { server });
   }
 
+  // My Properties — one snapshot of everything the player owns on one
+  // universe (HQ lot, office leases, homes), for the HUD's "My Props"
+  // button. Mirrors homeStatus()/districtOfficeStatus().
+  async myProperties(server: number) {
+    return this.call("my-properties", { server });
+  }
+
   // GTA district offices — mirror the HQ office-claim call pattern, with
   // the server id on every call so a Server 1 claim never leaks to Server 2.
   async districtOfficeClaim(suite: string, server: number, term_days: number, project: string, logo: string, site: string) {

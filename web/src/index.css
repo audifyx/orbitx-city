@@ -950,7 +950,7 @@ body.touch .touch-ui {
   }
 
   /* Top actions: a 2-row thumb grid instead of a horizontal scroll strip,
-     so all 11 buttons are visible at once with no sideways scrolling.
+     so all 12 buttons are visible at once with no sideways scrolling.
      Buttons are thumb-sized (44px). The bar is ~104px tall + safe-area,
      so the HUD below it starts at safe-area + 112px. */
   .actions {
