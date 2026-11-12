@@ -68,7 +68,55 @@ const CATALOG = {
   "clothes-dress-red": { price: 150, kind: "clothes", slot: "outfit", value: "dress-red" },
   "clothes-tracksuit-gold": { price: 100, kind: "clothes", slot: "outfit", value: "tracksuit-gold" },
   "clothes-sunglasses": { price: 50, kind: "clothes", slot: "glasses", value: "sunglasses" },
-};
+  // --- Wardrobe (style theme, 2026-11-12) ---------------------------------
+  // Full wardrobe: outfits, shoes, chains, watches, glasses, hairstyles
+  // sold across three stores — Thrift ("Second Orbit", 10-60), Streetwear
+  // ("ORBITX Supply", 60-200), Designer ("AURUM Boutique", 200-800).
+  // City Sol only, NO burn: a wardrobe piece is a purchase, not a burn
+  // event (same rule as garage buyCar) — noBurn skips burnOf entirely.
+  // Equipping sets an `eq:<kind>:<value>` entry in the player's owned
+  // array (see wardrobeFromOwned below); ownership is the CATALOG id
+  // itself. No new DB column: everything lives in the existing `owned`
+  // TEXT column (JSON array) on the players row + per-server save.
+  // Outfits.
+  "outfit-tee": { price: 15, kind: "outfit", value: "tee", noBurn: true },
+  "outfit-flannel": { price: 25, kind: "outfit", value: "flannel", noBurn: true },
+  "outfit-denim": { price: 45, kind: "outfit", value: "denim", noBurn: true },
+  "outfit-graphic": { price: 80, kind: "outfit", value: "graphic", noBurn: true },
+  "outfit-hoodie": { price: 120, kind: "outfit", value: "hoodie", noBurn: true },
+  "outfit-track": { price: 150, kind: "outfit", value: "track", noBurn: true },
+  "outfit-silk": { price: 300, kind: "outfit", value: "silk", noBurn: true },
+  "outfit-leather": { price: 450, kind: "outfit", value: "leather", noBurn: true },
+  "outfit-suit": { price: 650, kind: "outfit", value: "suit", noBurn: true },
+  // Shoes.
+  "shoes-trainers": { price: 20, kind: "shoes", value: "trainers", noBurn: true },
+  "shoes-boots": { price: 35, kind: "shoes", value: "boots", noBurn: true },
+  "shoes-sneakers": { price: 90, kind: "shoes", value: "sneakers", noBurn: true },
+  "shoes-high": { price: 110, kind: "shoes", value: "high", noBurn: true },
+  "shoes-loafers": { price: 250, kind: "shoes", value: "loafers", noBurn: true },
+  "shoes-gold": { price: 500, kind: "shoes", value: "gold", noBurn: true },
+  // Chains.
+  "chain-beads": { price: 15, kind: "chain", value: "beads", noBurn: true },
+  "chain-silver": { price: 100, kind: "chain", value: "silver", noBurn: true },
+  "chain-gold": { price: 180, kind: "chain", value: "gold", noBurn: true },
+  "chain-diamond": { price: 800, kind: "chain", value: "diamond", noBurn: true },
+  // Watches.
+  "watch-digital": { price: 70, kind: "watch", value: "digital", noBurn: true },
+  "watch-chrono": { price: 400, kind: "watch", value: "chrono", noBurn: true },
+  "watch-gold": { price: 600, kind: "watch", value: "gold", noBurn: true },
+  // Glasses.
+  "glasses-readers": { price: 20, kind: "glasses", value: "readers", noBurn: true },
+  "glasses-shades": { price: 90, kind: "glasses", value: "shades", noBurn: true },
+  "glasses-round": { price: 220, kind: "glasses", value: "round", noBurn: true },
+  "glasses-visor": { price: 280, kind: "glasses", value: "visor", noBurn: true },
+  // Hairstyles.
+  "hair-buzz": { price: 10, kind: "hair", value: "buzz", noBurn: true },
+  "hair-side": { price: 20, kind: "hair", value: "side", noBurn: true },
+  "hair-afro": { price: 30, kind: "hair", value: "afro", noBurn: true },
+  "hair-bun": { price: 35, kind: "hair", value: "bun", noBurn: true },
+  "hair-dreads": { price: 85, kind: "hair", value: "dreads", noBurn: true },
+  "hair-mohawk": { price: 60, kind: "hair", value: "mohawk", noBurn: true },
+  "hair-fade": { price: 250, kind: "hair", value: "fade", noBurn: true },};
 
 // --- Grocery (OrbitX Grocery) -------------------------------------------
 // Food catalog: City Sol only, no burn. The server is the price + hunger
@@ -202,6 +250,93 @@ function setWorn(owned, slot, value) {
   return kept;
 }
 
+
+
+const WARDROBE_KINDS = ["outfit", "shoes", "chain", "watch", "glasses", "hair"];
+
+// --- Wardrobe storage (style theme, 2026-11-12) ---------------------------
+// NO new DB column: everything lives in the existing `owned` string array
+// (TEXT column, JSON array) on the players row, mirrored onto each
+// per-server save by syncSaveIdentity (save.owned = player.owned).
+//   Owned piece:   the CATALOG id itself, e.g. "outfit-leather".
+//   Equipped slot: "eq:<kind>:<value>", e.g. "eq:shoes:sneakers" — one
+//     per kind; equipping replaces the old entry for that kind.
+//   Saved fit:     "fit:<url-encoded name>|outfit=leather|shoes=...|..."
+//     — only non-empty slots are written, so an old fit never forces a
+//     slot the player has since sold/unequipped.
+// wardrobeFromOwned is the single parser for all three; publicPlayer
+// exposes its result as `me.wardrobe` so the client never parses `owned`.
+function wardrobeFromOwned(owned) {
+  const slots = { outfit: "", shoes: "", chain: "", watch: "", glasses: "", hair: "" };
+  const fits = [];
+  if (!Array.isArray(owned)) return { ...slots, fits };
+  for (const entry of owned) {
+    if (typeof entry !== "string") continue;
+    if (entry.startsWith("eq:")) {
+      const rest = entry.slice(3);
+      const idx = rest.indexOf(":");
+      if (idx <= 0) continue;
+      const kind = rest.slice(0, idx);
+      const value = rest.slice(idx + 1);
+      if (WARDROBE_KINDS.includes(kind) && value) slots[kind] = value;
+    } else if (entry.startsWith("fit:")) {
+      const fit = parseFitEntry(entry);
+      if (fit) fits.push(fit);
+    }
+  }
+  return { ...slots, fits };
+}
+
+function parseFitEntry(entry) {
+  // "fit:<url-encoded name>|outfit=v|shoes=v|chain=v|watch=v|glasses=v|hair=v"
+  const body = entry.slice(4);
+  const bar = body.indexOf("|");
+  const rawName = bar === -1 ? body : body.slice(0, bar);
+  let name = "";
+  try {
+    name = decodeURIComponent(rawName);
+  } catch {
+    return null;
+  }
+  if (!name || name.length > 24) return null;
+  const fit = { name, outfit: "", shoes: "", chain: "", watch: "", glasses: "", hair: "" };
+  if (bar !== -1) {
+    for (const part of body.slice(bar + 1).split("|")) {
+      const eq = part.indexOf("=");
+      if (eq <= 0) continue;
+      const kind = part.slice(0, eq);
+      const value = part.slice(eq + 1);
+      if (WARDROBE_KINDS.includes(kind) && value) fit[kind] = value;
+    }
+  }
+  return fit;
+}
+
+function encodeFitEntry(name, slots) {
+  const parts = [`fit:${encodeURIComponent(name)}`];
+  for (const kind of WARDROBE_KINDS) {
+    if (slots[kind]) parts.push(`${kind}=${slots[kind]}`);
+  }
+  return parts.join("|");
+}
+
+// Return a copy of `owned` with the equipped slot for `kind` set to
+// `value` ("" clears it). Never mutates the input.
+function setEquippedOwned(owned, kind, value) {
+  const list = Array.isArray(owned) ? [...owned] : [];
+  const kept = list.filter((entry) => typeof entry !== "string" || !entry.startsWith(`eq:${kind}:`));
+  if (value) kept.push(`eq:${kind}:${value}`);
+  return kept;
+}
+
+function removeFitOwned(owned, name) {
+  const list = Array.isArray(owned) ? [...owned] : [];
+  return list.filter((entry) => {
+    if (typeof entry !== "string" || !entry.startsWith("fit:")) return true;
+    const fit = parseFitEntry(entry);
+    return !fit || fit.name !== name;
+  });
+}
 const LOOKS = new Set([
   "tjr",
   "ansem",
@@ -1628,6 +1763,9 @@ function publicPlayer(player) {
     // Clothes worn right now, derived from the `worn:<slot>:<value>`
     // markers in `owned` — the client renders them in avatar.ts.
     clothes: equippedClothes(player.owned),
+    // Wardrobe (style theme): equipped slots + saved fits, parsed from the
+    // `owned` array — no new column. See wardrobeFromOwned above.
+    wardrobe: wardrobeFromOwned(player.owned),
     friends: player.friends,
     inbox: player.inbox,
     party: player.party,
@@ -2483,7 +2621,10 @@ async function ownedLots(playerId, serverId, save) {
       // A missing table on a fresh Neon falls through to the save check.
     }
   }
-  return Array.isArray(save?.owned) ? [...save.owned] : [];
+  // (Wardrobe entries — eq:<kind>:<value> and fit:... — are not lots.)
+  return Array.isArray(save?.owned)
+    ? [...save.owned].filter((entry) => typeof entry === "string" && !entry.startsWith("eq:") && !entry.startsWith("fit:"))
+    : [];
 }
 
 async function officeDirectory(serverId = 1) {
@@ -2839,6 +2980,13 @@ function lobbiesFor(people) {
 async function spendItem(player, save, itemId) {
   const item = CATALOG[itemId];
   if (!item) return { ok: false, message: "That item is not for sale." };
+  const isWardrobe = WARDROBE_KINDS.includes(item.kind);
+  // Wardrobe pieces equip through the owned array: one eq:<kind>:<value>
+  // entry per slot, replaced on every equip. No new column.
+  const equipWardrobe = () => {
+    player.owned = setEquippedOwned(player.owned, item.kind, item.value);
+    save.owned = [...(player.owned || [])];
+  };
   // Cosmetics are identity: equipping writes to the global row AND the
   // save, so the item shows up on every universe. City Sol is the
   // save's money: the check and the deduction use this universe's save.
@@ -2851,15 +2999,16 @@ async function spendItem(player, save, itemId) {
       player.owned = setWorn(player.owned, item.slot, item.value);
       save.owned = [...(player.owned || [])];
     }
+    if (isWardrobe) equipWardrobe();
     await savePlayer(player);
     await saveSave(save);
     return { ok: true, message: "Already yours. Equipped.", me: publicPlayer(save) };
   }
   if (save.balance < item.price) return { ok: false, message: "Not enough City Sol." };
-  // Clothes are City Sol only — no burn, per the clothes-shop brief
-  // (buy+burn is ads/banners only). Every other shop kind keeps the
-  // existing quarter-price City Sol burn tally.
-  const burned = item.kind === "clothes" ? 0 : burnOf(item.price);
+  // Clothes + wardrobe are City Sol only — no burn, per the
+  // clothes-shop brief (buy+burn is ads/banners only). Every other shop
+  // kind keeps the existing quarter-price City Sol burn tally.
+  const burned = item.kind === "clothes" || item.noBurn ? 0 : burnOf(item.price);
   save.balance -= item.price;
   save.burned += burned;
   player.burned += burned;
@@ -2873,12 +3022,13 @@ async function spendItem(player, save, itemId) {
     player.owned = setWorn(player.owned, item.slot, item.value);
     save.owned = [...(player.owned || [])];
   }
+  if (isWardrobe) equipWardrobe();
   await savePlayer(player);
   await saveSave(save);
   await mirrorBalance(player, save);
   return {
     ok: true,
-    message: item.kind === "clothes"
+    message: item.kind === "clothes" || item.noBurn
       ? `Spent ${item.price} City Sol.`
       : `Spent ${item.price} City Sol. Burned ${burned}. Burned total ${player.burned}.`,
     me: publicPlayer(save),
@@ -2914,6 +3064,68 @@ async function equipClothesOp(player, save, body) {
   await savePlayer(player);
   await saveSave(save);
   return { ok: true, message: "Equipped.", me: publicPlayer(save) };
+}
+
+// --- Wardrobe fits (style theme) ------------------------------------------
+// Save / wear / delete a named fit: the current eq:<kind>:<value> slots
+// (or the fit's slots) stored as one "fit:..." entry in `owned` — no new
+// column, per-server via the save's owned mirror. All City Sol-free:
+// no purchase happens here, so no balance or burn is touched.
+async function saveFitOp(player, save, body) {
+  const name = String(body.name || "").trim().slice(0, 24);
+  if (!name) return { ok: false, message: "Name your fit first." };
+  if (/[\n\r|]/.test(name)) return { ok: false, message: "That name has a character a fit can't hold." };
+  const wardrobe = wardrobeFromOwned(player.owned);
+  if (!WARDROBE_KINDS.some((kind) => wardrobe[kind])) {
+    return { ok: false, message: "Wear something first — a fit needs at least one wardrobe piece." };
+  }
+  const existing = wardrobe.fits.filter((fit) => fit.name !== name);
+  if (existing.length >= 8 && !wardrobe.fits.some((fit) => fit.name === name)) {
+    return { ok: false, message: "You already have 8 saved fits — delete one first." };
+  }
+  player.owned = removeFitOwned(player.owned, name);
+  player.owned.push(encodeFitEntry(name, wardrobe));
+  save.owned = [...(player.owned || [])];
+  await savePlayer(player);
+  await saveSave(save);
+  return { ok: true, message: `Saved fit "${name}".`, me: publicPlayer(save) };
+}
+
+async function wearFitOp(player, save, body) {
+  const name = String(body.name || "").trim().slice(0, 24);
+  const wardrobe = wardrobeFromOwned(player.owned);
+  const fit = wardrobe.fits.find((item) => item.name === name);
+  if (!fit) return { ok: false, message: "No saved fit by that name." };
+  // Only slots the player still owns get worn — a fit never grants an
+  // item that isn't in `owned` (a fit is a shortcut, not a purchase).
+  let worn = 0;
+  let owned = Array.isArray(player.owned) ? [...player.owned] : [];
+  for (const kind of WARDROBE_KINDS) {
+    const value = fit[kind];
+    if (!value) continue;
+    if (!owned.includes(`${kind}-${value}`)) continue;
+    owned = setEquippedOwned(owned, kind, value);
+    worn += 1;
+  }
+  if (!worn) return { ok: false, message: "You don't own any piece of that fit anymore." };
+  player.owned = owned;
+  save.owned = [...owned];
+  await savePlayer(player);
+  await saveSave(save);
+  return { ok: true, message: `Wearing "${name}".`, me: publicPlayer(save) };
+}
+
+async function deleteFitOp(player, save, body) {
+  const name = String(body.name || "").trim().slice(0, 24);
+  const wardrobe = wardrobeFromOwned(player.owned);
+  if (!wardrobe.fits.some((fit) => fit.name === name)) {
+    return { ok: false, message: "No saved fit by that name." };
+  }
+  player.owned = removeFitOwned(player.owned, name);
+  save.owned = [...(player.owned || [])];
+  await savePlayer(player);
+  await saveSave(save);
+  return { ok: true, message: `Deleted fit "${name}".`, me: publicPlayer(save) };
 }
 
 // --- Garage (vehicles.ts catalog, mirrored — the server is the price
@@ -3378,7 +3590,11 @@ async function advanceMission(player, save, body) {
       return { ok: false, message: "Claim your daily reward first.", status: 400 };
     }
   } else if (step.kind === "buy") {
-    const owned = Array.isArray(player.owned) ? player.owned.length : 0;
+    // Wardrobe entries (eq:<kind>:<value>, fit:...) are equip state, not
+    // purchases — only real shop items count toward the buy step.
+    const owned = Array.isArray(player.owned)
+      ? player.owned.filter((entry) => typeof entry === "string" && !entry.startsWith("eq:") && !entry.startsWith("fit:")).length
+      : 0;
     if (owned <= Number(progress.owned || 0)) {
       return { ok: false, message: "Buy something from the shop first.", status: 400 };
     }
@@ -4113,6 +4329,19 @@ export async function POST(request) {
     const save = await ensureSave(player, currentServerFor(body, player));
     const result = await equipClothesOp(player, save, body);
     return json(result, result.ok ? 200 : result.status || 400);
+  }
+
+  // Wardrobe fits — save / wear / delete a named fit. Per-server save,
+  // same as spend: no balance changes, no burn, City Sol is untouched.
+  if (op === "save-fit" || op === "wear-fit" || op === "delete-fit") {
+    const save = await ensureSave(player, currentServerFor(body, player));
+    const result =
+      op === "save-fit"
+        ? await saveFitOp(player, save, body)
+        : op === "wear-fit"
+          ? await wearFitOp(player, save, body)
+          : await deleteFitOp(player, save, body);
+    return json(result, result.ok ? 200 : 400);
   }
 
   if (op === "job-start") {
