@@ -645,6 +645,41 @@ body {
   font-size: 12px;
 }
 
+/* FOOD: hunger + stamina meters in the HUD. White labels on the dark HUD,
+   gold fill, red fill when hunger is low — never light-on-light. */
+.food-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.food-meter span {
+  color: #ffffff;
+  font-size: 12px;
+}
+
+.food-meter i {
+  display: block;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.food-meter i b {
+  display: block;
+  height: 100%;
+  background: #e0b33a;
+}
+
+.food-meter i b.low {
+  background: #ff5a3c;
+}
+
+.starving-chip {
+  color: #ff6b57;
+  font-weight: 700;
+  font-size: 13px;
+}
+
 .minimap {
   display: block;
   width: 132px;

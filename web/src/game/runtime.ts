@@ -31,6 +31,7 @@ import {
   DANCE_BEATS,
   DANCE_SPOT,
   DEMO_AD_PRICE,
+  GYM_SPOT,
   HOTEL_COST,
   HOTEL_REST_MIN,
   MUSEUM_BONUS,
@@ -54,6 +55,7 @@ import {
   WASH_PAY,
   WASH_SPOT,
   WISH_SPOT,
+  foodSpeedMult,
   type BillboardInfo,
   type CityContent,
   type EventInfo,
@@ -135,8 +137,7 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "voice";
-
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "voice";
 export interface PersonCard {
   id: string;
   name: string;
@@ -344,6 +345,17 @@ export interface Snap {
   // Photo Safari: server place ids photographed today (max 120/day).
   photosToday: string[];
   photoMsg: string;
+  // FOOD: stamina / cooked meals / Satisfied, from the server
+  // (food-status + every food op). Hunger + pantry live on the grocery
+  // fields above (hunger / food) — one hunger, one inventory, shared
+  // with the grocery store (see applyFoodData).
+  foodStamina: number;
+  foodMeals: Record<string, number>;
+  foodFed: boolean;
+  foodCarryCap: number;
+  // Which restaurant the restaurant panel is showing ("diner" | "pizza" |
+  // "fork") — set when E opens the counter, "" otherwise.
+  foodPlace: string;
   // Trail the player owns ("none" | "neon" | "gold") — renders as the
   // avatar ground ring.
   trail: string;
@@ -477,6 +489,18 @@ const FOOD_CATALOG: FoodCatalogItem[] = [
   { id: "burger", name: "Burger", price: 40, hunger: 35, kind: "meal" },
   { id: "groceries-bag", name: "Groceries Bag", price: 50, hunger: 30, kind: "meal" },
   { id: "pizza", name: "Pizza", price: 60, hunger: 45, kind: "meal" },
+  // Cooking ingredients — sold at OrbitX Grocery, eaten as snacks or
+  // cooked into meals (recipes in content.ts). hunger = the snack value.
+  { id: "bread", name: "Bread", price: 8, hunger: 10, kind: "snack" },
+  { id: "patty", name: "Beef Patty", price: 10, hunger: 10, kind: "snack" },
+  { id: "dough", name: "Pizza Dough", price: 8, hunger: 8, kind: "snack" },
+  { id: "cheese", name: "Cheese", price: 12, hunger: 12, kind: "snack" },
+  { id: "greens", name: "Salad Greens", price: 10, hunger: 10, kind: "snack" },
+  { id: "dressing", name: "Dressing", price: 6, hunger: 6, kind: "snack" },
+  { id: "potato", name: "Potato", price: 8, hunger: 10, kind: "snack" },
+  { id: "tomato", name: "Tomato", price: 8, hunger: 10, kind: "snack" },
+  { id: "egg", name: "Egg", price: 10, hunger: 12, kind: "snack" },
+  { id: "milk", name: "Milk", price: 8, hunger: 8, kind: "snack" },
 ];
 // Photo Safari landmarks (server place ids) — the 8 spots the photo op
 // pays for, 15 City Sol each, once per landmark per day. Coords are the
@@ -1450,6 +1474,7 @@ export function createRuntime(scene: Scene) {
     if (zone.kind === "hotel") return "Stay the night · 20 City Sol";
     if (zone.kind === "casino") return "Slots · 5 City Sol a pull";
     if (zone.kind === "nightclub") return "Dance sets at the DJ booth";
+    if (zone.kind === "restaurant") return "Sit down · order at the counter";
     if (zone.kind === "stadium") return "Sprint the track";
     return "Gather here";
   }
@@ -1942,12 +1967,15 @@ export function createRuntime(scene: Scene) {
     // Load the mission chain up front (not only when the panel opens) so
     // the chat / drive / job / daily / buy hooks can advance it.
     if (world.online) void loadMissions();
-    // Load the grocery state up front too, so the HUD hunger meter shows
-    // the server's value from the first frame (the sync's me carries the
-    // last persisted hunger, but the live meter is only ever adopted
-    // from food-list and the food op responses — see applyFoodData).
+    // FOOD: load hunger/stamina up front so the HUD meters and the speed
+    // effect are live from the first step, then refresh every 60s (hunger
+    // drains with real time on the server). One timer per runtime.
     if (world.online) void loadFood();
-    const params = new URLSearchParams(location.search);
+    if (!foodTimer) {
+      foodTimer = setInterval(() => {
+        if (playing && world.online) void loadFood(true);
+      }, 60000);
+    }    const params = new URLSearchParams(location.search);
     lookId = params.get("look") || localStorage.getItem("orbitx-look") || world.me?.look || "tjr";
     if (!lookById(lookId).id) lookId = "tjr";
     lookId = lookById(lookId).id;
@@ -2212,6 +2240,10 @@ export function createRuntime(scene: Scene) {
       hunger,
       foodLoaded,
       foodMsg,
+      foodStamina,
+      foodMeals: { ...foodMeals },
+      foodFed,
+      foodCarryCap,
       eventLabel: eventLeft > 0 ? `Fountain lights in ${Math.ceil(eventLeft)}` : burstLeft > 0 ? "Fountain lights" : "",
       panel,
       lift: liftPanel,
@@ -2304,6 +2336,10 @@ export function createRuntime(scene: Scene) {
       buskReadyAt,
       photosToday: [...photosToday],
       photoMsg,
+      food: { ...food, pantry: { ...food.pantry }, meals: { ...food.meals } },
+      foodMsg,
+      foodLoaded,
+      foodPlace,
       trail,
       vehicles: [...localVehicles],
       activeVehicle: localActiveVehicle,
@@ -3038,7 +3074,14 @@ export function createRuntime(scene: Scene) {
       else if (zone.kind === "hotel") stayNight();
       else if (zone.kind === "nightclub") startDance();
       else if (zone.kind === "stadium") startSprint();
-      else if (zone.kind === "museum") say("OrbitX Museum — four exhibits, +10 City Sol for each first view.");
+      else if (zone.kind === "restaurant") {
+        // Order at the counter — the panel resolves the menu from the zone id.
+        foodPlace = zone.id;
+        panel = "restaurant";
+      } else if (zone.kind === "gym") {
+        // Sign in at the front desk, pick a workout.
+        panel = "gym";
+      } else if (zone.kind === "museum") say("OrbitX Museum — four exhibits, +10 City Sol for each first view.");
       else say(zoneTitle(zone));
       publish();
       return;
@@ -3081,8 +3124,7 @@ export function createRuntime(scene: Scene) {
         publish();
         return;
       }
-      if (anchor.kind === "shop" || anchor.kind === "grocery" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel") {
-        stepInside(anchor, body);
+      if (anchor.kind === "shop" || anchor.kind === "grocery" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel" || anchor.kind === "restaurant") {        stepInside(anchor, body);
         publish();
         return;
       }
@@ -3156,6 +3198,21 @@ export function createRuntime(scene: Scene) {
     }
     if (Math.hypot(body.x - WASH_SPOT.x, body.z - WASH_SPOT.z) < 2.5) {
       startWash();
+      return;
+    }
+    // FOOD: work out on the gym floor, cook at your own kitchen counter.
+    // The gym floor spot opens the same panel as the front desk; the
+    // kitchen only opens in a home the player owns on this universe
+    // (the server enforces the same rule on cook).
+    if (zone?.id === "gym" && Math.hypot(body.x - GYM_SPOT.x, body.z - GYM_SPOT.z) < 2.5) {
+      panel = "gym";
+      publish();
+      return;
+    }
+    if (zone?.kitchen && Math.hypot(body.x - zone.kitchen.x, body.z - zone.kitchen.z) < 2.5) {
+      if (!ownsHome(zone.id)) say("This kitchen isn't yours — buy this home to cook here.");
+      else panel = "kitchen";
+      publish();
       return;
     }
     // Photo spots, then museum exhibits, then the fountain wish, then the
@@ -4089,6 +4146,18 @@ export function createRuntime(scene: Scene) {
   // Photo Safari: server place ids photographed today.
   let photosToday: string[] = [];
   let photoMsg = "";
+  // FOOD (unified with the grocery piece): stamina / cooked meals /
+  // Satisfied live here; hunger + pantry live on the grocery fields
+  // above (hunger / foodInv) — one hunger, one inventory, shared with
+  // the grocery store. Defaults match the server's fresh state
+  // (stamina 20) so the HUD meters read sensibly before the first
+  // server answer.
+  let foodStamina = 20;
+  let foodMeals: Record<string, number> = {};
+  let foodFed = false;
+  let foodCarryCap = 6;
+  let foodPlace = "";
+  let foodTimer: ReturnType<typeof setInterval> | null = null;
   // Trail the player owns ("none" | "neon" | "gold"). The wallet in
   // economy.ts has no trail field, so it persists in localStorage and is
   // refreshed from the server's me whenever one arrives.
@@ -4160,12 +4229,40 @@ export function createRuntime(scene: Scene) {
   // Adopt a food op's answer (food-list / food-buy / food-eat /
   // food-hunger): inventory + hunger straight from the server, and the
   // server catalog when it arrives (same 12 items, same prices).
+  // Adopt a food answer: the unified shape (food-status / food ops)
+  // is { food: { hunger, stamina, pantry, meals, fed, carryCap },
+  // catalog, me }; the legacy shape (food-list) is { food: record,
+  // hunger, catalog }. Either way hunger + pantry land on the grocery
+  // fields — one hunger, one inventory.
   function applyFoodData(data: unknown) {
     if (!data || typeof data !== "object") return;
-    const foodData = data as { food?: Record<string, number>; hunger?: number; catalog?: FoodCatalogItem[] };
-    if (foodData.food && typeof foodData.food === "object") {
+    const foodData = data as { food?: Record<string, number> | { hunger?: number; stamina?: number; pantry?: Record<string, number>; meals?: Record<string, number>; fed?: boolean; carryCap?: number }; hunger?: number; catalog?: FoodCatalogItem[] };
+    const f = foodData.food;
+    if (f && typeof f === "object" && ("pantry" in f || "stamina" in f)) {
+      const u = f as { hunger?: number; stamina?: number; pantry?: Record<string, number>; meals?: Record<string, number>; fed?: boolean; carryCap?: number };
+      if (u.pantry && typeof u.pantry === "object") {
+        foodInv = {};
+        for (const [id, count] of Object.entries(u.pantry)) {
+          if (FOOD_CATALOG.some((item) => item.id === id) && Number(count) > 0) foodInv[id] = Math.floor(Number(count));
+        }
+      }
+      if (Number.isFinite(Number(u.hunger))) {
+        hunger = Math.max(0, Math.min(100, Math.round(Number(u.hunger))));
+        lastHungerSent = hunger;
+      }
+      if (Number.isFinite(Number(u.stamina))) foodStamina = Math.max(0, Math.min(100, Math.round(Number(u.stamina))));
+      if (u.meals && typeof u.meals === "object") {
+        const meals: Record<string, number> = {};
+        for (const [id, count] of Object.entries(u.meals)) {
+          if (Number(count) > 0) meals[id] = Math.floor(Number(count));
+        }
+        foodMeals = meals;
+      }
+      if (typeof u.fed === "boolean") foodFed = u.fed;
+      if (Number.isFinite(Number(u.carryCap))) foodCarryCap = Math.max(0, Math.floor(Number(u.carryCap)));
+    } else if (f && typeof f === "object") {
       foodInv = {};
-      for (const [id, count] of Object.entries(foodData.food)) {
+      for (const [id, count] of Object.entries(f as Record<string, number>)) {
         if (FOOD_CATALOG.some((item) => item.id === id) && Number(count) > 0) foodInv[id] = Math.floor(Number(count));
       }
     }
@@ -4197,23 +4294,6 @@ export function createRuntime(scene: Scene) {
     } catch {
       lastHungerSent = -1;
     }
-  }
-
-  async function loadFood() {
-    if (!world.online) {
-      foodLoaded = true;
-      publish();
-      return;
-    }
-    try {
-      const data = await cityOp("food-list", { server: serverId() });
-      applyFoodData(data);
-      foodLoaded = true;
-      foodMsg = "";
-    } catch (err) {
-      foodMsg = err instanceof Error ? err.message : "Could not load the grocery.";
-    }
-    publish();
   }
 
   async function buyFood(id: string, qty = 1) {
@@ -4333,6 +4413,31 @@ export function createRuntime(scene: Scene) {
     world.me = me as CityMe;
     applyMe();
     applyServerDaily(me);
+    applyFoodMe(me);
+  }
+
+  // FOOD: the save's food blob (me.food) refreshes the HUD meters, the
+  // pantry/meals the panels show, and the speed effect. Never invents
+  // values — a missing blob keeps the local state as-is.
+  // The sync's me carries the unified food blob — adopt ONLY the
+  // server-only fields (stamina / cooked meals / Satisfied / carry
+  // cap). Hunger + pantry are adopted ONLY from food op responses +
+  // loadFood (applyFoodData): the client drains hunger locally between
+  // reports, and a sync must never snap it back to the last persisted
+  // value.
+  function applyFoodMe(me: unknown) {
+    const next = (me as { food?: { stamina?: number; meals?: Record<string, number>; fed?: boolean; carryCap?: number } })?.food;
+    if (!next || typeof next !== "object") return;
+    if (Number.isFinite(Number(next.stamina))) foodStamina = Math.max(0, Math.min(100, Math.round(Number(next.stamina))));
+    if (next.meals && typeof next.meals === "object") {
+      const meals: Record<string, number> = {};
+      for (const [id, count] of Object.entries(next.meals)) {
+        if (Number(count) > 0) meals[id] = Math.floor(Number(count));
+      }
+      foodMeals = meals;
+    }
+    if (typeof next.fed === "boolean") foodFed = next.fed;
+    if (Number.isFinite(Number(next.carryCap))) foodCarryCap = Math.max(0, Math.floor(Number(next.carryCap)));
   }
 
   // Daily blob on a save me: photos done today + the busk cooldown.
@@ -4346,6 +4451,13 @@ export function createRuntime(scene: Scene) {
         .map(([place]) => place);
     }
     if (daily.buskAt) buskReadyAt = Number(daily.buskAt) + 60000;
+  }
+
+  // FOOD: does the player own this home on the current universe? The
+  // server enforces the same rule on cook — this only gates the prompt.
+  function ownsHome(homeId: string) {
+    const homes = world.me?.homes?.homes ?? [];
+    return homes.some((h) => h.homeId === homeId && h.server === currentUniverse);
   }
 
   // Which mission "visit" place the player is standing at, if any. Zone
@@ -4377,6 +4489,83 @@ export function createRuntime(scene: Scene) {
       missionMsg = err instanceof Error ? err.message : "Could not load missions.";
       publish();
     }
+  }
+
+  // ---- FOOD: cooking, restaurants, gym (server ops, per-server saves)
+  // Same cityOp envelope as missions/busk/photo. Every op returns the
+  // fresh food blob + me, so the HUD meters and panels stay server-true.
+  // Offline, food is unavailable (like missions) — the panels say so.
+  // One load for food: food-status returns the unified shape
+  // (hunger, stamina, pantry, meals, fed + the full catalog incl.
+  // cooking ingredients), so one call feeds the HUD meters, the
+  // grocery panel, the kitchen and the gym.
+  async function loadFood(quiet = false) {
+    if (!world.online) {
+      foodLoaded = true;
+      if (!quiet) foodMsg = "Food needs the city server — playing on this device only.";
+      publish();
+      return;
+    }
+    try {
+      const data = await cityOp("food-status", { server: serverId() });
+      applyFoodData(data);
+      if (data.me) applySaveMe(data.me);
+      foodLoaded = true;
+      foodMsg = "";
+      publish();
+    } catch (err) {
+      if (!quiet) {
+        foodMsg = err instanceof Error ? err.message : "Could not load food.";
+        publish();
+      }
+    }
+  }
+
+  // One food op through the server: says the server's message out loud,
+  // refreshes food + balance, and returns the raw data for the panel.
+  async function foodOp(op: string, extra: Record<string, unknown>) {
+    if (!world.online) {
+      const message = "Food needs the city server — play online to cook, eat, or work out.";
+      say(message);
+      foodMsg = message;
+      publish();
+      return { ok: false, message };
+    }
+    try {
+      const data = await cityOp(op, { server: serverId(), ...extra });
+      applyFoodData(data);
+      if (data.me) applySaveMe(data.me);
+      foodMsg = "";
+      if (data.message) say(String(data.message));
+      triggerHaptic("jobPay");
+      publish();
+      return data;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "The city held that order.";
+      say(message);
+      foodMsg = message;
+      publish();
+      return { ok: false, message };
+    }
+  }
+
+  async function foodCook(recipe: string) {
+    return foodOp("food-cook", { recipe });
+  }
+
+  async function foodOrder(restaurant: string, item: string) {
+    return foodOp("food-order", { restaurant, item });
+  }
+
+  async function foodWorkout(workout: string) {
+    return foodOp("food-workout", { workout });
+  }
+
+  // Hunger that matters, client side: the engine multiplies on-foot speed
+  // by this (see engine.ts tick). Same formula as the server — well fed
+  // (>=70) runs fast, starving (0) crawls; stamina adds up to +10%.
+  function speedMult() {
+    return foodSpeedMult(hunger, foodStamina);
   }
 
   // Attempt the current step of a mission; the server validates kind,
@@ -4542,7 +4731,7 @@ export function createRuntime(scene: Scene) {
     // Hunger drain — only while actively playing (playing, not paused,
     // tab visible). 1 point per HUNGER_DRAIN_SECONDS of active time, so
     // a full stomach lasts ~2.5 hours of play. At 0 the player only
-    // walks slower (engine tick reads walkSpeedScale) and gets one
+    // walks slower (engine tick reads speedMult) and gets one
     // "hungry" notice: no death, no money lost, nothing locked. The
     // report to the server is fire-and-forget (persistHunger).
     if (playing && !paused && !document.hidden) {
@@ -4832,20 +5021,18 @@ export function createRuntime(scene: Scene) {
       else if (driving && nearGate(body, 0, 8)) prompt = "Press E — hover time trial";
       else if (driving) prompt = "Press E to get out";
       else if (zone && nearService(body, zone)) {
-        prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "grocery" ? "Press E — buy food at OrbitX Grocery" : zone.kind === "garage" ? "Press E to open the garage" : zone.kind === "carshop" ? "Press E — buy a car at OrbitX Motors" : isDeptKind(zone.kind as string) ? `Press E — ${zoneTitle(zone)}` : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zoneTitle(zone);
+        prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "grocery" ? "Press E — buy food at OrbitX Grocery" : zone.kind === "garage" ? "Press E to open the garage" : zone.kind === "carshop" ? "Press E — buy a car at OrbitX Motors" : isDeptKind(zone.kind as string) ? `Press E — ${zoneTitle(zone)}` : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zone.kind === "restaurant" ? `Press E — order at ${zoneTitle(zone)}` : zone.kind === "gym" ? "Press E — gym desk · work out" : zoneTitle(zone);
       } else if (zone && nearExitDoor(body, zone)) {
         // By the inside of a closed door: E steps back outside.
         prompt = "Press E — Exit";
       } else if (homeGarageAt(body)) prompt = "Press E — open your garage";
-      else if (nearestAnchor(body, 3.3)) {
-        // A close door / lift / board beats the race gate, same as
+      else if (nearestAnchor(body, 3.3)) {        // A close door / lift / board beats the race gate, same as
         // interact(): the mall door sits 5.6 units from the street-race
         // start gate, inside its 8-unit radius, so the prompt used to say
         // "street race" at the door instead of "Walk in".
         const anchor = nearestAnchor(body, 3.3)!;
         const title = anchor.kind === "project" ? projectName(anchor.slot) : anchor.name;
-        const walkIn = anchor.kind === "shop" || anchor.kind === "grocery" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel";
-        // The tower door announces itself as an office entrance, never as a
+        const walkIn = anchor.kind === "shop" || anchor.kind === "grocery" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel" || anchor.kind === "restaurant";        // The tower door announces itself as an office entrance, never as a
         // photo spot — the anchor branch already runs before the photo check
         // below, so the door wins wherever the two ranges meet.
         // Closed doors (2026-11-12): no more "Walk in" — the door is
@@ -4860,6 +5047,8 @@ export function createRuntime(scene: Scene) {
     else if (parcel === "carried" && Math.hypot(body.x - PARCEL_DELIVER.x, body.z - PARCEL_DELIVER.z) < 2.5) prompt = `Press E — deliver the parcel (+${PARCEL_REWARD} City Sol)`;
     else if (Math.hypot(body.x - BUSK_SPOT.x, body.z - BUSK_SPOT.z) < 2.5) prompt = "Press E — busk at the plaza corner";
     else if (Math.hypot(body.x - WASH_SPOT.x, body.z - WASH_SPOT.z) < 2.5) prompt = `Press E — wash a hover-car (+${WASH_PAY} City Sol)`;
+    else if (zone?.id === "gym" && Math.hypot(body.x - GYM_SPOT.x, body.z - GYM_SPOT.z) < 2.5) prompt = "Press E — work out at the gym";
+    else if (zone?.kitchen && ownsHome(zone.id) && Math.hypot(body.x - zone.kitchen.x, body.z - zone.kitchen.z) < 2.5) prompt = "Press E — cook in your kitchen";
       else if (nearestNpc(body, 3) >= 0) {
         const npc = npcs[nearestNpc(body, 3)];
         prompt = npc ? `Press E — talk to ${npc.name}` : "";
@@ -6523,17 +6712,11 @@ export function createRuntime(scene: Scene) {
       return () => listeners.delete(fn);
     },
     buy,
-    loadFood,
     buyFood,
     eatFood,
     eatBestFood,
     equipClothes,
     unequipClothes,
-    // Walk-speed scale for the engine tick: a starving player (hunger
-    // 0) walks at 60% — the only penalty hunger ever applies.
-    walkSpeedScale() {
-      return hunger <= 0 ? HUNGER_EMPTY_SPEED : 1;
-    },
     book(id: string, days: number, text: string) {
       return book(id, days, wallet.name || "Demo project", text || "NEW CAMPAIGN");
     },
@@ -7068,6 +7251,30 @@ export function createRuntime(scene: Scene) {
     attemptMission(missionId = "") {
       void attemptMission(missionId);
     },
+    // FOOD: the Kitchen, Restaurant and Gym panels call these;
+    // speedMult() feeds engine.ts tick(). Hunger + pantry live on the
+    // grocery fields (snap.hunger / snap.food) — see applyFoodData.
+    speedMult() {
+      return speedMult();
+    },
+    loadFood() {
+      void loadFood();
+    },
+    foodStatus() {
+      // A refresh, not an op: loadFood() updates the food fields and the
+      // panel renders from them (no message, no haptic).
+      void loadFood();
+      return Promise.resolve({ ok: true });
+    },
+    foodCook(recipe: string) {
+      return foodCook(recipe);
+    },
+    foodOrder(restaurant: string, item: string) {
+      return foodOrder(restaurant, item);
+    },
+    foodWorkout(workout: string) {
+      return foodWorkout(workout);
+    },
     buskNow() {
       buskNow();
     },
@@ -7323,6 +7530,10 @@ export function createRuntime(scene: Scene) {
       return driving && car ? car.alt : 0;
     },
     destroy() {
+      if (foodTimer) {
+        clearInterval(foodTimer);
+        foodTimer = null;
+      }
       world.stop();
       net.close();
       scene.remove(root);

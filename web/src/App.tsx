@@ -4,7 +4,7 @@ import type { AdOrder, MyPropertyClaim, PanelName, RadioTrack, Runtime, Snap } f
 import { FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/runtime";
 import { PROXIMITY_RANGE, PROXIMITY_ROOM } from "./game/voice";
 import { loadLooks } from "./game/avatar";
-import { OFFICE_SUITES, adUsdPrice } from "./game/content";
+import { GROCERY_FOOD_BY_ID, GYM_WORKOUTS, OFFICE_SUITES, RECIPES, RESTAURANT_BY_ID, RESTAURANT_MENUS, adUsdPrice, foodSpeedMult, hungerLabel } from "./game/content";
 import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
 import { CharacterSelect } from "./Roster";
@@ -301,6 +301,10 @@ const EMPTY: Snap = {
   buskReadyAt: 0,
   photosToday: [],
   photoMsg: "",
+  food: { hunger: 80, stamina: 20, pantry: {}, meals: {}, fedUntil: 0, fed: false, speedMult: 1.122, carryCap: 6 },
+  foodMsg: "",
+  foodLoaded: false,
+  foodPlace: "",
   trail: "none",
   vehicles: [],
   activeVehicle: null,
@@ -446,6 +450,8 @@ export default function App() {
   const [homeMine, setHomeMine] = useState<{ homeId: string; server: number; price: number }[]>([]);
   const [homeServer, setHomeServer] = useState(0);
   const [homeMsg, setHomeMsg] = useState("");
+  // FOOD: one in-flight food op at a time (cook / eat / order / work out).
+  const [foodBusy, setFoodBusy] = useState(false);
   const [officeTerm, setOfficeTerm] = useState<1 | 7 | 30>(7);
   const [officeProject, setOfficeProject] = useState("");
   const [officeLogo, setOfficeLogo] = useState("");
@@ -613,6 +619,15 @@ export default function App() {
     const rt = gameRef.current?.runtime;
     if (!rt) return;
     void rt.rentalStatus().catch(() => {});
+  }, [panel]);
+
+  // FOOD panels: refresh hunger/stamina/pantry when one opens, so the
+  // recipes, menus and workout buttons read server-fresh.
+  useEffect(() => {
+    if (panel !== "restaurant" && panel !== "kitchen" && panel !== "gym") return;
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    void rt.foodStatus();
   }, [panel]);
 
   // Poll an in-flight booking until it lands (live / failed / burn-pending).
@@ -809,10 +824,12 @@ export default function App() {
             <span>{snap.account ? "Account" : "Guest"}</span>
           </div>
           <strong>CITY SOL {snap.balance}</strong>
-          {/* Hunger — text + bar, no emoji. The Eat button is the HUD
-              quick-eat (most-restorative owned food, one tap); it only
-              shows when the player owns food. The HUD is
-              pointer-events: none, so the row re-enables events. */}
+          {/* Hunger + stamina — one hunger, shared by the grocery
+              store and the kitchen (see runtime.ts applyFoodData). The
+              Eat button is the HUD quick-eat (most-restorative owned
+              food, one tap); it only shows when the player owns food.
+              The HUD is pointer-events: none, so the row re-enables
+              events. */}
           <span className="hunger">
             <span>Hunger {snap.hunger}{snap.hunger <= 0 ? " — Hungry" : ""}</span>
             <span className="hunger-bar" aria-label={`Hunger ${snap.hunger} out of 100`}><i style={{ width: `${snap.hunger}%` }} className={snap.hunger <= 25 ? "low" : undefined} /></span>
@@ -820,6 +837,12 @@ export default function App() {
               <button type="button" onClick={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}>Eat</button>
             ) : null}
           </span>
+          <div className="food-meter" title={`Stamina ${snap.foodStamina} — you run at x${foodSpeedMult(snap.hunger, snap.foodStamina).toFixed(2)}`}>
+            <span>Stamina {snap.foodStamina} · runs x{foodSpeedMult(snap.hunger, snap.foodStamina).toFixed(2)}</span>
+            <i><b style={{ width: `${snap.foodStamina}%` }} /></i>
+          </div>
+          {snap.hunger === 0 ? <span className="starving-chip">STARVING — eat something! You run slow.</span> : null}
+          {snap.foodFed ? <span>Satisfied — job pay +10%</span> : null}
           {snap.flying || snap.carFlying ? <span className="flying-chip">FLYING</span> : null}
           {snap.holder ? <span>HOLDER</span> : null}
           {snap.voiceProvider && snap.voiceProvider !== "off" ? (
@@ -943,6 +966,9 @@ export default function App() {
                 {panel === "chat" && "Chat"}
                 {panel === "phone" && "Phone"}
                 {panel === "menu" && "Menu"}
+                {panel === "restaurant" && (RESTAURANT_BY_ID[snap.foodPlace]?.name ?? "Restaurant")}
+                {panel === "kitchen" && "Your kitchen"}
+                {panel === "gym" && "Harbor Gym"}
                 {panel === "lift" && (snap.lift?.name ?? "Lift")}
                 {featureTitle(panel as PanelName | "")}
               </strong>
@@ -1083,6 +1109,163 @@ export default function App() {
                 })}
                 <p className="muted">Food is City Sol only. Hunger drains slowly while you play — eat to stay full. At 0 hunger you only walk slower; nothing else happens.</p>              </div>
             )}
+            {/* FOOD: restaurant menu — order at the counter, eat there.
+                Restores hunger and leaves you Satisfied: job pay +10%
+                for 10 minutes (server-side, in the earn op). */}
+            {panel === "restaurant" && (() => {
+              const place = RESTAURANT_BY_ID[snap.foodPlace];
+              if (!place) return <p className="muted">Walk into a restaurant and order at the counter.</p>;
+              const menu = RESTAURANT_MENUS[place.id] ?? [];
+              return (
+                <div className="list">
+                  <p className="muted">{place.vibe}</p>
+                  <p>Balance {snap.balance} · Hunger {snap.hunger} ({hungerLabel(snap.hunger)}){snap.foodFed ? " · Satisfied — job pay +10%" : ""}</p>
+                  {!snap.foodLoaded && snap.foodMsg ? <p>{snap.foodMsg}</p> : null}
+                  {menu.map((item) => {
+                    const afford = snap.balance >= item.price;
+                    return (
+                      <article key={item.id}>
+                        <div>
+                          <b>{item.name}</b>
+                          <span>{item.desc} · +{item.hunger} hunger · {item.price} City Sol</span>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={foodBusy || !afford || !snap.foodLoaded}
+                          onClick={async () => {
+                            const rt = gameRef.current?.runtime;
+                            if (!rt) return;
+                            setFoodBusy(true);
+                            try { await rt.foodOrder(place.id, item.id); } finally { setFoodBusy(false); }
+                          }}
+                        >
+                          {!afford ? "Not enough City Sol" : `Order — ${item.price} City Sol`}
+                        </button>
+                      </article>
+                    );
+                  })}
+                  <p className="quiet">Eating here leaves you Satisfied — job pay +10% for 10 minutes.</p>
+                </div>
+              );
+            })()}
+            {/* FOOD: kitchen — cook with groceries from the pantry, eat
+                what you make. A cooked meal fills you far more than a
+                snack (+40 vs +10). Cooking needs a home on this server. */}
+            {panel === "kitchen" && (
+              <div className="list">
+                <p className="muted">Cook with groceries from your pantry — a cooked meal fills you far more than a snack. Meals carry in your bag: {Object.values(snap.foodMeals).reduce((a, b) => a + b, 0)}/{snap.foodCarryCap}.</p>
+                <p>Hunger {snap.hunger} ({hungerLabel(snap.hunger)}) · Stamina {snap.foodStamina}</p>
+                {!snap.foodLoaded && snap.foodMsg ? <p>{snap.foodMsg}</p> : null}
+                <h3>Recipes</h3>
+                {RECIPES.map((recipe) => {
+                  const missing = recipe.needs.filter(([item, qty]) => (snap.food[item] ?? 0) < qty);
+                  return (
+                    <article key={recipe.id}>
+                      <div>
+                        <b>{recipe.name}</b>
+                        <span>
+                          {recipe.blurb} {recipe.needs.map(([item, qty]) => `${GROCERY_FOOD_BY_ID[item]?.name ?? item} ${snap.food[item] ?? 0}/${qty}`).join(" · ")}
+                          {` · +${recipe.hunger} hunger${recipe.stamina ? ` · +${recipe.stamina} stamina` : ""}`}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={foodBusy || missing.length > 0 || !snap.foodLoaded}
+                        onClick={async () => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          setFoodBusy(true);
+                          try { await rt.foodCook(recipe.id); } finally { setFoodBusy(false); }
+                        }}
+                      >
+                        {missing.length ? `Need ${missing.map(([item]) => GROCERY_FOOD_BY_ID[item]?.name ?? item).join(", ")}` : "Cook"}
+                      </button>
+                    </article>
+                  );
+                })}
+                <h3>Pantry — eat a snack</h3>
+                {Object.keys(snap.food).length === 0 ? <p className="muted">Pantry empty — the grocery store stocks it.</p> : Object.entries(snap.food).map(([id, qty]) => {
+                  const item = GROCERY_FOOD_BY_ID[id];
+                  return (
+                    <article key={id}>
+                      <div>
+                        <b>{item?.name ?? id}</b>
+                        <span>{qty} in pantry · eat one, +{item?.snack ?? 8} hunger</span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={foodBusy || !snap.foodLoaded}
+                        onClick={async () => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          setFoodBusy(true);
+                          try { await rt.eatFood(id); } finally { setFoodBusy(false); }
+                        }}
+                      >
+                        Eat
+                      </button>
+                    </article>
+                  );
+                })}
+                <h3>Meals — cooked, in your bag</h3>
+                {Object.keys(snap.foodMeals).length === 0 ? <p className="muted">Nothing cooked yet — cook a recipe above.</p> : Object.entries(snap.foodMeals).map(([id, qty]) => {
+                  const recipe = RECIPES.find((r) => r.id === id);
+                  return (
+                    <article key={id}>
+                      <div>
+                        <b>{recipe?.name ?? id}</b>
+                        <span>{qty} in bag · eat one, +{recipe?.hunger ?? 20} hunger</span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={foodBusy || !snap.foodLoaded}
+                        onClick={async () => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          setFoodBusy(true);
+                          try { await rt.eatFood(id); } finally { setFoodBusy(false); }
+                        }}
+                      >
+                        Eat
+                      </button>
+                    </article>
+                  );
+                })}
+                <p className="quiet">Cooking needs a home on this server — buy one from the Home panel, then cook at your kitchen counter.</p>
+              </div>
+            )}
+            {/* FOOD: gym — work out for stamina. Higher stamina runs
+                faster (up to +10%) and carries more meals. */}
+            {panel === "gym" && (
+              <div className="list">
+                <p className="muted">Harbor Gym — work out for stamina. Higher stamina runs faster and carries more meals. Stamina decays slowly if you never work out.</p>
+                <p>Stamina {snap.foodStamina}/100 · runs x{foodSpeedMult(snap.hunger, snap.foodStamina).toFixed(2)} · meal carry cap {snap.foodCarryCap}</p>
+                {!snap.foodLoaded && snap.foodMsg ? <p>{snap.foodMsg}</p> : null}
+                {GYM_WORKOUTS.map((workout) => {
+                  const afford = snap.balance >= workout.cost;
+                  return (
+                    <article key={workout.id}>
+                      <div>
+                        <b>{workout.name}</b>
+                        <span>{workout.desc} · +{workout.gain} stamina · {workout.cost} City Sol</span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={foodBusy || !afford || !snap.foodLoaded}
+                        onClick={async () => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          setFoodBusy(true);
+                          try { await rt.foodWorkout(workout.id); } finally { setFoodBusy(false); }
+                        }}
+                      >
+                        {!afford ? "Not enough City Sol" : `Work out — ${workout.cost} City Sol`}
+                      </button>
+                    </article>
+                  );
+                })}
+                <p className="quiet">30s between workouts. Standing on the gym floor also opens this panel — press E.</p>
+              </div>            )}
             {panel === "missions" && (
               <div className="list">
                 <p className="muted">
@@ -2123,6 +2306,7 @@ export default function App() {
                     );
                   })}
                   {homeMsg ? <p>{homeMsg}</p> : null}
+                  {homeMine.length ? <button type="button" onClick={() => open("kitchen")}>Cook in your kitchen</button> : null}
                 </>
               );
               if (!zoneId.startsWith("home-")) {
@@ -2364,12 +2548,12 @@ const MAP_LABELS: Record<string, string> = {
   casino: "Casino",
   nightclub: "Club",
   hotel: "Hotel",
+  restaurant: "Eat",
 };
 
 // Label priority: the plaza core gets its preferred spot first; the z=54
 // row (Shop/Cafe/Arcade/Garage) is the crowded one, so the order matters.
-const MAP_LABEL_PRIORITY = ["shop", "cafe", "hall", "dock", "bank", "market", "grocery", "arcade", "garage", "carshop", "cinema", "library", "gym", "park", "stadium", "museum", "casino", "nightclub", "hotel"];
-
+const MAP_LABEL_PRIORITY = ["shop", "cafe", "hall", "dock", "bank", "market", "grocery", "arcade", "garage", "carshop", "cinema", "library", "gym", "park", "stadium", "museum", "casino", "nightclub", "hotel", "restaurant"];
 // Job board — single source of truth for the base pay the server pays
 // (api/city.js JOBS, plus the +5%-per-streak scaling in scaledPay).
 const JOB_LIST_BASE: Array<{ id: string; name: string; desc: string; base: number }> = [
