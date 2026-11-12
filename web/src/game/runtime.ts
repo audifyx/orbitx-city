@@ -3758,6 +3758,16 @@ export function createRuntime(scene: Scene) {
     // (The stick's up-push still works as gas for players who prefer it.)
     if (holdGas) f = Math.max(f, 1);
     if (holdBrake) f = Math.min(f, -1);
+    // Arrow keys drive the car on a PC too. The menu promised "arrows or
+    // Q/R turn", but arrows only turned the CAMERA — a PC driver pressing
+    // them found the car going straight while the view swung, which read
+    // as "I can't steer my car". While driving, Up is gas, Down is brake,
+    // Left/Right steer (full lock, like A/D). On foot the arrows keep
+    // turning the camera (engine.ts gates their look on !driving).
+    if (keys.has("ArrowUp")) f = Math.max(f, 1);
+    if (keys.has("ArrowDown")) f = Math.min(f, -1);
+    const arrowS = (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0);
+    if (arrowS !== 0) s = arrowS;
     const ctrl = keys.has("ControlLeft") || keys.has("ControlRight");
     const car = cars[carIndex];
     if (!car) return;
@@ -3775,11 +3785,11 @@ export function createRuntime(scene: Scene) {
     // engaged — top speed was 11.25, barely faster than walking (5.2).
     // With boost the equilibrium is 11.25 * 1.6 = 18 u/s.
     const boost = ctrl ? 1.6 : 1;
-    // "W" for boards is any push: keyboard W, the Gas button, or the stick
-    // pushed up. (Before, only KeyW pushed a board, so boards were
-    // unrideable on a phone — the stick's up-push did nothing.)
+    // "W" for boards is any push: keyboard W / ArrowUp, the Gas button,
+    // or the stick pushed up. (Before, only KeyW pushed a board, so boards
+    // were unrideable on a phone — the stick's up-push did nothing.)
     const stickActive = Math.hypot(stickX, stickY) > 0.15;
-    const wNow = keys.has("KeyW") || holdGas || (stickActive && stickY > 0.5);
+    const wNow = keys.has("KeyW") || keys.has("ArrowUp") || holdGas || (stickActive && stickY > 0.5);
     if (params.pushToGo) {
       // Skateboard: a push is an impulse, not held throttle — but holding
       // the push control must KEEP pushing (one impulse every 0.45s), or

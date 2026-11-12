@@ -770,11 +770,19 @@ export function createGame(
     clock += dt;
     if (runtime.paused()) keys.clear();
     if (playing && mode !== "orbit" && !runtime.paused() && !runtime.typing() && !runtime.frozen()) {
+      // While driving, the arrows steer the CAR (see drive()), so they must
+      // not also swing the camera — otherwise the chase cam would spin
+      // while you steer. Q/R keep turning the camera while driving. On
+      // foot (and while decorating) the arrows turn the camera / spin the
+      // decor as before. ArrowUp/Down are gas/brake while driving, so they
+      // must not pitch the camera either.
       const yawKeys = runtime.decorating()
         ? (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0)
-        : (keys.has("ArrowRight") || keys.has("KeyR") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("KeyQ") ? 1 : 0);
+        : runtime.driving()
+          ? (keys.has("KeyR") ? 1 : 0) - (keys.has("KeyQ") ? 1 : 0)
+          : (keys.has("ArrowRight") || keys.has("KeyR") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("KeyQ") ? 1 : 0);
       if (runtime.decorating() && (keys.has("KeyQ") || keys.has("KeyR"))) runtime.spinDecor((keys.has("KeyR") ? 1 : 0) - (keys.has("KeyQ") ? 1 : 0));
-      const pitchKeys = (keys.has("ArrowDown") ? 1 : 0) - (keys.has("ArrowUp") ? 1 : 0);
+      const pitchKeys = runtime.driving() ? 0 : (keys.has("ArrowDown") ? 1 : 0) - (keys.has("ArrowUp") ? 1 : 0);
       if (yawKeys || pitchKeys) runtime.addLook(yawKeys * 1.7 * dt, pitchKeys * 1.15 * dt);
       let left = dt;
       while (left > 0.0001) {

@@ -88,7 +88,7 @@ import { triggerHaptic } from "./game/haptics";
 import { STORES, WARDROBE_CATALOG, WARDROBE_KINDS, fitSummary, kindLabel, wardrobeItem, type SavedFit, type StoreId } from "./game/wardrobe";
 
 const HELP =
-  "WASD move · click or drag to look · arrows or Q/R turn · Space jump · F fly · E use or drive · C camera · hold Z emotes · O spectator · T chat · V talk";
+  "WASD / arrows move · in a car arrows steer · click or drag to look · Q/R turn camera · Space jump · F fly · E use or drive · C camera · hold Z emotes · O spectator · T chat · V talk";
 
 // Tower office directory, served live by /api/city — never invented.
 // "offices" joins PanelName in runtime.ts once the tower-interiors wiring
