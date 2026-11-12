@@ -125,7 +125,7 @@ export const DISTRICTS: District[] = [
     id: "harbor",
     name: "Harbor District",
     towerName: "Harbor Tower",
-    towerX0: -118,
+    towerX0: -126,
     towerZ0: 206,
     door: "n",
     style: {
