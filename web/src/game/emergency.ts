@@ -528,19 +528,26 @@ function shellWalls(
   door: Face,
   doorW = 3,
   passThrough?: Face,
+  // The through-door is a car lane (4 wide), not a person door (3) —
+  // the facade overlay already cuts a 4-wide gap on both faces, so the
+  // physics must match the visual opening or the car hits an invisible
+  // half-wall on each side of the doorway.
+  passW = 4,
 ): void {
   const t = 0.6;
   const cx = x0 + w / 2;
   const cz = z0 + d / 2;
   const gapOn = (face: Face) => face === door || face === passThrough;
+  const gapW = (face: Face) => (face === passThrough ? passW : doorW);
   // North wall (z = z0) and south wall (z = z0 + d).
   for (const z of [z0, z0 + d]) {
     const face: Face = z === z0 ? "n" : "s";
     if (gapOn(face)) {
-      const leftW = cx - doorW / 2 - x0;
-      const rightW = x0 + w - (cx + doorW / 2);
+      const gw = gapW(face);
+      const leftW = cx - gw / 2 - x0;
+      const rightW = x0 + w - (cx + gw / 2);
       solidBox(parts, x0 + leftW / 2, h / 2, z, leftW, h, t, wallMat);
-      solidBox(parts, cx + doorW / 2 + rightW / 2, h / 2, z, rightW, h, t, wallMat);
+      solidBox(parts, cx + gw / 2 + rightW / 2, h / 2, z, rightW, h, t, wallMat);
     } else {
       solidBox(parts, cx, h / 2, z, w, h, t, wallMat);
     }
@@ -549,10 +556,11 @@ function shellWalls(
   for (const x of [x0, x0 + w]) {
     const face: Face = x === x0 ? "w" : "e";
     if (gapOn(face)) {
-      const northD = cz - doorW / 2 - z0;
-      const southD = z0 + d - (cz + doorW / 2);
+      const gw = gapW(face);
+      const northD = cz - gw / 2 - z0;
+      const southD = z0 + d - (cz + gw / 2);
       solidBox(parts, x, h / 2, z0 + northD / 2, t, h, northD, wallMat);
-      solidBox(parts, x, h / 2, cz + doorW / 2 + southD / 2, t, h, southD, wallMat);
+      solidBox(parts, x, h / 2, cz + gw / 2 + southD / 2, t, h, southD, wallMat);
     } else {
       solidBox(parts, x, h / 2, cz, t, h, d, wallMat);
     }
@@ -991,6 +999,9 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
   // pass-through face (a helper, so TS does not narrow passThrough
   // to "e" | "w" and reject the "n" / "s" comparisons below).
   const gapOn = (face: Face) => door === face || passThrough === face;
+  // Half-width of the ground-floor gap: the person door is 3 wide,
+  // the car through-door is 4 (matches shellWalls passW).
+  const gapHalf = (face: Face) => (passThrough !== undefined && face === passThrough ? 2 : 1.5);
   const suites = districtOfficeSuites(district.id);
   const liftId = `lift-${district.id}`;
   const towerId = `tower-${district.id}`;
@@ -1091,32 +1102,32 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
   }
 
   // Wallpaper on the tower shell, per floor (audit finish, 2026-11-11).
-  // The ground floor splits around the door gap (shellWalls doorW = 3) —
-  // on the door face AND the pass-through face, so no paint hangs across
-  // either opening; the suite floors get the full walls.
+  // The ground floor splits around the door gap (shellWalls doorW = 3,
+  // pass-through 4) — on the door face AND the pass-through face, so no
+  // paint hangs across either opening; the suite floors get the full walls.
   for (const floorY of [0, 8, 12, 16]) {
     const ground = floorY === 0;
     if (ground && gapOn("n")) {
-      wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, x0 + 1.25, cx - 1.5, floorY, "white", style.accent);
-      wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, cx + 1.5, x0 + 26.75, floorY, "white", style.accent);
+      wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, x0 + 1.25, cx - gapHalf("n"), floorY, "white", style.accent);
+      wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, cx + gapHalf("n"), x0 + 26.75, floorY, "white", style.accent);
     } else {
       wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, x0 + 1.25, x0 + 26.75, floorY, "white", style.accent);
     }
     if (ground && gapOn("s")) {
-      wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, x0 + 1.25, cx - 1.5, floorY, "white", style.accent);
-      wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, cx + 1.5, x0 + 26.75, floorY, "white", style.accent);
+      wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, x0 + 1.25, cx - gapHalf("s"), floorY, "white", style.accent);
+      wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, cx + gapHalf("s"), x0 + 26.75, floorY, "white", style.accent);
     } else {
       wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, x0 + 1.25, x0 + 26.75, floorY, "white", style.accent);
     }
     if (ground && gapOn("w")) {
-      wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, z0 + 1.25, cz - 1.5, floorY, "white", style.accent);
-      wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, cz + 1.5, z0 + 26.75, floorY, "white", style.accent);
+      wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, z0 + 1.25, cz - gapHalf("w"), floorY, "white", style.accent);
+      wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, cz + gapHalf("w"), z0 + 26.75, floorY, "white", style.accent);
     } else {
       wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, z0 + 1.25, z0 + 26.75, floorY, "white", style.accent);
     }
     if (ground && gapOn("e")) {
-      wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, z0 + 1.25, cz - 1.5, floorY, "white", style.accent);
-      wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, cz + 1.5, z0 + 26.75, floorY, "white", style.accent);
+      wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, z0 + 1.25, cz - gapHalf("e"), floorY, "white", style.accent);
+      wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, cz + gapHalf("e"), z0 + 26.75, floorY, "white", style.accent);
     } else {
       wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, z0 + 1.25, z0 + 26.75, floorY, "white", style.accent);
     }
