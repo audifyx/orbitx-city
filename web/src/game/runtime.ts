@@ -5340,9 +5340,23 @@ export function createRuntime(scene: Scene) {
     },
     toggleFly(body?: Body) {
       const who = body ?? lastBody;
-      if (!who || driving) return;
+      if (!who) return;
+      // Driving? Step out of the car first, then fly. Before, the button
+      // silently no-op'd while driving (the `driving` early return), so a
+      // player driving around who tapped Fly saw nothing happen at all.
+      if (driving) exitCar(who);
       who.flying = !who.flying;
       who.vy = 0;
+      if (who.flying) {
+        // Lift off the ground a touch so the tap is visibly doing
+        // something. Before, the player stayed at y=0 until they held
+        // Jump, so the button looked dead. Outdoors only — indoors there
+        // may be a ceiling right above.
+        if (!insideName) who.y += 0.6;
+        say("Flying — hold Jump to climb, Down to come down.");
+      } else {
+        say("Walking.");
+      }
     },
     setPaused(on: boolean) {
       paused = on;

@@ -633,6 +633,7 @@ export default function App() {
             <span>{snap.account ? "Account" : "Guest"}</span>
           </div>
           <strong>CITY SOL {snap.balance}</strong>
+          {snap.flying ? <span className="flying-chip">FLYING</span> : null}
           {snap.holder ? <span>HOLDER</span> : null}
           <span>Burned {snap.burned}</span>
           <span>{snap.jobTitle ? `${snap.jobTitle} — ${snap.objective}` : snap.objective}</span>
@@ -668,7 +669,7 @@ export default function App() {
           <Stick onChange={(x, y) => gameRef.current?.runtime.setStick(x, y)} />
           <div className="pad-buttons">
             <Hold label="Jump" onDown={() => gameRef.current?.runtime.hold("jump", true)} onUp={() => gameRef.current?.runtime.hold("jump", false)} />
-            <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.toggleFly(); }}>Fly</button>
+            <button type="button" className={snap.flying ? "on" : undefined} aria-pressed={snap.flying} onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.toggleFly(); }}>Fly</button>
             <Hold label="Down" onDown={() => gameRef.current?.runtime.hold("down", true)} onUp={() => gameRef.current?.runtime.hold("down", false)} />
             <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.interact(); }}>Use</button>
             <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.cycleCamera(); }}>Camera</button>

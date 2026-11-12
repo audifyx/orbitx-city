@@ -879,6 +879,26 @@ body.touch .touch-ui {
   min-height: 48px;
 }
 
+/* Fly button, active while flying: gold outline + tint so the toggle state
+   is visible at a glance (before, the button looked identical on and off). */
+.pad-buttons button.on {
+  outline: 2px solid #e0b33a;
+  background: rgba(224, 179, 58, 0.28);
+  color: #ffe1a1;
+}
+
+.hud .flying-chip {
+  display: inline-block;
+  align-self: flex-start;
+  padding: 1px 8px;
+  border: 1px solid #e0b33a;
+  color: #ffd97a;
+  background: rgba(224, 179, 58, 0.18);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
 @media (max-width: 720px) {
   h1 {
     font-size: 32px;
