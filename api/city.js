@@ -5832,7 +5832,9 @@ export async function POST(request) {
   if (op === "friend-accept") {
     const other = await playerById(String(body.id || ""));
     if (!other) return json({ ok: false, message: "That request is gone." }, 404);
-    player.inbox = player.inbox.filter((item) => item.id !== other.id);
+    // Only drop the FRIEND request from this player — a party invite
+    // from the same person (kind "party") stays until it is answered.
+    player.inbox = player.inbox.filter((item) => item.id !== other.id || item.kind === "party");
     if (!player.friends.some((item) => item.id === other.id)) player.friends.push({ id: other.id, name: other.name });
     if (!other.friends.some((item) => item.id === player.id)) other.friends.push({ id: player.id, name: player.name });
     await savePlayer(player);
@@ -5862,6 +5864,109 @@ export async function POST(request) {
     }
     await savePlayer(player);
     return json({ ok: true, party, me: publicPlayer(player) });
+  }
+
+  // Party invite with Accept/Decline: the invite lands in the other
+  // player's inbox (kind "party") instead of adding them straight in —
+  // the old "party" op still adds directly for the Start-a-party flow.
+  // The invitee answers with "party-accept" / "decline-request".
+  if (op === "party-invite") {
+    const other = await playerById(String(body.id || ""));
+    if (!other) return json({ ok: false, message: "No player with that id." }, 404);
+    const store = memory();
+    const partyId = player.party || `party-${player.id.slice(0, 6)}`;
+    let party = store.parties.get(partyId);
+    if (!party) {
+      party = { id: partyId, members: [{ id: player.id, name: player.name }] };
+      store.parties.set(partyId, party);
+    }
+    if (!party.members.some((item) => item.id === player.id)) party.members.push({ id: player.id, name: player.name });
+    player.party = partyId;
+    await savePlayer(player);
+    const client = sb();
+    if (client) {
+      const { error } = await client.from("parties").upsert({ id: partyId, members: party.members });
+      if (error) noteSupabase(error.message);
+    }
+    if (!other.inbox.some((item) => item.id === player.id && item.kind === "party" && item.party === partyId)) {
+      other.inbox.push({ id: player.id, name: player.name, kind: "party", party: partyId });
+    }
+    await savePlayer(other);
+    return json({ ok: true, message: `Invite sent to ${other.name}.` });
+  }
+
+  if (op === "party-accept") {
+    const other = await playerById(String(body.id || ""));
+    if (!other) return json({ ok: false, message: "That invite is gone." }, 404);
+    const invite = player.inbox.find((item) => item.id === other.id && item.kind === "party");
+    if (!invite) return json({ ok: false, message: "That invite is gone." }, 404);
+    const partyId = String(invite.party || other.party || "");
+    if (!partyId) return json({ ok: false, message: "That party is gone." }, 404);
+    const store = memory();
+    let party = store.parties.get(partyId) || null;
+    const client = sb();
+    if (!party && client) {
+      const { data } = await client.from("parties").select("id, members").eq("id", partyId).maybeSingle();
+      if (data) party = data;
+    }
+    if (!party) party = { id: partyId, members: [{ id: other.id, name: other.name }] };
+    if (!party.members.some((item) => item.id === player.id)) party.members.push({ id: player.id, name: player.name });
+    if (!party.members.some((item) => item.id === other.id)) party.members.push({ id: other.id, name: other.name });
+    player.party = partyId;
+    player.inbox = player.inbox.filter((item) => !(item.id === other.id && item.kind === "party"));
+    store.parties.set(partyId, party);
+    if (client) {
+      const { error } = await client.from("parties").upsert({ id: partyId, members: party.members });
+      if (error) noteSupabase(error.message);
+    }
+    await savePlayer(player);
+    return json({ ok: true, party, me: publicPlayer(player), message: `You joined ${other.name}'s party.` });
+  }
+
+  if (op === "party-leave") {
+    const partyId = player.party || "";
+    if (!partyId) return json({ ok: true, party: null, me: publicPlayer(player), message: "You are not in a party." });
+    const store = memory();
+    let party = store.parties.get(partyId) || null;
+    const client = sb();
+    if (!party && client) {
+      const { data } = await client.from("parties").select("id, members").eq("id", partyId).maybeSingle();
+      if (data) party = data;
+    }
+    if (party) {
+      party.members = party.members.filter((item) => item.id !== player.id);
+      if (party.members.length === 0) {
+        store.parties.delete(partyId);
+        if (client) await client.from("parties").delete().eq("id", partyId);
+      } else {
+        store.parties.set(partyId, party);
+        if (client) {
+          const { error } = await client.from("parties").upsert({ id: partyId, members: party.members });
+          if (error) noteSupabase(error.message);
+        }
+      }
+    }
+    player.party = "";
+    await savePlayer(player);
+    return json({ ok: true, party: null, me: publicPlayer(player), message: "You left the party." });
+  }
+
+  // Decline a friend request or a party invite: drops just that inbox
+  // item. Friend requests carry no kind (back-compat), party invites
+  // carry kind "party".
+  if (op === "decline-request") {
+    const id = String(body.id || "");
+    const kind = String(body.kind || "");
+    const before = player.inbox.length;
+    player.inbox = player.inbox.filter((item) => {
+      if (item.id !== id) return true;
+      if (kind === "party") return item.kind !== "party";
+      if (kind === "friend") return item.kind === "party";
+      return false;
+    });
+    if (player.inbox.length === before) return json({ ok: false, message: "That request is gone." }, 404);
+    await savePlayer(player);
+    return json({ ok: true, me: publicPlayer(player), message: "Request declined." });
   }
 
   if (op === "event-add") {
