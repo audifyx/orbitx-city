@@ -1512,6 +1512,205 @@ function addMonorail(boxes: Box[], cols: Collider[], rail: RailPoint[]) {
   }
 }
 
+// ---- OrbitX Line: the rideable ground-level train + underground station --
+// A real train, not a prop: it runs east-west on the z=33 road through the
+// city centre and stops at five stations. The centre station (Plaza
+// Central) is UNDERGROUND — the track dips below street level inside the
+// station hall, the player walks down real stairs to the platform and
+// boards there. Riding is FREE: no fare, no City Sol, no wallet, no burn.
+//
+// The line runs on z=33, NOT z=36: the elevated monorail's support pillars
+// stand at (±110, 36), so a z=36 train would drive straight through one.
+// Verified against buildCity(1): the z 31..35 band is clear end to end,
+// every platform rect is clear, and the station volume below grade is
+// empty. The station hall sits at x -42..42 (the mall/office superblocks
+// wall off at |x| >= 43) with its south wall just north of the plaza
+// fence (the fence breaks at x -9..9, where the station door is).
+export const TRAIN_LINE_Z = 33;
+
+export interface TrainStation {
+  id: string;
+  name: string;
+  /** Platform centre x (the line runs east-west on TRAIN_LINE_Z). */
+  x: number;
+  /** Platform floor y (0.3 at street level, -6 underground). */
+  y: number;
+  /** True = the platform is below ground (board/alight there). */
+  underground: boolean;
+  /** Where a rider steps off onto the platform. */
+  board: { x: number; y: number; z: number };
+}
+
+export const TRAIN_STATIONS: TrainStation[] = [
+  { id: "train-westgate", name: "Westgate", x: -126, y: 0.3, underground: false, board: { x: -126, y: 0.3, z: 36 } },
+  { id: "train-office-row", name: "Office Row", x: -54, y: 0.3, underground: false, board: { x: -54, y: 0.3, z: 36 } },
+  { id: "train-plaza", name: "Plaza Central", x: 1, y: -6, underground: true, board: { x: 1, y: -6, z: 38.3 } },
+  { id: "train-mall-row", name: "Mall Row", x: 54, y: 0.3, underground: false, board: { x: 54, y: 0.3, z: 36 } },
+  { id: "train-eastgate", name: "Eastgate", x: 126, y: 0.3, underground: false, board: { x: 126, y: 0.3, z: 36 } },
+];
+
+/** Railhead height of the OrbitX Line at x: 0.17 at street level, dipping
+ * to -5.83 through the underground hall (x -12..14). The ramps are the
+ * 14-step runs the station hall builds, so this line and those steps agree
+ * to within half a riser. */
+export function trainTrackY(x: number): number {
+  const STREET = 0.17;
+  const LOW = -5.83;
+  if (x <= -42) return STREET;
+  if (x < -12) return STREET + ((LOW - STREET) * (x + 42)) / 30;
+  if (x <= 14) return LOW;
+  if (x < 42) return LOW + ((STREET - LOW) * (x - 14)) / 28;
+  return STREET;
+}
+
+function addTrainLine(boxes: Box[], cols: Collider[]): { zones: Zone[] } {
+  const zones: Zone[] = [];
+  const Z = TRAIN_LINE_Z;
+  // One step run along +X: from (x0, y0) to (x1, y1), `steps` steps, each a
+  // solid box from y=-6.4 up to its top (same pattern as buildStairs, axis
+  // swapped). Rises stay under the engine's 0.5 step-up, so the player can
+  // walk the ramps and the stairs both ways. `rails` adds gold handrails
+  // stepped along both open sides.
+  const stepRunX = (x0: number, x1: number, z0: number, z1: number, y0: number, y1: number, steps: number, rails: boolean) => {
+    const len = (x1 - x0) / steps;
+    const drop = (y0 - y1) / steps;
+    for (let i = 0; i < steps; i++) {
+      const top = y0 - drop * (i + 1);
+      const cx = x0 + len * (i + 0.5);
+      put(boxes, cx, (top + -6.4) / 2, (z0 + z1) / 2, len + 0.05, top + 6.4, z1 - z0, "stone");
+      cols.push({ minX: x0 + len * i, maxX: x0 + len * (i + 1), minY: -6.4, maxY: top, minZ: z0, maxZ: z1 });
+      if (rails) {
+        for (const rz of [z0 + 0.08, z1 - 0.08]) {
+          put(boxes, cx, top + 0.55, rz, len, 1.1, 0.15, "gold");
+          cols.push({ minX: x0 + len * i, maxX: x0 + len * (i + 1), minY: top, maxY: top + 1.1, minZ: rz - 0.08, maxZ: rz + 0.08 });
+        }
+      }
+    }
+  };
+
+  // Track bed + rails at street level, either side of the station hall.
+  // (The bed stops at the hall walls: inside, the track runs on the ramp
+  // steps and on rails laid on the basement floor.)
+  for (const [sx0, sx1] of [[-144, -42], [42, 144]] as Array<[number, number]>) {
+    for (let x = sx0; x < sx1; x += 6) {
+      const cx = Math.min(x + 3, sx1 - 3);
+      put(boxes, cx, 0, Z, 6, 0.24, 4, "track");
+      put(boxes, cx, 0.145, Z - 0.8, 6, 0.05, 0.18, "gray");
+      put(boxes, cx, 0.145, Z + 0.8, 6, 0.05, 0.18, "gray");
+      if (x + 6 >= sx1) break;
+    }
+  }
+  // Buffer stops at the ends of the line — the train reverses at the end
+  // stations and never runs past them, but the track ends here, visibly.
+  for (const bx of [-143, 143]) {
+    put(boxes, bx, 0.6, Z, 0.5, 1.2, 3, "red");
+    put(boxes, bx, 1.3, Z, 0.5, 0.2, 3, "gold");
+    cols.push({ minX: bx - 0.25, maxX: bx + 0.25, minY: 0, maxY: 1.2, minZ: Z - 1.5, maxZ: Z + 1.5 });
+  }
+
+  // Surface stations: platform slab + gold edge + shelter + bench + sign.
+  // The platform is 0.3 high (cars roll over it: carHit ignores < 0.5) and
+  // sits fully on the road, clear of the NS-road crossings and of the
+  // monorail pillars at x=±110.
+  for (const st of TRAIN_STATIONS) {
+    if (st.underground) continue;
+    const cx = st.x;
+    put(boxes, cx, 0.15, 35.95, 26, 0.3, 3.5, "sidewalk");
+    cols.push({ minX: cx - 13, maxX: cx + 13, minY: 0, maxY: 0.3, minZ: 34.2, maxZ: 37.7 });
+    put(boxes, cx, 0.32, 34.35, 26, 0.05, 0.3, "gold");
+    for (const [px, pz] of [[cx - 7, 37.2], [cx + 7, 37.2], [cx - 7, 34.7], [cx + 7, 34.7]] as Array<[number, number]>) {
+      put(boxes, px, 1.45, pz, 0.25, 2.9, 0.25, "black");
+      cols.push({ minX: px - 0.13, maxX: px + 0.13, minY: 0.3, maxY: 2.9, minZ: pz - 0.13, maxZ: pz + 0.13 });
+    }
+    put(boxes, cx, 2.95, 36.1, 15, 0.18, 3.2, "black");
+    put(boxes, cx, 2.78, 36.1, 15, 0.08, 3.2, "gold");
+    put(boxes, cx, 0.75, 37.1, 6, 0.16, 0.6, "wood");
+    cols.push(col(cx, 0.75, 37.1, 6, 0.9, 0.6));
+    roomSign(`train-station-${st.id}`, cx, 2.5, 37.65, Math.PI, 6, 1.1, [st.name.toUpperCase()], "OrbitX Line · Free");
+  }
+
+  // ---- Plaza Central: the underground station hall ----
+  // Footprint x -42..42, z 27.5..42: the ramps + basement live inside it,
+  // the track enters through portal openings in the west/east walls at
+  // street level and dips to -6 under the hall floor.
+  const BX0 = -42;
+  const BX1 = 42;
+  const BZ0 = 27.5;
+  const BZ1 = 42;
+  const WALL_H = 7;
+  const FLOOR_Y = 0.12;
+  // Above-grade walls: south has the street door (x=0, through the plaza
+  // fence gap); west/east are solid runs either side of the track plus a
+  // lintel over it (the train's roof clears at 4.2). Deliberately NO door
+  // anchor: the player walks through the open doorway (the engine's 0.5
+  // step-up lifts them the 0.12 onto the floor) — a stepInside anchor
+  // would drop them at y=0 INSIDE the slab collider and groundY would
+  // send them through the floor to the basement.
+  wallRunX(boxes, cols, BX0, BX1, FLOOR_Y, BZ0, WALL_H, "white", 0, 3.2);
+  wallRunX(boxes, cols, BX0, BX1, FLOOR_Y, BZ1, WALL_H, "white", 0, 0);
+  for (const wx of [BX0, BX1]) {
+    wallRunZ(boxes, cols, BZ0, 31, FLOOR_Y, wx, WALL_H, "white", 0, 0);
+    wallRunZ(boxes, cols, 35, BZ1, FLOOR_Y, wx, WALL_H, "white", 0, 0);
+    put(boxes, wx, 5.66, Z, 0.3, 2.92, 4, "white");
+    cols.push({ minX: wx - 0.15, maxX: wx + 0.15, minY: 4.2, maxY: 7.12, minZ: 31, maxZ: 35 });
+  }
+  // Below-grade walls: the basement is one open hall under the whole
+  // building, enclosed on all four sides. They stop at y=0 (not 0.12) so
+  // the train's bogies clear the wall tops where the track crosses them
+  // at the portals.
+  wallRunX(boxes, cols, BX0, BX1, -6.5, BZ0, 6.5, "gray", 0, 0);
+  wallRunX(boxes, cols, BX0, BX1, -6.5, BZ1, 6.5, "gray", 0, 0);
+  wallRunZ(boxes, cols, BZ0, BZ1, -6.5, BX0, 6.5, "gray", 0, 0);
+  wallRunZ(boxes, cols, BZ0, BZ1, -6.5, BX1, 6.5, "gray", 0, 0);
+  // Roof slab + parapet + gold trim on the street face.
+  put(boxes, 0, 7.27, 34.75, 84, 0.3, 14.5, "stone");
+  put(boxes, 0, 7.72, 27.65, 84, 0.6, 0.3, "black");
+  put(boxes, 0, 7.72, 41.85, 84, 0.6, 0.3, "black");
+  put(boxes, -41.85, 7.72, 34.75, 0.3, 0.6, 14.5, "black");
+  put(boxes, 41.85, 7.72, 34.75, 0.3, 0.6, 14.5, "black");
+  put(boxes, 0, 6.9, 27.3, 84, 0.25, 0.3, "gold");
+  put(boxes, 1, 7.5, Z, 26, 0.16, 4, "cyan");
+  // Ground-floor slab (concourse) with holes over the ramps and the
+  // stairwell. The 0.12 top sits above the sidewalk (0.04) — the slab is
+  // the walking surface, and the engine's step-up carries the player
+  // through the door onto it.
+  slabWithHoles(boxes, cols, BX0, FLOOR_Y, BZ0, 84, 14.5, [[-42, 31, -12, 35], [14, 31, 42, 35], [-12, 35, 12, 37.5]], "stone");
+  // Basement floor: one slab under the whole building at y=-6. It is the
+  // catch-all — groundY inside the station can never fall past it.
+  put(boxes, 0, -6.15, 34.75, 84, 0.3, 14.5, "stone");
+  cols.push({ minX: BX0, maxX: BX1, minY: -6.3, maxY: -6, minZ: BZ0, maxZ: BZ1 });
+  // The two ramps: street level at the portals down to the hall floor.
+  stepRunX(-42, -12, 31, 35, 0.17, -5.83, 14, false);
+  stepRunX(14, 42, 31, 35, -5.83, 0.17, 14, false);
+  // Rails laid on the basement floor through the hall.
+  put(boxes, 1, -5.8, 32.2, 26, 0.05, 0.18, "gray");
+  put(boxes, 1, -5.8, 33.8, 26, 0.05, 0.18, "gray");
+  // Stairs: concourse down to the platform, with handrails both sides.
+  // 12 steps of exactly 0.5 — the engine's step-up — landing 0.12 above
+  // the platform floor, which is itself a gentle final step down.
+  stepRunX(-12, 12, 35, 37.5, 0.12, -5.88, 12, true);
+  // Benches on the underground platform.
+  for (const bx of [-6, 8]) {
+    put(boxes, bx, -5.5, 38.8, 1.7, 0.16, 0.6, "wood");
+    put(boxes, bx - 0.7, -5.75, 38.8, 0.16, 0.5, 0.16, "black");
+    put(boxes, bx + 0.7, -5.75, 38.8, 0.16, 0.5, 0.16, "black");
+    cols.push({ minX: bx - 0.85, maxX: bx + 0.85, minY: -6, maxY: -5.4, minZ: 38.5, maxZ: 39.1 });
+  }
+  // The plaza's north bollard lands inside the hall at (0, 30.5) — hide it
+  // inside a planter so it never reads as a stray gold post on the floor.
+  put(boxes, 0, 0.6, 30.5, 1.6, 0.9, 1.6, "leavesDark");
+  cols.push({ minX: -0.8, maxX: 0.8, minY: 0.12, maxY: 1.05, minZ: 29.7, maxZ: 31.3 });
+  // Lights: from the roof over the concourse, and from the slab above over
+  // the underground hall.
+  hangLights(boxes, 0, 7.12, 34.75, 60, 10);
+  hangLights(boxes, 1, -0.18, 35, 20, 8);
+  // Signs: the line name over the street door, the station name in the hall.
+  roomSign("train-plaza-out", 0, 5.2, 27.3, Math.PI, 12, 1.6, ["ORBITX LINE"], "Plaza Central · Underground · Free");
+  roomSign("train-plaza-in", 1, -2.6, 41.8, Math.PI, 9, 1.2, ["PLAZA CENTRAL"], "Trains to Westgate · Eastgate · Free");
+  zones.push(floorZone("train-plaza", "Plaza Central Station", "park", BX0, BZ0, 84, 14.5, -7, 1, 0, 29, 0, 2.6, 27.2, Math.PI));
+  return { zones };
+}
+
 function addHills(boxes: Box[], cols: Collider[], rng: Rng) {
   // Bridge corridors (2026-11-12, water-crossings batch): the three real
   // bridges cross the home grass ring on their way out — a hill landing
@@ -5259,6 +5458,7 @@ export function buildCity(seed: number): City {
   addStreetLife(boxes, colliders, rng);
   const rail = loopPoints();
   addMonorail(boxes, colliders, rail);
+  const trainLine = addTrainLine(boxes, colliders);
   addHills(boxes, colliders, rng);
 
   let sz = 62;
@@ -5283,7 +5483,7 @@ export function buildCity(seed: number): City {
     fountain: FOUNTAIN,
     anchors: [...fixed.anchors, ...built.anchors, ...mall.anchors, ...office.anchors, ...emergencyParts.anchors, tower.anchor],
     boards: fixed.boards,
-    zones: [...fixed.zones, ...built.zones, ...mall.zones, ...office.zones, ...emergencyParts.zones, tower.zone],
+    zones: [...fixed.zones, ...built.zones, ...mall.zones, ...office.zones, ...emergencyParts.zones, tower.zone, ...trainLine.zones],
     facades: [...facades, ...emergencyParts.facades],
     art: [...art, ...emergencyParts.art],
     lifts: [...mall.lifts, ...office.lifts, ...emergencyParts.lifts],
