@@ -987,6 +987,10 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
   // The ground-floor lane between the doors is clear by construction
   // (desk, directory, lift and sofas all sit off the centre line).
   const passThrough: Face | undefined = district.id === "west" ? "w" : district.id === "east" ? "e" : undefined;
+  // A face has a ground-floor gap if it is the door face or the
+  // pass-through face (a helper, so TS does not narrow passThrough
+  // to "e" | "w" and reject the "n" / "s" comparisons below).
+  const gapOn = (face: Face) => door === face || passThrough === face;
   const suites = districtOfficeSuites(district.id);
   const liftId = `lift-${district.id}`;
   const towerId = `tower-${district.id}`;
@@ -1092,25 +1096,25 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
   // either opening; the suite floors get the full walls.
   for (const floorY of [0, 8, 12, 16]) {
     const ground = floorY === 0;
-    if (ground && (door === "n" || passThrough === "n")) {
+    if (ground && gapOn("n")) {
       wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, x0 + 1.25, cx - 1.5, floorY, "white", style.accent);
       wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, cx + 1.5, x0 + 26.75, floorY, "white", style.accent);
     } else {
       wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, x0 + 1.25, x0 + 26.75, floorY, "white", style.accent);
     }
-    if (ground && (door === "s" || passThrough === "s")) {
+    if (ground && gapOn("s")) {
       wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, x0 + 1.25, cx - 1.5, floorY, "white", style.accent);
       wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, cx + 1.5, x0 + 26.75, floorY, "white", style.accent);
     } else {
       wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, x0 + 1.25, x0 + 26.75, floorY, "white", style.accent);
     }
-    if (ground && (door === "w" || passThrough === "w")) {
+    if (ground && gapOn("w")) {
       wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, z0 + 1.25, cz - 1.5, floorY, "white", style.accent);
       wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, cz + 1.5, z0 + 26.75, floorY, "white", style.accent);
     } else {
       wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, z0 + 1.25, z0 + 26.75, floorY, "white", style.accent);
     }
-    if (ground && (door === "e" || passThrough === "e")) {
+    if (ground && gapOn("e")) {
       wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, z0 + 1.25, cz - 1.5, floorY, "white", style.accent);
       wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, cz + 1.5, z0 + 26.75, floorY, "white", style.accent);
     } else {
