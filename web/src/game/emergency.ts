@@ -285,14 +285,13 @@ export function departmentInfo(kind: DepartmentKind): DepartmentInfo {
   return found;
 }
 
-/** Interim anchor/zone kind until city.ts gains the four department kinds.
- * Typed as Zone["kind"] (a subset of Anchor["kind"]) so one map serves
- * both the zone and the anchor. */
+/** Interim anchor/zone kind no longer needed: city.ts now has the four
+ * department kinds, so departments use their real kind. */
 export const DEPT_ANCHOR_KIND: Record<DepartmentKind, Zone["kind"]> = {
-  fire: "hall",
-  police: "hall",
-  hospital: "hall",
-  emergency: "hall",
+  fire: "fire",
+  police: "police",
+  hospital: "hospital",
+  emergency: "emergency",
 };
 
 /** Door anchor id for a department. Jobs resolve these by kind + nearest. */

@@ -1,4 +1,7 @@
 import { makeRng, type Rng } from "./seed";
+import { buildAllRegions, buildAllBridges, WORLD_BOUNDS } from "./states";
+import { buildAllHomes } from "./homes";
+import { buildAllDistricts, type CityParts } from "./emergency";
 
 export type Mat =
   | "asphalt"
@@ -117,7 +120,7 @@ export interface RailPoint {
 export interface Anchor {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "offices" | "lift" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel";
+  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "offices" | "lift" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "fire" | "police" | "hospital" | "emergency";
   x: number;
   y: number;
   z: number;
@@ -172,7 +175,7 @@ export interface CarSpawn {
 export interface Zone {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel";
+  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "arcade" | "market" | "dock" | "mall" | "office" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "fire" | "police" | "hospital" | "emergency";
   slot: number;
   minX: number;
   maxX: number;
@@ -3922,6 +3925,19 @@ export function buildCity(seed: number): City {
   const fixed = addFixedPlaces(boxes, colliders);
   const mall = addMegaMall(boxes, colliders);
   const office = addMegaOffice(boxes, colliders);
+  // District towers + departments (emergency.ts). Boxes/colliders are
+  // pushed directly into the shared arrays; zones/anchors/facades/art/
+  // lifts merge into the City literal below.
+  const emergencyParts: CityParts = {
+    boxes,
+    colliders,
+    zones: [] as Zone[],
+    anchors: [] as Anchor[],
+    lifts: [] as Lift[],
+    facades: [] as Facade[],
+    art: [] as Art[],
+  };
+  buildAllDistricts(emergencyParts);
   addStreetLife(boxes, colliders, rng);
   const rail = loopPoints();
   addMonorail(boxes, colliders, rail);
@@ -3939,7 +3955,7 @@ export function buildCity(seed: number): City {
     { y: 36, radiusX: 96, radiusZ: 70, speed: 0.1, phase: rng() * 6 },
   ];
 
-  return {
+  const city: City = {
     boxes,
     colliders,
     rail,
@@ -3947,12 +3963,12 @@ export function buildCity(seed: number): City {
     spawn: { x: sx, y: 0, z: sz, yaw: 0, pitch: 0.44 },
     focus: { x: 0, y: Math.max(36, towerTop * 0.45), z: -10 },
     fountain: FOUNTAIN,
-    anchors: [...fixed.anchors, ...built.anchors, ...mall.anchors, ...office.anchors],
+    anchors: [...fixed.anchors, ...built.anchors, ...mall.anchors, ...office.anchors, ...emergencyParts.anchors],
     boards: fixed.boards,
-    zones: [...fixed.zones, ...built.zones, ...mall.zones, ...office.zones],
-    facades: facades.slice(),
-    art: art.slice(),
-    lifts: [...mall.lifts, ...office.lifts],
+    zones: [...fixed.zones, ...built.zones, ...mall.zones, ...office.zones, ...emergencyParts.zones],
+    facades: [...facades, ...emergencyParts.facades],
+    art: [...art, ...emergencyParts.art],
+    lifts: [...mall.lifts, ...office.lifts, ...emergencyParts.lifts],
     cars: [
       { id: "north", x: 0, z: 46, yaw: 0 },
       { id: "south", x: 0, z: 84, yaw: Math.PI },
@@ -3990,6 +4006,16 @@ export function buildCity(seed: number): City {
       { name: "Felix", color: "silver", x: 38, z: 58 },
     ],
   };
+
+  // GTA / FiveM expansion: states first (roads/core/blocks/services/tower),
+  // homes second (they sit on the outer-ring plots the region builder leaves
+  // free), bridges last (decks + gates are standalone). Must run inside
+  // buildCity — cityMapModel caches by seed, so calling these after
+  // buildCity() returns would serve a pre-states model.
+  buildAllRegions(city, seed || 1);
+  buildAllHomes(city, seed || 1);
+  buildAllBridges(city);
+  return city;
 }
 
 export interface CityMapModel {
@@ -4012,10 +4038,10 @@ export function cityMapModel(seed: number): CityMapModel {
   if (cached) return cached;
   const city = buildCity(key);
   const model: CityMapModel = {
-    minX: -190,
-    maxX: 190,
-    minZ: -190,
-    maxZ: 258,
+    minX: WORLD_BOUNDS.minX,
+    maxX: WORLD_BOUNDS.maxX,
+    minZ: WORLD_BOUNDS.minZ,
+    maxZ: WORLD_BOUNDS.maxZ,
     roads: [...CENTERS],
     blocks: [
       ...city.facades.map((f) => ({ x: f.x, z: f.z, w: f.w, d: f.d, style: f.style, hero: f.hero })),
