@@ -2175,7 +2175,22 @@ function loadMinimapPos(): MinimapPos {
   } catch {
     // Corrupt or unavailable storage — fall through to the default spot.
   }
-  return minimapDefaultPos();
+  // No stored spot yet: compute the default for THIS viewport and PIN it
+  // in storage. The default is viewport-dependent (touch bottom 256px),
+  // and the Minimap unmounts whenever the menu opens or the HUD hides, so
+  // the useState initializer re-runs on every remount. Without a stored
+  // spot the initializer would recompute the default at the CURRENT
+  // viewport height and the map would jump whenever the address bar,
+  // rotation, or keyboard changed the height between mounts — that was
+  // the "glitching all over". A pinned first default makes the spot
+  // stable across remounts; a later resize only clamps it on screen.
+  const fallback = minimapDefaultPos();
+  try {
+    localStorage.setItem(MINIMAP_STORAGE_KEY, JSON.stringify(fallback));
+  } catch {
+    // Storage unavailable — the spot just does not persist.
+  }
+  return fallback;
 }
 
 function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"]; seed: number }) {
@@ -2374,18 +2389,23 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
     ctx.arc(mx, mz, 5.5, 0, Math.PI * 2);
     ctx.stroke();
   }, [me, people, model]);
-  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+  // Drag starts ONLY from the grip in the top-right corner — a touch on
+  // the map body does nothing. The handlers used to live on the whole
+  // wrapper, so a thumb brushing the map while steering / reaching for
+  // Gas started a drag and moved the map (and saved the new spot), which
+  // read as the minimap glitching around on its own.
+  const onPointerDown = (event: React.PointerEvent<HTMLSpanElement>) => {
     event.preventDefault();
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
       // Capture can throw for synthetic pointers — the move handler still
-      // tracks while the pointer stays over the map.
+      // tracks while the pointer stays over the grip.
     }
     dragRef.current = { px: event.clientX, py: event.clientY, ox: pos.x, oy: pos.y };
     setDragging(true);
   };
-  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+  const onPointerMove = (event: React.PointerEvent<HTMLSpanElement>) => {
     const drag = dragRef.current;
     if (!drag) return;
     setPos(clampMinimapPos({ x: drag.ox + event.clientX - drag.px, y: drag.oy + event.clientY - drag.py }));
@@ -2404,14 +2424,20 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
     <div
       className={`minimap-wrap${dragging ? " dragging" : ""}`}
       style={{ left: pos.x, top: pos.y }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
-      aria-label="Minimap — drag to move it"
-      title="Drag to move the minimap"
+      aria-label="Minimap — drag the grip to move it"
+      title="Drag the grip to move the minimap"
     >
-      <span className="minimap-grip" aria-hidden="true">⋮⋮</span>
+      <span
+        className="minimap-grip"
+        role="button"
+        aria-label="Drag to move the minimap"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      >
+        ⋮⋮
+      </span>
       <canvas ref={ref} className="minimap" width={MINIMAP_SIZE} height={MINIMAP_SIZE} />
     </div>
   );

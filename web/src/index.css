@@ -653,14 +653,15 @@ body {
 }
 
 /* Draggable minimap shell — positioned by the component (left/top), the
-   spot persists in localStorage. Whole map is the drag handle. */
+   spot persists in localStorage. Only the grip is the drag handle — a
+   touch on the map body does nothing, so a thumb brushing the map while
+   steering can no longer drag it around. */
 .minimap-wrap {
   position: fixed;
   z-index: 5;
   display: block;
   line-height: 0;
   touch-action: none;
-  cursor: grab;
   -webkit-user-select: none;
   user-select: none;
 }
@@ -669,15 +670,20 @@ body {
   cursor: grabbing;
 }
 
+/* The grip is the ONLY drag handle: a real touch target (roughly
+   30x27px) in the top-right corner. It used to be pointer-events: none
+   and the whole map was the handle. */
 .minimap-grip {
   position: absolute;
-  top: 2px;
-  right: 4px;
+  top: 0;
+  right: 0;
   z-index: 1;
+  padding: 8px 10px;
   color: rgba(255, 255, 255, 0.75);
   font-size: 11px;
   line-height: 1;
-  pointer-events: none;
+  cursor: grab;
+  touch-action: none;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
 }
 
