@@ -1463,6 +1463,12 @@ function furnishShop(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "cream");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: white walls with gold striped wallpaper, wainscot, baseboards,
+  // ceiling beams, dressed windows + plants by the door.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "white", "gold");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  doorWallWindows(boxes, x0, z0, w, d, door, "red");
   const back = opposite(door, x0, z0, w, d, 2.4);
   const counterAlongX = door === "n" || door === "s";
   put(boxes, back.x, 0.55, back.z, counterAlongX ? 7.2 : 1.15, 1.05, counterAlongX ? 1.15 : 7.2, "wood");
@@ -1541,6 +1547,13 @@ function furnishCafe(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: warm walls with red striped wallpaper, beams, windows + plants
+  // by the door, a red rug in the middle of the four tables.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "warm", "red");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  doorWallWindows(boxes, x0, z0, w, d, door, "red");
+  put(boxes, cx, 0.145, cz, 4.5, 0.05, 3.4, "red");
   const back = opposite(door, x0, z0, w, d, 2.3);
   const alongX = door === "n" || door === "s";
   put(boxes, back.x, 0.6, back.z, alongX ? 8 : 1.05, 1.15, alongX ? 1.05 : 8, "black");
@@ -1585,6 +1598,12 @@ function furnishHall(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "stone");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: white walls with gold striped wallpaper, beams, windows and
+  // plants by the door, a welcome table + red runner down the aisle.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "white", "gold");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  doorWallWindows(boxes, x0, z0, w, d, door, "red");
   const stage = opposite(door, x0, z0, w, d, 4.2);
   const alongX = door === "n" || door === "s";
   put(boxes, stage.x, 0.28, stage.z, alongX ? 10 : 6.5, 0.5, alongX ? 6.5 : 10, "wood");
@@ -1601,6 +1620,13 @@ function furnishHall(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
     }
   }
   put(boxes, stage.x, 2.5, stage.z, alongX ? 6 : 0.2, 1.5, alongX ? 0.2 : 6, "cyan");
+  // Welcome table by the door (off the lane) + a red runner down the aisle.
+  const wt = door === "e" ? { x: x0 + w - 3.5, z: z0 + 4 } : door === "w" ? { x: x0 + 3.5, z: z0 + d - 4 } : door === "n" ? { x: cx - 5, z: z0 + 3.5 } : { x: cx + 5, z: z0 + d - 3.5 };
+  put(boxes, wt.x, 0.45, wt.z, 1.8, 0.8, 1.0, "wood");
+  cols.push(col(wt.x, 0.45, wt.z, 1.8, 0.8, 1.0));
+  put(boxes, wt.x, 0.95, wt.z, 0.4, 0.3, 0.4, "gold");
+  if (alongX) put(boxes, cx, 0.145, cz, 2.4, 0.05, d - 8, "red");
+  else put(boxes, cx, 0.145, cz, w - 8, 0.05, 2.4, "red");
   return {
     id: "hall",
     name: "Community Hall",
@@ -1634,6 +1660,12 @@ function furnishOffice(
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "plaza");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: white walls with accent striped wallpaper, beams, windows and
+  // plants by the door.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "white", accent);
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  doorWallWindows(boxes, x0, z0, w, d, door, accent);
   const back = opposite(door, x0, z0, w, d, 1.7);
   put(boxes, back.x, 1.7, back.z, door === "w" || door === "e" ? 0.2 : 5.5, 2.2, door === "w" || door === "e" ? 5.5 : 0.2, accent);
   put(boxes, cx, 0.72, cz, 3.2, 0.12, 1.6, "wood");
@@ -1681,6 +1713,10 @@ function furnishOffice(
   voxelPainting(boxes, x0 + w - 1.65, 1.9, z0 + d - 5, -Math.PI / 2, 2.2, 1.5);
   put(boxes, cx, 0.145, cz, 6, 0.05, 4.4, "gold");
   put(boxes, cx, 0.155, cz, 4.6, 0.05, 3.0, "red");
+  // Floor lamp in the free north-east corner + a book shelf on the west wall.
+  // Floor lamp in the free north-east corner + a book shelf on the west wall.
+  floorLamp(boxes, cols, x0 + w - 2.6, z0 + 2.6);
+  wallShelf(boxes, x0 + 1.35, 1.8, z0 + 8, Math.PI / 2, 3);
   return {
     id: `project-${index}`,
     name: "Project office",
@@ -1833,6 +1869,12 @@ function furnishBank(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "stone");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: white walls with gold striped wallpaper, beams, windows and
+  // plants by the door.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "white", "gold");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  doorWallWindows(boxes, x0, z0, w, d, door, "gold");
   const back = opposite(door, x0, z0, w, d, 2.4);
   // Teller counter + gold top on the back (east) wall; the zone sign sits
   // over the middle bay, so the glass windows live in the outer bays.
@@ -1881,6 +1923,9 @@ function furnishBank(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   // Gold floor strip in front of the counter, painting on the south wall.
   put(boxes, back.x - 2.6, 0.145, back.z, 1.6, 0.05, 7.0, "gold");
   voxelPainting(boxes, cx + 4, 1.9, z0 + d - 1.4, Math.PI, 2.2, 1.5);
+  // Red rug in the queue lane + a floor lamp by the door.
+  put(boxes, cx - 2, 0.145, cz, 4, 0.05, 3, "red");
+  floorLamp(boxes, cols, x0 + 2.6, cz + 6);
   roomSign("bank", x0 + 1.35, 2.2, cz - 6, Math.PI / 2, 4.2, 1.7, ["ORBITX BANK", "Tellers · Vault · ATMs"], "Demo ledger only");
   return spotZone("bank", "OrbitX Bank", x0, z0, w, d, door);
 }
@@ -1894,6 +1939,9 @@ function furnishGarage(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "black");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: gray walls with gold striped wallpaper (industrial), beams.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "gray", "gold");
+  ceilingBeams(boxes, x0, z0, w, d);
   // A hover car: black body, cyan underglow, gold belt line, white cabin.
   const hoverCar = (hx: number, hz: number, body: Mat, liftY = 0) => {
     put(boxes, hx, 0.55 + liftY, hz, 3.4, 0.7, 1.9, body);
@@ -1954,6 +2002,11 @@ function furnishGarage(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   for (const [ox, oz] of [[cx - 4, z0 + 6.8], [cx + 3.5, z0 + 6.8], [cx, cz + 7.5]] as Array<[number, number]>) {
     put(boxes, ox, 0.145, oz, 2.6, 0.05, 1.4, "gray");
   }
+  // Tool cabinet on the door wall + a parts shelf on the north wall.
+  put(boxes, x0 + 2.2, 1.0, cz - 6, 1.0, 2.0, 1.6, "black");
+  cols.push(col(x0 + 2.2, 1.0, cz - 6, 1.0, 2.0, 1.6));
+  put(boxes, x0 + 2.2, 2.05, cz - 6, 1.05, 0.12, 1.65, "gold");
+  wallShelf(boxes, cx + 6, 1.8, z0 + 1.35, 0, 3);
   roomSign("garage", cx - 4, 2.2, z0 + 1.35, 0, 4.2, 1.7, ["HOVER GARAGE", "Lifts · Tires · Tune-ups"], "Hover-cars live here");
   return spotZone("garage", "Hover Garage", x0, z0, w, d, door);
 }
@@ -2068,6 +2121,9 @@ function furnishArcade(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "cyan");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: gray walls with neon striped wallpaper, beams.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "gray", "cyanhot");
+  ceilingBeams(boxes, x0, z0, w, d);
   // A cabinet: black body, gold top, glowing face + white control deck
   // on the side that looks into the room.
   const cabinet = (mx: number, mz: number, face: Face, mat: Mat) => {
@@ -2116,6 +2172,11 @@ function furnishArcade(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   put(boxes, x0 + w - 1.35, 3.3, cz, 0.15, 0.18, 12, "cyanhot");
   roomSign("arcade-scores", x0 + 1.35, 2.2, cz - 6, Math.PI / 2, 4.2, 1.7, ["HIGH SCORES", "1. ORBITX-9 · 999,420"], "Beat the top score");
   put(boxes, cx, 0.145, cz, 6, 0.05, 4, "black");
+  // Change machine by the door + a floor lamp on the door wall.
+  put(boxes, x0 + 2.5, 0.9, cz + 6, 1.2, 1.8, 1.0, "gold");
+  cols.push(col(x0 + 2.5, 0.9, cz + 6, 1.2, 1.8, 1.0));
+  put(boxes, x0 + 2.5, 1.15, cz + 6, 0.9, 0.6, 0.1, "cyan");
+  floorLamp(boxes, cols, x0 + 2.6, cz - 6);
   return spotZone("arcade", "Neon Arcade", x0, z0, w, d, door);
 }
 
@@ -2127,6 +2188,13 @@ function furnishMarket(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "warm");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: warm walls with red striped wallpaper, beams, windows + a plant
+  // by the door, a shelf on the door wall past the sign.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "warm", "red");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorWallWindows(boxes, x0, z0, w, d, door, "red");
+  pottedPlant(boxes, cols, x0 + w - 2.6, z0 + 2.6);
+  wallShelf(boxes, cx + 6, 1.8, z0 + d - 1.35, Math.PI, 3);
   // A stall: wood counter, stone top, four posts, coloured awning, goods.
   // `tall` lifts the awning above the zone sign (south / service stall).
   const stall = (sx: number, sz: number, alongX: boolean, awn: Mat, goods: Mat[], tall = false) => {
@@ -2195,6 +2263,12 @@ function furnishDock(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: warm walls with cyan striped wallpaper (nautical), beams, a
+  // dressed window on the door wall past the sign, a plant by the door.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "warm", "cyan");
+  ceilingBeams(boxes, x0, z0, w, d);
+  windowDressing(boxes, cx + 6, 1.9, z0 + 1.1, 0, 2.2, "red");
+  pottedPlant(boxes, cols, x0 + 2.4, z0 + 2.4);
   // Map table, east of the door lane and south of its centre line, so the
   // way in from the door stays fully open.
   put(boxes, cx + 3.5, 0.5, cz + 1.5, 3.0, 0.9, 1.8, "wood");
@@ -2268,6 +2342,11 @@ function furnishSpot(
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, floor);
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: even the generic shell gets paint, wallpaper, beams and plants.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "white", "gold");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  put(boxes, cx, 0.145, cz + 4, 4, 0.05, 3, "red");
   const back = opposite(door, x0, z0, w, d, 2.4);
   const alongX = door === "n" || door === "s";
   // (The arcade's cyan counter lived here; arcade never reaches this
@@ -2288,6 +2367,13 @@ function furnishCinema(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "black");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: dark gray walls with red striped wallpaper, beams, plants in
+  // the front corners, movie posters on the side walls.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "gray", "red");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  voxelPainting(boxes, cx + 6, 1.9, z0 + 1.65, 0, 2.2, 1.5);
+  voxelPainting(boxes, cx - 6, 1.9, z0 + d - 1.65, Math.PI, 2.2, 1.5);
   const screen = opposite(door, x0, z0, w, d, 1.5);
   const alongX = door === "n" || door === "s";
   // Screen: black frame, white face, cyan glow strip along its base. The
@@ -2375,6 +2461,13 @@ function furnishLibrary(boxes: Box[], cols: Collider[], x0: number, z0: number, 
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: warm walls with gold striped wallpaper, beams, windows and
+  // plants by the door, a rug under the reading tables.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "warm", "gold");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  doorWallWindows(boxes, x0, z0, w, d, door, "red");
+  put(boxes, cx, 0.145, cz, 6.5, 0.05, 9.5, "red");
   const alongX = door === "n" || door === "s";
   const bookCols: Mat[] = ["cyan", "gold", "red", "white", "warm", "cyan", "red", "gold"];
   // Shelves along the two walls perpendicular to the door axis: north/south
@@ -2475,6 +2568,11 @@ function furnishGym(boxes: Box[], cols: Collider[], x0: number, z0: number, w: n
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "black");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: gray walls with red striped wallpaper, beams, plants by the
+  // door, a water cooler + towel shelf by the front desk.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "gray", "red");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
   const alongX = door === "n" || door === "s";
   const back = opposite(door, x0, z0, w, d, 1.4);
   // Mirror wall on the back wall (opposite the door).
@@ -2550,6 +2648,11 @@ function furnishGym(boxes: Box[], cols: Collider[], x0: number, z0: number, w: n
   // mirror wall.
   const serviceX = deskPos.x + (door === "e" ? -2 : door === "w" ? 2 : 0);
   const serviceZ = deskPos.z + (door === "n" ? 2 : door === "s" ? -2 : 0);
+  // Water cooler by the front desk.
+  const wc = door === "e" ? { x: x0 + w - 3, z: z0 + 9 } : door === "w" ? { x: x0 + 3, z: z0 + d - 9 } : door === "n" ? { x: x0 + 9, z: z0 + 3 } : { x: x0 + w - 9, z: z0 + d - 3 };
+  put(boxes, wc.x, 0.6, wc.z, 0.8, 1.2, 0.8, "white");
+  cols.push(col(wc.x, 0.6, wc.z, 0.8, 1.2, 0.8));
+  put(boxes, wc.x, 1.35, wc.z, 0.6, 0.4, 0.6, "cyan");
   const signPos =
     door === "n" || door === "s"
       ? { x: x0 + w - 1.35, z: door === "n" ? cz + 5 : cz - 5, rot: -Math.PI / 2 }
@@ -2583,6 +2686,15 @@ function furnishMuseum(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: white walls with gold striped wallpaper, beams, benches facing
+  // the pedestals, plants in the corners, paintings on the side walls.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "white", "gold");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  addBench(boxes, cols, cx - 4.5, cz, false);
+  addBench(boxes, cols, cx + 4.5, cz, false);
+  voxelPainting(boxes, x0 + 1.65, 1.9, cz, Math.PI / 2, 2.2, 1.5);
+  voxelPainting(boxes, x0 + w - 1.65, 1.9, cz + 6, -Math.PI / 2, 2.2, 1.5);
   const artifacts: Mat[] = ["gold", "cyan", "red", "white"];
   const pedestals: Array<[number, number]> = [
     [x0 + 2.2, z0 + 4],
@@ -2637,6 +2749,13 @@ function furnishHotel(boxes: Box[], cols: Collider[], x0: number, z0: number, w:
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: warm walls with gold striped wallpaper, beams, windows and
+  // plants by the door, a red rug in the middle of the lobby.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "warm", "gold");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  doorWallWindows(boxes, x0, z0, w, d, door, "red");
+  put(boxes, cx, 0.145, cz, 5, 0.05, 4, "red");
   const desk = opposite(door, x0, z0, w, d, 2.4);
   const alongX = door === "n" || door === "s";
   // Front desk: a long wood counter on the wall opposite the door, gold
@@ -2692,6 +2811,14 @@ function furnishCasino(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "black");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: gray walls with gold striped wallpaper, beams, plants in the
+  // corners, stools around the roulette table.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "gray", "gold");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  for (const [sx, sz] of [[cx - 3.2, cz], [cx + 3.2, cz], [cx, cz - 3.2], [cx, cz + 3.2]] as Array<[number, number]>) {
+    put(boxes, sx, 0.3, sz, 0.5, 0.6, 0.5, "gold");
+  }
   const alongX = door === "n" || door === "s";
   // Red carpet runner from the door to the roulette table.
   if (alongX) put(boxes, cx, 0.145, cz, 2.4, 0.05, d - 6, "red");
@@ -2762,6 +2889,21 @@ function furnishNightclub(boxes: Box[], cols: Collider[], x0: number, z0: number
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "black");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: dark gray walls with neon striped wallpaper, beams, a lounge
+  // corner with sofas + coffee table, plants by the door.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "gray", "cyanhot");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  // Lounge corner opposite the bar: two sofas + coffee table + rug.
+  const lx = door === "n" || door === "s" ? x0 + 4.5 : cx - 5.5;
+  const lz = door === "n" || door === "s" ? z0 + 4.5 : z0 + d - 4.5;
+  put(boxes, lx, 0.145, lz, 5, 0.05, 4, "red");
+  put(boxes, lx - 1.6, 0.4, lz, 1.1, 0.45, 3.0, "red");
+  cols.push(col(lx - 1.6, 0.4, lz, 1.1, 0.45, 3.0));
+  put(boxes, lx + 1.6, 0.4, lz, 1.1, 0.45, 3.0, "red");
+  cols.push(col(lx + 1.6, 0.4, lz, 1.1, 0.45, 3.0));
+  put(boxes, lx, 0.4, lz, 1.4, 0.35, 0.8, "wood");
+  cols.push(col(lx, 0.4, lz, 1.4, 0.35, 0.8));
   // Dance floor: 4x4 checkerboard tiles, 1.5 each.
   for (let i = 0; i < 4; i++) {
     for (let j = 0; j < 4; j++) {
@@ -2947,6 +3089,283 @@ function addStadium(boxes: Box[], cols: Collider[], x0: number, z0: number, w: n
 
 // ---- finished interiors: shared helpers ----
 
+// Wallpaper + paint + baseboards for a cladWalls room. The clad liner's
+// visible face is at inset 1.26 and sign planes sit at 1.35, so the paint
+// layer lives at 1.27-1.33 (proud of the cladding, behind every sign and
+// painting) and the bands at 1.30-1.36 (clear of signs vertically: signs
+// start at y 1.35, bands top out at 1.24 / 3.34). Paint is laid as
+// contiguous vertical segments — wall color with a narrow accent stripe
+// every 3.4 units — so the pattern and the paint share one depth and can
+// never z-fight each other. The door wall is skipped (cladWalls skips it
+// too). All offsets are relative to the room rect.
+function wallpaperWalls(boxes: Box[], x0: number, z0: number, w: number, d: number, door: Face, wall: Mat, accent: Mat) {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  const PI = 1.30; // paint centre inset
+  const BI = 1.33; // band centre inset (proud of paint, behind signs)
+  // Striped paint run along X (wall at z, centre cx, length w-2.5).
+  const runX = (z: number) => {
+    const len = w - 2.5;
+    let u = -len / 2;
+    while (u < len / 2 - 0.05) {
+      const wallEnd = Math.min(u + 3.05, len / 2);
+      put(boxes, cx + (u + wallEnd) / 2, 1.85, z, wallEnd - u, 3.15, 0.06, wall);
+      const accEnd = Math.min(u + 3.4, len / 2);
+      if (accEnd - wallEnd > 0.05) {
+        put(boxes, cx + (wallEnd + accEnd) / 2, 1.85, z, accEnd - wallEnd, 3.15, 0.06, accent);
+      }
+      u += 3.4;
+    }
+  };
+  // Striped paint run along Z (wall at x, centre cz, length d-2.5).
+  const runZ = (x: number) => {
+    const len = d - 2.5;
+    let u = -len / 2;
+    while (u < len / 2 - 0.05) {
+      const wallEnd = Math.min(u + 3.05, len / 2);
+      put(boxes, x, 1.85, cz + (u + wallEnd) / 2, 0.06, 3.15, wallEnd - u, wall);
+      const accEnd = Math.min(u + 3.4, len / 2);
+      if (accEnd - wallEnd > 0.05) {
+        put(boxes, x, 1.85, cz + (wallEnd + accEnd) / 2, 0.06, 3.15, accEnd - wallEnd, accent);
+      }
+      u += 3.4;
+    }
+  };
+  if (door !== "n") runX(z0 + PI);
+  if (door !== "s") runX(z0 + d - PI);
+  if (door !== "w") runZ(x0 + PI);
+  if (door !== "e") runZ(x0 + w - PI);
+  // Wainscot + chair rail + top stripe + baseboard, proud of the paint.
+  const bandX = (z: number, y: number, h: number, mat: Mat) => put(boxes, cx, y, z, w - 2.5, h, 0.06, mat);
+  const bandZ = (x: number, y: number, h: number, mat: Mat) => put(boxes, x, y, cz, 0.06, h, d - 2.5, mat);
+  const bands = (alongX: boolean, at: number) => {
+    const b = alongX ? bandX : bandZ;
+    b(at, 0.55, 1.0, accent); // wainscot
+    b(at, 1.18, 0.12, accent); // chair rail
+    b(at, 3.25, 0.18, accent); // top stripe
+    b(at, 0.12, 0.18, "black"); // baseboard
+  };
+  if (door !== "n") bands(true, z0 + BI);
+  if (door !== "s") bands(true, z0 + d - BI);
+  if (door !== "w") bands(false, x0 + BI);
+  if (door !== "e") bands(false, x0 + w - BI);
+}
+
+// Two wood ceiling beams just under the ceiling slab (addCeiling's slab
+// bottom is 3.55), spanning the short axis so the ceiling reads built.
+// y0 is the floor elevation (0 on the ground floor, 8/12/16 in the tower).
+function ceilingBeams(boxes: Box[], x0: number, z0: number, w: number, d: number, y0 = 0) {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  if (w >= d) {
+    for (const off of [-w / 6, w / 6]) {
+      put(boxes, cx + off, y0 + 3.42, cz, 0.5, 0.24, d - 2.5, "wood");
+    }
+  } else {
+    for (const off of [-d / 6, d / 6]) {
+      put(boxes, cx, y0 + 3.42, cz + off, w - 2.5, 0.24, 0.5, "wood");
+    }
+  }
+}
+
+// A potted plant: stone pot + dark leaves. Collider so it reads solid.
+function pottedPlant(boxes: Box[], cols: Collider[], x: number, z: number, y0 = 0) {
+  put(boxes, x, y0 + 0.2, z, 0.9, 0.4, 0.9, "stone");
+  put(boxes, x, y0 + 0.5, z, 0.8, 0.9, 0.8, "leavesDark");
+  cols.push(col(x, y0 + 0.5, z, 0.8, 0.9, 0.8));
+}
+
+// A standing floor lamp: gray pole + warm head.
+function floorLamp(boxes: Box[], cols: Collider[], x: number, z: number, y0 = 0) {
+  put(boxes, x, y0 + 0.9, z, 0.15, 1.8, 0.15, "gray");
+  put(boxes, x, y0 + 1.85, z, 0.5, 0.3, 0.5, "warm");
+  cols.push(col(x, y0 + 0.9, z, 0.3, 1.8, 0.3));
+}
+
+// A wall shelf with books. rotY follows voxelPainting (0 = faces +z).
+function wallShelf(boxes: Box[], x: number, y: number, z: number, rotY: number, w: number) {
+  const alongX = Math.abs(Math.cos(rotY)) > 0.5;
+  const bookMats: Mat[] = ["red", "cyan", "gold", "white"];
+  if (alongX) {
+    put(boxes, x, y, z, w, 0.12, 0.6, "wood");
+    for (let i = 0; i < 4; i++) {
+      put(boxes, x - w / 2 + 0.5 + i * ((w - 1) / 3), y + 0.3, z, 0.4, 0.5, 0.4, bookMats[i % bookMats.length]);
+    }
+  } else {
+    put(boxes, x, y, z, 0.6, 0.12, w, "wood");
+    for (let i = 0; i < 4; i++) {
+      put(boxes, x, y + 0.3, z - w / 2 + 0.5 + i * ((w - 1) / 3), 0.4, 0.5, 0.4, bookMats[i % bookMats.length]);
+    }
+  }
+}
+
+// A dressed window: cyan glass + two curtain panels + a gold valance rod.
+// rotY follows voxelPainting (0 = faces +z, PI/2 = faces +x).
+function windowDressing(boxes: Box[], x: number, y: number, z: number, rotY: number, w: number, curtain: Mat) {
+  const nx = Math.sin(rotY);
+  const nz = Math.cos(rotY);
+  const alongX = Math.abs(nz) > 0.5;
+  if (alongX) {
+    put(boxes, x, y, z, w, 1.6, 0.1, "cyan");
+    put(boxes, x - w / 2 - 0.25, y - 0.1, z + nz * 0.12, 0.55, 1.9, 0.14, curtain);
+    put(boxes, x + w / 2 + 0.25, y - 0.1, z + nz * 0.12, 0.55, 1.9, 0.14, curtain);
+    put(boxes, x, y + 0.95, z + nz * 0.12, w + 1.3, 0.16, 0.16, "gold");
+  } else {
+    put(boxes, x, y, z, 0.1, 1.6, w, "cyan");
+    put(boxes, x + nx * 0.12, y - 0.1, z - w / 2 - 0.25, 0.14, 1.9, 0.55, curtain);
+    put(boxes, x + nx * 0.12, y - 0.1, z + w / 2 + 0.25, 0.14, 1.9, 0.55, curtain);
+    put(boxes, x + nx * 0.12, y + 0.95, z, 0.16, 0.16, w + 1.3, "gold");
+  }
+}
+
+// Two dressed windows flanking the door on the door wall (the one wall
+// wallpaperWalls skips, so the glass sits proud of the bare shell face).
+function doorWallWindows(boxes: Box[], x0: number, z0: number, w: number, d: number, door: Face, curtain: Mat) {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  if (door === "w") {
+    windowDressing(boxes, x0 + 1.1, 1.9, cz - 6, Math.PI / 2, 2.2, curtain);
+    windowDressing(boxes, x0 + 1.1, 1.9, cz + 6, Math.PI / 2, 2.2, curtain);
+  } else if (door === "e") {
+    windowDressing(boxes, x0 + w - 1.1, 1.9, cz - 6, -Math.PI / 2, 2.2, curtain);
+    windowDressing(boxes, x0 + w - 1.1, 1.9, cz + 6, -Math.PI / 2, 2.2, curtain);
+  } else if (door === "n") {
+    windowDressing(boxes, cx - 6, 1.9, z0 + 1.1, 0, 2.2, curtain);
+    windowDressing(boxes, cx + 6, 1.9, z0 + 1.1, 0, 2.2, curtain);
+  } else {
+    windowDressing(boxes, cx - 6, 1.9, z0 + d - 1.1, Math.PI, 2.2, curtain);
+    windowDressing(boxes, cx + 6, 1.9, z0 + d - 1.1, Math.PI, 2.2, curtain);
+  }
+}
+
+// Potted plants in the two corners adjacent to the door wall.
+function doorCornerPlants(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face) {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  if (door === "w" || door === "e") {
+    const px = door === "w" ? x0 + 2.6 : x0 + w - 2.6;
+    pottedPlant(boxes, cols, px, z0 + 2.6);
+    pottedPlant(boxes, cols, px, z0 + d - 2.6);
+  } else {
+    const pz = door === "n" ? z0 + 2.6 : z0 + d - 2.6;
+    pottedPlant(boxes, cols, x0 + 2.6, pz);
+    pottedPlant(boxes, cols, x0 + w - 2.6, pz);
+  }
+  void cx;
+  void cz;
+}
+
+// A backyard behind/around a building (opposite the door): grass patch,
+// hedge fence (open on the house side), stone path, bench, tree, grill,
+// flower boxes. All relative to the building rect — moves with it.
+// `depth` 5.5 + fence + tree is the full yard (state homes: 36-spaced
+// plots, 7+ units clear). The compact yard (depth 3.5, no fence, no tree)
+// is for the 8 original homes, which nearly fill their 22-unit lots —
+// bench + grill sit 1.4 past the back wall so nothing reaches the road.
+function backyard(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face, depth = 5.5, fenced = true, tree = true) {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  const compact = depth < 5;
+  // Yard rect, just past the back wall.
+  let yz0: number;
+  let yz1: number;
+  if (door === "n") { yz0 = z0 + d + 0.6; yz1 = yz0 + depth; }
+  else if (door === "s") { yz1 = z0 - 0.6; yz0 = yz1 - depth; }
+  else { yz0 = z0; yz1 = z0; }
+  if (door === "w" || door === "e") {
+    // Yard runs along X past the back (east/west) wall instead.
+    const yxx0 = door === "w" ? x0 + w + 0.6 : x0 - 0.6 - depth;
+    const yxx1 = door === "w" ? x0 + w + 0.6 + depth : x0 - 0.6;
+    put(boxes, (yxx0 + yxx1) / 2, 0.06, cz, depth, 0.1, w - 2, "grass");
+    // Hedge fence on the far + side edges (open toward the house).
+    if (fenced) {
+      const fx = door === "w" ? yxx1 : yxx0;
+      put(boxes, fx, 0.3, cz, 0.5, 0.6, w - 2, "hedge");
+      cols.push(col(fx, 0.3, cz, 0.5, 0.6, w - 2));
+      for (const side of [-1, 1]) {
+        const fz = cz + side * (w - 2) / 2;
+        put(boxes, (yxx0 + yxx1) / 2, 0.3, fz, depth, 0.6, 0.5, "hedge");
+        cols.push(col((yxx0 + yxx1) / 2, 0.3, fz, depth, 0.6, 0.5));
+      }
+    }
+    // Stone path from the house wall out to the yard centre.
+    put(boxes, (yxx0 + yxx1) / 2, 0.14, cz, depth, 0.05, 1.6, "stone");
+    const nearX = door === "w" ? yxx0 : yxx1;
+    const farX = door === "w" ? yxx1 : yxx0;
+    const dirX = door === "w" ? 1 : -1;
+    const gx = compact ? nearX + dirX * 1.4 : farX - dirX * 1.2;
+    const bx = compact ? nearX + dirX * 1.4 : (yxx0 + yxx1) / 2;
+    // Grill on the far side, bench + tree on the near half.
+    put(boxes, gx, 0.45, cz - 2.2, 1.1, 0.8, 0.8, "black");
+    put(boxes, gx, 0.9, cz - 2.2, 1.2, 0.12, 0.9, "gold");
+    cols.push(col(gx, 0.45, cz - 2.2, 1.1, 0.8, 0.8));
+    addBench(boxes, cols, bx, cz + 2.2, false);
+    if (tree) addTree(boxes, cols, (yxx0 + yxx1) / 2 - 1, cz - (w - 2) / 2 + 1.6, 0);
+    for (const side of [-1, 1]) {
+      put(boxes, gx, 0.25, cz + side * 3.4, 0.5, 0.4, 0.5, side < 0 ? "red" : "gold");
+    }
+    return;
+  }
+  put(boxes, cx, 0.06, (yz0 + yz1) / 2, w - 2, 0.1, depth, "grass");
+  // Hedge fence on the far + side edges (open toward the house).
+  if (fenced) {
+    const fz = door === "n" ? yz1 : yz0;
+    put(boxes, cx, 0.3, fz, w - 2, 0.6, 0.5, "hedge");
+    cols.push(col(cx, 0.3, fz, w - 2, 0.6, 0.5));
+    for (const side of [-1, 1]) {
+      const fx = cx + side * (w - 2) / 2;
+      put(boxes, fx, 0.3, (yz0 + yz1) / 2, 0.5, 0.6, depth, "hedge");
+      cols.push(col(fx, 0.3, (yz0 + yz1) / 2, 0.5, 0.6, depth));
+    }
+  }
+  // Stone path from the house wall out to the yard centre.
+  put(boxes, cx, 0.14, (yz0 + yz1) / 2, 1.6, 0.05, depth, "stone");
+  const nearZ = door === "n" ? yz0 : yz1;
+  const farZ = door === "n" ? yz1 : yz0;
+  const dirZ = door === "n" ? 1 : -1;
+  const gz = compact ? nearZ + dirZ * 1.4 : farZ - dirZ * 1.2;
+  const bz = compact ? nearZ + dirZ * 1.4 : (yz0 + yz1) / 2;
+  // Grill on the far side, bench + tree on the near half.
+  put(boxes, cx - 2.2, 0.45, gz, 1.1, 0.8, 0.8, "black");
+  put(boxes, cx - 2.2, 0.9, gz, 1.2, 0.12, 0.9, "gold");
+  cols.push(col(cx - 2.2, 0.45, gz, 1.1, 0.8, 0.8));
+  addBench(boxes, cols, cx + 2.2, bz, true);
+  if (tree) addTree(boxes, cols, cx - (w - 2) / 2 + 1.6, (yz0 + yz1) / 2 - 1, 0);
+  for (const side of [-1, 1]) {
+    put(boxes, cx + side * 3.4, 0.25, gz, 0.5, 0.4, 0.5, side < 0 ? "red" : "gold");
+  }
+}
+
+// Wallpaper + wainscot for one tower-suite partition wall (the wallRunX at
+// z, room side is z+). Paint panel proud of the partition face (z+0.15);
+// bands a touch prouder still, behind the painting (z+0.65). The door gap
+// (doorX ± doorW/2, up to y0+2.6) is left open — paint + wainscot +
+// baseboard split around it, only the top stripe crosses above the header.
+function suiteWallpaper(boxes: Box[], x0: number, x1: number, y0: number, z: number, wall: Mat, accent: Mat, doorX: number, doorW: number) {
+  const PI = 0.22; // paint centre offset from the wall line
+  const BI = 0.29; // band centre offset
+  const g0 = doorX - doorW / 2;
+  const g1 = doorX + doorW / 2;
+  // Paint: two segments flanking the door + a header strip above it.
+  const paintSeg = (a0: number, a1: number, y: number, h: number) => {
+    if (a1 - a0 < 0.05) return;
+    put(boxes, (a0 + a1) / 2, y, z + PI, a1 - a0, h, 0.08, wall);
+  };
+  paintSeg(x0 + 0.3, g0, y0 + 2.0, 3.4);
+  paintSeg(g1, x1 - 0.3, y0 + 2.0, 3.4);
+  paintSeg(g0, g1, y0 + 3.15, 1.1);
+  // Wainscot + baseboard split around the door; top stripe runs full width.
+  const bandSeg = (a0: number, a1: number, y: number, h: number, mat: Mat) => {
+    if (a1 - a0 < 0.05) return;
+    put(boxes, (a0 + a1) / 2, y, z + BI, a1 - a0, h, 0.08, mat);
+  };
+  bandSeg(x0 + 0.3, g0, y0 + 0.55, 1.0, accent);
+  bandSeg(g1, x1 - 0.3, y0 + 0.55, 1.0, accent);
+  bandSeg(x0 + 0.3, g0, y0 + 0.12, 0.18, "black");
+  bandSeg(g1, x1 - 0.3, y0 + 0.12, 0.18, "black");
+  put(boxes, (x0 + x1) / 2, y0 + 3.55, z + BI, x1 - x0 - 0.6, 0.22, 0.08, accent);
+  // Vertical accent stripes on the paint, skipping the door gap.
+  for (let x = x0 + 3.4; x < x1 - 2; x += 3.4) {
+    if (x > g0 - 0.4 && x < g1 + 0.4) continue;
+    put(boxes, x, y0 + 2.2, z + BI, 0.3, 1.85, 0.08, accent);
+  }
+}
+
 // A solid wall run along X with a door gap (colliders + visual), at elevation y0.
 function wallRunX(boxes: Box[], cols: Collider[], x0: number, x1: number, y0: number, z: number, h: number, mat: Mat, doorAt: number, doorW: number) {
   const t = 0.3;
@@ -3072,6 +3491,32 @@ function furnishHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Finish: white walls with gold striped wallpaper, beams, windows and
+  // plants by the door, a dining set in the free corner, a book shelf,
+  // a floor lamp, and a compact backyard behind the house.
+  wallpaperWalls(boxes, x0, z0, w, d, door, "white", "gold");
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  doorWallWindows(boxes, x0, z0, w, d, door, "red");
+  // Dining set in the north-west corner (bed is south, kitchen is on the
+  // back wall) + a floor lamp + a book shelf.
+  put(boxes, x0 + 3.5, 0.45, z0 + 3.5, 1.8, 0.08, 1.0, "wood");
+  put(boxes, x0 + 3.5, 0.22, z0 + 3.5, 0.3, 0.4, 0.3, "black");
+  cols.push(col(x0 + 3.5, 0.45, z0 + 3.5, 1.8, 0.8, 1.0));
+  put(boxes, x0 + 2.4, 0.3, z0 + 3.5, 0.5, 0.5, 0.5, "red");
+  cols.push(col(x0 + 2.4, 0.3, z0 + 3.5, 0.5, 0.5, 0.5));
+  put(boxes, x0 + 4.6, 0.3, z0 + 3.5, 0.5, 0.5, 0.5, "red");
+  cols.push(col(x0 + 4.6, 0.3, z0 + 3.5, 0.5, 0.5, 0.5));
+  // Floor lamp in the free north corner (north-west when the kitchen is
+  // north-east, north-east otherwise).
+  const lampX = door === "s" ? x0 + 2.6 : x0 + w - 2.6;
+  floorLamp(boxes, cols, lampX, z0 + 2.6);
+  // Book shelf on a wall that never holds the TV, the kitchen, a painting
+  // or a window: south wall east end for doors n/w, north wall west end
+  // for doors s/e.
+  if (door === "n" || door === "w") wallShelf(boxes, cx + 6, 1.8, z0 + d - 1.35, Math.PI, 3);
+  else wallShelf(boxes, cx - 6, 1.8, z0 + 1.35, 0, 3);
+  backyard(boxes, cols, x0, z0, w, d, door, 3.5, false, false);
   const back = opposite(door, x0, z0, w, d, 2.4);
   const alongX = door === "n" || door === "s";
   // Living room: sofa + coffee table + rug, facing the TV on the far wall.
@@ -3104,14 +3549,19 @@ function furnishHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   put(boxes, kx, 1.2, kz, alongX ? 4.8 : 1.2, 0.14, alongX ? 1.2 : 4.8, "wood");
   put(boxes, alongX ? kx + 2.8 : kx, 1.0, alongX ? kz : kz + 2.8, 0.9, 2, 0.9, "white");
   cols.push(col(alongX ? kx + 2.8 : kx, 1.0, alongX ? kz : kz + 2.8, 0.9, 2, 0.9));
-  // Bedroom nook: bed + nightstand.
-  const bedX = x0 + w - 3.4;
+  // Bedroom nook: bed + nightstand. The bed lives south-east — except when
+  // the kitchen is on the south-east side too (doors "n" and "w"), where
+  // the counter and the fridge would swallow it; then it moves south-west.
+  const bedSE = door === "s" || door === "e";
+  const bedX = bedSE ? x0 + w - 3.4 : x0 + 3.4;
   const bedZ = z0 + d - 3.4;
   put(boxes, bedX, 0.35, bedZ, 2.4, 0.55, 3.4, "wood");
   cols.push(col(bedX, 0.35, bedZ, 2.4, 0.55, 3.4));
   put(boxes, bedX, 0.7, bedZ, 2.2, 0.22, 3.2, "white");
   put(boxes, bedX, 0.85, bedZ - 1.4, 1.6, 0.3, 0.5, "red");
   put(boxes, bedX + 1.6, 0.4, bedZ + 1.6, 0.6, 0.7, 0.6, "black");
+  // Rug beside the bed, on the room side of it.
+  put(boxes, bedX + (bedSE ? -2.2 : 2.2), 0.145, bedZ, 2.5, 0.05, 3, "red");
   // Paintings on the side walls + a plant by the door.
   const side = opposite(door, x0, z0, w, d, 1.4);
   voxelPainting(boxes, alongX ? cx + 6 : x0 + 1.3, 1.9, alongX ? z0 + 1.3 : cz + 6, alongX ? 0 : Math.PI / 2, 2.2, 1.5);
@@ -3614,6 +4064,16 @@ function furnishOfficeSuite(boxes: Box[], cols: Collider[], spec: OfficeSuiteSpe
   const cx = (x0 + x1) / 2;
   const doorX = x0 + 3.2;
   wallRunX(boxes, cols, x0, x1, y0, z0, 4, "cream", doorX, 2.4);
+  // Finish: wallpaper + wainscot on the partition wall (split around the
+  // door), ceiling beams at this floor's elevation, a floor lamp by the
+  // meeting table, a plant just inside the door.
+  suiteWallpaper(boxes, x0, x1, y0, z0, "white", premium ? "gold" : "cyan", doorX, 2.4);
+  ceilingBeams(boxes, x0, z0, w, d, y0);
+  // Lamp west of the meeting table in wide suites, east of it in narrow
+  // ones (where the desk row runs up the west wall).
+  if (w >= 12) floorLamp(boxes, cols, x1 - 7.5, z0 + 4.3, y0);
+  else floorLamp(boxes, cols, x1 - 1.5, z0 + 2.5, y0);
+  pottedPlant(boxes, cols, x0 + 1.2, z0 + 2.5, y0);
   // Suite sign on the corridor face, beside the door (faces the corridor).
   if (w >= 12) roomSign(`suite-${id}`, doorX + 4.0, y0 + 2.6, z0 - 0.35, Math.PI, 4.4, 1.0, [name], `${floorLabel} · ${tierLabel}`);
   else roomSign(`suite-${id}`, x0 + 6.3, y0 + 2.6, z0 - 0.35, Math.PI, 3.2, 1.0, [name], `${floorLabel} · ${tierLabel}`);

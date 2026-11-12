@@ -667,6 +667,109 @@ function deptExtraProp(parts: CityParts, district: District, x0: number, z0: num
   }
 }
 
+/** A potted plant: stone pot + dark leaves, with a collider. */
+function plant(parts: CityParts, x: number, z: number, y0 = 0): void {
+  box(parts, x, y0 + 0.2, z, 0.9, 0.4, 0.9, "stone");
+  solidBox(parts, x, y0 + 0.5, z, 0.8, 0.9, 0.8, "leavesDark");
+}
+
+/** One wallpapered wall segment (shellWalls: inner face at inset 0.3 ->
+ * paint centre 0.40, band centre 0.47). Same stripe/band language as
+ * city.ts wallpaperWalls. alongX: wall runs along X (fixed z) or Z. */
+function wallpaperWall(
+  parts: CityParts,
+  alongX: boolean,
+  paintC: number,
+  bandC: number,
+  from: number,
+  to: number,
+  y0: number,
+  wall: Mat,
+  accent: Mat,
+): void {
+  if (to - from < 0.2) return;
+  const mid = (from + to) / 2;
+  let u = from;
+  while (u < to - 0.05) {
+    const wallEnd = Math.min(u + 3.05, to);
+    const accEnd = Math.min(u + 3.4, to);
+    if (alongX) {
+      box(parts, (u + wallEnd) / 2, y0 + 1.85, paintC, wallEnd - u, 3.15, 0.08, wall);
+      if (accEnd - wallEnd > 0.05) box(parts, (wallEnd + accEnd) / 2, y0 + 1.85, paintC, accEnd - wallEnd, 3.15, 0.08, accent);
+    } else {
+      box(parts, paintC, y0 + 1.85, (u + wallEnd) / 2, 0.08, 3.15, wallEnd - u, wall);
+      if (accEnd - wallEnd > 0.05) box(parts, paintC, y0 + 1.85, (wallEnd + accEnd) / 2, 0.08, 3.15, accEnd - wallEnd, accent);
+    }
+    u += 3.4;
+  }
+  const len = to - from;
+  const band = (y: number, h: number, mat: Mat) => {
+    if (alongX) box(parts, mid, y0 + y, bandC, len, h, 0.08, mat);
+    else box(parts, bandC, y0 + y, mid, 0.08, h, len, mat);
+  };
+  band(0.55, 1.0, accent); // wainscot
+  band(1.18, 0.12, accent); // chair rail
+  band(3.25, 0.18, accent); // top stripe
+  band(0.12, 0.18, "black"); // baseboard
+}
+
+/** Audit finish for one department (2026-11-11): wallpaper on the shell
+ * walls, a rug, and two plants. The plant corners are hand-picked per kind
+ * so they never overlap that kind's props (fire: hose rack + brass pole
+ * own the south corners; police: desks own the south centre; hospital:
+ * triage desk owns the south-west; emergency: the wall map owns the west
+ * centre). Called by buildDepartment after the props. */
+function deptFinish(
+  parts: CityParts,
+  kind: DepartmentKind,
+  district: District,
+  bx0: number,
+  bz0: number,
+  door: Face,
+): void {
+  const cx = bx0 + DEPT_W / 2;
+  const cz = bz0 + DEPT_D / 2;
+  const accent = district.style.accent;
+  // Wallpaper: split around the 3-wide door gap on the door face.
+  if (door === "n") {
+    wallpaperWall(parts, true, bz0 + 0.4, bz0 + 0.47, bx0 + 1.25, cx - 1.5, 0, "white", accent);
+    wallpaperWall(parts, true, bz0 + 0.4, bz0 + 0.47, cx + 1.5, bx0 + 16.75, 0, "white", accent);
+  } else {
+    wallpaperWall(parts, true, bz0 + 0.4, bz0 + 0.47, bx0 + 1.25, bx0 + 16.75, 0, "white", accent);
+  }
+  if (door === "s") {
+    wallpaperWall(parts, true, bz0 + 11.6, bz0 + 11.53, bx0 + 1.25, cx - 1.5, 0, "white", accent);
+    wallpaperWall(parts, true, bz0 + 11.6, bz0 + 11.53, cx + 1.5, bx0 + 16.75, 0, "white", accent);
+  } else {
+    wallpaperWall(parts, true, bz0 + 11.6, bz0 + 11.53, bx0 + 1.25, bx0 + 16.75, 0, "white", accent);
+  }
+  if (door === "w") {
+    wallpaperWall(parts, false, bx0 + 0.4, bx0 + 0.47, bz0 + 1.25, cz - 1.5, 0, "white", accent);
+    wallpaperWall(parts, false, bx0 + 0.4, bx0 + 0.47, cz + 1.5, bz0 + 10.75, 0, "white", accent);
+  } else {
+    wallpaperWall(parts, false, bx0 + 0.4, bx0 + 0.47, bz0 + 1.25, bz0 + 10.75, 0, "white", accent);
+  }
+  if (door === "e") {
+    wallpaperWall(parts, false, bx0 + 17.6, bx0 + 17.53, bz0 + 1.25, cz - 1.5, 0, "white", accent);
+    wallpaperWall(parts, false, bx0 + 17.6, bx0 + 17.53, cz + 1.5, bz0 + 10.75, 0, "white", accent);
+  } else {
+    wallpaperWall(parts, false, bx0 + 17.6, bx0 + 17.53, bz0 + 1.25, bz0 + 10.75, 0, "white", accent);
+  }
+  // Rug in the free centre, per kind.
+  const rug = (x: number, z: number, mat: Mat) => box(parts, x, 0.09, z, 4, 0.06, 3, mat);
+  if (kind === "fire") rug(cx - 2, cz + 4, "red");
+  else if (kind === "police") rug(cx, cz + 0.5, "black");
+  else if (kind === "hospital") rug(cx, cz + 1, "white");
+  else rug(cx, cz + 0.5, "cyan");
+  // Plants in the free corners.
+  const corners: Array<[number, number]> =
+    kind === "fire" ? [[bx0 + 1.5, bz0 + 1.5], [bx0 + 16.5, bz0 + 1.5]]
+    : kind === "police" ? [[bx0 + 1.5, bz0 + 10.5], [bx0 + 16.5, bz0 + 10.5]]
+    : kind === "hospital" ? [[bx0 + 16.5, bz0 + 1.5], [bx0 + 16.5, bz0 + 10.5]]
+    : [[bx0 + 1.5, bz0 + 1.5], [bx0 + 16.5, bz0 + 1.5]];
+  for (const [px, pz] of corners) plant(parts, px, pz);
+}
+
 export function buildDepartment(
   kind: DepartmentKind,
   district: District,
@@ -705,6 +808,7 @@ export function buildDepartment(
   else if (kind === "hospital") deptPropsHospital(parts, cx, cz);
   else deptPropsEmergency(parts, cx, cz);
   deptExtraProp(parts, district, bx0, bz0, face);
+  deptFinish(parts, kind, district, bx0, bz0, face);
 
   // Radio mast for the emergency center (outside, by the door).
   if (kind === "emergency") {
@@ -789,7 +893,8 @@ function oppositeFace(face: Face): Face {
   return "e";
 }
 
-/** One office suite bay: desk + chair + name plate on the back wall. */
+/** One office suite bay: desk + chair + visitor chair + rug + plant +
+ * name plate on the back wall. */
 function suiteBay(
   parts: CityParts,
   id: string,
@@ -802,10 +907,14 @@ function suiteBay(
   deskZ: number,
   chairZ: number,
   premium: boolean,
+  accent: Mat,
 ): void {
   solidBox(parts, bayCx, floorY + 0.45, deskZ, 2.0, 0.75, 1.0, "wood");
   box(parts, bayCx, floorY + 0.3, chairZ, 0.7, 0.6, 0.7, premium ? "gold" : "black");
   col(parts, bayCx, floorY + 0.3, chairZ, 0.7, 0.6, 0.7);
+  solidBox(parts, bayCx + 2.2, floorY + 0.3, chairZ, 0.7, 0.6, 0.7, "black");
+  box(parts, bayCx, floorY + 0.09, (deskZ + chairZ) / 2, 3.2, 0.06, 2.6, premium ? "gold" : accent);
+  plant(parts, bayCx + 2.6, chairZ + (chairZ > deskZ ? 1.5 : -1.5), floorY);
   signArt(parts, `suite-${id}`, bayCx, floorY + 2.6, backZ, plateRotY, 4.6, 0.9, [name], tierLabel);
 }
 
@@ -908,6 +1017,7 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
         north ? z0 + 2.6 : z0 + TOWER_D - 2.6,
         north ? z0 + 4.4 : z0 + TOWER_D - 4.4,
         false,
+        style.accent,
       );
     }
   }
@@ -939,7 +1049,39 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
       north ? z0 + 2.6 : z0 + TOWER_D - 2.6,
       north ? z0 + 4.4 : z0 + TOWER_D - 4.4,
       true,
+      style.accent,
     );
+  }
+
+  // Wallpaper on the tower shell, per floor (audit finish, 2026-11-11).
+  // The ground floor splits around the door gap (shellWalls doorW = 3);
+  // the suite floors get the full walls.
+  for (const floorY of [0, 8, 12, 16]) {
+    const ground = floorY === 0;
+    if (ground && door === "n") {
+      wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, x0 + 1.25, cx - 1.5, floorY, "white", style.accent);
+      wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, cx + 1.5, x0 + 26.75, floorY, "white", style.accent);
+    } else {
+      wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, x0 + 1.25, x0 + 26.75, floorY, "white", style.accent);
+    }
+    if (ground && door === "s") {
+      wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, x0 + 1.25, cx - 1.5, floorY, "white", style.accent);
+      wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, cx + 1.5, x0 + 26.75, floorY, "white", style.accent);
+    } else {
+      wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, x0 + 1.25, x0 + 26.75, floorY, "white", style.accent);
+    }
+    if (ground && door === "w") {
+      wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, z0 + 1.25, cz - 1.5, floorY, "white", style.accent);
+      wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, cz + 1.5, z0 + 26.75, floorY, "white", style.accent);
+    } else {
+      wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, z0 + 1.25, z0 + 26.75, floorY, "white", style.accent);
+    }
+    if (ground && door === "e") {
+      wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, z0 + 1.25, cz - 1.5, floorY, "white", style.accent);
+      wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, cz + 1.5, z0 + 26.75, floorY, "white", style.accent);
+    } else {
+      wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, z0 + 1.25, z0 + 26.75, floorY, "white", style.accent);
+    }
   }
 
   // Roof terrace: railing, trees, benches, sign.

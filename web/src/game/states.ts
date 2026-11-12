@@ -28,6 +28,7 @@
 
 import type {
   Anchor,
+  Art,
   Box,
   City,
   Collider,
@@ -409,6 +410,137 @@ export function addStateProps(city: City, x: number, z: number, t: StateTheme): 
   }
 }
 
+// ---------------------------------------------------------------------------
+// STATE BUILDING FINISH — shared wallpaper / furniture helpers (audit pass,
+// 2026-11-11: the state service halls and office towers were enterable but
+// nearly empty inside). Same finish language as city.ts wallpaperWalls,
+// adapted to the two wall systems used here:
+//   - facade shells (pretty hollow(): 0.45 thick, inner face at inset
+//     0.45) -> paint centre inset 0.55, band centre 0.62.
+//   - voxel shells (0.6 thick, centred on the rect edge, inner face at
+//     inset 0.3) -> paint centre inset 0.40, band centre 0.47.
+// Paint is always proud of the wall face and the bands proud of the paint,
+// so nothing z-fights. All helpers take absolute coordinates and the floor
+// elevation y0, so a moved building keeps its interior.
+// ---------------------------------------------------------------------------
+
+/** One wallpapered wall segment: striped paint + wainscot + chair rail +
+ * top stripe + baseboard. alongX: the wall runs along X (fixed z) or along
+ * Z (fixed x). paintC/bandC are the absolute paint-centre / band-centre
+ * coordinates (band proud toward the room). from/to are the segment ends
+ * along the wall; y0 is the floor elevation. */
+function stateWallpaperWall(
+  city: City,
+  alongX: boolean,
+  paintC: number,
+  bandC: number,
+  from: number,
+  to: number,
+  y0: number,
+  wall: Mat,
+  accent: Mat,
+): void {
+  if (to - from < 0.2) return;
+  const mid = (from + to) / 2;
+  let u = from;
+  while (u < to - 0.05) {
+    const wallEnd = Math.min(u + 3.05, to);
+    const accEnd = Math.min(u + 3.4, to);
+    if (alongX) {
+      pushBox(city, (u + wallEnd) / 2, y0 + 1.85, paintC, wallEnd - u, 3.15, 0.08, wall);
+      if (accEnd - wallEnd > 0.05) {
+        pushBox(city, (wallEnd + accEnd) / 2, y0 + 1.85, paintC, accEnd - wallEnd, 3.15, 0.08, accent);
+      }
+    } else {
+      pushBox(city, paintC, y0 + 1.85, (u + wallEnd) / 2, 0.08, 3.15, wallEnd - u, wall);
+      if (accEnd - wallEnd > 0.05) {
+        pushBox(city, paintC, y0 + 1.85, (wallEnd + accEnd) / 2, 0.08, 3.15, accEnd - wallEnd, accent);
+      }
+    }
+    u += 3.4;
+  }
+  const len = to - from;
+  const band = (y: number, h: number, mat: Mat) => {
+    if (alongX) pushBox(city, mid, y0 + y, bandC, len, h, 0.08, mat);
+    else pushBox(city, bandC, y0 + y, mid, 0.08, h, len, mat);
+  };
+  band(0.55, 1.0, accent); // wainscot
+  band(1.18, 0.12, accent); // chair rail
+  band(3.25, 0.18, accent); // top stripe
+  band(0.12, 0.18, "black"); // baseboard
+}
+
+/** A potted plant: stone pot + dark leaves, with a collider. */
+function statePlant(city: City, x: number, z: number, y0 = 0): void {
+  pushBox(city, x, y0 + 0.2, z, 0.9, 0.4, 0.9, "stone");
+  pushBox(city, x, y0 + 0.5, z, 0.8, 0.9, 0.8, "leavesDark");
+  pushCol(city, x, y0 + 0.5, z, 0.8, 0.9, 0.8);
+}
+
+/** A standing floor lamp: gray pole + warm head, with a collider. */
+function stateLamp(city: City, x: number, z: number, y0 = 0): void {
+  pushBox(city, x, y0 + 0.9, z, 0.15, 1.8, 0.15, "gray");
+  pushBox(city, x, y0 + 1.85, z, 0.5, 0.3, 0.5, "warm");
+  pushCol(city, x, y0 + 0.9, z, 0.3, 1.8, 0.3);
+}
+
+/** A low sofa / bench along X, with a collider. */
+function stateSofa(city: City, x: number, z: number, y0: number, w: number, mat: Mat): void {
+  pushBox(city, x, y0 + 0.38, z, w, 0.45, 1.1, mat);
+  pushCol(city, x, y0 + 0.38, z, w, 0.45, 1.1);
+}
+
+/** A flat rug (walkable, no collider). */
+function stateRug(city: City, x: number, z: number, y0: number, w: number, d: number, mat: Mat): void {
+  pushBox(city, x, y0 + 0.09, z, w, 0.06, d, mat);
+}
+
+/** Ceiling for a 7-high room: slab at 3.42 + two wood beams + pendant
+ * lights, mirroring the base-city venue ceilings. */
+function stateCeiling(city: City, x0: number, z0: number, w: number, d: number): void {
+  const cx = x0 + w / 2;
+  const cz = z0 + d / 2;
+  pushBox(city, cx, 3.42, cz, w - 0.8, 0.12, d - 0.8, "cream");
+  pushCol(city, cx, 3.42, cz, w - 0.8, 0.12, d - 0.8);
+  for (const off of [-w / 6, w / 6]) {
+    pushBox(city, cx + off, 3.3, cz, 0.5, 0.24, d - 2.5, "wood");
+  }
+  for (const [px, pz] of [[cx - w / 4, cz], [cx + w / 4, cz], [cx, cz - d / 4]] as Array<[number, number]>) {
+    pushBox(city, px, 3.0, pz, 0.1, 0.8, 0.1, "black");
+    pushBox(city, px, 2.55, pz, 0.6, 0.3, 0.6, "warm");
+  }
+}
+
+/** A wall sign plate (art) on a black board, like the district towers.
+ * The board sits 0.15 behind the art plane (toward the wall), the art
+ * plane 0.15 in front of the board — no coplanar faces. rotY follows the
+ * art convention: 0 = faces +z (south), PI = faces -z, +/-PI/2 = faces +/-x. */
+function stateSignBoard(
+  city: City,
+  id: string,
+  x: number,
+  y: number,
+  z: number,
+  rotY: number,
+  w: number,
+  h: number,
+  lines: string[],
+  sub: string,
+): void {
+  const alongX = Math.abs(Math.cos(rotY)) > 0.5;
+  const s = Math.sin(rotY);
+  const c = Math.cos(rotY);
+  // Wall direction = opposite the facing: facing (s, 0, c) in (x, z).
+  // Board centre 0.25 behind the art plane: 0.05 off the wall, 0.1 behind
+  // the art — no coplanar faces anywhere.
+  const bx = alongX ? x : x - 0.25 * s;
+  const bz = alongX ? z - 0.25 * c : z;
+  if (alongX) pushBox(city, bx, y, bz, w, h, 0.3, "black");
+  else pushBox(city, bx, y, bz, 0.3, h, w, "black");
+  const art: Art = { id, x, y, z, rotY, w, h, lines, sub };
+  city.art.push(art);
+}
+
 /**
  * Mid-ring district buildings: the 6x6 ring of blocks around the plaza,
  * minus the plaza blocks, the office superblock and the services plots.
@@ -455,6 +587,93 @@ export function buildDistrictBlocks(city: City, state: StateDef, rng: Rng): void
 }
 
 /**
+ * Furnished interior for one state emergency-service hall (20x16, 7 high).
+ * The shell already has a floor, a reception counter and an accent panel;
+ * this adds wallpaper, a ceiling, and per-service furniture. kind: 0 =
+ * fire, 1 = police, 2 = hospital. The door lane (z mz+-2, full width)
+ * stays clear of solid furniture; the door is on the east or west wall
+ * (doorFaceTowardCenter), so everything solid sits north/south of it.
+ */
+function furnishStateService(
+  city: City,
+  x0: number,
+  z0: number,
+  w: number,
+  d: number,
+  door: Face,
+  kind: 0 | 1 | 2,
+  accent: Mat,
+): void {
+  const mx = x0 + w / 2;
+  const mz = z0 + d / 2;
+  const wpAccent: Mat = kind === 2 ? "cyan" : accent; // hospital: cyan, not white-on-white
+  // Wallpaper (facade hollow walls, inner face 0.45 -> paint 0.55, band 0.62).
+  stateWallpaperWall(city, true, z0 + 0.55, z0 + 0.62, x0 + 1.25, x0 + w - 1.25, 0, "white", wpAccent);
+  stateWallpaperWall(city, true, z0 + d - 0.55, z0 + d - 0.62, x0 + 1.25, x0 + w - 1.25, 0, "white", wpAccent);
+  if (door === "w") {
+    stateWallpaperWall(city, false, x0 + 0.55, x0 + 0.62, z0 + 1.25, mz - 2, 0, "white", wpAccent);
+    stateWallpaperWall(city, false, x0 + 0.55, x0 + 0.62, mz + 2, z0 + d - 1.25, 0, "white", wpAccent);
+    stateWallpaperWall(city, false, x0 + w - 0.55, x0 + w - 0.62, z0 + 1.25, z0 + d - 1.25, 0, "white", wpAccent);
+  } else {
+    stateWallpaperWall(city, false, x0 + 0.55, x0 + 0.62, z0 + 1.25, z0 + d - 1.25, 0, "white", wpAccent);
+    stateWallpaperWall(city, false, x0 + w - 0.55, x0 + w - 0.62, z0 + 1.25, mz - 2, 0, "white", wpAccent);
+    stateWallpaperWall(city, false, x0 + w - 0.55, x0 + w - 0.62, mz + 2, z0 + d - 1.25, 0, "white", wpAccent);
+  }
+  stateCeiling(city, x0, z0, w, d);
+  const rugMat: Mat = kind === 0 ? "red" : kind === 1 ? "black" : "white";
+  stateRug(city, mx, mz + 0.8, 0, 5, 2.6, rugMat);
+  const plantX = door === "e" ? x0 + 17.5 : x0 + 2.5;
+  if (kind === 0) {
+    // Fire: engine truck + gear lockers + hose rack + brass pole + benches.
+    pushBox(city, mx - 1, 1.0, mz - 4.5, 5.5, 1.8, 2.4, "red");
+    pushCol(city, mx - 1, 1.0, mz - 4.5, 5.5, 1.8, 2.4);
+    pushBox(city, mx + 2.6, 0.9, mz - 4.5, 1.6, 1.4, 2.2, "black");
+    pushCol(city, mx + 2.6, 0.9, mz - 4.5, 1.6, 1.4, 2.2);
+    for (const [wx, wz] of [[mx - 3.5, mz - 5.7], [mx - 3.5, mz - 3.3], [mx + 1.5, mz - 5.7], [mx + 1.5, mz - 3.3]] as Array<[number, number]>) {
+      pushBox(city, wx, 0.35, wz, 0.7, 0.7, 0.4, "black");
+    }
+    for (const lx of [mx - 8.5, mx - 6.5, mx - 4.5]) {
+      pushBox(city, lx, 1.1, mz - 6.8, 2, 2.2, 0.8, "gray");
+      pushCol(city, lx, 1.1, mz - 6.8, 2, 2.2, 0.8);
+    }
+    pushBox(city, x0 + 1.2, 1.2, mz + 4.5, 0.4, 2.2, 2.4, "wood");
+    pushBox(city, x0 + 1.2, 1.5, mz - 4.5, 0.4, 3.0, 0.4, "gold");
+    stateSofa(city, mx - 5, mz + 6, 0, 2.4, "red");
+    stateSofa(city, mx + 5, mz + 6, 0, 2.4, "red");
+    statePlant(city, plantX, mz - 4.5);
+  } else if (kind === 1) {
+    // Police: patrol desks + screens, holding cells, evidence lockers.
+    for (const dx of [mx - 4, mx + 4]) {
+      pushBox(city, dx, 0.55, mz - 3.5, 3, 0.9, 1.2, "wood");
+      pushCol(city, dx, 0.55, mz - 3.5, 3, 0.9, 1.2);
+      pushBox(city, dx, 1.35, mz - 3.9, 1.4, 0.9, 0.1, "cyan");
+    }
+    for (const bx of [mx - 6, mx - 4.5, mx - 3]) {
+      pushBox(city, bx, 1.6, mz - 6.5, 0.25, 3.2, 0.25, "black");
+    }
+    pushBox(city, mx - 4.5, 0.4, mz - 6.5, 4.5, 0.5, 1.0, "red");
+    pushCol(city, mx - 4.5, 0.4, mz - 6.5, 4.5, 0.5, 1.0);
+    pushBox(city, mx + 8.5, 1.1, mz + 5, 0.8, 2.2, 3, "gray");
+    pushCol(city, mx + 8.5, 1.1, mz + 5, 0.8, 2.2, 3);
+    statePlant(city, plantX, mz - 4.5);
+  } else {
+    // Hospital: three ward beds + triage desk + privacy screens.
+    for (const bx of [mx - 5.5, mx, mx + 5.5]) {
+      pushBox(city, bx, 0.45, mz - 4.5, 2.0, 0.6, 3.2, "white");
+      pushCol(city, bx, 0.45, mz - 4.5, 2.0, 0.6, 3.2);
+      pushBox(city, bx, 0.8, mz - 5.7, 1.4, 0.25, 0.7, "cream");
+    }
+    pushBox(city, mx - 6, 0.55, mz + 3.5, 3, 0.9, 1.2, "wood");
+    pushCol(city, mx - 6, 0.55, mz + 3.5, 3, 0.9, 1.2);
+    pushBox(city, mx - 6, 1.35, mz + 3.9, 1.4, 0.9, 0.1, "cyanhot");
+    for (const sx of [mx - 2.75, mx + 2.75]) {
+      pushBox(city, sx, 1.0, mz - 4.5, 0.15, 2.0, 3.0, "cream");
+    }
+    statePlant(city, plantX, door === "e" ? mz + 4.5 : mz - 4.5);
+  }
+}
+
+/**
  * Emergency services — fire, police, hospital. One shared enterable shell;
  * the name, sign and interior accent change per state. Anchors are kind
  * "jobs" (they are job sites: firefighter / doctor jobs live here) and the
@@ -487,7 +706,10 @@ export function buildEmergencyServices(city: City, state: StateDef): void {
     const mz = z0 + d / 2;
     pushBox(city, mx, 0.55, mz + 3, 6, 1.05, 1.1, "stone");
     pushCol(city, mx, 0.55, mz + 3, 6, 1.05, 1.1);
-    pushBox(city, mx, 1.5, mz - 5, 4, 2, 0.2, p.accent);
+    // Accent panel on the north wall (was floating mid-room at mz-5, where
+    // the furnished interior now sits — see furnishStateService).
+    pushBox(city, mx, 1.5, mz - 7.15, 4, 2, 0.2, p.accent);
+    furnishStateService(city, x0, z0, w, d, door, (p.slot - 1000) as 0 | 1 | 2, p.accent);
     const zone: Zone = {
       id, name: p.name, kind: "hall", slot: p.slot,
       minX: x0 + 1.15, maxX: x0 + w - 1.15, minZ: z0 + 1.15, maxZ: z0 + d - 1.15,
@@ -534,9 +756,155 @@ export const STATE_OFFICE_PRICES = {
 } as const;
 
 /**
+ * Furnished interior for one state office tower (audit pass, 2026-11-11).
+ * Before: the lobby held a front desk + an accent band and the upper tower
+ * was a SOLID block — the lift offered Floors 2-4 and the catalog sold 12
+ * suites per tower, but no floor existed above the lobby (the front desk
+ * was even embedded inside the solid core). After: a furnished lobby + hall,
+ * and real walkable suite floors at 8/12/16 (the lift's stops, re-spaced
+ * from [0,8,16,24] — 24 did not fit the FL tower at 22 high, and LA's 26
+ * left only 2 units of headroom).
+ *
+ * How the upper floors connect: the lift shaft sits half outside the
+ * tower's east face, so each floor has a balcony slab under the lift's
+ * landing anchor (the runtime deposits the rider exactly on the anchor —
+ * no floor there means a fall back to the lobby), a doorway panel on the
+ * tower's east face, and a full-height slot in the voxel east wall that
+ * opens into the floor's corridor. The upper facade is flipped to
+ * enterable (door "s") so pretty renders it hollow with the ground-floor
+ * south gap the voxel walls mirror; the voxel shell is 0.6 thick centred
+ * on the tower edges (district-tower pattern), inner face at inset 0.3.
+ */
+function furnishStateTower(city: City, state: StateDef): void {
+  const { x: cx, z: cz } = REGION_CENTERS[state.id];
+  const t = state.theme;
+  const accent = t.officeAccent;
+  const lobbyW = 40;
+  const lx0 = cx - lobbyW / 2;
+  const lz0 = cz - 72;
+  const upX0 = cx - 15;
+  const upZ0 = cz - 68;
+  const upH = t.officeH;
+
+  // ---- Lobby wallpaper (facade hollow walls, inner face 0.45). ----
+  stateWallpaperWall(city, true, lz0 + 0.55, lz0 + 0.62, lx0 + 1.25, lx0 + 38.75, 0, "white", accent);
+  stateWallpaperWall(city, true, lz0 + 27.45, lz0 + 27.38, lx0 + 1.25, cx - 2, 0, "white", accent);
+  stateWallpaperWall(city, true, lz0 + 27.45, lz0 + 27.38, cx + 2, lx0 + 38.75, 0, "white", accent);
+  stateWallpaperWall(city, false, lx0 + 0.55, lx0 + 0.62, lz0 + 1.25, lz0 + 26.75, 0, "white", accent);
+  stateWallpaperWall(city, false, lx0 + 39.45, lx0 + 39.38, lz0 + 1.25, lz0 + 26.75, 0, "white", accent);
+
+  // ---- Lobby ring: west lounge, east lift side, north benches, south rug. ----
+  stateRug(city, cx - 17.5, cz - 58, 0, 3, 8, accent);
+  stateSofa(city, cx - 17.5, cz - 52, 0, 3.4, "red");
+  stateSofa(city, cx - 17.5, cz - 64, 0, 3.4, "red");
+  statePlant(city, cx - 17.5, cz - 58);
+  statePlant(city, cx + 17.5, cz - 48);
+  stateLamp(city, cx + 17.5, cz - 66);
+  stateSofa(city, cx - 10, cz - 46, 0, 3.4, "red");
+  stateSofa(city, cx + 10, cz - 46, 0, 3.4, "red");
+  statePlant(city, cx - 17, cz - 46);
+  statePlant(city, cx + 17, cz - 46);
+  stateRug(city, cx, cz - 70, 0, 6, 2, accent);
+  for (const [px, pz] of [[cx - 17.5, cz - 58], [cx + 17.5, cz - 48]] as Array<[number, number]>) {
+    pushBox(city, px, 7.4, pz, 0.1, 1.2, 0.1, "black");
+    pushBox(city, px, 6.7, pz, 0.6, 0.3, 0.6, "warm");
+  }
+
+  // ---- Core hall (tower ground floor): rug, sofas, plants, lamp, directory. ----
+  stateRug(city, cx, cz - 58, 0, 8, 6, accent);
+  stateSofa(city, cx - 8, cz - 64, 0, 3.4, "red");
+  stateSofa(city, cx + 8, cz - 64, 0, 3.4, "red");
+  statePlant(city, cx - 13, cz - 66);
+  statePlant(city, cx + 13, cz - 66);
+  stateLamp(city, cx + 13, cz - 52);
+  stateSignBoard(city, `dir-${state.id}-tower`, cx - 6, 3.35, cz - 67.25, 0, 4.6, 0.85, ["OFFICE DIRECTORY"], `${state.name} Tower`);
+  stateSignBoard(city, `dir2-${state.id}-tower`, cx - 6, 2.45, cz - 67.25, 0, 4.6, 0.85, ["Floor 2", "Suites 2A – 2D"], "Standard offices");
+  stateSignBoard(city, `dir3-${state.id}-tower`, cx - 6, 1.55, cz - 67.25, 0, 4.6, 0.85, ["Floor 3", "Suites 3A – 3D"], "Standard offices");
+  stateSignBoard(city, `dir4-${state.id}-tower`, cx - 6, 0.65, cz - 67.25, 0, 4.6, 0.85, ["Floor 4", "Suites 4A – 4D"], "Premium suites");
+
+  // ---- Tower voxel shell (replaces the solid upper-tower collider). ----
+  const wall = (x: number, y: number, z: number, sx: number, sy: number, sz: number) => {
+    pushBox(city, x, y, z, sx, sy, sz, "cream");
+    pushCol(city, x, y, z, sx, sy, sz);
+  };
+  wall(cx, upH / 2, upZ0, 30, upH, 0.6); // north
+  wall(cx - 8.5, upH / 2, upZ0 + 20, 13, upH, 0.6); // south, west of the door
+  wall(cx + 8.5, upH / 2, upZ0 + 20, 13, upH, 0.6); // south, east of the door
+  wall(cx, (3 + upH) / 2, upZ0 + 20, 4, upH - 3, 0.6); // south header above the door
+  wall(upX0, upH / 2, cz - 58, 0.6, upH, 20); // west
+  wall(cx + 15, upH / 2, cz - 61.5, 0.6, upH, 13); // east, north of the balcony slot
+  wall(cx + 15, upH / 2, cz - 49.75, 0.6, upH, 3.5); // east, south of the balcony slot
+
+  // ---- Suite floors (8/12/16) + balconies + door panels + floor-4 ceiling. ----
+  const letters = ["a", "b", "c", "d"] as const;
+  const floors = [8, 12, 16] as const;
+  for (let fi = 0; fi < floors.length; fi++) {
+    const floorY = floors[fi];
+    const floor = (fi + 2) as 2 | 3 | 4;
+    const premium = floor === 4;
+    pushBox(city, cx, floorY, cz - 58, 29.2, 0.12, 19.2, "cream");
+    pushCol(city, cx, floorY, cz - 58, 29.2, 0.12, 19.2);
+    // Balcony under the lift landing anchor (cx+17, cz-54.6), 0.02 above
+    // the floor slab so the overlap under the wall never z-fights.
+    pushBox(city, cx + 17.05, floorY + 0.02, cz - 53.35, 4.9, 0.12, 4.7, "cream");
+    pushCol(city, cx + 17.05, floorY + 0.02, cz - 53.35, 4.9, 0.12, 4.7);
+    pushBox(city, cx + 19.4, floorY + 0.55, cz - 53.35, 0.2, 1.1, 4.7, accent);
+    pushCol(city, cx + 19.4, floorY + 0.55, cz - 53.35, 0.2, 1.1, 4.7);
+    pushBox(city, cx + 17.25, floorY + 0.55, cz - 51.1, 4.5, 1.1, 0.2, accent);
+    pushCol(city, cx + 17.25, floorY + 0.55, cz - 51.1, 4.5, 1.1, 0.2);
+    // Dark doorway panel on the tower's east face, in the balcony slot.
+    pushBox(city, cx + 15.09, floorY + 1.5, cz - 53.25, 0.1, 3.4, 3.9, "gold");
+    pushBox(city, cx + 15.14, floorY + 1.5, cz - 53.25, 0.12, 3.0, 3.5, "black");
+    if (premium) {
+      pushBox(city, cx, 19.4, cz - 58, 29.2, 0.12, 19.2, "cream");
+      pushCol(city, cx, 19.4, cz - 58, 29.2, 0.12, 19.2);
+      for (const off of [-5, 5]) pushBox(city, cx + off, 19.28, cz - 58, 0.5, 0.24, 17.5, "wood");
+    }
+    // Suite partitions: 4 bays in the north row, corridor along the south.
+    for (const px of [cx - 7.5, cx, cx + 7.5]) {
+      pushBox(city, px, floorY + 1.6, cz - 62.65, 0.3, 3.2, 10.1, "cream");
+      pushCol(city, px, floorY + 1.6, cz - 62.65, 0.3, 3.2, 10.1);
+    }
+    for (let k = 0; k < 4; k++) {
+      const bayCx = cx - 11.25 + 7.5 * k;
+      const letter = letters[k];
+      pushBox(city, bayCx, floorY + 0.45, cz - 65.4, 2.0, 0.75, 1.0, "wood");
+      pushCol(city, bayCx, floorY + 0.45, cz - 65.4, 2.0, 0.75, 1.0);
+      pushBox(city, bayCx, floorY + 0.3, cz - 63.6, 0.7, 0.6, 0.7, premium ? "gold" : "black");
+      pushCol(city, bayCx, floorY + 0.3, cz - 63.6, 0.7, 0.6, 0.7);
+      pushBox(city, bayCx + 2.2, floorY + 0.3, cz - 63.6, 0.7, 0.6, 0.7, "black");
+      pushCol(city, bayCx + 2.2, floorY + 0.3, cz - 63.6, 0.7, 0.6, 0.7);
+      stateRug(city, bayCx, cz - 64.5, floorY, 3.2, 2.6, premium ? "gold" : accent);
+      statePlant(city, bayCx + 2.6, cz - 66.3, floorY);
+      city.art.push({
+        id: `suite-office-${state.id}-f${floor}-${letter}`,
+        x: bayCx, y: floorY + 2.6, z: cz - 67.25, rotY: 0, w: 4.6, h: 0.9,
+        lines: [`Suite ${floor}${letter.toUpperCase()}`],
+        sub: premium ? "Premium suite" : "Standard office",
+      });
+    }
+    // Tower wallpaper for this floor (voxel walls, inner face 0.3).
+    // (Ground floor y0=0 is painted after the loop — its south wall splits
+    // around the door gap.)
+    stateWallpaperWall(city, true, upZ0 + 0.4, upZ0 + 0.47, upX0 + 1.25, upX0 + 28.75, floorY, "white", accent);
+    stateWallpaperWall(city, true, upZ0 + 19.6, upZ0 + 19.53, upX0 + 1.25, upX0 + 28.75, floorY, "white", accent);
+    stateWallpaperWall(city, false, upX0 + 0.4, upX0 + 0.47, upZ0 + 1.25, upZ0 + 18.75, floorY, "white", accent);
+    stateWallpaperWall(city, false, upX0 + 29.6, upX0 + 29.53, upZ0 + 1.25, cz - 55, floorY, "white", accent);
+    stateWallpaperWall(city, false, upX0 + 29.6, upX0 + 29.53, cz - 51.5, upZ0 + 18.75, floorY, "white", accent);
+  }
+  // Ground-floor (hall) wallpaper on the tower walls, y0 = 0.
+  stateWallpaperWall(city, true, upZ0 + 0.4, upZ0 + 0.47, upX0 + 1.25, upX0 + 28.75, 0, "white", accent);
+  stateWallpaperWall(city, true, upZ0 + 19.6, upZ0 + 19.53, upX0 + 1.25, cx - 2, 0, "white", accent);
+  stateWallpaperWall(city, true, upZ0 + 19.6, upZ0 + 19.53, cx + 2, upX0 + 28.75, 0, "white", accent);
+  stateWallpaperWall(city, false, upX0 + 0.4, upX0 + 0.47, upZ0 + 1.25, upZ0 + 18.75, 0, "white", accent);
+  stateWallpaperWall(city, false, upX0 + 29.6, upX0 + 29.53, upZ0 + 1.25, cz - 55, 0, "white", accent);
+  stateWallpaperWall(city, false, upX0 + 29.6, upX0 + 29.53, cz - 51.5, upZ0 + 18.75, 0, "white", accent);
+}
+
+/**
  * The state's office tower, north of the plaza (local 0,-58): a glass lobby
- * you can walk into, a solid upper tower, and a working lift. The finish —
- * height, accent, style — comes from the state theme.
+ * you can walk into, furnished suite floors 2-4 with a working lift, and a
+ * roof crown. The finish — height, accent, style — comes from the state theme.
  */
 export function buildOfficeTower(city: City, state: StateDef): void {
   const { x: cx, z: cz } = REGION_CENTERS[state.id];
@@ -564,23 +932,30 @@ export function buildOfficeTower(city: City, state: StateDef): void {
     serviceX: cx, serviceZ: cz - 58, signX: cx, signY: 2.35, signZ: lz0 + lobbyD + 0.55, signRot: 0,
   });
   city.anchors.push(doorAnchorFor(`${state.id}-offices`, `${state.name} Tower`, "offices", lx0, lz0, lobbyW, lobbyD, "s", 0));
-  // Upper tower: solid textured facade + collider.
+  // Upper tower: hollow enterable facade (pretty renders the south door
+  // gap) + voxel shell, floor slabs and furnished suites from
+  // furnishStateTower — NOT a solid block (audit 2026-11-11: the solid
+  // collider made the lift's Floors 2-4 and the 12 catalogued suites
+  // unreachable, and embedded the lobby's front desk).
   const upW = 30;
   const upD = 20;
   const upH = t.officeH;
   city.facades.push({
     id: `${state.id}-tower-upper`, x: cx - upW / 2, z: lz0 + 4, w: upW, d: upD, h: upH,
-    style: (t.style + 1) % 6, door: "", enterable: false, hero: false,
+    style: (t.style + 1) % 6, door: "s", enterable: true, hero: false,
     face: "s", roof: "stepped", roofMat: t.roofMat, cornice: t.cornice,
   });
-  pushCol(city, cx, upH / 2, lz0 + 4 + upD / 2, upW, upH, upD);
   pushBox(city, cx, upH + 0.8, lz0 + 4 + upD / 2, 4, 1.6, 4, t.officeAccent);
-  // Lift shaft on the tower's east side, floors 0/8/16/24 (matches the HQ lift
-  // pattern: shaft + per-floor door blockers tagged lift-door:<id>:<floor>).
+  furnishStateTower(city, state);
+  // Lift shaft on the tower's east side, floors 0/8/12/16 (HQ pattern:
+  // 4-unit spacing so every floor fits every state's tower — the old
+  // [0,8,16,24] put Floor 4 above FL's 22-high tower and left LA's 26-high
+  // tower with 2 units of headroom). Shaft + per-floor door blockers tagged
+  // lift-door:<id>:<floor>, as the HQ lift.
   const liftId = `${state.id}-lift`;
   const liftX = cx + lobbyW / 2 - 3;
   const liftZ = cz - 58;
-  const floors = [0, 8, 16, 24];
+  const floors = [0, 8, 12, 16];
   const lift: Lift = {
     id: liftId, name: `${state.name} Tower Lift`,
     x: liftX, z: liftZ, w: 4, d: 4, floors,
