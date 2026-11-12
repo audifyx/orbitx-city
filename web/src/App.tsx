@@ -4418,6 +4418,11 @@ function Hold({ label, onDown, onUp }: { label: string; onDown: () => void; onUp
       }}
       onPointerUp={() => onUp()}
       onPointerCancel={() => onUp()}
+      // The button captures the pointer, so a lost capture (element
+      // unmounts mid-hold, panel opens, tab blurs) is the last chance
+      // to release the hold — without this a stuck Climb hold pins a
+      // flying car at its ceiling with no way down.
+      onLostPointerCapture={() => onUp()}
     >
       {label}
     </button>

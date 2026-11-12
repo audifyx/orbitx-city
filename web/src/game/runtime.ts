@@ -2336,6 +2336,8 @@ export function createRuntime(scene: Scene) {
     carSpeed = 0;
     holdGas = false;
     holdBrake = false;
+    holdJump = false;
+    holdDown = false;
     ownedCarIndex = -1;
     driveParams = null;
     prevLocal = { x: 0, z: 0, set: false };
@@ -3658,6 +3660,12 @@ export function createRuntime(scene: Scene) {
     carIndex = index;
     carSpeed = 0;
     steerSm = 0;
+    // A Climb/Descend hold stuck from before entering (pointerup lost
+    // when the pad unmounted) must not drive the new car — clear them
+    // here. Gas/Brake are NOT cleared: a board entered while Gas is
+    // already held must still push (see the pushCooldown reset below).
+    holdJump = false;
+    holdDown = false;
     // A board entered while Gas is already held must still push — reset
     // the push cooldown or the first push is swallowed (the cooldown was
     // still counting down from the last ride).
@@ -3703,11 +3711,16 @@ export function createRuntime(scene: Scene) {
     flushWear();
     const car = cars[carIndex];
     driving = false;
-    // A held Gas/Brake button can unmount while held (panel opens, car
-    // exits) and its pointerup never fires — clear the holds here or the
-    // next car would drive itself.
+    // A held Gas/Brake/Jump/Down button can unmount while held (panel
+    // opens, car exits) and its pointerup never fires — clear the holds
+    // here or the next car would drive itself. Jump/Down were missed
+    // before: a stuck Climb hold pinned the flying car at its ceiling
+    // and the climb branch shadowed Descend, so the car could neither
+    // climb higher nor come down.
     holdGas = false;
     holdBrake = false;
+    holdJump = false;
+    holdDown = false;
     if (car) {
       // Flying cars land first — the player steps out on the ground, never
       // mid-air. Boards are small: step off 1.2 units, not 2.6. Clear any
@@ -3842,21 +3855,30 @@ export function createRuntime(scene: Scene) {
     // The Fly button sets car.autoAlt — an auto-takeoff target (the
     // ceiling) or an auto-land target (0). Manual Jump / Down cancels the
     // auto move, so the player is always in charge of the altitude.
-    if (params.climb > 0) {
-      if (keys.has("Space") || holdJump) {
-        car.alt = Math.min(car.alt + params.climb * dt, params.maxAltitude);
+    // Descend is checked FIRST: it wins over climb when both are held
+    // (down is the safe direction), and it works even if the vehicle's
+    // climb stat is somehow 0 (fallback rate 8) — a car stuck in the air
+    // must always be able to come down. Before, the whole block was
+    // gated on climb > 0 and climb shadowed descend, so a stuck Climb
+    // hold (or a 0 climb stat) pinned the car at its ceiling with no
+    // way down — and the Fly button's auto-land was cancelled by the
+    // climb branch on the very next tick.
+    const climbRate = params.climb > 0 ? params.climb : 8;
+    const wantDown = keys.has("ShiftLeft") || keys.has("ShiftRight") || keys.has("KeyC") || holdDown;
+    const wantUp = keys.has("Space") || holdJump;
+    if (wantDown && (params.climb > 0 || car.alt > 0)) {
+      car.alt = Math.max(car.alt - climbRate * dt, 0);
+      car.autoAlt = null;
+    } else if (wantUp && params.climb > 0) {
+      car.alt = Math.min(car.alt + params.climb * dt, params.maxAltitude);
+      car.autoAlt = null;
+    } else if (car.autoAlt != null && (params.climb > 0 || car.alt > 0)) {
+      const d = car.autoAlt - car.alt;
+      if (Math.abs(d) <= climbRate * dt) {
+        car.alt = car.autoAlt;
         car.autoAlt = null;
-      } else if (keys.has("ShiftLeft") || keys.has("ShiftRight") || keys.has("KeyC") || holdDown) {
-        car.alt = Math.max(car.alt - params.climb * dt, 0);
-        car.autoAlt = null;
-      } else if (car.autoAlt != null) {
-        const d = car.autoAlt - car.alt;
-        if (Math.abs(d) <= params.climb * dt) {
-          car.alt = car.autoAlt;
-          car.autoAlt = null;
-        } else {
-          car.alt += Math.sign(d) * params.climb * dt;
-        }
+      } else {
+        car.alt += Math.sign(d) * climbRate * dt;
       }
     }
     const nx = car.x + Math.sin(car.yaw) * carSpeed * dt;
@@ -8438,6 +8460,8 @@ export function createRuntime(scene: Scene) {
         stickY = 0;
         holdGas = false;
         holdBrake = false;
+        holdJump = false;
+        holdDown = false;
       }
     },
     setTyping(on: boolean) {
