@@ -239,8 +239,9 @@ export function homePrice(id: string): number | null {
 // Building — one generator for all 150 homes
 // ---------------------------------------------------------------------------
 
-/** Back-wall point + sign rotation, same convention as city.ts furnishHome. */
-function backPoint(door: Face, x0: number, z0: number, w: number, d: number, inset = 2.4) {
+/** Back-wall point + sign rotation, same convention as city.ts furnishHome.
+ * Exported for the CRAZY theater (screen + seats reuse the same anchor). */
+export function backPoint(door: Face, x0: number, z0: number, w: number, d: number, inset = 2.4) {
   const cx = x0 + w / 2;
   const cz = z0 + d / 2;
   if (door === "w") return { x: x0 + w - inset, z: cz, rot: -Math.PI / 2 };
@@ -607,6 +608,12 @@ export interface OwnedHome {
   /** Price paid, in City Sol. */
   price: number;
   boughtAt: number;
+  /** Crib tier (apartment → house → mansion → penthouse), when the crib
+   * builder ships it. The CRAZY rooftop is penthouse-gated on this. */
+  tier?: string;
+  /** CRAZY extras (pool / theater / rooftop / plants / season decor) —
+   * see crazy.ts. Stored on the owned record in the `homes` JSON. */
+  crazy?: import("./crazy").CrazyHomeExtras;
 }
 
 /**
@@ -618,6 +625,8 @@ export interface OwnedHome {
 export interface PlayerHomesSave {
   homeServer: HomeServerId;
   homes: OwnedHome[];
+  /** CRAZY season override: "auto" (date-driven) or a season id. */
+  season?: string;
 }
 
 export function freshHomesSave(): PlayerHomesSave {

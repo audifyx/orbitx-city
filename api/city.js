@@ -4069,6 +4069,10 @@ function sanitizeCrazyPlant(plant, now = Date.now()) {
     stage: crazyPlantStage(plant, now),
     watered: Number(plant?.wateringSince || 0) > 0 && now - Number(plant.wateringSince || 0) < CRAZY_WATER_WINDOW_MS,
     plantedAt: Number(plant?.plantedAt || 0),
+    // Raw growth inputs so the client can recompute the live stage
+    // between polls (growth is derived from these, never stored).
+    wateredMs: Number(plant?.wateredMs || 0),
+    wateringSince: Number(plant?.wateringSince || 0),
   };
 }
 
