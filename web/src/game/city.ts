@@ -933,10 +933,17 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
       // roll draw the main rng in exactly the original order, so the main
       // sequence (heights, styles, street life) never moves. `fb*` is the
       // visible building — the shell geometry and the facade record.
-      const shX = Math.floor(varRng() * 5);
-      const shZ = Math.floor(varRng() * 5);
-      const offX = Math.floor(varRng() * (shX + 1));
-      const offZ = Math.floor(varRng() * (shZ + 1));
+      // SPACING (2026-11-11): the old shrink was 0-4 with the slide
+      // anywhere, so neighbours sat 10-14 apart across the roads and the
+      // blocks read as one solid wall (user, phone test: "too close
+      // together"). Shrink 3-5 with at least 1 unit of inset on BOTH
+      // sides, so the gap across a road is 22+ and diagonal neighbours
+      // clear 13+. Same varRng draw count/order as before, so heights,
+      // styles and street life never move — only the footprint rect.
+      const shX = 3 + Math.floor(varRng() * 3);
+      const shZ = 3 + Math.floor(varRng() * 3);
+      const offX = 1 + Math.floor(varRng() * (shX - 1));
+      const offZ = 1 + Math.floor(varRng() * (shZ - 1));
       let fbx = bx + offX;
       let fbz = bz + offZ;
       let fbw = Math.max(14, bw - shX);
@@ -976,7 +983,11 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
         roofMat = Math.floor(varRng() * 3);
         chimney = varRng() < 0.5;
         if (varRng() < 0.45) {
-          const planned = planWing({ x: fbx, z: fbz, w: fbw, d: fbd }, face, style, varRng);
+          // SPACING (2026-11-11): footprints are now 14-19 wide, so the
+          // default minMain 12 would kill every wing (main-depth < 12).
+          // Wings still fit at minMain 9 — the wing is what varies the
+          // silhouette, and the narrower lots still leave room for it.
+          const planned = planWing({ x: fbx, z: fbz, w: fbw, d: fbd }, face, style, varRng, 9);
           if (planned) {
             const rect = { x: fbx, z: fbz, w: fbw, d: fbd };
             wing = applyWing(planned, rect, face, cols);
