@@ -1,10 +1,14 @@
 // Regression test for FOOD: cooking, restaurants, gym, hunger (City Sol only).
 //
-// Storage: food state lives inside the existing `missions` JSON column
-// under the reserved key "__food" — no new DB column. A cooked meal
-// restores FAR more hunger than a raw snack (burger +40 vs bread +10).
-// Hunger drains 1 per 3 minutes; stamina builds +2 per workout (5 City
-// Sol, 30s cooldown) and decays 1 per 12h idle. Well fed you run fast
+// Storage: UNIFIED with the grocery piece — hunger + pantry live on the
+// per-server save's `daily` blob (daily.hunger / daily.food, incl. the
+// cooking ingredients the grocery store sells); stamina / cooked meals /
+// Satisfied live in the existing `missions` JSON column under the
+// reserved key "__food" — no new DB column. A cooked meal restores FAR
+// more hunger than a raw snack (burger +40 vs bread +10). Hunger drains
+// only on the client (1 per 150s of active play, food-hunger) — the
+// server never drains it; stamina builds +2 per workout (5 City Sol,
+// 30s cooldown) and decays 1 per 12h idle. Well fed you run fast
 // (hunger >= 70: x1.10), starving you crawl (hunger 0: x0.70).
 //
 // Run: node --test api/food.test.mjs
@@ -52,26 +56,34 @@ function setFood(id, patch) {
   return save;
 }
 
-test("food-status: a new player starts hungry-ish, unfit, with a move-in pantry", async () => {
+// Hunger + pantry live on the save's daily blob (the unified model).
+function setDaily(id, patch) {
+  const save = foodSave(id);
+  if (!save.daily || typeof save.daily !== "object") save.daily = {};
+  Object.assign(save.daily, patch);
+  return save;
+}
+
+test("food-status: a new player starts full, unfit, with a move-in pantry", async () => {
   const { id, token } = await newPlayer();
   const res = await call("food-status", { server: 1 }, token);
   assert.equal(res.data.ok, true);
   const food = res.data.food;
-  assert.equal(food.hunger, 80);
+  assert.equal(food.hunger, 100);
   assert.equal(food.stamina, 20);
   assert.equal(food.pantry.bread, 2);
   assert.equal(food.pantry.patty, 2);
   assert.equal(food.fed, false);
-  // Well fed (80) + a little stamina (20): 1.10 * 1.02 = 1.122.
+  // Well fed (100) + a little stamina (20): 1.10 * 1.02 = 1.122.
   assert.equal(food.speedMult, 1.122);
   assert.equal(food.carryCap, 6);
   // The same food rides on every `me` (publicPlayer), so the HUD can read it.
-  assert.equal(res.data.me.food.hunger, 80);
+  assert.equal(res.data.me.food.hunger, 100);
 });
 
 test("food-eat: a raw snack is +10, a cooked meal is +40 — cooking matters", async () => {
   const { id, token } = await newPlayer();
-  setFood(id, { hunger: 40, pantry: { bread: 1 } });
+  setDaily(id, { hunger: 40, food: { bread: 1 } });
   const snack = await call("food-eat", { server: 1, item: "bread" }, token);
   assert.equal(snack.data.ok, true);
   assert.equal(snack.data.food.hunger, 50);
@@ -80,8 +92,9 @@ test("food-eat: a raw snack is +10, a cooked meal is +40 — cooking matters", a
   const empty = await call("food-eat", { server: 1, item: "bread" }, token);
   assert.equal(empty.data.ok, false);
   // A cooked burger (needs a home + ingredients — see the cook test) is +40.
-  setFood(id, { hunger: 40, meals: { burger: 1 } });
-  const meal = await call("food-eat", { server: 1, item: "burger" }, token);
+  setDaily(id, { hunger: 40 });
+  setFood(id, { meals: { "city-burger": 1 } });
+  const meal = await call("food-eat", { server: 1, item: "city-burger" }, token);
   assert.equal(meal.data.ok, true);
   assert.equal(meal.data.food.hunger, 80);
   assert.equal(meal.data.food.meals.burger, undefined);
@@ -90,24 +103,25 @@ test("food-eat: a raw snack is +10, a cooked meal is +40 — cooking matters", a
 test("food-cook: needs a home, consumes groceries, respects the carry cap", async () => {
   const { id, token } = await newPlayer();
   // No home yet: the kitchen is in your own home.
-  const homeless = await call("food-cook", { server: 1, recipe: "burger" }, token);
+  const homeless = await call("food-cook", { server: 1, recipe: "city-burger" }, token);
   assert.equal(homeless.data.ok, false);
   assert.match(homeless.data.message, /home/);
   // Buy the cheapest home, then cook.
   const bought = await call("buy-home", { server: 1, home: "home-ny-08" }, token);
   assert.equal(bought.data.ok, true);
-  const cooked = await call("food-cook", { server: 1, recipe: "burger" }, token);
+  const cooked = await call("food-cook", { server: 1, recipe: "city-burger" }, token);
   assert.equal(cooked.data.ok, true);
-  assert.equal(cooked.data.food.meals.burger, 1);
+  assert.equal(cooked.data.food.meals["city-burger"], 1);
   assert.equal(cooked.data.food.pantry.bread, 1);
   assert.equal(cooked.data.food.pantry.patty, 1);
   // Missing ingredient refuses and names it.
-  setFood(id, { pantry: { bread: 1 } });
-  const missing = await call("food-cook", { server: 1, recipe: "burger" }, token);
+  setDaily(id, { food: { bread: 1 } });
+  const missing = await call("food-cook", { server: 1, recipe: "city-burger" }, token);
   assert.equal(missing.data.ok, false);
   assert.match(missing.data.message, /Beef Patty/);
   // Carry cap: stamina 20 -> 6 meals max; a full bag refuses the 7th.
-  setFood(id, { pantry: { potato: 9 }, meals: { fries: 6 } });
+  setDaily(id, { food: { potato: 9 } });
+  setFood(id, { meals: { fries: 6 } });
   const full = await call("food-cook", { server: 1, recipe: "fries" }, token);
   assert.equal(full.data.ok, false);
   assert.match(full.data.message, /arms are full/);
@@ -115,7 +129,7 @@ test("food-cook: needs a home, consumes groceries, respects the carry cap", asyn
 
 test("food-order: a restaurant meal costs City Sol, restores hunger, satisfies", async () => {
   const { id, token } = await newPlayer();
-  setFood(id, { hunger: 30 });
+  setDaily(id, { hunger: 30 });
   const before = foodSave(id).balance;
   const res = await call("food-order", { server: 1, restaurant: "diner", item: "diner-burger" }, token);
   assert.equal(res.data.ok, true);
@@ -150,30 +164,45 @@ test("food-workout: +2 stamina for 5 City Sol, 30s cooldown between sets", async
 test("hunger that matters: speed by hunger level, decay over real time", async () => {
   const { id, token } = await newPlayer();
   // Starving: 0.70 * 1.02 (stamina 20) = 0.714.
-  setFood(id, { hunger: 0, stamina: 20 });
+  setDaily(id, { hunger: 0 });
+  setFood(id, { stamina: 20 });
   let res = await call("food-status", { server: 1 }, token);
   assert.equal(res.data.food.speedMult, 0.714);
   // Peckish: 0.85 * 1.02 = 0.867.
-  setFood(id, { hunger: 29, stamina: 20 });
+  setDaily(id, { hunger: 29 });
+  setFood(id, { stamina: 20 });
   res = await call("food-status", { server: 1 }, token);
   assert.equal(res.data.food.speedMult, 0.867);
   // Maxed out: 1.10 * 1.10 = 1.21.
-  setFood(id, { hunger: 100, stamina: 100 });
+  setDaily(id, { hunger: 100 });
+  setFood(id, { stamina: 100 });
   res = await call("food-status", { server: 1 }, token);
   assert.equal(res.data.food.speedMult, 1.21);
-  // Decay: 10 minutes of real time costs 3 hunger (1 per 3 min).
-  setFood(id, { hunger: 50, lastTick: Date.now() - 10 * 60 * 1000 });
+  // The server never drains hunger on its own (the client reports the
+  // drain via food-hunger): 10 minutes of real time costs nothing here.
+  setDaily(id, { hunger: 50 });
   res = await call("food-status", { server: 1 }, token);
-  assert.equal(res.data.food.hunger, 47);
+  assert.equal(res.data.food.hunger, 50);
+  // Stamina still decays with idle days: 25h idle at 1 per 12h is -2.
+  const now = Date.now();
+  setFood(id, { stamina: 20, lastWorkout: now - 25 * 60 * 60 * 1000, staminaAt: now - 25 * 60 * 60 * 1000 });
+  res = await call("food-status", { server: 1 }, token);
+  assert.equal(res.data.food.stamina, 18);
 });
 
 test("food state survives a save round-trip inside the missions column", async () => {
   const { id, token } = await newPlayer();
-  setFood(id, { hunger: 33, stamina: 44, pantry: { bread: 3 }, meals: { pizza: 2 } });
+  setDaily(id, { hunger: 33, food: { bread: 3 } });
+  setFood(id, { stamina: 44, meals: { "plaza-pizza": 2 } });
   const save = foodSave(id);
   const raw = JSON.parse(save.missions ? JSON.stringify(save.missions) : "{}");
-  assert.equal(raw.__food.hunger, 33);
-  assert.equal(raw.__food.meals.pizza, 2);
+  const daily = JSON.parse(save.daily ? JSON.stringify(save.daily) : "{}");
+  assert.equal(daily.hunger, 33);
+  assert.equal(daily.food.bread, 3);
+  assert.equal(raw.__food.meals["plaza-pizza"], 2);
+  // Hunger + pantry NO LONGER live in __food (unified model).
+  assert.equal(raw.__food.hunger, undefined);
+  assert.equal(raw.__food.pantry, undefined);
   // Missions still work beside it: the chain reads only its own ids.
   const list = await call("mission-list", { server: 1 }, token);
   assert.equal(list.data.ok, true);

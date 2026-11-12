@@ -24,15 +24,15 @@ function saveFor(playerId, server = 1) {
   return globalThis.__orbitx.saves.get(`${playerId}:${server}`);
 }
 
-test("food-list: 12-item catalog, empty inventory, full hunger for a fresh save", async () => {
+test("food-list: 22-item catalog, empty inventory, full hunger for a fresh save", async () => {
   const { token } = await guest();
   const list = await call("food-list", { server: 1 }, token);
   assert.equal(list.ok, true, list.message);
-  assert.equal(list.catalog.length, 12, "snacks, drinks, meals, groceries");
-  assert.deepEqual(list.food, {});
-  assert.equal(list.hunger, 100);
+  assert.equal(list.catalog.length, 22, "snacks, drinks, meals, groceries + cooking ingredients");
+  assert.deepEqual(list.food.pantry, {});
+  assert.equal(list.food.hunger, 100);
   const ids = list.catalog.map((item) => item.id);
-  for (const id of ["water", "chips", "soda", "burger", "pizza", "salad", "sandwich", "energy-drink", "fruit", "groceries-bag"]) {
+  for (const id of ["water", "chips", "soda", "burger", "pizza", "salad", "sandwich", "energy-drink", "fruit", "groceries-bag", "bread", "egg", "cheese"]) {
     assert.ok(ids.includes(id), `catalog must include ${id}`);
   }
   for (const item of list.catalog) {
@@ -48,13 +48,13 @@ test("food-buy: deducts City Sol, stocks the inventory; food-eat restores hunger
   const bought = await call("food-buy", { id: "burger", server: 1 }, token);
   assert.equal(bought.ok, true, bought.message);
   assert.equal(bought.me.balance, 60000 - 40, "burger is 40 City Sol");
-  assert.deepEqual(bought.food, { burger: 1 });
-  assert.equal(bought.hunger, 100);
+  assert.deepEqual(bought.food.pantry, { burger: 1 });
+  assert.equal(bought.food.hunger, 100);
 
   const two = await call("food-buy", { id: "chips", qty: 2, server: 1 }, token);
   assert.equal(two.ok, true, two.message);
   assert.equal(two.me.balance, 60000 - 40 - 20, "2 chips at 10 each");
-  assert.deepEqual(two.food, { burger: 1, chips: 2 });
+  assert.deepEqual(two.food.pantry, { burger: 1, chips: 2 });
 
   // The inventory survives as JSON (what rowFromSave stores).
   const raw = saveFor(id, 1);
@@ -65,16 +65,16 @@ test("food-buy: deducts City Sol, stocks the inventory; food-eat restores hunger
   raw.daily.hunger = 50;
   const ate = await call("food-eat", { id: "burger", server: 1 }, token);
   assert.equal(ate.ok, true, ate.message);
-  assert.equal(ate.hunger, 85, "burger restores 35");
-  assert.deepEqual(ate.food, { chips: 2 });
+  assert.equal(ate.food.hunger, 85, "burger restores 35");
+  assert.deepEqual(ate.food.pantry, { chips: 2 });
   assert.equal(saveFor(id, 1).daily.hunger, 85);
 
   // Eating caps at 100.
   saveFor(id, 1).daily.hunger = 95;
   const capped = await call("food-eat", { id: "chips", server: 1 }, token);
   assert.equal(capped.ok, true, capped.message);
-  assert.equal(capped.hunger, 100, "chips +10 caps at 100");
-  assert.deepEqual(capped.food, { chips: 1 });
+  assert.equal(capped.food.hunger, 100, "chips +10 caps at 100");
+  assert.deepEqual(capped.food.pantry, { chips: 1 });
 
   // Eating what you do not own is refused; the server never lets hunger
   // fall through an eat.
@@ -109,17 +109,17 @@ test("food-hunger: the drain report only ever lowers hunger, and clamps", async 
   await call("food-buy", { id: "water", server: 1 }, token);
   const down = await call("food-hunger", { hunger: 97, server: 1 }, token);
   assert.equal(down.ok, true, down.message);
-  assert.equal(down.hunger, 97);
+  assert.equal(down.food.hunger, 97);
   assert.equal(saveFor(id, 1).daily.hunger, 97);
 
   // A higher report (stale client / a tab that just ate) is ignored.
   const up = await call("food-hunger", { hunger: 100, server: 1 }, token);
   assert.equal(up.ok, true);
-  assert.equal(up.hunger, 97, "hunger only falls through food-hunger");
+  assert.equal(up.food.hunger, 97, "hunger only falls through food-hunger");
 
   const clamped = await call("food-hunger", { hunger: -40, server: 1 }, token);
   assert.equal(clamped.ok, true);
-  assert.equal(clamped.hunger, 0, "clamped to 0, never negative");
+  assert.equal(clamped.food.hunger, 0, "clamped to 0, never negative");
 });
 
 test("food survives the daily rollover and stays per-server", async () => {
@@ -132,13 +132,13 @@ test("food survives the daily rollover and stays per-server", async () => {
   saveFor(id, 1).daily.day = "2000-01-01";
   const list = await call("food-list", { server: 1 }, token);
   assert.equal(list.ok, true, list.message);
-  assert.deepEqual(list.food, { pizza: 1 }, "a new day must not wipe the food");
-  assert.equal(list.hunger, 42, "a new day must not reset hunger");
+  assert.deepEqual(list.food.pantry, { pizza: 1 }, "a new day must not wipe the food");
+  assert.equal(list.food.hunger, 42, "a new day must not reset hunger");
   assert.equal(list.me.daily.claimed, false, "the daily quest blob itself still resets");
 
   // Server 2 is a different save: no food, full hunger.
   const other = await call("food-list", { server: 2 }, token);
   assert.equal(other.ok, true, other.message);
-  assert.deepEqual(other.food, {});
-  assert.equal(other.hunger, 100);
+  assert.deepEqual(other.food.pantry, {});
+  assert.equal(other.food.hunger, 100);
 });

@@ -678,9 +678,9 @@ export interface Recipe {
   blurb: string;
 }
 export const RECIPES: Recipe[] = [
-  { id: "burger", name: "City Burger", needs: [["bread", 1], ["patty", 1]], hunger: 40, stamina: 0, blurb: "Bread + patty. The plaza classic." },
-  { id: "pizza", name: "Plaza Pizza", needs: [["dough", 1], ["cheese", 1]], hunger: 45, stamina: 0, blurb: "Dough + cheese. Half the city runs on it." },
-  { id: "salad", name: "Sunset Salad", needs: [["greens", 1], ["dressing", 1]], hunger: 35, stamina: 1, blurb: "Greens + dressing. Light, and +1 stamina." },
+  { id: "city-burger", name: "City Burger", needs: [["bread", 1], ["patty", 1]], hunger: 40, stamina: 0, blurb: "Bread + patty. The plaza classic." },
+  { id: "plaza-pizza", name: "Plaza Pizza", needs: [["dough", 1], ["cheese", 1]], hunger: 45, stamina: 0, blurb: "Dough + cheese. Half the city runs on it." },
+  { id: "sunset-salad", name: "Sunset Salad", needs: [["greens", 1], ["dressing", 1]], hunger: 35, stamina: 1, blurb: "Greens + dressing. Light, and +1 stamina." },
   { id: "fries", name: "Harbor Fries", needs: [["potato", 1]], hunger: 20, stamina: 0, blurb: "One potato. The quick snack that still counts as cooking." },
   { id: "omelette", name: "Sunrise Omelette", needs: [["egg", 1], ["cheese", 1]], hunger: 30, stamina: 1, blurb: "Egg + cheese. Breakfast for a long shift." },
 ];

@@ -452,6 +452,27 @@ const SHOP_CATALOG: ShopCatalogItem[] = [
   { id: "clothes-sunglasses", kind: "clothes", name: "Sunglasses", value: "sunglasses", price: 50, slot: "glasses" },
 ];
 
+// Home furniture catalog (Edit Home) — mirrors api/city.js
+// FURNITURE_CATALOG, the server is the price authority; prices must match.
+// Bought in the Shop panel, placed in Edit Home inside a home you own.
+// City Sol only, no burn.
+export const FURNITURE_CATALOG: { id: string; name: string; price: number }[] = [
+  { id: "tv", name: "OrbitX TV", price: 450 },
+  { id: "couch", name: "Sofa", price: 600 },
+  { id: "bed", name: "Double Bed", price: 750 },
+  { id: "dining-table", name: "Dining Table", price: 320 },
+  { id: "chair", name: "Chair", price: 120 },
+  { id: "lamp", name: "Floor Lamp", price: 90 },
+  { id: "rug", name: "Rug", price: 150 },
+  { id: "shelf", name: "Shelf", price: 260 },
+  { id: "plant", name: "Potted Plant", price: 80 },
+  { id: "kitchen", name: "Kitchen Set", price: 800 },
+  { id: "desk", name: "Desk", price: 340 },
+  { id: "armchair", name: "Armchair", price: 290 },
+  { id: "coffee-table", name: "Coffee Table", price: 210 },
+  { id: "tv-stand", name: "TV Stand", price: 180 },
+];
+
 export function furnitureName(id: string): string {
   return FURNITURE_CATALOG.find((item) => item.id === id)?.name || id;
 }
@@ -2336,9 +2357,6 @@ export function createRuntime(scene: Scene) {
       buskReadyAt,
       photosToday: [...photosToday],
       photoMsg,
-      food: { ...food, pantry: { ...food.pantry }, meals: { ...food.meals } },
-      foodMsg,
-      foodLoaded,
       foodPlace,
       trail,
       vehicles: [...localVehicles],
@@ -4191,7 +4209,6 @@ export function createRuntime(scene: Scene) {
   // so it must never overwrite the live meter — only food-list and
   // the food op responses adopt server values).
   const HUNGER_DRAIN_SECONDS = 150;
-  const HUNGER_EMPTY_SPEED = 0.6;
   const FOOD_KEY = "orbitx-demo-food-v1";
   let foodCatalog: FoodCatalogItem[] = FOOD_CATALOG;
   let foodInv: Record<string, number> = {};
