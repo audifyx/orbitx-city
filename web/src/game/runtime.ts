@@ -1637,7 +1637,8 @@ export function createRuntime(scene: Scene) {
       furnitureOwned = Array.isArray(me.homes.furnitureOwned) ? [...me.homes.furnitureOwned] : [];
       const nextPlaced = me.homes.furniture && typeof me.homes.furniture === "object" ? { ...me.homes.furniture } : {};
       homeFurniture = carrying ? { ...nextPlaced, [decorHomeId]: homeFurniture[decorHomeId] || [] } : nextPlaced;
-      if (carrying && !(homeFurniture[decorHomeId] || []).some((piece) => piece.id === carrying.id)) {
+      const carried = carrying;
+      if (carried && !(homeFurniture[decorHomeId] || []).some((piece) => piece.id === carried.id)) {
         // The server saved the drop while we were mid-move — drop the
         // carry instead of duplicating the piece.
         carrying = null;

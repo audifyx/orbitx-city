@@ -271,7 +271,7 @@ export function pushCol(
  */
 export function pushWallColliders(
   city: City,
-  x0: number, z0: number, w: number, d: number, h: number, door: Face,
+  x0: number, z0: number, w: number, d: number, h: number, _door: Face,
 ): void {
   const t = 0.6;
   const midY = h / 2;

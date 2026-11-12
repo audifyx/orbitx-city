@@ -390,7 +390,7 @@ function wallBox(cols: Collider[], x0: number, y0: number, z0: number, x1: numbe
   cols.push({ minX: x0, maxX: x1, minY: y0, maxY: y1, minZ: z0, maxZ: z1 });
 }
 
-function addWallCols(cols: Collider[], x0: number, y0: number, z0: number, w: number, h: number, d: number, door: Face) {
+function addWallCols(cols: Collider[], x0: number, y0: number, z0: number, w: number, h: number, d: number, _door: Face) {
   // Closed real doors (2026-11-12): every wall is solid, INCLUDING the
   // door face. The door is a solid panel (addDoorPanel, in shellOpen), not
   // a walk-through gap — the player walks up and presses E at the anchor
@@ -658,7 +658,8 @@ function addTower(boxes: Box[], cols: Collider[]): { top: number; zone: Zone; an
   // interiors audit — the Tower was the one solid/empty building left).
   // The door is on the porch face ("s", z = SOUTH). Upper tiers stay
   // sealed shells, as before.
-  y = shellOpen(
+  y = t0.h;
+  shellOpen(
     boxes,
     cols,
     x0,
