@@ -69,6 +69,7 @@ import { allLooks, clothesFromOwned, dressPerson, loadLooks, lookById, lookName,
 import { GOLD, MATERIALS } from "./materials";
 import { accountToken, readAccount } from "../auth";
 import { world, type CityMe } from "./world";
+import { wardrobeFromOwned, setEquippedOwned, removeFitOwned, encodeFitEntry, WARDROBE_CATALOG, WARDROBE_KINDS, type SavedFit, type WardrobeKind, type WardrobeSlots } from "./wardrobe";
 import {
   accumulateWear,
   buildVehicle,
@@ -152,7 +153,7 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "voice";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice";
 export interface PersonCard {
   id: string;
   name: string;
@@ -224,16 +225,21 @@ export interface MissionCard {
 }
 
 // Shop catalog item — same shape as content.ts ShopItem, plus the "trail"
-// kind the server sells (a glowing ring under the avatar) and the
+// kind the server sells (a glowing ring under the avatar), the
 // "clothes" kind (shirts, pants, shoes, outfits, glasses — see
-// avatar.ts; `slot` is the clothes slot the item fills).
+// avatar.ts; `slot` is the clothes slot the item fills) and the wardrobe
+// kinds (outfit/shoes/chain/watch/glasses/hair) from wardrobe.ts. The
+// canonical catalog lives in SHOP_CATALOG below (fix-client); it mirrors
+// api/city.js CATALOG, which is the price authority. Wardrobe items carry
+// a `store` (thrift/street/designer); the classics carry "shop".
 export interface ShopCatalogItem {
   id: string;
-  kind: "color" | "car" | "hat" | "trail" | "clothes";
+  kind: "color" | "car" | "hat" | "trail" | "clothes" | "outfit" | "shoes" | "chain" | "watch" | "glasses" | "hair";
   name: string;
   value: string;
   price: number;
   slot?: "shirt" | "pants" | "shoes" | "outfit" | "glasses";
+  store?: "shop" | "thrift" | "street" | "designer";
 }
 
 export type ActiveRental = { id: string; color: string; days: number; daysLeft: number; expiresAt: number };
@@ -249,6 +255,9 @@ export interface Snap {
   carFlying: boolean;
   /** Riding a skateboard (pushToGo) — the Gas button relabels to Push. */
   ridingBoard: boolean;
+  /** Equipped wardrobe slots + saved fits, parsed from wallet.owned. */
+  wardrobe: WardrobeSlots;
+  fits: SavedFit[];
   indoors: string;
   prompt: string;
   balance: number;
@@ -467,7 +476,16 @@ const SHOP_CATALOG: ShopCatalogItem[] = [
   { id: "clothes-dress-red", kind: "clothes", name: "Red dress", value: "dress-red", price: 150, slot: "outfit" },
   { id: "clothes-tracksuit-gold", kind: "clothes", name: "Gold tracksuit", value: "tracksuit-gold", price: 100, slot: "outfit" },
   { id: "clothes-sunglasses", kind: "clothes", name: "Sunglasses", value: "sunglasses", price: 50, slot: "glasses" },
-];
+  // Wardrobe (style theme) — client mirror of api/city.js CATALOG; the
+  // server is the price authority. Store drives the shop-panel sections.
+  ...WARDROBE_CATALOG.map((item) => ({
+    id: item.id,
+    kind: item.kind,
+    name: item.name,
+    value: item.value,
+    price: item.price,
+    store: item.store,
+  })),];
 
 // Home furniture catalog (Edit Home) — mirrors api/city.js
 // FURNITURE_CATALOG, the server is the price authority; prices must match.
@@ -2325,6 +2343,7 @@ export function createRuntime(scene: Scene) {
   }
 
   function publish() {
+    const wardrobe = wardrobeFromOwned(wallet.owned);
     const snap: Snap = {
       playing,
       touch,
@@ -2338,6 +2357,8 @@ export function createRuntime(scene: Scene) {
       balance: wallet.balance,
       burned: wallet.burned,
       owned: [...wallet.owned],
+      wardrobe,
+      fits: wardrobe.fits,
       color: wallet.color,
       hat: wallet.hat,
       car: wallet.car,
@@ -5334,7 +5355,16 @@ export function createRuntime(scene: Scene) {
     const key = `${id}|${color}|${hat}|${clothesKey}|${trust ? wallet.owned.join(",") : ""}|${looksReady()}`;
     if (dressed.get(group) === key) return;
     dressed.set(group, key);
-    dressPerson(group, lookById(id), { color, hat, owned: trust ? wallet.owned : [], trustOwned: trust, clothes: worn });
+    // Remotes carry no wardrobe in their net state — only the local
+    // player (trust) renders wardrobe pieces.
+    dressPerson(group, lookById(id), {
+      color,
+      hat,
+      owned: trust ? wallet.owned : [],
+      trustOwned: trust,
+      clothes: worn,
+      wardrobe: trust ? wardrobeFromOwned(wallet.owned) : undefined,
+    });
     // Shop hats visor / tophat / headphones have no branch in avatar.ts
     // dressPerson, so the player (and remotes) would render no hat at all
     // for them — addHat renders them here instead. Beanie already has a
@@ -7013,6 +7043,12 @@ export function createRuntime(scene: Scene) {
       wallet.car = item.value;
       if (carIndex >= 0) retint(cars[carIndex].group, item.value);
     }
+    // Wardrobe piece: equip = set the eq:<kind>:<value> entry in owned
+    // (one per slot; the server did the same on the online path, this is
+    // idempotent there and is the offline path's equip).
+    if ((WARDROBE_KINDS as string[]).includes(item.kind)) {
+      wallet.owned = setEquippedOwned(wallet.owned, item.kind as WardrobeKind, item.value);
+    }
     saveWallet(wallet);
     if (localBody) dressed.delete(localBody);
   }
@@ -7076,6 +7112,103 @@ export function createRuntime(scene: Scene) {
     publish();
     say("Taken off.");
     return "Taken off.";
+  }
+
+  // --- Wardrobe fits --------------------------------------------------------
+  // Save / wear / delete a named fit. Online: the server owns the ops
+  // (same pattern as buy()). Offline: the same helpers run against the
+  // local wallet (localStorage) so fits work without a universe.
+  async function saveFit(name: string) {
+    const clean = name.trim().slice(0, 24);
+    if (!clean) return "Name your fit first.";
+    if (world.online) {
+      try {
+        const data = await world.saveFit(clean);
+        applyMe();
+        publish();
+        say(String(data.message || "Saved."));
+        return String(data.message || "Saved.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused that fit.";
+        say(message);
+        return message;
+      }
+    }
+    const wardrobe = wardrobeFromOwned(wallet.owned);
+    if (!WARDROBE_KINDS.some((kind) => wardrobe[kind])) return "Wear something first — a fit needs at least one wardrobe piece.";
+    if (wardrobe.fits.length >= 8 && !wardrobe.fits.some((fit) => fit.name === clean)) {
+      return "You already have 8 saved fits — delete one first.";
+    }
+    wallet.owned = removeFitOwned(wallet.owned, clean);
+    wallet.owned.push(encodeFitEntry(clean, wardrobe));
+    saveWallet(wallet);
+    if (localBody) dressed.delete(localBody);
+    publish();
+    say(`Saved fit "${clean}".`);
+    return `Saved fit "${clean}".`;
+  }
+
+  async function wearFit(name: string) {
+    const clean = name.trim().slice(0, 24);
+    if (!clean) return "Pick a fit first.";
+    if (world.online) {
+      try {
+        const data = await world.wearFit(clean);
+        applyMe();
+        if (localBody) dressed.delete(localBody);
+        publish();
+        say(String(data.message || "Wearing it."));
+        return String(data.message || "Wearing it.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused that fit.";
+        say(message);
+        return message;
+      }
+    }
+    const wardrobe = wardrobeFromOwned(wallet.owned);
+    const fit = wardrobe.fits.find((item) => item.name === clean);
+    if (!fit) return "No saved fit by that name.";
+    let worn = 0;
+    for (const kind of WARDROBE_KINDS) {
+      const value = fit[kind];
+      if (!value || !wallet.owned.includes(`${kind}-${value}`)) continue;
+      wallet.owned = setEquippedOwned(wallet.owned, kind, value);
+      worn += 1;
+    }
+    if (!worn) return "You don't own any piece of that fit anymore.";
+    saveWallet(wallet);
+    if (localBody) dressed.delete(localBody);
+    publish();
+    say(`Wearing "${clean}".`);
+    return `Wearing "${clean}".`;
+  }
+
+  async function deleteFit(name: string) {
+    const clean = name.trim().slice(0, 24);
+    if (!clean) return "Pick a fit first.";
+    if (world.online) {
+      try {
+        const data = await world.deleteFit(clean);
+        applyMe();
+        publish();
+        say(String(data.message || "Deleted."));
+        return String(data.message || "Deleted.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused that.";
+        say(message);
+        return message;
+      }
+    }
+    wallet.owned = removeFitOwned(wallet.owned, clean);
+    saveWallet(wallet);
+    publish();
+    say(`Deleted fit "${clean}".`);
+    return `Deleted fit "${clean}".`;
+  }
+
+  function openWardrobe() {
+    panel = "wardrobe";
+    publish();
   }
 
   return {
@@ -7169,7 +7302,10 @@ export function createRuntime(scene: Scene) {
     eatBestFood,
     equipClothes,
     unequipClothes,
-    book(id: string, days: number, text: string) {
+    saveFit,
+    wearFit,
+    deleteFit,
+    openWardrobe,    book(id: string, days: number, text: string) {
       return book(id, days, wallet.name || "Demo project", text || "NEW CAMPAIGN");
     },
     quoteAd,

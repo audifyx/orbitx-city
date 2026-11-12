@@ -236,6 +236,8 @@ const EMPTY: Snap = {
   balance: 0,
   burned: 0,
   owned: [],
+  wardrobe: { outfit: "", shoes: "", chain: "", watch: "", glasses: "", hair: "" },
+  fits: [],
   color: "white",
   hat: "none",
   car: "black",

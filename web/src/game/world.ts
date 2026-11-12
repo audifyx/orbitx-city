@@ -12,6 +12,7 @@ import {
   type NoteCard,
   type RaceCard,
 } from "./life";
+import type { WardrobeState } from "./wardrobe";
 
 export interface CityPerson {
   id: string;
@@ -44,8 +45,9 @@ export interface CityMe {
   car: string;
   // Clothes worn right now, per slot — the client renders them from
   // this (authoritative) or from the `worn:` markers in `owned`.
-  clothes?: Record<string, string>;
-  // GTA expansion — per-(player, universe) save fields (server agent owns
+  clothes?: Record<string, string>;  // Wardrobe (style theme): equipped slots + saved fits, parsed by the
+  // server from the owned array (mirrors wardrobeFromOwned).
+  wardrobe?: WardrobeState;  // GTA expansion — per-(player, universe) save fields (server agent owns
   // the ops; the client only mirrors what the server returns).
   vehicles?: OwnedVehicle[];
   activeVehicle?: string | null;
@@ -312,9 +314,21 @@ class CityWorld {
     return data;
   }
 
+  // Wardrobe fits — mirror spend(): the server owns the ops, the client
+  // only mirrors the returned me.
+  async saveFit(name: string) {
+    const data = await this.call("save-fit", { name });    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
   async furnitureSave(home: string, furniture: { id: string; item: string; x: number; z: number; rot: number }[], server: number) {
     const data = await this.call("furniture-save", { home, furniture, server });
     if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async wearFit(name: string) {
+    const data = await this.call("wear-fit", { name });    if (data.me) this.me = data.me as CityMe;
     return data;
   }
 
@@ -329,6 +343,11 @@ class CityWorld {
   async clothes(slot: string, id: string) {
     const data = await this.call("clothes", { slot, id });
     if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async deleteFit(name: string) {
+    const data = await this.call("delete-fit", { name });    if (data.me) this.me = data.me as CityMe;
     return data;
   }
 
