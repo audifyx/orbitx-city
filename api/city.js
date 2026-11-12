@@ -62,6 +62,11 @@ const JOBS = {
   bus: 80,
   fire: 75,
   doctor: 70,
+  // Emergency-services jobs (emergency.ts EMERGENCY_JOBS): cop and
+  // paramedic go through the existing job-start / earn ops, so the
+  // JOB_MS floor and scaledPay streak scaling apply unchanged.
+  cop: 85,
+  paramedic: 80,
   teacher: 60,
   // Mini-games pay through the same earn op (job-start then earn, same
   // JOB_MS floor): the client only ever starts one of these while no job
@@ -137,6 +142,558 @@ function officeTermLabel(termDays) {
   return termDays === 1 ? "1 day" : termDays === 7 ? "7 days" : "30 days";
 }
 
+// --- Universes (multiverse) ----------------------------------------------
+// Fixed list of 5 universes, same world in each. Progress lives per
+// (player, universe) in player_saves — never shared across universes.
+const SERVERS = [1, 2, 3, 4, 5];
+const MULTIVERSE_CAP = 150;
+const MULTIVERSE_HEARTBEAT_MS = 5 * 60 * 1000;
+
+function isServerId(n) {
+  return Number.isInteger(n) && n >= 1 && n <= 5;
+}
+
+function parseServerId(value) {
+  const n = Number(value);
+  return isServerId(n) ? n : null;
+}
+
+// --- State + district office catalogs ------------------------------------
+// State towers (states.ts stateOfficeSuites): 12 suites per state,
+// floors 2-4 x A-D, floor 4 premium. Same City Sol lease prices as the HQ,
+// so they join the OFFICES table and the HQ office-claim / office-status
+// ops read them too (Founder's Office rule stays: office-f4-founder is
+// never for sale; state towers have no founder suite).
+const STATE_IDS = ["ny", "la", "fl"];
+const STATE_OFFICES = [];
+for (const state of STATE_IDS) {
+  for (const floor of [2, 3, 4]) {
+    for (const letter of ["a", "b", "c", "d"]) {
+      STATE_OFFICES.push({
+        id: `office-${state}-f${floor}-${letter}`,
+        name: `Suite ${floor}${letter.toUpperCase()}`,
+        floor,
+        tier: floor === 4 ? "premium" : "standard",
+        claimable: true,
+        state,
+      });
+    }
+  }
+}
+OFFICES.push(...STATE_OFFICES);
+
+// District towers (emergency.ts districtOfficeSuites): 25 suites per
+// district — 24 claimable + the district Founder's Office, never for
+// sale. These stay OUT of OFFICES: they go through the
+// district-office-* ops and their own directory. Same City Sol prices.
+const DISTRICT_IDS = ["harbor", "north", "east", "west"];
+const DISTRICT_LETTERS = ["a", "b", "c", "d", "e", "f", "g", "h"];
+const DISTRICT_OFFICES = [];
+for (const district of DISTRICT_IDS) {
+  for (const floor of [2, 3]) {
+    for (const letter of DISTRICT_LETTERS) {
+      DISTRICT_OFFICES.push({
+        id: `office-${district}-f${floor}-${letter}`,
+        name: `Suite ${floor}${letter.toUpperCase()}`,
+        floor,
+        tier: "standard",
+        claimable: true,
+        district,
+      });
+    }
+  }
+  DISTRICT_OFFICES.push({
+    id: `office-${district}-f4-founder`,
+    name: "Founder's Office",
+    floor: 4,
+    tier: "founder",
+    claimable: false,
+    district,
+  });
+  for (const letter of DISTRICT_LETTERS) {
+    DISTRICT_OFFICES.push({
+      id: `office-${district}-f4-${letter}`,
+      name: `Suite 4${letter.toUpperCase()}`,
+      floor: 4,
+      tier: "premium",
+      claimable: true,
+      district,
+    });
+  }
+}
+
+// --- Vehicle catalog (vehicles.ts VEHICLES, mirrored) ---------------------
+// api/city.js is plain JS and cannot import the TS catalog, so the price
+// list is duplicated here deliberately — the server is the price
+// authority; a client-sent price is never trusted. Regenerate from
+// vehicles.ts whenever the catalog changes (prices must match VEHICLES).
+const VEHICLE_PRICES = {
+  "city-compact": 220,
+  "city-sedan": 450,
+  "city-suv": 900,
+  "city-sports": 2800,
+  "city-muscle": 2400,
+  "city-truck": 1400,
+  "city-van": 1100,
+  "city-limo": 5200,
+  "city-roadster": 1800,
+  "tesla-model-3": 1600,
+  "tesla-model-y": 1900,
+  "tesla-model-s": 3600,
+  "tesla-model-x": 4200,
+  "tesla-cybertruck": 5200,
+  "tesla-cybercab": 4800,
+  "tesla-roadster": 20000,
+  "fly-skyhopper": 6000,
+  "fly-aero": 9500,
+  "fly-starlifter": 12000,
+  "bike-street": 700,
+  "bike-sport": 3200,
+  "bike-cruiser": 1800,
+  "bike-dirt": 1200,
+  "atv-trail": 1500,
+  "atv-quad": 2600,
+  "board-street": 150,
+  "board-long": 350
+};
+
+const VEHICLE_COLORS = {
+  "city-compact": [
+    "white",
+    "black",
+    "silver",
+    "red",
+    "blue",
+    "cyan",
+    "gold",
+    "green",
+    "pink"
+  ],
+  "city-sedan": [
+    "white",
+    "black",
+    "silver",
+    "red",
+    "blue",
+    "cyan",
+    "gold"
+  ],
+  "city-suv": [
+    "white",
+    "black",
+    "silver",
+    "red",
+    "blue",
+    "cyan",
+    "gold",
+    "green",
+    "orange"
+  ],
+  "city-sports": [
+    "red",
+    "black",
+    "gold",
+    "cyan",
+    "purple",
+    "white"
+  ],
+  "city-muscle": [
+    "red",
+    "black",
+    "orange",
+    "gold",
+    "blue",
+    "crimson"
+  ],
+  "city-truck": [
+    "white",
+    "black",
+    "silver",
+    "red",
+    "blue",
+    "cyan",
+    "gold",
+    "orange",
+    "green"
+  ],
+  "city-van": [
+    "white",
+    "black",
+    "cyan",
+    "gold",
+    "blue"
+  ],
+  "city-limo": [
+    "black",
+    "white",
+    "gold",
+    "silver"
+  ],
+  "city-roadster": [
+    "sunset",
+    "red",
+    "gold",
+    "cyan",
+    "white",
+    "black"
+  ],
+  "tesla-model-3": [
+    "pearl",
+    "midnight",
+    "quicksilver",
+    "stealth",
+    "crimson",
+    "red",
+    "blue",
+    "white",
+    "black"
+  ],
+  "tesla-model-y": [
+    "pearl",
+    "midnight",
+    "quicksilver",
+    "stealth",
+    "crimson",
+    "red",
+    "blue",
+    "white",
+    "black"
+  ],
+  "tesla-model-s": [
+    "pearl",
+    "midnight",
+    "quicksilver",
+    "stealth",
+    "crimson",
+    "red",
+    "blue",
+    "white",
+    "black"
+  ],
+  "tesla-model-x": [
+    "pearl",
+    "midnight",
+    "quicksilver",
+    "stealth",
+    "crimson",
+    "red",
+    "blue",
+    "white",
+    "black"
+  ],
+  "tesla-cybertruck": [
+    "silver",
+    "stealth",
+    "black",
+    "white"
+  ],
+  "tesla-cybercab": [
+    "gold",
+    "silver",
+    "black",
+    "white"
+  ],
+  "tesla-roadster": [
+    "crimson",
+    "black",
+    "pearl",
+    "silver",
+    "red"
+  ],
+  "fly-skyhopper": [
+    "cyan",
+    "white",
+    "silver",
+    "gold",
+    "blue"
+  ],
+  "fly-aero": [
+    "silver",
+    "black",
+    "red",
+    "cyan",
+    "purple"
+  ],
+  "fly-starlifter": [
+    "gold",
+    "white",
+    "black",
+    "cyan"
+  ],
+  "bike-street": [
+    "red",
+    "black",
+    "cyan",
+    "gold",
+    "blue"
+  ],
+  "bike-sport": [
+    "blue",
+    "red",
+    "black",
+    "lime",
+    "white"
+  ],
+  "bike-cruiser": [
+    "black",
+    "crimson",
+    "silver",
+    "gold"
+  ],
+  "bike-dirt": [
+    "orange",
+    "lime",
+    "red",
+    "blue",
+    "white"
+  ],
+  "atv-trail": [
+    "green",
+    "red",
+    "black",
+    "orange",
+    "cyan"
+  ],
+  "atv-quad": [
+    "orange",
+    "black",
+    "red",
+    "lime",
+    "blue"
+  ],
+  "board-street": [
+    "black",
+    "red",
+    "cyan",
+    "gold",
+    "purple"
+  ],
+  "board-long": [
+    "sunset",
+    "cyan",
+    "lime",
+    "black",
+    "pink"
+  ]
+};
+
+const VEHICLE_DEFAULT_COLORS = {
+  "city-compact": "cyan",
+  "city-sedan": "black",
+  "city-suv": "white",
+  "city-sports": "red",
+  "city-muscle": "crimson",
+  "city-truck": "blue",
+  "city-van": "white",
+  "city-limo": "black",
+  "city-roadster": "sunset",
+  "tesla-model-3": "pearl",
+  "tesla-model-y": "quicksilver",
+  "tesla-model-s": "midnight",
+  "tesla-model-x": "stealth",
+  "tesla-cybertruck": "silver",
+  "tesla-cybercab": "gold",
+  "tesla-roadster": "crimson",
+  "fly-skyhopper": "cyan",
+  "fly-aero": "silver",
+  "fly-starlifter": "gold",
+  "bike-street": "red",
+  "bike-sport": "blue",
+  "bike-cruiser": "black",
+  "bike-dirt": "orange",
+  "atv-trail": "green",
+  "atv-quad": "orange",
+  "board-street": "black",
+  "board-long": "sunset"
+};
+
+const VEHICLE_NAMES = {
+  "city-compact": "Orbit Compact",
+  "city-sedan": "Orbit Sedan",
+  "city-suv": "Orbit Ridge SUV",
+  "city-sports": "Orbit Falcon GT",
+  "city-muscle": "Orbit Thunder V8",
+  "city-truck": "Orbit Hauler",
+  "city-van": "Orbit Metro Van",
+  "city-limo": "Orbit Grand Limo",
+  "city-roadster": "Orbit Sunset Roadster",
+  "tesla-model-3": "Tesla Model 3",
+  "tesla-model-y": "Tesla Model Y",
+  "tesla-model-s": "Tesla Model S",
+  "tesla-model-x": "Tesla Model X",
+  "tesla-cybertruck": "Tesla Cybertruck",
+  "tesla-cybercab": "Tesla Cybercab",
+  "tesla-roadster": "Tesla Roadster (2026)",
+  "fly-skyhopper": "Skyhopper",
+  "fly-aero": "Aero Coupe",
+  "fly-starlifter": "Orbit Starlifter",
+  "bike-street": "Street Comet 250",
+  "bike-sport": "Apex R1 Sportbike",
+  "bike-cruiser": "Highway King Cruiser",
+  "bike-dirt": "Trailblazer Dirt Bike",
+  "atv-trail": "Trail Boss ATV",
+  "atv-quad": "Mud King 4x4",
+  "board-street": "Orbit Deck",
+  "board-long": "Cruiser Longboard"
+};
+
+// --- Home catalog (homes.ts HOMES, mirrored) ------------------------------
+// Same rule as vehicles: duplicated from the TS catalog, server is the
+// authority. Regenerate from homes.ts whenever the catalog changes
+// (seed 1 is canonical; prices must match HOMES).
+const HOME_PRICES = {
+  "home-ny-01": 2300,
+  "home-ny-02": 2090,
+  "home-ny-03": 2990,
+  "home-ny-04": 2260,
+  "home-ny-05": 2400,
+  "home-ny-06": 2820,
+  "home-ny-07": 2540,
+  "home-ny-08": 2050,
+  "home-ny-09": 2760,
+  "home-ny-10": 2210,
+  "home-ny-11": 2090,
+  "home-ny-12": 2990,
+  "home-ny-13": 2490,
+  "home-ny-14": 3680,
+  "home-ny-15": 5800,
+  "home-ny-16": 4060,
+  "home-ny-17": 3600,
+  "home-ny-18": 5110,
+  "home-ny-19": 3890,
+  "home-ny-20": 3750,
+  "home-ny-21": 5160,
+  "home-ny-22": 4560,
+  "home-ny-23": 4220,
+  "home-ny-24": 5700,
+  "home-ny-25": 4600,
+  "home-ny-26": 3750,
+  "home-ny-27": 3390,
+  "home-ny-28": 2670,
+  "home-ny-29": 2250,
+  "home-ny-30": 3030,
+  "home-ny-31": 2510,
+  "home-ny-32": 2590,
+  "home-ny-33": 3130,
+  "home-ny-34": 2750,
+  "home-ny-35": 2470,
+  "home-ny-36": 3360,
+  "home-ny-37": 2690,
+  "home-ny-38": 2590,
+  "home-ny-39": 2450,
+  "home-ny-40": 2350,
+  "home-ny-41": 2850,
+  "home-ny-42": 2140,
+  "home-ny-43": 2090,
+  "home-ny-44": 2870,
+  "home-ny-45": 2590,
+  "home-ny-46": 2240,
+  "home-ny-47": 2870,
+  "home-ny-48": 2300,
+  "home-ny-49": 2270,
+  "home-ny-50": 2930,
+  "home-la-01": 2910,
+  "home-la-02": 2510,
+  "home-la-03": 3840,
+  "home-la-04": 2610,
+  "home-la-05": 2720,
+  "home-la-06": 4280,
+  "home-la-07": 2960,
+  "home-la-08": 2530,
+  "home-la-09": 3600,
+  "home-la-10": 2580,
+  "home-la-11": 2590,
+  "home-la-12": 4000,
+  "home-la-13": 2770,
+  "home-la-14": 2180,
+  "home-la-15": 3270,
+  "home-la-16": 2490,
+  "home-la-17": 2050,
+  "home-la-18": 3200,
+  "home-la-19": 2150,
+  "home-la-20": 2000,
+  "home-la-21": 3270,
+  "home-la-22": 2190,
+  "home-la-23": 2270,
+  "home-la-24": 3230,
+  "home-la-25": 2290,
+  "home-la-26": 2310,
+  "home-la-27": 4460,
+  "home-la-28": 3060,
+  "home-la-29": 2950,
+  "home-la-30": 4200,
+  "home-la-31": 2850,
+  "home-la-32": 2570,
+  "home-la-33": 4630,
+  "home-la-34": 3150,
+  "home-la-35": 2890,
+  "home-la-36": 4680,
+  "home-la-37": 3150,
+  "home-la-38": 3060,
+  "home-la-39": 4160,
+  "home-la-40": 3720,
+  "home-la-41": 5350,
+  "home-la-42": 4280,
+  "home-la-43": 3560,
+  "home-la-44": 6120,
+  "home-la-45": 4240,
+  "home-la-46": 4040,
+  "home-la-47": 6060,
+  "home-la-48": 4320,
+  "home-la-49": 3600,
+  "home-la-50": 5820,
+  "home-fl-01": 1290,
+  "home-fl-02": 3040,
+  "home-fl-03": 2590,
+  "home-fl-04": 1250,
+  "home-fl-05": 3560,
+  "home-fl-06": 2530,
+  "home-fl-07": 1250,
+  "home-fl-08": 2970,
+  "home-fl-09": 2610,
+  "home-fl-10": 1420,
+  "home-fl-11": 3270,
+  "home-fl-12": 2720,
+  "home-fl-13": 1300,
+  "home-fl-14": 3310,
+  "home-fl-15": 3090,
+  "home-fl-16": 1390,
+  "home-fl-17": 3680,
+  "home-fl-18": 3000,
+  "home-fl-19": 1620,
+  "home-fl-20": 3420,
+  "home-fl-21": 2760,
+  "home-fl-22": 1500,
+  "home-fl-23": 3570,
+  "home-fl-24": 2730,
+  "home-fl-25": 1600,
+  "home-fl-26": 3750,
+  "home-fl-27": 3780,
+  "home-fl-28": 1740,
+  "home-fl-29": 4900,
+  "home-fl-30": 3780,
+  "home-fl-31": 1720,
+  "home-fl-32": 4490,
+  "home-fl-33": 3780,
+  "home-fl-34": 1680,
+  "home-fl-35": 4270,
+  "home-fl-36": 3270,
+  "home-fl-37": 1770,
+  "home-fl-38": 4490,
+  "home-fl-39": 2590,
+  "home-fl-40": 6060,
+  "home-fl-41": 5350,
+  "home-fl-42": 2290,
+  "home-fl-43": 6310,
+  "home-fl-44": 4850,
+  "home-fl-45": 2340,
+  "home-fl-46": 6430,
+  "home-fl-47": 4950,
+  "home-fl-48": 2240,
+  "home-fl-49": 5640,
+  "home-fl-50": 4900
+};
+
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -183,6 +740,7 @@ function memory() {
       chat: [],
       bookings: new Map(),
       officeClaims: new Map(),
+      saves: new Map(),
       events: [],
       signals: [],
       parties: new Map(),
@@ -268,6 +826,7 @@ async function ensureSchema() {
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS job_streak INTEGER NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS business TEXT NOT NULL DEFAULT '{}'`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS rent TEXT NOT NULL DEFAULT '{}'`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS home_server INTEGER`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS earned INTEGER NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS best_race INTEGER NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS best_hover INTEGER NOT NULL DEFAULT 0`;
@@ -279,13 +838,29 @@ async function ensureSchema() {
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS auth_user TEXT NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT ''`;
+  // Lots are ownable once per universe: (id, server_id) is the key, so
+  // the same lot can be owned on Universe 1 and Universe 2 independently.
+  // Existing rows keep server_id = 1 (bought pre-multiverse).
   await sql`CREATE TABLE IF NOT EXISTS properties (
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL,
+    server_id INTEGER NOT NULL DEFAULT 1,
     owner_id TEXT NOT NULL,
     owner_name TEXT NOT NULL,
-    furniture TEXT NOT NULL
+    furniture TEXT NOT NULL,
+    PRIMARY KEY (id, server_id)
   )`;
   await sql`ALTER TABLE properties ADD COLUMN IF NOT EXISTS brand TEXT NOT NULL DEFAULT '{}'`;
+  await sql`ALTER TABLE properties ADD COLUMN IF NOT EXISTS server_id INTEGER NOT NULL DEFAULT 1`;
+  // Re-key a pre-multiverse properties table (PK was id alone). Best
+  // effort: a Neon that never had the table, or one already keyed, must
+  // not break boot. Supabase is re-keyed by the one-off migration.
+  try {
+    await sql`ALTER TABLE properties DROP CONSTRAINT IF EXISTS properties_pkey`;
+    await sql`ALTER TABLE properties ADD PRIMARY KEY (id, server_id)`;
+  } catch {
+    // Already keyed, or the live table is owned by Supabase — the
+    // in-memory lots still work for this process.
+  }
   await sql`CREATE TABLE IF NOT EXISTS announcements (
     id TEXT PRIMARY KEY,
     text TEXT NOT NULL,
@@ -303,8 +878,12 @@ async function ensureSchema() {
   // suite id is the key), so a suite can hold exactly one active claim.
   // No SOL, no ORBITX, no burn anywhere in this table — buy+burn is
   // ads/banners only.
+  // Office leases are claimable once per universe: (suite, server_id)
+  // is the key. HQ suites and district suites share this one table,
+  // distinguished by suite id prefix. Existing rows keep server_id = 1.
   await sql`CREATE TABLE IF NOT EXISTS office_claims (
-    suite TEXT PRIMARY KEY,
+    suite TEXT NOT NULL,
+    server_id INTEGER NOT NULL DEFAULT 1,
     owner_id TEXT NOT NULL,
     owner_name TEXT NOT NULL,
     project TEXT NOT NULL,
@@ -314,8 +893,52 @@ async function ensureSchema() {
     start TEXT NOT NULL,
     until TEXT NOT NULL,
     price INTEGER NOT NULL,
-    claimed_at TEXT NOT NULL
+    claimed_at TEXT NOT NULL,
+    PRIMARY KEY (suite, server_id)
   )`;
+  await sql`ALTER TABLE office_claims ADD COLUMN IF NOT EXISTS server_id INTEGER NOT NULL DEFAULT 1`;
+  // Re-key a pre-multiverse office_claims table (PK was suite alone).
+  // Best effort, same as properties above.
+  try {
+    await sql`ALTER TABLE office_claims DROP CONSTRAINT IF EXISTS office_claims_pkey`;
+    await sql`ALTER TABLE office_claims ADD PRIMARY KEY (suite, server_id)`;
+  } catch {
+    // Already keyed, or the live table is owned by Supabase.
+  }
+  // One save row per (player, universe). Same columns as the Supabase
+  // player_saves table — progress lives here, keyed by player + server.
+  // Identity (id, token, name, home_server) stays on players.
+  await sql`CREATE TABLE IF NOT EXISTS player_saves (
+    player_id TEXT NOT NULL,
+    server_id INTEGER NOT NULL,
+    balance INTEGER NOT NULL DEFAULT 250,
+    burned INTEGER NOT NULL DEFAULT 0,
+    owned TEXT NOT NULL DEFAULT '[]',
+    color TEXT NOT NULL DEFAULT '',
+    hat TEXT NOT NULL DEFAULT '',
+    car TEXT NOT NULL DEFAULT '',
+    look TEXT NOT NULL DEFAULT 'tjr',
+    job TEXT NOT NULL DEFAULT '{}',
+    job_streak INTEGER NOT NULL DEFAULT 0,
+    business TEXT NOT NULL DEFAULT '{}',
+    rent TEXT NOT NULL DEFAULT '{}',
+    earned INTEGER NOT NULL DEFAULT 0,
+    best_race INTEGER NOT NULL DEFAULT 0,
+    best_hover INTEGER NOT NULL DEFAULT 0,
+    daily TEXT NOT NULL DEFAULT '{}',
+    mission INTEGER NOT NULL DEFAULT 0,
+    mission_at INTEGER NOT NULL DEFAULT 0,
+    homes TEXT NOT NULL DEFAULT '{"homeServer":0,"homes":[]}',
+    vehicles TEXT NOT NULL DEFAULT '[]',
+    active_vehicle TEXT NOT NULL DEFAULT '',
+    last_seen BIGINT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (player_id, server_id)
+  )`;
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS homes TEXT NOT NULL DEFAULT '{"homeServer":0,"homes":[]}'`;
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS vehicles TEXT NOT NULL DEFAULT '[]'`;
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS active_vehicle TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS last_seen BIGINT NOT NULL DEFAULT 0`;
   await sql`CREATE TABLE IF NOT EXISTS events (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -343,6 +966,16 @@ function freshPlayer(id, name) {
     jobStreak: 0,
     business: null,
     rent: {},
+    // Per-server progress lives on the save (player_saves), but the player
+    // object carries the same shape so publicPlayer works for both the
+    // identity row and a save. These are NOT persisted to the players
+    // table — saves are the authority for them.
+    homes: { homeServer: 0, homes: [] },
+    vehicles: [],
+    activeVehicle: null,
+    // Identity-level pointer: the universe where the player made their
+    // home (players.home_server). Null = no home yet; latest home wins.
+    homeServer: null,
     party: "",
     mission: 0,
     missionAt: 0,
@@ -359,6 +992,31 @@ function freshPlayer(id, name) {
     authUser: "",
     address: "",
   };
+}
+
+function sanitizeOwnedHome(home) {
+  // Only the fields the client needs to render an owned home — never
+  // leak anything else from the stored record.
+  return {
+    homeId: String(home?.homeId || ""),
+    server: Number(home?.server || 0),
+    ownerId: String(home?.ownerId || ""),
+    ownerName: String(home?.ownerName || ""),
+    price: Number(home?.price || 0),
+    boughtAt: Number(home?.boughtAt || 0),
+  };
+}
+
+function sanitizeHomes(homes) {
+  const list = Array.isArray(homes?.homes) ? homes.homes : [];
+  return { homeServer: Number(homes?.homeServer || 0), homes: list.map(sanitizeOwnedHome) };
+}
+
+function sanitizeVehicles(vehicles) {
+  if (!Array.isArray(vehicles)) return [];
+  return vehicles
+    .filter((v) => v && typeof v.id === "string")
+    .map((v) => ({ id: v.id, color: String(v.color || "") }));
 }
 
 function publicPlayer(player) {
@@ -380,6 +1038,10 @@ function publicPlayer(player) {
     jobStreak: Number(player.jobStreak || 0),
     business: player.business || null,
     rent: player.rent || {},
+    homeServer: player.homeServer ?? null,
+    homes: sanitizeHomes(player.homes),
+    vehicles: sanitizeVehicles(player.vehicles),
+    activeVehicle: player.activeVehicle || null,
     bestRace: player.bestRace || 0,
     bestHover: player.bestHover || 0,
     holder: !!player.holder,
@@ -397,7 +1059,7 @@ async function savePlayer(player) {
   const client = sb();
   if (client) {
     let { error } = await client.from("players").upsert(rowFromPlayer(player));
-    if (error && /look|earned|best_race|best_hover|daily|wallet|holder|email|avatar|provider|auth_user|address|job_streak|business|rent/i.test(error.message || "")) {
+    if (error && /look|earned|best_race|best_hover|daily|wallet|holder|email|avatar|provider|auth_user|address|job_streak|business|rent|home_server/i.test(error.message || "")) {
       const row = rowFromPlayer(player);
       delete row.look;
       delete row.earned;
@@ -414,6 +1076,7 @@ async function savePlayer(player) {
       delete row.job_streak;
       delete row.business;
       delete row.rent;
+      delete row.home_server;
       const retry = await client.from("players").upsert(row);
       error = retry.error;
     }
@@ -430,8 +1093,8 @@ async function savePlayer(player) {
     const daily = JSON.stringify(player.daily || {});
     const business = JSON.stringify(player.business || null);
     const rent = JSON.stringify(player.rent || {});
-    await sql`INSERT INTO players (id, token, name, balance, burned, owned, color, hat, car, friends, inbox, job, job_streak, business, rent, party, look, earned, best_race, best_hover, daily, wallet, holder, email, avatar, provider, auth_user, address)
-      VALUES (${player.id}, ${player.token}, ${player.name}, ${player.balance}, ${player.burned}, ${owned}, ${player.color}, ${player.hat}, ${player.car}, ${friends}, ${inbox}, ${job}, ${Number(player.jobStreak || 0)}, ${business}, ${rent}, ${player.party}, ${player.look || "tjr"}, ${player.earned || 0}, ${player.bestRace || 0}, ${player.bestHover || 0}, ${daily}, ${player.wallet || ""}, ${!!player.holder}, ${player.email || ""}, ${player.avatar || ""}, ${player.provider || ""}, ${player.authUser || ""}, ${player.address || ""})
+    await sql`INSERT INTO players (id, token, name, balance, burned, owned, color, hat, car, friends, inbox, job, job_streak, business, rent, party, look, earned, best_race, best_hover, daily, wallet, holder, email, avatar, provider, auth_user, address, home_server)
+      VALUES (${player.id}, ${player.token}, ${player.name}, ${player.balance}, ${player.burned}, ${owned}, ${player.color}, ${player.hat}, ${player.car}, ${friends}, ${inbox}, ${job}, ${Number(player.jobStreak || 0)}, ${business}, ${rent}, ${player.party}, ${player.look || "tjr"}, ${player.earned || 0}, ${player.bestRace || 0}, ${player.bestHover || 0}, ${daily}, ${player.wallet || ""}, ${!!player.holder}, ${player.email || ""}, ${player.avatar || ""}, ${player.provider || ""}, ${player.authUser || ""}, ${player.address || ""}, ${player.homeServer ?? null})
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         balance = EXCLUDED.balance,
@@ -458,7 +1121,8 @@ async function savePlayer(player) {
         avatar = EXCLUDED.avatar,
         provider = EXCLUDED.provider,
         auth_user = EXCLUDED.auth_user,
-        address = EXCLUDED.address`;
+        address = EXCLUDED.address,
+        home_server = EXCLUDED.home_server`;
     return;
   }
   const cache = redis();
@@ -470,6 +1134,237 @@ async function savePlayer(player) {
   const store = memory();
   store.players.set(player.id, player);
   store.tokens.set(player.token, player.id);
+}
+
+
+// ---------------------------------------------------------------------------
+// Per-(player, universe) saves — the multiverse save model.
+//
+// Progress (balance, homes, cars, offices, jobs) lives ONE ROW PER
+// (player, universe) in player_saves. Identity (id, token, name,
+// home_server) stays on players. A save is a player-shaped object with
+// serverId / lastSeen added; it is read from the DB on EVERY op — never
+// served from a per-instance in-memory copy — or the HQ staleness bug
+// comes back per-universe. Memory / Redis are only the last-resort
+// tiers when neither Supabase nor Neon is configured, exactly like
+// playerById / savePlayer.
+// ---------------------------------------------------------------------------
+
+function freshSave(player, serverId) {
+  const save = freshPlayer(player.id, player.name);
+  save.token = "";
+  save.serverId = serverId;
+  save.server = serverId;
+  save.playerId = player.id;
+  save.lastSeen = 0;
+  return save;
+}
+
+function parseSave(row) {
+  const id = row.player_id || row.playerId || row.id || "";
+  const save = freshPlayer(id, "");
+  save.token = "";
+  save.serverId = Number(row.server_id ?? row.serverId ?? row.server ?? 0);
+  save.server = save.serverId;
+  save.playerId = row.player_id || row.playerId || id;
+  save.balance = Number(row.balance ?? START_BALANCE);
+  save.burned = Number(row.burned || 0);
+  save.owned = typeof row.owned === "string" ? JSON.parse(row.owned || "[]") : row.owned || [];
+  save.color = row.color || "";
+  save.hat = row.hat || "";
+  save.car = row.car || "";
+  save.look = row.look || "tjr";
+  save.job = typeof row.job === "string" ? JSON.parse(row.job || "null") : row.job || null;
+  save.jobStreak = Number(row.job_streak ?? row.jobStreak ?? 0);
+  save.business = typeof row.business === "string" ? JSON.parse(row.business || "null") : row.business || null;
+  save.rent = typeof row.rent === "string" ? JSON.parse(row.rent || "{}") : row.rent || {};
+  save.earned = Number(row.earned || 0);
+  save.bestRace = Number(row.best_race ?? row.bestRace ?? 0);
+  save.bestHover = Number(row.best_hover ?? row.bestHover ?? 0);
+  save.daily = typeof row.daily === "string" ? JSON.parse(row.daily || "null") : row.daily || null;
+  save.mission = Number(row.mission || 0);
+  save.missionAt = Number(row.mission_at ?? row.missionAt ?? 0);
+  save.homes = typeof row.homes === "string" ? JSON.parse(row.homes || '{"homeServer":0,"homes":[]}') : row.homes || { homeServer: 0, homes: [] };
+  save.vehicles = typeof row.vehicles === "string" ? JSON.parse(row.vehicles || "[]") : row.vehicles || [];
+  save.activeVehicle = row.active_vehicle || row.activeVehicle || null;
+  save.lastSeen = Number(row.last_seen ?? row.lastSeen ?? 0);
+  return save;
+}
+
+function rowFromSave(save) {
+  // player_saves JSON-ish columns are TEXT in Supabase, so stringify —
+  // the same values are stored as TEXT in the Neon fallback too.
+  return {
+    player_id: save.playerId || save.id,
+    server_id: Number(save.serverId ?? save.server ?? 0),
+    balance: Number(save.balance || 0),
+    burned: Number(save.burned || 0),
+    owned: JSON.stringify(save.owned || []),
+    color: save.color || "",
+    hat: save.hat || "",
+    car: save.car || "",
+    look: save.look || "tjr",
+    job: JSON.stringify(save.job || null),
+    job_streak: Number(save.jobStreak || 0),
+    business: JSON.stringify(save.business || null),
+    rent: JSON.stringify(save.rent || {}),
+    earned: Number(save.earned || 0),
+    best_race: Number(save.bestRace || 0),
+    best_hover: Number(save.bestHover || 0),
+    daily: JSON.stringify(save.daily || {}),
+    mission: Number(save.mission || 0),
+    mission_at: Number(save.missionAt || 0),
+    homes: JSON.stringify(save.homes || { homeServer: 0, homes: [] }),
+    vehicles: JSON.stringify(save.vehicles || []),
+    active_vehicle: save.activeVehicle || "",
+    last_seen: Number(save.lastSeen || 0),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+async function saveKey(playerId, serverId) {
+  const client = sb();
+  if (client) {
+    const { data, error } = await client.from("player_saves").select("*").eq("player_id", playerId).eq("server_id", serverId).maybeSingle();
+    if (!error && data) return parseSave(data);
+    if (error) noteSupabase(error.message);
+  }
+  const sql = db();
+  if (sql) {
+    await ensureSchema();
+    const rows = await sql`SELECT * FROM player_saves WHERE player_id = ${playerId} AND server_id = ${serverId} LIMIT 1`;
+    return rows[0] ? parseSave(rows[0]) : null;
+  }
+  const cache = redis();
+  if (cache) {
+    const raw = await cache.hget("orbitx:saves", `${playerId}:${serverId}`);
+    if (!raw) return null;
+    return parseSave(typeof raw === "string" ? JSON.parse(raw) : raw);
+  }
+  return memory().saves.get(`${playerId}:${serverId}`) ?? null;
+}
+
+async function saveSave(save) {
+  const client = sb();
+  if (client) {
+    let { error } = await client.from("player_saves").upsert(rowFromSave(save));
+    if (error && /homes|vehicles|active_vehicle|last_seen/i.test(error.message || "")) {
+      // Same strip-unknown-columns retry as savePlayer: a missing column
+      // surfaces as an error instead of silently dropping the field.
+      const row = rowFromSave(save);
+      delete row.homes;
+      delete row.vehicles;
+      delete row.active_vehicle;
+      delete row.last_seen;
+      const retry = await client.from("player_saves").upsert(row);
+      error = retry.error;
+    }
+    if (!error) return;
+    noteSupabase(error.message);
+  }
+  const sql = db();
+  if (sql) {
+    await ensureSchema();
+    const row = rowFromSave(save);
+    await sql`INSERT INTO player_saves (player_id, server_id, balance, burned, owned, color, hat, car, look, job, job_streak, business, rent, earned, best_race, best_hover, daily, mission, mission_at, homes, vehicles, active_vehicle, last_seen, updated_at)
+      VALUES (${row.player_id}, ${row.server_id}, ${row.balance}, ${row.burned}, ${row.owned}, ${row.color}, ${row.hat}, ${row.car}, ${row.look}, ${row.job}, ${row.job_streak}, ${row.business}, ${row.rent}, ${row.earned}, ${row.best_race}, ${row.best_hover}, ${row.daily}, ${row.mission}, ${row.mission_at}, ${row.homes}, ${row.vehicles}, ${row.active_vehicle}, ${row.last_seen}, ${row.updated_at})
+      ON CONFLICT (player_id, server_id) DO UPDATE SET
+        balance = EXCLUDED.balance, burned = EXCLUDED.burned, owned = EXCLUDED.owned,
+        color = EXCLUDED.color, hat = EXCLUDED.hat, car = EXCLUDED.car, look = EXCLUDED.look,
+        job = EXCLUDED.job, job_streak = EXCLUDED.job_streak, business = EXCLUDED.business,
+        rent = EXCLUDED.rent, earned = EXCLUDED.earned, best_race = EXCLUDED.best_race,
+        best_hover = EXCLUDED.best_hover, daily = EXCLUDED.daily, mission = EXCLUDED.mission,
+        mission_at = EXCLUDED.mission_at, homes = EXCLUDED.homes, vehicles = EXCLUDED.vehicles,
+        active_vehicle = EXCLUDED.active_vehicle, last_seen = EXCLUDED.last_seen,
+        updated_at = EXCLUDED.updated_at`;
+    return;
+  }
+  const cache = redis();
+  if (cache) {
+    await cache.hset("orbitx:saves", { [`${save.playerId || save.id}:${save.serverId}`]: JSON.stringify(save) });
+    return;
+  }
+  memory().saves.set(`${save.playerId || save.id}:${save.serverId}`, save);
+}
+
+async function touchSave(save) {
+  save.lastSeen = Date.now();
+  await saveSave(save);
+}
+
+// Heartbeat: touch the player's save on one universe WITHOUT creating it.
+// Used by the HEARTBEAT ops (sync/digest/me/board) so universe-list counts
+// are real. A missing save stays missing — heartbeats never mint saves.
+async function touchSaveIfExists(playerId, serverId) {
+  if (!isServerId(serverId)) return;
+  const save = await saveKey(playerId, serverId);
+  if (save) await touchSave(save);
+}
+
+// The universe a heartbeat counts toward: the server the client sent, else
+// the player's home universe. Null when neither is known.
+function heartbeatServer(body, player) {
+  return parseServerId(body.server) ?? (isServerId(player.homeServer) ? player.homeServer : null);
+}
+
+async function touchHeartbeat(player, body) {
+  try {
+    const server = heartbeatServer(body, player);
+    if (server) await touchSaveIfExists(player.id, server);
+  } catch {
+    // Heartbeats never fail the op they ride on.
+  }
+}
+
+// How many players are live on one universe right now: saves touched in
+// the last 5 minutes. The universe-join cap reads this, never a stored
+// counter, so a stale count can never over-fill a universe.
+async function activeCount(serverId) {
+  const since = Date.now() - MULTIVERSE_HEARTBEAT_MS;
+  const client = sb();
+  if (client) {
+    const { count, error } = await client.from("player_saves").select("player_id", { count: "exact", head: true }).eq("server_id", serverId).gt("last_seen", since);
+    if (!error && typeof count === "number") return count;
+    if (error) noteSupabase(error.message);
+  }
+  const sql = db();
+  if (sql) {
+    await ensureSchema();
+    const rows = await sql`SELECT COUNT(*) AS n FROM player_saves WHERE server_id = ${serverId} AND last_seen > ${since}`;
+    return Number(rows[0]?.n || 0);
+  }
+  const cache = redis();
+  if (cache) {
+    const all = (await cache.hgetall("orbitx:saves")) || {};
+    return Object.values(all).filter((raw) => {
+      const save = typeof raw === "string" ? JSON.parse(raw) : raw;
+      return Number(save.serverId || save.server) === serverId && Number(save.lastSeen || 0) > since;
+    }).length;
+  }
+  let count = 0;
+  for (const save of memory().saves.values()) {
+    if (save.serverId === serverId && Number(save.lastSeen || 0) > since) count += 1;
+  }
+  return count;
+}
+
+// Identity fields live on players, not on the save — copy them onto a
+// loaded save before it is rendered as `me`, so the client sees one
+// complete CityMe. Nothing here is persisted to player_saves:
+// rowFromSave only writes progress columns.
+function syncSaveIdentity(save, player) {
+  save.name = player.name;
+  save.email = player.email || "";
+  save.avatar = player.avatar || "";
+  save.provider = player.provider || "";
+  save.authUser = player.authUser || "";
+  save.address = player.address || "";
+  save.holder = !!player.holder;
+  save.wallet = player.wallet || "";
+  save.friends = player.friends || [];
+  save.inbox = player.inbox || [];
+  save.party = player.party || "";
+  return save;
 }
 
 function parsePlayer(row) {
@@ -499,6 +1394,10 @@ function parsePlayer(row) {
     provider: row.provider || "",
     authUser: row.auth_user || row.authUser || "",
     address: row.address || "",
+    homeServer: row.home_server != null ? Number(row.home_server) : row.homeServer != null ? Number(row.homeServer) : null,
+    homes: typeof row.homes === "string" ? JSON.parse(row.homes || '{"homeServer":0,"homes":[]}') : row.homes || { homeServer: 0, homes: [] },
+    vehicles: typeof row.vehicles === "string" ? JSON.parse(row.vehicles || "[]") : row.vehicles || [],
+    activeVehicle: row.active_vehicle || row.activeVehicle || null,
   };
 }
 
@@ -534,6 +1433,7 @@ function rowFromPlayer(player) {
     provider: player.provider || "",
     auth_user: player.authUser || "",
     address: player.address || "",
+    home_server: player.homeServer ?? null,
   };
 }
 
@@ -739,6 +1639,7 @@ async function readBookings() {
 function publicOfficeClaim(row) {
   return {
     suite: row.suite,
+    server: Number(row.server_id ?? row.server ?? 1),
     owner_id: row.owner_id,
     owner_name: row.owner_name || "",
     project: row.project,
@@ -755,6 +1656,7 @@ function publicOfficeClaim(row) {
 function officeClaimRow(row) {
   return {
     suite: row.suite,
+    server: Number(row.server_id ?? row.server ?? 1),
     owner_id: row.owner_id,
     owner_name: row.owner_name || "",
     project: row.project,
@@ -769,83 +1671,103 @@ function officeClaimRow(row) {
 }
 
 async function saveOfficeClaim(claim) {
+  // One table, one code path: the claim row carries its server, and the
+  // key is (suite, server_id) — the same suite can be claimed on every
+  // universe independently.
+  const serverId = Number(claim.server_id ?? claim.server ?? 1);
+  const row = { ...claim, server_id: serverId };
+  delete row.server;
   const client = sb();
   if (client) {
-    const { error } = await client.from("office_claims").upsert(claim);
+    const { error } = await client.from("office_claims").upsert(row);
     if (!error) return;
     noteSupabase(error.message);
   }
   const sql = db();
   if (sql) {
     await ensureSchema();
-    await sql`INSERT INTO office_claims (suite, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at)
-      VALUES (${claim.suite}, ${claim.owner_id}, ${claim.owner_name}, ${claim.project}, ${claim.logo}, ${claim.site}, ${Number(claim.term_days)}, ${claim.start}, ${claim.until}, ${Number(claim.price)}, ${claim.claimed_at})
-      ON CONFLICT (suite) DO UPDATE SET owner_id = EXCLUDED.owner_id, owner_name = EXCLUDED.owner_name, project = EXCLUDED.project, logo = EXCLUDED.logo, site = EXCLUDED.site, term_days = EXCLUDED.term_days, start = EXCLUDED.start, until = EXCLUDED.until, price = EXCLUDED.price, claimed_at = EXCLUDED.claimed_at`;
+    await sql`INSERT INTO office_claims (suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at)
+      VALUES (${row.suite}, ${row.server_id}, ${row.owner_id}, ${row.owner_name}, ${row.project}, ${row.logo}, ${row.site}, ${Number(row.term_days)}, ${row.start}, ${row.until}, ${Number(row.price)}, ${row.claimed_at})
+      ON CONFLICT (suite, server_id) DO UPDATE SET owner_id = EXCLUDED.owner_id, owner_name = EXCLUDED.owner_name, project = EXCLUDED.project, logo = EXCLUDED.logo, site = EXCLUDED.site, term_days = EXCLUDED.term_days, start = EXCLUDED.start, until = EXCLUDED.until, price = EXCLUDED.price, claimed_at = EXCLUDED.claimed_at`;
     return;
   }
   const cache = redis();
   if (cache) {
-    await cache.hset("orbitx:office-claims", { [claim.suite]: JSON.stringify(claim) });
+    await cache.hset("orbitx:office-claims", { [`${serverId}:${row.suite}`]: JSON.stringify(row) });
     return;
   }
-  memory().officeClaims.set(claim.suite, claim);
+  memory().officeClaims.set(`${serverId}:${row.suite}`, row);
 }
 
-async function deleteOfficeClaim(suiteId) {
+async function deleteOfficeClaim(suiteId, serverId = 1) {
   const client = sb();
   if (client) {
-    const { error } = await client.from("office_claims").delete().eq("suite", suiteId);
+    const { error } = await client.from("office_claims").delete().eq("suite", suiteId).eq("server_id", serverId);
     if (!error) return;
     noteSupabase(error.message);
   }
   const sql = db();
   if (sql) {
     await ensureSchema();
-    await sql`DELETE FROM office_claims WHERE suite = ${suiteId}`;
+    await sql`DELETE FROM office_claims WHERE suite = ${suiteId} AND server_id = ${serverId}`;
     return;
   }
   const cache = redis();
   if (cache) {
-    await cache.hdel("orbitx:office-claims", suiteId);
+    await cache.hdel("orbitx:office-claims", `${serverId}:${suiteId}`);
     return;
   }
-  memory().officeClaims.delete(suiteId);
+  memory().officeClaims.delete(`${serverId}:${suiteId}`);
 }
 
-async function readOfficeClaims() {
+async function readOfficeClaims(serverId) {
   const client = sb();
   if (client) {
-    const { data, error } = await client
+    let query = client
       .from("office_claims")
-      .select("suite, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at");
+      .select("suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at");
+    if (isServerId(serverId)) query = query.eq("server_id", serverId);
+    const { data, error } = await query;
     if (!error && data) return data.map(officeClaimRow);
     if (error) noteSupabase(error.message);
   }
   const sql = db();
   if (sql) {
     await ensureSchema();
-    const rows = await sql`SELECT suite, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at FROM office_claims`;
+    const rows = isServerId(serverId)
+      ? await sql`SELECT suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at FROM office_claims WHERE server_id = ${serverId}`
+      : await sql`SELECT suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at FROM office_claims`;
     return rows.map(officeClaimRow);
   }
   const cache = redis();
   if (cache) {
     const all = (await cache.hgetall("orbitx:office-claims")) || {};
-    return Object.values(all).map((row) => officeClaimRow(typeof row === "string" ? JSON.parse(row) : row));
+    const rows = Object.values(all).map((row) => officeClaimRow(typeof row === "string" ? JSON.parse(row) : row));
+    return isServerId(serverId) ? rows.filter((row) => row.server === serverId) : rows;
   }
-  return [...memory().officeClaims.values()].map(officeClaimRow);
+  const rows = [...memory().officeClaims.values()].map(officeClaimRow);
+  return isServerId(serverId) ? rows.filter((row) => row.server === serverId) : rows;
 }
 
-function activeOfficeClaim(claims, suiteId) {
+function activeOfficeClaim(claims, suiteId, serverId) {
   const today = todayISO();
-  return claims.find((row) => row.suite === suiteId && row.until >= today) || null;
+  return (
+    claims.find(
+      (row) =>
+        row.suite === suiteId &&
+        (serverId == null || Number(row.server ?? 1) === serverId) &&
+        row.until >= today,
+    ) || null
+  );
 }
 
-async function officeDirectory() {
-  const claims = await readOfficeClaims();
+async function officeDirectory(serverId = 1) {
+  const claims = await readOfficeClaims(serverId);
   return OFFICES.map((suite) => {
-    const claim = suite.claimable ? activeOfficeClaim(claims, suite.id) : null;
+    const claim = suite.claimable ? activeOfficeClaim(claims, suite.id, serverId) : null;
     return {
       id: suite.id,
+      server: serverId,
       floor: suite.floor,
       name: suite.name,
       tier: suite.tier,
@@ -859,6 +1781,10 @@ async function officeDirectory() {
 }
 
 async function claimOffice(player, body) {
+  // Which universe this claim lives on. Old clients send no server —
+  // pre-multiverse claims are universe 1.
+  const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5).", status: 400 };
   const suite = officeSuite(String(body.suite || ""));
   if (!suite) return { ok: false, message: "Unknown suite.", status: 400 };
   if (!suite.claimable) {
@@ -879,8 +1805,8 @@ async function claimOffice(player, body) {
   }
   const price = officePrice(suite, termDays);
   if (!price) return { ok: false, message: "That lease term is not priced.", status: 400 };
-  const claims = await readOfficeClaims();
-  const taken = activeOfficeClaim(claims, suite.id);
+  const claims = await readOfficeClaims(server);
+  const taken = activeOfficeClaim(claims, suite.id, server);
   if (taken) {
     return { ok: false, message: `${suite.name} is already claimed by ${taken.project} until ${taken.until}.`, status: 400 };
   }
@@ -893,6 +1819,7 @@ async function claimOffice(player, body) {
   const start = todayISO();
   const claim = {
     suite: suite.id,
+    server_id: server,
     owner_id: player.id,
     owner_name: player.name,
     project,
@@ -904,7 +1831,11 @@ async function claimOffice(player, body) {
     price,
     claimed_at: new Date().toISOString(),
   };
+  const prevHomeServer = player.homeServer ?? null;
   player.balance -= price;
+  // Claiming an office makes this universe the player's home universe
+  // (latest home wins) — players.home_server.
+  player.homeServer = server;
   await savePlayer(player);
   try {
     await saveOfficeClaim(claim);
@@ -912,6 +1843,7 @@ async function claimOffice(player, body) {
     // The claim did not land — refund the City Sol rather than leave the
     // player poorer with no office.
     player.balance += price;
+    player.homeServer = prevHomeServer;
     await savePlayer(player);
     return { ok: false, message: "The claim did not save. Your City Sol was refunded — try again.", status: 500 };
   }
@@ -919,24 +1851,154 @@ async function claimOffice(player, body) {
     ok: true,
     message: `${suite.name} is yours for ${officeTermLabel(termDays)} — ${price} City Sol. It is yours until ${claim.until}.`,
     claim: publicOfficeClaim(claim),
-    offices: await officeDirectory(),
+    offices: await officeDirectory(server),
   };
 }
 
 async function releaseOffice(player, body) {
+  const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5).", status: 400 };
   const suite = officeSuite(String(body.suite || ""));
   if (!suite) return { ok: false, message: "Unknown suite.", status: 400 };
-  const claims = await readOfficeClaims();
-  const claim = activeOfficeClaim(claims, suite.id);
+  const claims = await readOfficeClaims(server);
+  const claim = activeOfficeClaim(claims, suite.id, server);
   if (!claim) return { ok: false, message: `${suite.name} is not claimed.`, status: 400 };
   if (claim.owner_id !== player.id) {
     return { ok: false, message: `Only ${claim.project} can release ${suite.name}.`, status: 400 };
   }
-  await deleteOfficeClaim(suite.id);
+  await deleteOfficeClaim(suite.id, server);
   return {
     ok: true,
     message: `${suite.name} released. The lease ends now — no refund for the days left.`,
-    offices: await officeDirectory(),
+    offices: await officeDirectory(server),
+  };
+}
+
+// --- District office suites (emergency.ts catalog, mirrored) -----------------
+// Same City Sol leases as the HQ, scoped by (suite, server) in the one
+// office_claims table. The pure validation in emergency.ts
+// (validateDistrictOfficeClaim / validateDistrictOfficeRelease) cannot be
+// imported from plain-JS api/city.js, so the checks below mirror it —
+// same order, same messages — plus the server scope.
+
+function districtOfficeSuite(id) {
+  return DISTRICT_OFFICES.find((suite) => suite.id === id) || null;
+}
+
+async function districtOfficeDirectory(district, server, claims) {
+  return DISTRICT_OFFICES.filter((suite) => suite.district === district).map((suite) => {
+    const claim = suite.claimable ? activeOfficeClaim(claims, suite.id, server) : null;
+    return {
+      id: suite.id,
+      district,
+      server,
+      floor: suite.floor,
+      name: suite.name,
+      tier: suite.tier,
+      claimable: suite.claimable,
+      prices: suite.claimable
+        ? { 1: officePrice(suite, 1), 7: officePrice(suite, 7), 30: officePrice(suite, 30) }
+        : { 1: 0, 7: 0, 30: 0 },
+      claim: claim ? publicOfficeClaim(claim) : null,
+    };
+  });
+}
+
+async function claimDistrictOffice(player, save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5).", status: 400 };
+  const suite = districtOfficeSuite(String(body.suite || ""));
+  if (!suite) return { ok: false, message: "Unknown suite.", status: 400 };
+  // The district is derived from the suite id — a mismatched district
+  // param is refused, never trusted.
+  if (body.district && String(body.district) !== suite.district) {
+    return { ok: false, message: "That suite is not in that district.", status: 400 };
+  }
+  if (!suite.claimable) {
+    return { ok: false, message: "The Founder's Office belongs to the district. It is never for sale.", status: 400 };
+  }
+  const termDays = Number(body.term_days);
+  if (![1, 7, 30].includes(termDays)) {
+    return { ok: false, message: "Pick a 1-day, 7-day, or 30-day lease.", status: 400 };
+  }
+  const project = String(body.project || "").trim().slice(0, 48);
+  if (!project) return { ok: false, message: "Name the project claiming this office.", status: 400 };
+  const logo = String(body.logo || "").trim().slice(0, 200);
+  const site = String(body.site || "").trim().slice(0, 200);
+  for (const url of [logo, site]) {
+    if (url && !/^https?:\/\//i.test(url)) {
+      return { ok: false, message: "Logo and site links must start with http:// or https://.", status: 400 };
+    }
+  }
+  const price = officePrice(suite, termDays);
+  if (!price) return { ok: false, message: "That lease term is not priced.", status: 400 };
+  const claims = await readOfficeClaims(server);
+  const taken = activeOfficeClaim(claims, suite.id, server);
+  if (taken) {
+    return { ok: false, message: `${suite.name} is already claimed by ${taken.project} on Server ${server} until ${taken.until}.`, status: 400 };
+  }
+  if (save.balance < price) {
+    return { ok: false, message: `Not enough City Sol — ${suite.name} for ${officeTermLabel(termDays)} costs ${price} City Sol.`, status: 400 };
+  }
+  const start = todayISO();
+  const claim = {
+    suite: suite.id,
+    server_id: server,
+    owner_id: save.id,
+    owner_name: save.name,
+    project,
+    logo,
+    site,
+    term_days: termDays,
+    start,
+    until: officeEndISO(start, termDays),
+    price,
+    claimed_at: new Date().toISOString(),
+  };
+  const prevHomeServer = player.homeServer ?? null;
+  save.balance -= price;
+  await saveSave(save);
+  player.homeServer = server;
+  await savePlayer(player);
+  try {
+    await saveOfficeClaim(claim);
+  } catch {
+    // The claim did not land — refund the City Sol rather than leave the
+    // player poorer with no office.
+    save.balance += price;
+    await saveSave(save);
+    player.homeServer = prevHomeServer;
+    await savePlayer(player);
+    return { ok: false, message: "The claim did not save. Your City Sol was refunded — try again.", status: 500 };
+  }
+  return {
+    ok: true,
+    message: `${suite.name} is yours for ${officeTermLabel(termDays)} — ${price} City Sol. It is yours until ${claim.until}.`,
+    claim: publicOfficeClaim(claim),
+    district: suite.district,
+    server,
+    offices: await districtOfficeDirectory(suite.district, server, await readOfficeClaims(server)),
+  };
+}
+
+async function releaseDistrictOffice(player, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5).", status: 400 };
+  const suite = districtOfficeSuite(String(body.suite || ""));
+  if (!suite) return { ok: false, message: "Unknown suite.", status: 400 };
+  const claims = await readOfficeClaims(server);
+  const claim = activeOfficeClaim(claims, suite.id, server);
+  if (!claim) return { ok: false, message: `${suite.name} is not claimed on Server ${server}.`, status: 400 };
+  if (claim.owner_id !== player.id) {
+    return { ok: false, message: `Only ${claim.project} can release ${suite.name}.`, status: 400 };
+  }
+  await deleteOfficeClaim(suite.id, server);
+  return {
+    ok: true,
+    message: `${suite.name} released. The lease ends now — no refund for the days left.`,
+    district: suite.district,
+    server,
+    offices: await districtOfficeDirectory(suite.district, server, await readOfficeClaims(server)),
   };
 }
 
@@ -1063,6 +2125,93 @@ async function spendItem(player, itemId) {
     message: `Spent ${item.price} City Sol. Burned ${burned}. Burned total ${player.burned}.`,
     me: publicPlayer(player),
   };
+}
+
+// --- Garage (vehicles.ts catalog, mirrored — the server is the price
+// authority; never trust a client-sent price) ---
+
+async function buyCar(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Unknown server.", status: 400 };
+  const id = String(body.id || "");
+  const price = VEHICLE_PRICES[id];
+  if (price == null) return { ok: false, message: "That vehicle is not for sale.", status: 400 };
+  const colors = VEHICLE_COLORS[id] || [];
+  const color = body.color == null || body.color === "" ? VEHICLE_DEFAULT_COLORS[id] : String(body.color);
+  if (!colors.includes(color)) {
+    return { ok: false, message: "That color is not available for this vehicle.", status: 400 };
+  }
+  const vehicles = Array.isArray(save.vehicles) ? save.vehicles : [];
+  const owned = vehicles.find((v) => v.id === id);
+  if (owned) {
+    // Already theirs: equip it instead (same pattern as spendItem).
+    // A new color repaints the stored car.
+    if (body.color != null && body.color !== "") owned.color = color;
+    save.vehicles = vehicles;
+    save.activeVehicle = id;
+    await saveSave(save);
+    return { ok: true, message: "Already yours. Equipped.", me: publicPlayer(save) };
+  }
+  if (save.balance < price) return { ok: false, message: "Not enough City Sol.", status: 400 };
+  // City Sol only: no burn, no burned increment — a vehicle is a
+  // purchase, not a burn event.
+  save.balance -= price;
+  vehicles.push({ id, color });
+  save.vehicles = vehicles;
+  save.activeVehicle = id;
+  await saveSave(save);
+  return {
+    ok: true,
+    message: `Bought ${VEHICLE_NAMES[id] || id} for ${price} City Sol.`,
+    me: publicPlayer(save),
+  };
+}
+
+async function selectCar(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Unknown server.", status: 400 };
+  const id = String(body.id || "");
+  const vehicles = Array.isArray(save.vehicles) ? save.vehicles : [];
+  if (!vehicles.some((v) => v.id === id)) {
+    return { ok: false, message: "You don't own that car yet.", status: 400 };
+  }
+  save.activeVehicle = id;
+  await saveSave(save);
+  return { ok: true, me: publicPlayer(save) };
+}
+
+// --- Homes (homes.ts catalog, mirrored) ---
+
+async function buyHome(player, save, body) {
+  const homeId = String(body.home || "");
+  const price = HOME_PRICES[homeId];
+  if (price == null) return { ok: false, message: "Unknown home.", status: 400 };
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const homes = save.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
+  if ((homes.homes || []).some((h) => h.homeId === homeId && h.server === server)) {
+    return { ok: false, message: "You already own this home on this server.", status: 400 };
+  }
+  if (save.balance < price) {
+    return { ok: false, message: `Not enough City Sol — this home is ${price}.`, status: 400 };
+  }
+  save.balance -= price;
+  homes.homes.push({
+    homeId,
+    server,
+    ownerId: save.id,
+    ownerName: save.name,
+    price,
+    boughtAt: Date.now(),
+  });
+  homes.homeServer = server; // buying here makes this server their home server
+  save.homes = homes;
+  await saveSave(save);
+  if (player.homeServer !== server) {
+    player.homeServer = server;
+    await savePlayer(player);
+  }
+  return { ok: true, home: homeId, price, server, me: publicPlayer(save) };
 }
 
 export async function GET() {
@@ -1359,6 +2508,11 @@ export async function POST(request) {
   }
   if (!player) return json({ ok: false, message: "Sign in first." }, 401);
 
+  // Heartbeat: every sync/digest/me/board touches the player's save on
+  // their universe so universe-list player counts are real (no heartbeat,
+  // no count). Never mints a save, never fails the op.
+  if (HEARTBEAT.has(op)) await touchHeartbeat(player, body);
+
   if (op === "wallet-view") {
     if (!player.authUser) return json({ ok: false, message: "Create an account to open the in-app wallet. Guests keep City Sol only." }, 400);
     const view = await walletView(player.authUser);
@@ -1389,6 +2543,53 @@ export async function POST(request) {
   }
 
   if (op === "me") return json({ ok: true, me: publicPlayer(player) });
+
+  // Multiverse — one save per (player, universe). Joining and travelling
+  // are FREE: no City Sol, no burn, no ORBITX anywhere in this.
+  if (op === "universe-list") {
+    const universes = [];
+    for (const id of SERVERS) {
+      universes.push({ id, playerCount: await activeCount(id), realtimeEndpoint: null });
+    }
+    // currentServerId is client-side state (Vercel functions are
+    // stateless) — the client tracks which universe it joined.
+    return json({ ok: true, universes, homeServerId: player.homeServer ?? null, currentServerId: null });
+  }
+
+  if (op === "universe-join" || op === "universe-travel") {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick Universe 1 to 5." }, 400);
+    if (op === "universe-travel") {
+      // The universe they came from is client-side state: the client
+      // sends it when it knows, and guards same-universe travel itself.
+      const from = parseServerId(body.from ?? body.currentServer ?? body.current);
+      if (from != null) {
+        if (from === server) return json({ ok: false, message: `You are already in Universe ${server}.` }, 400);
+        // Save the universe they came from, then leave it alone.
+        await touchSaveIfExists(player.id, from);
+      }
+    }
+    if ((await activeCount(server)) >= MULTIVERSE_CAP) {
+      return json({ ok: false, message: `Universe ${server} is full — 150/150 players. Pick another universe.` }, 409);
+    }
+    let save = await saveKey(player.id, server);
+    let isNewSave = false;
+    if (!save) {
+      save = freshSave(player, server);
+      isNewSave = true;
+    }
+    syncSaveIdentity(save, player);
+    await touchSave(save);
+    return json({
+      ok: true,
+      me: publicPlayer(save),
+      serverId: server,
+      isHome: player.homeServer === server,
+      isNewSave,
+      realtimeEndpoint: null,
+      playerCount: await activeCount(server),
+    });
+  }
 
   if (op === "spend") {
     const result = await spendItem(player, String(body.item || ""));
@@ -1451,14 +2652,101 @@ export async function POST(request) {
   if (op === "radio-upload-url") return radioReply(await radioUploadUrl(player, body));
   if (op === "radio-register") return radioReply(await radioRegister(player, body));
   if (op === "office-claim") return officeReply(await claimOffice(player, body));
-  if (op === "office-claims") return officeReply({ ok: true, offices: await officeDirectory() });
+  if (op === "office-claims") {
+    const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
+    return officeReply({ ok: true, offices: await officeDirectory(server) });
+  }
   if (op === "office-release") return officeReply(await releaseOffice(player, body));
   if (op === "office-status") {
-    const claims = await readOfficeClaims();
+    const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
+    const claims = await readOfficeClaims(server);
     const mine = claims
       .filter((row) => row.owner_id === player.id && row.until >= todayISO())
       .map(publicOfficeClaim);
-    return officeReply({ ok: true, mine, offices: await officeDirectory() });
+    return officeReply({ ok: true, mine, offices: await officeDirectory(server) });
+  }
+
+  // Garage — per-server cars (vehicles.ts). The save is this server's own.
+  if (op === "buy-car" || op === "select-car") {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Unknown server." }, 400);
+    let save = await saveKey(player.id, server);
+    if (!save && op === "buy-car") save = freshSave(player, server);
+    if (!save) return json({ ok: false, message: "You don't own that car yet." }, 400);
+    syncSaveIdentity(save, player);
+    const result = op === "buy-car" ? await buyCar(save, body) : await selectCar(save, body);
+    return json(result, result.ok ? 200 : result.status || 400);
+  }
+
+  // Homes — per-server houses (homes.ts). The save is this server's own,
+  // not the global players row.
+  if (op === "buy-home") {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5) first." }, 400);
+    const save = (await saveKey(player.id, server)) || freshSave(player, server);
+    syncSaveIdentity(save, player);
+    const result = await buyHome(player, save, body);
+    return json(result, result.ok ? 200 : result.status || 400);
+  }
+  if (op === "home-status") {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5) first." }, 400);
+    const save = await saveKey(player.id, server);
+    if (save) syncSaveIdentity(save, player);
+    const homes = save?.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
+    const mine = (homes.homes || []).filter((h) => h.server === server).map(sanitizeOwnedHome);
+    return json({
+      ok: true,
+      homeServer: homes.homeServer || player.homeServer || 0,
+      mine,
+      me: save ? publicPlayer(save) : publicPlayer(player),
+    });
+  }
+
+  // District office suites — same City Sol leases as the HQ, scoped by
+  // (suite, server) in the one office_claims table. The attached `me`
+  // is the server-scoped save, not the global player row.
+  const districtReply = async (result, save) => {
+    const { status, ...payload } = result;
+    if (result.ok && save) payload.me = publicPlayer(save);
+    return json(payload, status || 200);
+  };
+  if (op === "district-office-claim") {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
+    const save = (await saveKey(player.id, server)) || freshSave(player, server);
+    syncSaveIdentity(save, player);
+    return districtReply(await claimDistrictOffice(player, save, body), save);
+  }
+  if (op === "district-office-claims") {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
+    const district = String(body.district || "");
+    if (!DISTRICT_IDS.includes(district)) return json({ ok: false, message: "Unknown district." }, 400);
+    const save = await saveKey(player.id, server);
+    if (save) syncSaveIdentity(save, player);
+    const offices = await districtOfficeDirectory(district, server, await readOfficeClaims(server));
+    return districtReply({ ok: true, district, server, offices }, save);
+  }
+  if (op === "district-office-release") {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
+    const save = await saveKey(player.id, server);
+    if (save) syncSaveIdentity(save, player);
+    return districtReply(await releaseDistrictOffice(player, body), save);
+  }
+  if (op === "district-office-status") {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
+    const save = await saveKey(player.id, server);
+    if (save) syncSaveIdentity(save, player);
+    const claims = await readOfficeClaims(server);
+    const mine = claims
+      .filter((row) => row.owner_id === player.id && row.until >= todayISO())
+      .map(publicOfficeClaim);
+    return districtReply({ ok: true, server, mine }, save);
   }
 
   if (op === "profile") {
