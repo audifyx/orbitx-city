@@ -7,7 +7,7 @@ import { adBuy, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus } from "./
 import { authMode, checkReauth, handleAuthOp, looksLikeAccountToken, supabasePublic, verifyAccessToken } from "./auth.js";
 import { chainShopEnabled, confirmSend, ensureWallet, exportWallet, networkName, quoteSend, walletView } from "./wallet.js";
 
-const START_BALANCE = 250;
+const START_BALANCE = 60000;
 const BURN_RATE = 0.25;
 const PRESENCE_MS = 25000;
 const JOB_MS = 4000;
@@ -112,7 +112,7 @@ function scaledPay(id, streak) {
 // real-money price, no SOL, no ORBITX and no burn for offices; buy+burn
 // is ads/banners only. Prices are opening prices: standard (floors 2-3)
 // 100/day, 500/week, 1500/month; premium (floor 4) 250/day, 1200/week,
-// 3500/month. A new player starts at 250 City Sol and jobs pay 40-90,
+// 3500/month. A new player starts at 60,000 City Sol and jobs pay 40-90,
 // so a standard day is affordable on day one and a standard week takes
 // a few days of playing.
 const OFFICES = [
@@ -1060,7 +1060,7 @@ async function ensureSchema() {
   await sql`CREATE TABLE IF NOT EXISTS player_saves (
     player_id TEXT NOT NULL,
     server_id INTEGER NOT NULL,
-    balance INTEGER NOT NULL DEFAULT 250,
+    balance INTEGER NOT NULL DEFAULT 60000,
     burned INTEGER NOT NULL DEFAULT 0,
     owned TEXT NOT NULL DEFAULT '[]',
     color TEXT NOT NULL DEFAULT '',

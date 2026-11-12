@@ -33,7 +33,7 @@
 //
 // ECONOMY: City Sol only. No real money, no SOL, no ORBITX, no burn.
 //   Prices are opening prices (see HOME_PRICE_BASE). A new player starts at
-//   250 City Sol and jobs pay 40-90, so a home is a real goal, not day one.
+//   60,000 City Sol and jobs pay 40-90, so a home is a real goal, not day one.
 // ---------------------------------------------------------------------------
 
 import type { City, Face, Facade, Mat, Zone } from "./city";

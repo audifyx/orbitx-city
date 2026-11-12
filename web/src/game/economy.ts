@@ -13,7 +13,7 @@ export interface Wallet {
 }
 
 const START: Wallet = {
-  balance: 250,
+  balance: 60000,
   burned: 0,
   owned: [],
   color: "white",
