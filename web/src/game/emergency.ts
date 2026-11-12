@@ -1088,7 +1088,7 @@ export interface BaseBridgeSegment {
  * door. Every rect is anchored to the district (tower origin), never to a
  * single building, so the bridges survive any building move.
  */
-const BASE_BRIDGE_SEGMENTS: Record<DistrictId, Array<{
+export const BASE_BRIDGE_SEGMENTS: Record<DistrictId, Array<{
   suffix: string;
   dx0: number; dz0: number; dx1: number; dz1: number;
   /** Force the deck's long axis (the crossing direction). Defaults to
@@ -1117,32 +1117,37 @@ const BASE_BRIDGE_SEGMENTS: Record<DistrictId, Array<{
   // block wall + the fire dept form one continuous wall from the road
   // grid to the tower, so the bridge comes in from the SOUTH: segment A
   // runs east along the z=-36 road's east end to the hospital's south-west
-  // corner, segment B turns north along the fire dept's east side and
-  // stops 4 short of the dept's south face, so the player can turn east
-  // around the deck's end and walk along the road (z≈-8) to the door slot
-  // between the tower and the fire dept. A deck ending flush on the wall
-  // would box the player in behind its own side rails.
+  // corner, segment B turns toward the door along the fire dept's east
+  // side and stops 4 short of the dept's south face, so the player can
+  // turn east around the deck's end and walk along the road (z≈-8) to the
+  // door slot between the tower and the fire dept. A deck ending flush on
+  // the wall would box the player in behind its own side rails.
+  // Segment B joins A on A's SOUTH side (z=-29 edge), so the rail gap is
+  // in A's south rail ("s" = the larger-z rail); the first draft put it
+  // in "n" and the solid south rail walled the turn off.
   // Segment B is kept WEST of the tower's east road (x 190..250): that
   // road's north guard rail (z=-11.4, x 190..250) would wall the deck
   // off mid-span, so B ends at x=190, clear of the rail's west end.
   east: [
-    { suffix: "a", dx0: -21, dz0: -29, dx1: 4, dz1: -15, sign: true, approachEnd: "a", railGap: { side: "n", from: 176, to: 190 } },
+    { suffix: "a", dx0: -21, dz0: -29, dx1: 4, dz1: -15, sign: true, approachEnd: "a", railGap: { side: "s", from: 176, to: 190 } },
     { suffix: "b", dx0: -20, dz0: -15, dx1: -6, dz1: 4, sign: false, approachEnd: "none" },
   ],
   // West: door east. The police dept fronts the door, Home 2 fronts the
   // north lane and the x=-173 block fronts the east lane, so the bridge
   // comes in from the SOUTH: segment A runs west along the z=-36 road's
-  // west end to open ground south of the tower, segment B turns north
-  // along the police dept's west side and stops 4 short of the dept's
-  // south face, so the player can turn west around the deck's end and
-  // walk along the road (z≈-8) to the door slot between the tower and the
-  // police dept. A deck ending flush on the wall would box the player in
-  // behind its own side rails. Segment B is kept EAST of the
+  // west end to open ground south of the tower, segment B turns toward
+  // the door along the police dept's west side and stops 4 short of the
+  // dept's south face, so the player can turn west around the deck's end
+  // and walk along the road (z≈-8) to the door slot between the tower and
+  // the police dept. A deck ending flush on the wall would box the player
+  // in behind its own side rails. Segment B joins A on A's SOUTH side
+  // (z=-28 edge), so the rail gap is in A's south rail — same "n"→"s"
+  // fix as East. Segment B is kept EAST of the
   // tower's west road (x -250..-190): that road's north guard rail
   // (z=-11.4, x -250..-190) would wall the deck off mid-span, so B starts
   // at x=-190, clear of the rail's east end.
   west: [
-    { suffix: "a", dx0: 28, dz0: -28, dx1: 50, dz1: -14, sign: true, approachEnd: "b", railGap: { side: "n", from: -190, to: -176 } },
+    { suffix: "a", dx0: 28, dz0: -28, dx1: 50, dz1: -14, sign: true, approachEnd: "b", railGap: { side: "s", from: -190, to: -176 } },
     { suffix: "b", dx0: 34, dz0: -14, dx1: 48, dz1: 4, sign: false, approachEnd: "none" },
   ],
   // Harbor: door north. The hospital fronts the door and the museum
@@ -1156,7 +1161,7 @@ const BASE_BRIDGE_SEGMENTS: Record<DistrictId, Array<{
   ],
 };
 
-function baseBridgeSegments(district: District): BaseBridgeSegment[] {
+export function baseBridgeSegments(district: District): BaseBridgeSegment[] {
   return BASE_BRIDGE_SEGMENTS[district.id].map((r) => {
     const x0 = district.towerX0 + r.dx0;
     const x1 = district.towerX0 + r.dx1;
