@@ -2390,6 +2390,130 @@ async function buyHome(player, save, body) {
   return { ok: true, home: homeId, price, server, me: publicPlayer(save) };
 }
 
+// --- Mission chain + new earning ops (fix-server) ------------------------
+// All pay into the per-server save (City Sol only). See MISSION_CHAIN
+// for the mission list and the per-step trust model.
+const MISSION_STEP_COOLDOWN_MS = 3000;
+const BUSK_PAY = 20;
+const BUSK_COOLDOWN_MS = 60000;
+const PHOTO_PAY = 15;
+const PHOTO_PLACES = ["plaza", "tower", "dock", "hall", "cafe", "shop", "market", "museum"];
+
+async function missionListOp(player, save) {
+  const before = Object.keys(save.missions || {}).length;
+  const missions = MISSION_CHAIN.map((mission, index) => {
+    const prev = index === 0 ? null : MISSION_CHAIN[index - 1];
+    const unlocked = !prev || !!missionProgress(save, player, prev).done;
+    return missionPublic(mission, missionProgress(save, player, mission), unlocked);
+  });
+  if (Object.keys(save.missions || {}).length !== before) await saveSave(save);
+  return { ok: true, missions, me: publicPlayer(save) };
+}
+
+async function advanceMission(player, save, body) {
+  const mission = missionById(String(body.mission || ""));
+  if (!mission) return { ok: false, message: "Unknown mission.", status: 400 };
+  const index = MISSION_CHAIN.indexOf(mission);
+  if (index > 0) {
+    const prev = MISSION_CHAIN[index - 1];
+    if (!missionProgress(save, player, prev).done) {
+      return { ok: false, message: `Finish "${prev.name}" first.`, status: 400 };
+    }
+  }
+  const progress = missionProgress(save, player, mission);
+  if (progress.done) {
+    return { ok: true, message: `"${mission.name}" is already complete.`, mission: missionPublic(mission, progress, true), paid: 0, done: true, me: publicPlayer(save) };
+  }
+  const stepIndex = Number(body.step);
+  if (stepIndex !== Number(progress.step || 0)) {
+    return { ok: false, message: `That step is out of order — next is step ${Number(progress.step || 0) + 1}.`, status: 400 };
+  }
+  const step = mission.steps[Number(progress.step || 0)];
+  if (!step) return { ok: false, message: "That mission is already complete.", status: 400 };
+  if (progress.at && Date.now() - Number(progress.at) < MISSION_STEP_COOLDOWN_MS) {
+    return { ok: false, message: "Stay a moment before the next step.", status: 400 };
+  }
+  // Per-kind checks — see the MISSION_CHAIN header for the trust model.
+  if (step.kind === "visit") {
+    if (String(body.place || "") !== step.place) {
+      return { ok: false, message: `Go to ${step.place} first.`, status: 400 };
+    }
+  } else if (step.kind === "job") {
+    if (Number(player.jobStreak || 0) <= Number(progress.streak || 0)) {
+      return { ok: false, message: "Complete a job first, then come back.", status: 400 };
+    }
+    progress.streak = Number(player.jobStreak || 0);
+  } else if (step.kind === "daily") {
+    if (!ensureDaily(player).claimed) {
+      return { ok: false, message: "Claim your daily reward first.", status: 400 };
+    }
+  } else if (step.kind === "buy") {
+    const owned = Array.isArray(player.owned) ? player.owned.length : 0;
+    if (owned <= Number(progress.owned || 0)) {
+      return { ok: false, message: "Buy something from the shop first.", status: 400 };
+    }
+    progress.owned = owned;
+  }
+  // chat / drive are client-attested; order + cooldown + one-time apply.
+  progress.step += 1;
+  progress.at = Date.now();
+  let paid = 0;
+  if (progress.step >= mission.steps.length) {
+    progress.done = true;
+    paid = mission.reward;
+    save.balance += paid;
+    save.earned = Number(save.earned || 0) + paid;
+  }
+  await saveSave(save);
+  await savePlayer(player);
+  return {
+    ok: true,
+    message: paid
+      ? `"${mission.name}" complete — paid ${paid} City Sol.`
+      : `Step ${progress.step} of ${mission.steps.length} done: ${step.label}.`,
+    mission: missionPublic(mission, progress, true),
+    paid,
+    done: progress.done,
+    me: publicPlayer(save),
+  };
+}
+
+// Busking: street performance, 20 City Sol, once a minute per universe.
+// The cooldown lives on the save's daily blob (resets with the day).
+async function buskOp(player, save) {
+  const daily = ensureDaily(save);
+  const last = Number(daily.buskAt || 0);
+  if (last && Date.now() - last < BUSK_COOLDOWN_MS) {
+    const wait = Math.ceil((BUSK_COOLDOWN_MS - (Date.now() - last)) / 1000);
+    return { ok: false, message: `Take a breather — busk again in ${wait}s.`, status: 400 };
+  }
+  daily.buskAt = Date.now();
+  save.balance += BUSK_PAY;
+  save.earned = Number(save.earned || 0) + BUSK_PAY;
+  await saveSave(save);
+  return { ok: true, message: `Busked for the crowd — paid ${BUSK_PAY} City Sol.`, paid: BUSK_PAY, me: publicPlayer(save) };
+}
+
+// Photo Safari: 15 City Sol per landmark, once per landmark per day.
+// Landmarks are the named places every client already knows.
+async function photoOp(player, save, body) {
+  const place = String(body.place || "");
+  if (!PHOTO_PLACES.includes(place)) {
+    return { ok: false, message: "That is not a photo spot. Try the plaza, tower, harbor, hall, cafe, shop, market, or museum.", status: 400 };
+  }
+  const daily = ensureDaily(save);
+  const today = todayISO();
+  if (!daily.photos || typeof daily.photos !== "object") daily.photos = {};
+  if (daily.photos[place] === today) {
+    return { ok: false, message: `Already photographed ${place} today.`, status: 400 };
+  }
+  daily.photos[place] = today;
+  save.balance += PHOTO_PAY;
+  save.earned = Number(save.earned || 0) + PHOTO_PAY;
+  await saveSave(save);
+  return { ok: true, message: `Photo of ${place} — paid ${PHOTO_PAY} City Sol.`, paid: PHOTO_PAY, place, me: publicPlayer(save) };
+}
+
 export async function GET() {
   return json({
     ok: true,
@@ -3082,6 +3206,23 @@ export async function POST(request) {
       message: `Tour stop ${step + 1} paid ${reward} City Sol.`,
       me: publicPlayer(player),
     });
+  }
+
+  // Mission chain + new earning ops — per-server saves (City Sol only).
+  // The attached `me` is the server-scoped save, not the global row.
+  if (op === "mission-list" || op === "mission-step" || op === "busk" || op === "photo") {
+    const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
+    const save = (await saveKey(player.id, server)) || freshSave(player, server);
+    syncSaveIdentity(save, player);
+    if (op === "mission-list") return json(await missionListOp(player, save));
+    const result =
+      op === "mission-step"
+        ? await advanceMission(player, save, body)
+        : op === "busk"
+          ? await buskOp(player, save)
+          : await photoOp(player, save, body);
+    return json(result, result.ok ? 200 : result.status || 400);
   }
 
   const live = await handleLive(
