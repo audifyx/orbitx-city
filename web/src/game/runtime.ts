@@ -7550,6 +7550,7 @@ export function createRuntime(scene: Scene) {
     triggerHaptic("success");
     publish();
     say(`Bought ${v.name} for ${v.price} City Sol. Saved on this device only.`);
+    notify("MONEY", `Bought ${v.name} for ${v.price} City Sol.`, "money");
     return `Bought ${v.name} for ${v.price} City Sol.`;
   }
 
@@ -8078,6 +8079,7 @@ export function createRuntime(scene: Scene) {
     rebuildCrazy();    triggerHaptic("success");
     publish();
     say(`Bought ${home.name} for ${result.price} City Sol. Saved on this device only.`);
+    notify("MONEY", `Bought ${home.name} for ${result.price} City Sol.`, "money");
     return `Bought ${home.name} for ${result.price} City Sol.`;
   }
 
