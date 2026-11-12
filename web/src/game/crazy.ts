@@ -191,11 +191,15 @@ export interface PoolRect {
   waterY: number;
 }
 
-/** The pool / hot tub water footprint, centred in the yard. */
+/** The pool / hot tub water footprint, centred in the yard. The yard is
+ * 5.5 deep and (w-2) wide, so the pool's long side runs along the yard's
+ * wide axis — otherwise the water (and its deck) would poke through the
+ * hedges on every east/west-door home. */
 export function poolRectFor(home: HomeDef, kind: "pool" | "hottub"): PoolRect {
   const yard = yardRectFor(home);
-  const pw = kind === "pool" ? 6 : 3;
-  const pd = kind === "pool" ? 4 : 3;
+  const wideX = yard.dir === "n" || yard.dir === "s";
+  const pw = kind === "pool" ? (wideX ? 6 : 4) : 3;
+  const pd = kind === "pool" ? (wideX ? 4 : 6) : 3;
   return {
     homeId: home.id,
     kind,
@@ -327,21 +331,28 @@ function pushPoolBoxes(boxes: CrazyBox[], home: HomeDef, kind: "pool" | "hottub"
   const cx = (rect.minX + rect.maxX) / 2;
   const cz = (rect.minZ + rect.maxZ) / 2;
   const waterTop = kind === "pool" ? 0.75 : 0.6;
-  // Deck slab around the water (walkable, 0.12 high).
-  boxes.push({ x: cx, y: 0.06, z: cz, sx: pw + 2, sy: 0.12, sz: pd + 2, mat: "stone" });
+  // Deck slab around the water (walkable, 0.12 high) — 0.5 of deck on
+  // every side, inside the 5.5-deep yard on every home.
+  boxes.push({ x: cx, y: 0.06, z: cz, sx: pw + 1, sy: 0.12, sz: pd + 1, mat: "stone" });
   // Water.
   boxes.push({ x: cx, y: waterTop / 2, z: cz, sx: pw, sy: waterTop, sz: pd, mat: "water" });
-  // Rim: four low stone lips so the pool reads as a built feature.
-  boxes.push({ x: cx, y: 0.22, z: rect.minZ - 0.45, sx: pw + 2, sy: 0.32, sz: 0.3, mat: "stone" });
-  boxes.push({ x: cx, y: 0.22, z: rect.maxZ + 0.45, sx: pw + 2, sy: 0.32, sz: 0.3, mat: "stone" });
-  boxes.push({ x: rect.minX - 0.45, y: 0.22, z: cz, sx: 0.3, sy: 0.32, sz: pd, mat: "stone" });
-  boxes.push({ x: rect.maxX + 0.45, y: 0.22, z: cz, sx: 0.3, sy: 0.32, sz: pd, mat: "stone" });
-  // Ladder rails on the near edge + an umbrella over the deck corner.
-  boxes.push({ x: cx - 0.4, y: 0.6, z: rect.minZ - 0.7, sx: 0.12, sy: 1, sz: 0.12, mat: "gold" });
-  boxes.push({ x: cx + 0.4, y: 0.6, z: rect.minZ - 0.7, sx: 0.12, sy: 1, sz: 0.12, mat: "gold" });
+  // Rim: four low stone lips hugging the water's edge, on the deck.
+  boxes.push({ x: cx, y: 0.22, z: rect.minZ - 0.15, sx: pw, sy: 0.32, sz: 0.3, mat: "stone" });
+  boxes.push({ x: cx, y: 0.22, z: rect.maxZ + 0.15, sx: pw, sy: 0.32, sz: 0.3, mat: "stone" });
+  boxes.push({ x: rect.minX - 0.15, y: 0.22, z: cz, sx: 0.3, sy: 0.32, sz: pd, mat: "stone" });
+  boxes.push({ x: rect.maxX + 0.15, y: 0.22, z: cz, sx: 0.3, sy: 0.32, sz: pd, mat: "stone" });
+  // Ladder rails on the near edge (on the deck, just outside the water).
+  boxes.push({ x: cx - 0.4, y: 0.6, z: rect.minZ - 0.35, sx: 0.12, sy: 1, sz: 0.12, mat: "gold" });
+  boxes.push({ x: cx + 0.4, y: 0.6, z: rect.minZ - 0.35, sx: 0.12, sy: 1, sz: 0.12, mat: "gold" });
   if (kind === "pool") {
-    boxes.push({ x: cx + pw / 2 + 1.6, y: 1.1, z: cz - pd / 2 - 1.2, sx: 0.16, sy: 2.2, sz: 0.16, mat: "trunk" });
-    boxes.push({ x: cx + pw / 2 + 1.6, y: 2.3, z: cz - pd / 2 - 1.2, sx: 3, sy: 0.18, sz: 3, mat: "white" });
+    // Umbrella over the deck's far end, on the yard's wide axis (room to
+    // spare there; the 5.5-deep axis has none).
+    const yard = yardRectFor(home);
+    const wideX = yard.dir === "n" || yard.dir === "s";
+    const ux = wideX ? cx + pw / 2 + 0.3 : cx;
+    const uz = wideX ? cz : cz + pd / 2 + 0.3;
+    boxes.push({ x: ux, y: 1.1, z: uz, sx: 0.16, sy: 2.2, sz: 0.16, mat: "trunk" });
+    boxes.push({ x: ux, y: 2.3, z: uz, sx: 2.4, sy: 0.18, sz: 2.4, mat: "white" });
   } else {
     // Hot tub: gold trim + a steam wisp of white boxes above the water.
     boxes.push({ x: cx, y: 0.78, z: rect.minZ - 0.15, sx: pw + 0.4, sy: 0.1, sz: 0.3, mat: "gold" });
