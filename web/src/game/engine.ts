@@ -25,6 +25,7 @@ import { MATERIALS } from "./materials";
 import { createRuntime, wantsTouch, type Body, type Runtime } from "./runtime";
 import { bridgeGateFor, stateById } from "./states";
 import { createMoveSmoother } from "./movement";
+import { applyDayNightLighting, applyEnvironment, applyGraphicsPreset, upgradeMaterials, type GraphicsQuality } from "./graphics";
 import { mountPretty, setPrettyNight, type QualityName } from "./pretty";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
@@ -125,6 +126,10 @@ export function createGame(
   const savedQuality = qualityParam || localStorage.getItem("orbitx-quality");
   const quality: QualityName =
     savedQuality === "low" || savedQuality === "medium" || savedQuality === "high" ? savedQuality : touch ? "low" : "high";
+  // Graphics preset quality: the engine's own quality stays low/medium/high
+  // (pretty.ts QualityName), but the graphics module also knows "ultra" —
+  // the parse accepts it for the graphics calls below, never as a default.
+  const graphicsQuality: GraphicsQuality = savedQuality === "ultra" ? "ultra" : quality;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality === "low" ? 1 : quality === "medium" ? 1.25 : 1.5));
   renderer.setClearColor(0xf09158, 1);
   renderer.shadowMap.enabled = quality !== "low";
@@ -777,23 +782,18 @@ export function createGame(
     const skyMat = sky.material as ShaderMaterial;
     skyMat.uniforms.uNight.value = clockName === "night" ? 1 : 0;
     skyMat.uniforms.uDay.value = clockName === "day" ? 1 : 0;
+    // Light intensities come from the graphics module so the preset and the
+    // day/night cycle agree (sunset values are unchanged; day/night are
+    // slightly richer than the old literals, and fill now varies too).
+    applyDayNightLighting({ sun, hemi, fill, ambient }, clockName, graphicsQuality);
     if (clockName === "night") {
       baseFog.color.setHex(0x0c1220);
-      sun.intensity = 0.35;
-      hemi.intensity = 0.25;
-      ambient.intensity = 0.08;
       setPrettyNight(1);
     } else if (clockName === "day") {
       baseFog.color.setHex(0xb7d4ea);
-      sun.intensity = 1.6;
-      hemi.intensity = 0.9;
-      ambient.intensity = 0.2;
       setPrettyNight(0.15);
     } else {
       baseFog.color.setHex(0xf09158);
-      sun.intensity = 1.9;
-      hemi.intensity = 0.78;
-      ambient.intensity = 0.16;
       setPrettyNight(0.5);
     }
     scene.fog = runtime.indoors() ? null : baseFog;
@@ -835,6 +835,14 @@ export function createGame(
     raf = requestAnimationFrame(frame);
   }
   raf = requestAnimationFrame(frame);
+
+  // Graphics presets (graphics.ts), at the end of createGame — after the
+  // composer, lights, fog and sky exist, before the return. The day/night
+  // block in frame() calls applyDayNightLighting(), so the intensities set
+  // here are not stomped on the next frame.
+  applyGraphicsPreset(renderer, scene, graphicsQuality, { sun, hemi, fill, ambient });
+  upgradeMaterials(graphicsQuality);
+  applyEnvironment(renderer, scene, graphicsQuality);
 
   return {
     start(nextSeed: number, nextMode: PlayMode) {
