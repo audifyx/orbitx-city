@@ -637,6 +637,142 @@ export const WASH_MS = 4000;
 export const WASH_PAY = 12;
 export const WASH_COOLDOWN_MS = 45000;
 
+// ---- FOOD: cooking, restaurants, gym, hunger (City Sol only) ----------
+// Shared contract with the server (api/city.js FOOD section — the server
+// is the price authority; this file is the client's display copy).
+// The grocery store (Piece 2) sells GROCERY_FOODS and tops up the
+// pantry; cooking eats the pantry, restaurants and the gym are below.
+// Lots were verified CLEAR against buildCity(1): no zone, no tall
+// collider, no road strip (see lot-check2-food.ts — the museum's old
+// slot and the casino forecourt stay empty on purpose, never build there).
+export interface GroceryFood {
+  id: string;
+  name: string;
+  /** Hunger restored eating it raw, straight from the bag. */
+  snack: number;
+}
+export const GROCERY_FOODS: GroceryFood[] = [
+  { id: "bread", name: "Bread", snack: 10 },
+  { id: "patty", name: "Beef Patty", snack: 10 },
+  { id: "dough", name: "Pizza Dough", snack: 8 },
+  { id: "cheese", name: "Cheese", snack: 12 },
+  { id: "greens", name: "Salad Greens", snack: 10 },
+  { id: "dressing", name: "Dressing", snack: 6 },
+  { id: "potato", name: "Potato", snack: 10 },
+  { id: "tomato", name: "Tomato", snack: 10 },
+  { id: "egg", name: "Egg", snack: 12 },
+  { id: "milk", name: "Milk", snack: 8 },
+];
+export const GROCERY_FOOD_BY_ID: Record<string, GroceryFood> = Object.fromEntries(
+  GROCERY_FOODS.map((food) => [food.id, food]),
+);
+
+export interface Recipe {
+  id: string;
+  name: string;
+  needs: Array<[string, number]>;
+  /** Hunger restored eating the cooked meal. */
+  hunger: number;
+  /** Extra stamina (salads and omelettes are good for you). */
+  stamina: number;
+  blurb: string;
+}
+export const RECIPES: Recipe[] = [
+  { id: "burger", name: "City Burger", needs: [["bread", 1], ["patty", 1]], hunger: 40, stamina: 0, blurb: "Bread + patty. The plaza classic." },
+  { id: "pizza", name: "Plaza Pizza", needs: [["dough", 1], ["cheese", 1]], hunger: 45, stamina: 0, blurb: "Dough + cheese. Half the city runs on it." },
+  { id: "salad", name: "Sunset Salad", needs: [["greens", 1], ["dressing", 1]], hunger: 35, stamina: 1, blurb: "Greens + dressing. Light, and +1 stamina." },
+  { id: "fries", name: "Harbor Fries", needs: [["potato", 1]], hunger: 20, stamina: 0, blurb: "One potato. The quick snack that still counts as cooking." },
+  { id: "omelette", name: "Sunrise Omelette", needs: [["egg", 1], ["cheese", 1]], hunger: 30, stamina: 1, blurb: "Egg + cheese. Breakfast for a long shift." },
+];
+
+export interface RestaurantPlace {
+  id: string;
+  name: string;
+  vibe: string;
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  door: "n" | "s" | "e" | "w";
+  wall: string;
+  accent: string;
+}
+export const RESTAURANT_PLACES: RestaurantPlace[] = [
+  {
+    id: "diner", name: "Sunset Diner", vibe: "Cheap chrome diner by the garage — burgers, fries, shakes.",
+    x: 115, z: 43, w: 20, d: 20, door: "w", wall: "warm", accent: "red",
+  },
+  {
+    id: "pizza", name: "Pizza Nova", vibe: "Wood-fired pizza house on the east side — cozy, loud, cheesy.",
+    x: 187, z: 48, w: 20, d: 18, door: "w", wall: "cream", accent: "leavesDark",
+  },
+  {
+    id: "fork", name: "The Gold Fork", vibe: "White tablecloths and gold trim by the park — the fancy night out.",
+    x: 78, z: 230, w: 20, d: 20, door: "n", wall: "white", accent: "gold",
+  },
+];
+export interface RestaurantMenuItem {
+  id: string;
+  name: string;
+  price: number;
+  hunger: number;
+  desc: string;
+}
+export const RESTAURANT_MENUS: Record<string, RestaurantMenuItem[]> = {
+  diner: [
+    { id: "diner-burger", name: "Diner Burger", price: 12, hunger: 35, desc: "Double patty, chrome-plate service." },
+    { id: "diner-fries", name: "Diner Fries", price: 6, hunger: 18, desc: "Salted twice. Worth the six." },
+    { id: "diner-shake", name: "Milkshake", price: 8, hunger: 15, desc: "Thick enough to need the wide straw." },
+    { id: "diner-coffee", name: "Diner Coffee", price: 4, hunger: 8, desc: "Bottomless attitude, one cup." },
+  ],
+  pizza: [
+    { id: "pizza-margherita", name: "Margherita", price: 18, hunger: 40, desc: "Tomato, cheese, basil. No notes." },
+    { id: "pizza-pepperoni", name: "Pepperoni Slice", price: 24, hunger: 45, desc: "The slice that ends arguments." },
+    { id: "pizza-garlic", name: "Garlic Bread", price: 10, hunger: 20, desc: "Butter, garlic, gone in seconds." },
+  ],
+  fork: [
+    { id: "fork-steak", name: "Gold Steak", price: 60, hunger: 55, desc: "Seared gold, served slow." },
+    { id: "fork-pasta", name: "Truffle Pasta", price: 45, hunger: 50, desc: "Truffle, cream, white tablecloth." },
+    { id: "fork-dessert", name: "Sunset Dessert", price: 25, hunger: 30, desc: "Gold leaf on top. Obviously." },
+  ],
+};
+export const RESTAURANT_BY_ID: Record<string, RestaurantPlace> = Object.fromEntries(
+  RESTAURANT_PLACES.map((place) => [place.id, place]),
+);
+
+// Harbor Gym workouts — 5 City Sol a set, +2 stamina, 30s between sets.
+export interface GymWorkout {
+  id: string;
+  name: string;
+  cost: number;
+  gain: number;
+  desc: string;
+}
+export const GYM_WORKOUTS: GymWorkout[] = [
+  { id: "treadmill", name: "Treadmill Run", cost: 5, gain: 2, desc: "Run the belt. Legs first." },
+  { id: "weights", name: "Bench Press", cost: 5, gain: 2, desc: "Press the bar. Chest and arms." },
+  { id: "bag", name: "Heavy Bag", cost: 5, gain: 2, desc: "Work the bag. Shoulders and spite." },
+];
+export const GYM_SPOT = { x: 73, z: 217 };
+export const WORKOUT_COOLDOWN_MS = 30000;
+export const FED_MIN = 10;
+
+// Hunger that matters — same formula as api/city.js foodSpeedMult.
+// Keep the two in sync: well fed (>=70) x1.10, peckish x0.85, starving
+// (0) x0.70; stamina adds up to +10% on top.
+export function foodSpeedMult(hunger: number, stamina: number): number {
+  const h = Number(hunger || 0);
+  const hungerMult = h >= 70 ? 1.1 : h >= 30 ? 1.0 : h > 0 ? 0.85 : 0.7;
+  const staminaMult = 1 + Math.min(100, Math.max(0, Number(stamina || 0))) * 0.001;
+  return Math.round(hungerMult * staminaMult * 1000) / 1000;
+}
+export function hungerLabel(hunger: number): string {
+  if (hunger >= 70) return "Well fed";
+  if (hunger >= 30) return "Hungry";
+  if (hunger > 0) return "Very hungry";
+  return "Starving";
+}
+
 export interface CityContent {
   projects: ProjectInfo[];
   billboards: BillboardInfo[];

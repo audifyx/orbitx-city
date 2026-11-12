@@ -536,6 +536,19 @@ export function buildHome(city: City, home: HomeDef): void {
   const back = backPoint(door, x0, z0, w, d);
   // Service point: 4.1 inside from the back wall (furnishHome convention).
   const service = backPoint(door, x0, z0, w, d, 4.1);
+  // FOOD: the kitchen stand point — same formula as furnishHome in
+  // city.ts (counter = alongX ? cx+5 : back.x / back.z : cz+5), 1.7 units
+  // toward the middle of the room. E here opens the kitchen panel (only
+  // in a home the player owns; the server enforces ownership on cook).
+  const homeCx = x0 + w / 2;
+  const homeCz = z0 + d / 2;
+  const homeAlongX = door === "n" || door === "s";
+  const kkx = homeAlongX ? homeCx + 5 : back.x;
+  const kkz = homeAlongX ? back.z : homeCz + 5;
+  const kkdx = homeCx - kkx;
+  const kkdz = homeCz - kkz;
+  const kklen = Math.hypot(kkdx, kkdz) || 1;
+  const kitchen = { x: kkx + (kkdx / kklen) * 1.7, z: kkz + (kkdz / kklen) * 1.7 };
   const zone: Zone = {
     id: home.id, name: home.name, kind: "hall", slot: home.index,
     minX: x0 + 1.15, maxX: x0 + w - 1.15, minZ: z0 + 1.15, maxZ: z0 + d - 1.15,
@@ -544,6 +557,7 @@ export function buildHome(city: City, home: HomeDef): void {
     signY: 2.35,
     signZ: back.z + (door === "n" ? -0.55 : door === "s" ? 0.55 : 0),
     signRot: back.rot,
+    kitchen,
   };
   city.zones.push(zone);
   city.anchors.push(doorAnchorFor(home.id, home.name, "hall", x0, z0, w, d, door, home.index));

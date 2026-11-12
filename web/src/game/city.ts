@@ -2,6 +2,7 @@ import { makeRng, type Rng } from "./seed";
 import { buildAllRegions, buildAllBridges, WORLD_BOUNDS } from "./states";
 import { buildAllHomes } from "./homes";
 import { buildAllDistricts, buildAllDistrictBridges, type CityParts } from "./emergency";
+import { RESTAURANT_PLACES } from "./content";
 
 export type Mat =
   | "asphalt"
@@ -120,7 +121,7 @@ export interface RailPoint {
 export interface Anchor {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "carshop" | "arcade" | "market" | "dock" | "mall" | "office" | "offices" | "lift" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "fire" | "police" | "hospital" | "emergency" | "grocery";
+  kind: "shop" | "cafe" | "hall" | "project" | "jobs" | "events" | "ads" | "bank" | "garage" | "carshop" | "arcade" | "market" | "dock" | "mall" | "office" | "offices" | "lift" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "restaurant" | "fire" | "police" | "hospital" | "emergency" | "grocery";
   x: number;
   y: number;
   z: number;
@@ -175,7 +176,7 @@ export interface CarSpawn {
 export interface Zone {
   id: string;
   name: string;
-  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "carshop" | "arcade" | "market" | "dock" | "mall" | "office" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "fire" | "police" | "hospital" | "emergency" | "grocery";
+  kind: "shop" | "cafe" | "hall" | "project" | "bank" | "garage" | "carshop" | "arcade" | "market" | "dock" | "mall" | "office" | "cinema" | "library" | "gym" | "park" | "stadium" | "museum" | "casino" | "nightclub" | "hotel" | "restaurant" | "fire" | "police" | "hospital" | "emergency" | "grocery";
   slot: number;
   minX: number;
   maxX: number;
@@ -189,6 +190,10 @@ export interface Zone {
   signRot: number;
   minY?: number;
   maxY?: number;
+  // FOOD: the kitchen counter stand point, for home zones only — E here
+  // opens the kitchen panel (only in a home the player owns; the server
+  // enforces ownership on cook). Set by furnishHome / buildHome.
+  kitchen?: { x: number; z: number };
 }
 
 export interface City {
@@ -1531,6 +1536,12 @@ function reservedPlot(x0: number, x1: number, z0: number, z1: number) {
     // the casino's north wall by 3 units. Keep it empty so the door
     // opens onto open ground. Do NOT build a block here.
     [-29, -7, -173, -151],
+    // FOOD restaurants (2026-11-12): Pizza Nova on the east grass and
+    // The Gold Fork south of Sunset Park. The diner reuses the car-shop
+    // reservation above ([115,137,43,65]) — it sits inside it. Do NOT
+    // build a block here.
+    [187, 207, 48, 66],
+    [78, 98, 230, 250],
     // Mega mall + mega OrbitX office superblocks.
     [43, 101, -29, 29],
     [-101, -43, -29, 29],
@@ -1823,6 +1834,73 @@ function furnishCafe(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   };
 }
 
+// FOOD: a restaurant is Cafe Nova's bones with its own name, wall and
+// accent (specs in content.ts RESTAURANT_PLACES). Same counter + four
+// tables, so the room reads as a place to sit and eat; the counter is
+// the service point — E there opens the restaurant panel (the client
+// resolves the menu from the zone id). One kind, three ids: the zone id
+// ("diner" / "pizza" / "fork") is what the panel and the server op use.
+function furnishRestaurant(
+  boxes: Box[],
+  cols: Collider[],
+  x0: number,
+  z0: number,
+  w: number,
+  d: number,
+  door: Face,
+  spec: { id: string; name: string; wall: string; accent: string },
+): Zone {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  const wall = spec.wall as Mat;
+  const accent = spec.accent as Mat;
+  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
+  addCeiling(boxes, cols, x0, z0, w, d);
+  cladWalls(boxes, x0, z0, w, d, door);
+  wallpaperWalls(boxes, x0, z0, w, d, door, wall, accent);
+  ceilingBeams(boxes, x0, z0, w, d);
+  doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  doorWallWindows(boxes, x0, z0, w, d, door, accent);
+  put(boxes, cx, 0.145, cz, 4.5, 0.05, 3.4, accent);
+  const back = opposite(door, x0, z0, w, d, 2.3);
+  const alongX = door === "n" || door === "s";
+  // Counter along the back wall, same as the cafe's.
+  put(boxes, back.x, 0.6, back.z, alongX ? 8 : 1.05, 1.15, alongX ? 1.05 : 8, "black");
+  cols.push(col(back.x, 0.6, back.z, alongX ? 8 : 1.05, 1.15, alongX ? 1.05 : 8));
+  put(boxes, back.x, 1.25, back.z, alongX ? 8.2 : 1.2, 0.14, alongX ? 1.2 : 8.2, "stone");
+  put(boxes, back.x, 1.7, back.z, 0.7, 0.55, 0.45, "warm");
+  const seats: Array<[number, number]> = [
+    [cx - 3.2, cz - 3.4],
+    [cx + 3.2, cz - 3.4],
+    [cx - 3.2, cz + 3.4],
+    [cx + 3.2, cz + 3.4],
+  ];
+  for (const [x, z] of seats) {
+    put(boxes, x, 0.72, z, 1.35, 0.1, 1.35, "wood");
+    put(boxes, x, 0.38, z, 0.22, 0.6, 0.22, "black");
+    cols.push(col(x, 0.55, z, 1.35, 0.9, 1.35));
+    for (const [dx, dz] of [[0.85, 0], [-0.85, 0], [0, 0.85], [0, -0.85]] as Array<[number, number]>) {
+      put(boxes, x + dx, 0.42, z + dz, 0.38, 0.42, 0.38, accent);
+    }
+  }
+  const service = opposite(door, x0, z0, w, d, 4);
+  return {
+    id: spec.id,
+    name: spec.name,
+    kind: "restaurant",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX: service.x,
+    serviceZ: service.z,
+    signX: back.x + (door === "w" ? -0.5 : door === "e" ? 0.5 : 0),
+    signY: 2.3,
+    signZ: back.z + (door === "n" ? -0.5 : door === "s" ? 0.5 : 0),
+    signRot: back.rot,
+  };
+}
+
 function furnishHall(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
   const { cx, cz } = roomCenter(x0, z0, w, d);
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "stone");
@@ -1983,7 +2061,7 @@ function addVenue(
   const arch: Pick<Facade, "roof" | "roofMat" | "storefront" | "awning" | "cornice"> =
     kind === "shop" || kind === "arcade" || kind === "carshop" || kind === "grocery"
       ? { roof: "gable", roofMat: 2, storefront: true, awning: true, cornice: true }
-      : kind === "cafe" || kind === "market"
+      : kind === "cafe" || kind === "market" || kind === "restaurant"
         ? { roof: "hip", roofMat: 1, storefront: true, awning: true, cornice: true }
         : kind === "hall"
           ? { roof: "gable", roofMat: 0, storefront: false, awning: false, cornice: true }
@@ -2023,7 +2101,7 @@ function addVenue(
   );
   addAwning(boxes, x0, z0, w, d, door);
   facades.push({
-    id: kind === "project" ? `project-${index}` : kind,
+    id: kind === "project" ? `project-${index}` : kind === "restaurant" ? (RESTAURANT_PLACES[index]?.id ?? `restaurant-${index}`) : kind,
     x: x0,
     z: z0,
     w,
@@ -2044,6 +2122,7 @@ function addVenue(
   if (kind === "shop") return furnishShop(boxes, cols, x0, z0, w, d, door);
   if (kind === "grocery") return furnishGrocery(boxes, cols, x0, z0, w, d, door);
   if (kind === "cafe") return furnishCafe(boxes, cols, x0, z0, w, d, door);
+  if (kind === "restaurant") return furnishRestaurant(boxes, cols, x0, z0, w, d, door, RESTAURANT_PLACES[index] ?? RESTAURANT_PLACES[0]);
   if (kind === "hall") return furnishHall(boxes, cols, x0, z0, w, d, door);
   if (kind === "project") return furnishOffice(boxes, cols, x0, z0, w, d, door, index);
   if (kind === "cinema") return furnishCinema(boxes, cols, x0, z0, w, d, door);
@@ -4028,6 +4107,13 @@ function furnishHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   put(boxes, kx, 1.2, kz, alongX ? 4.8 : 1.2, 0.14, alongX ? 1.2 : 4.8, "wood");
   put(boxes, alongX ? kx + 2.8 : kx, 1.0, alongX ? kz : kz + 2.8, 0.9, 2, 0.9, "white");
   cols.push(col(alongX ? kx + 2.8 : kx, 1.0, alongX ? kz : kz + 2.8, 0.9, 2, 0.9));
+  // FOOD: the kitchen stand point — 1.7 units off the counter, toward the
+  // middle of the room. E here opens the kitchen panel (only in a home
+  // the player owns; the server enforces ownership on cook).
+  const kdx = cx - kx;
+  const kdz = cz - kz;
+  const klen = Math.hypot(kdx, kdz) || 1;
+  const kitchen = { x: kx + (kdx / klen) * 1.7, z: kz + (kdz / klen) * 1.7 };
   // Bedroom nook: bed + nightstand. The bed lives south-east — except when
   // the kitchen is on the south-east side too (doors "n" and "w"), where
   // the counter and the fridge would swallow it; then it moves south-west.
@@ -4063,6 +4149,7 @@ function furnishHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
     signY: 2.35,
     signZ: back.z + (door === "n" ? -0.55 : door === "s" ? 0.55 : 0),
     signRot: back.rot,
+    kitchen,
   };
 }
 
@@ -4931,6 +5018,17 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     addVenue(boxes, cols, -98, 116, 20, 20, 8, "e", "hotel"),
     addVenue(boxes, cols, -28, -190, 17, 20, 8, "s", "casino"),
     addVenue(boxes, cols, 172, 188, 20, 20, 8, "n", "nightclub"),
+    // FOOD (2026-11-12): three restaurants, one kind, three ids (specs in
+    // content.ts RESTAURANT_PLACES — lots verified CLEAR: no zone, no
+    // tall collider, no road strip). Diner in the old reserved car-shop
+    // lot east of the garage, Pizza Nova on the east grass, The Gold
+    // Fork south of Sunset Park.
+    addVenue(boxes, cols, 115, 43, 20, 20, 8, "w", "restaurant", 0),
+    // Pizza Nova sits 2m south of dept-east-emergency (x 201..219, z
+    // 34..46) so their walls never touch — the first lot (186,46) grazed
+    // its south wall by 0.3 and added 3 "other" overlaps.
+    addVenue(boxes, cols, 187, 48, 20, 18, 8, "w", "restaurant", 1),
+    addVenue(boxes, cols, 78, 230, 20, 20, 8, "n", "restaurant", 2),
   ];
   // CARSHOP: the dealership forecourt (display cars + bought-car bay) for
   // the venue hooked in above.
@@ -4991,6 +5089,10 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     doorAnchor("casino", "Neon Casino", "casino", -28, -190, 17, 20, "s"),
     doorAnchor("nightclub", "Club Orbit", "nightclub", 172, 188, 20, 20, "n"),
     doorAnchor("stadium", "OrbitX Stadium", "stadium", 148, 204, 46, 26, "n"),
+    // FOOD: restaurant doors — E walks in, the counter inside opens the menu.
+    doorAnchor("diner", "Sunset Diner", "restaurant", 115, 43, 20, 20, "w"),
+    doorAnchor("pizza", "Pizza Nova", "restaurant", 187, 48, 20, 18, "w"),
+    doorAnchor("fork", "The Gold Fork", "restaurant", 78, 230, 20, 20, "n"),
   ];
   projectZs.forEach((z0, index) => {
     anchors.push({
