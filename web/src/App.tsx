@@ -9,6 +9,27 @@ import { MenuHome } from "./MenuHome";
 import { accountToken, signOutAccount, type Account } from "./auth";
 import { DecorBar, EmoteWheel, FeaturePanel, PhoneExtra, RaceBanner, SpectateBar, featureTitle } from "./Features";
 import { EMPTY_LEADERS, EMPTY_RACE } from "./game/life";
+import { CAR_SHOP, FLY_CONTROLS, VEHICLE_COLORS, getVehicle } from "./game/vehicles";
+import {
+  ALL_UNIVERSES_FULL_MESSAGE,
+  UNIVERSE_IDS,
+  UNIVERSE_META,
+  isFull,
+  joinButtonLabel,
+  listUniverses,
+  universeDisplayName,
+  type Universe,
+} from "./game/multiverse";
+import {
+  DISTRICTS,
+  JOB_LIST_ADDITION,
+  JOB_LIST_DESC_UPDATES,
+  JOBS_20,
+  type DistrictId,
+  type DistrictOfficeDirectoryRow,
+} from "./game/emergency";
+import { homeById, homePrice } from "./game/homes";
+import { triggerHaptic } from "./game/haptics";
 
 const HELP =
   "WASD move · click or drag to look · arrows or Q/R turn · Space jump · F fly · E use or drive · C camera · hold Z emotes · O spectator · T chat · V talk";
@@ -145,6 +166,12 @@ const EMPTY: Snap = {
   talk: null,
   photos: { taken: 0, spots: [] },
   wishes: 0,
+  vehicles: [],
+  activeVehicle: null,
+  universe: null,
+  haptics: false,
+  emergency: null,
+  districtOffice: "harbor",
 };
 
 function shotMode(): PlayMode | null {
@@ -244,6 +271,32 @@ export default function App() {
   const [officeMsg, setOfficeMsg] = useState("");
   const [officeBusy, setOfficeBusy] = useState(false);
   const [officeSuite, setOfficeSuite] = useState("");
+  // Multiverse picker (menu + panel): live list when the server answers,
+  // static roster when offline — the picker still records the choice.
+  const [universes, setUniverses] = useState<Universe[] | null>(null);
+  const [universeSel, setUniverseSel] = useState<number>(() => {
+    const saved = Number(localStorage.getItem("orbitx-universe") || "");
+    return saved >= 1 && saved <= 5 ? saved : 1;
+  });
+  const [universeMsg, setUniverseMsg] = useState("");
+  // Garage panel.
+  const [garageColors, setGarageColors] = useState<Record<string, string>>({});
+  const [garageMsg, setGarageMsg] = useState("");
+  const [garageBusy, setGarageBusy] = useState(false);
+  // District-offices panel (cloned from the HQ offices panel, per server).
+  const [districtSel, setDistrictSel] = useState<DistrictId>("harbor");
+  const [districtOffices, setDistrictOffices] = useState<DistrictOfficeDirectoryRow[]>([]);
+  const [districtMsg, setDistrictMsg] = useState("");
+  const [districtBusy, setDistrictBusy] = useState(false);
+  const [districtSuite, setDistrictSuite] = useState("");
+  const [districtTerm, setDistrictTerm] = useState<1 | 7 | 30>(7);
+  const [districtProject, setDistrictProject] = useState("");
+  const [districtLogo, setDistrictLogo] = useState("");
+  const [districtSite, setDistrictSite] = useState("");
+  // State homes (Home panel, current universe only).
+  const [homeMine, setHomeMine] = useState<{ homeId: string; server: number; price: number }[]>([]);
+  const [homeServer, setHomeServer] = useState(0);
+  const [homeMsg, setHomeMsg] = useState("");
   const [officeTerm, setOfficeTerm] = useState<1 | 7 | 30>(7);
   const [officeProject, setOfficeProject] = useState("");
   const [officeLogo, setOfficeLogo] = useState("");
@@ -296,6 +349,63 @@ export default function App() {
     void callCity("office-claims").then((res) => {
       if (res.ok && Array.isArray(res.offices)) setOffices(res.offices as OfficeSuiteState[]);
       else setOfficeMsg(String(res.message || "Could not load the office directory."));
+    });
+  }, [panel]);
+
+  // Multiverse picker on the menu: counts + home badge when signed in,
+  // static roster when offline. Default: home universe if they have one
+  // and no universe was picked before, else Universe 1.
+  useEffect(() => {
+    if (!menu) return;
+    let live = true;
+    void listUniverses()
+      .then((list) => {
+        if (!live) return;
+        setUniverses(list.universes);
+        if (!localStorage.getItem("orbitx-universe") && list.homeServerId) setUniverseSel(list.homeServerId);
+      })
+      .catch(() => {
+        if (!live) return;
+        setUniverses(fallbackUniverses());
+      });
+    return () => {
+      live = false;
+    };
+  }, [menu]);
+
+  // Multiverse panel: fresh counts on open.
+  useEffect(() => {
+    if (panel !== "multiverse") return;
+    setUniverseMsg("");
+    void listUniverses()
+      .then((list) => setUniverses(list.universes))
+      .catch((err) => setUniverseMsg(err instanceof Error ? err.message : "Could not load universes."));
+  }, [panel]);
+
+  // District-offices panel: the directory for the picked district on the
+  // CURRENT universe — the panel always shows which universe it is for.
+  useEffect(() => {
+    if (panel !== "district-offices") return;
+    setDistrictMsg("");
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    void rt.loadDistrictOffices(districtSel).then((res) => {
+      if (res.ok) setDistrictOffices(res.offices as DistrictOfficeDirectoryRow[]);
+      else setDistrictMsg(String(res.message || "Could not load the directory."));
+    });
+  }, [panel, districtSel]);
+
+  // Home panel: home-status poll for the current universe.
+  useEffect(() => {
+    if (panel !== "home") return;
+    setHomeMsg("");
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    void rt.homeStatus().then((res) => {
+      if (res.ok) {
+        setHomeMine(res.mine);
+        setHomeServer(res.homeServer);
+      } else setHomeMsg(String(res.message || ""));
     });
   }, [panel]);
 
@@ -361,6 +471,7 @@ export default function App() {
   }, [panel]);
 
   const open = (name: PanelName | "offices") => {
+    triggerHaptic("tap");
     setPanel(name);
     const lock = name !== "chat";
     gameRef.current?.runtime.setPaused(lock);
@@ -368,6 +479,7 @@ export default function App() {
   };
 
   const close = () => {
+    triggerHaptic("tap");
     setPanel("");
     gameRef.current?.runtime.setPaused(false);
     gameRef.current?.runtime.setTyping(false);
@@ -452,6 +564,9 @@ export default function App() {
     setBusy(true);
     const startSeed = parseSeed(seedText);
     setSeed(startSeed);
+    // The menu universe pick rides into the world: begin() joins that
+    // universe once the session is live and spawns that universe's car.
+    gameRef.current?.runtime.setUniverse(universeSel);
     game.start(startSeed, "play");
     setBusy(false);
     setMenu(false);
@@ -495,6 +610,7 @@ export default function App() {
           {snap.notice ? <em>{snap.notice}</em> : null}
           <span className="quiet">
             {snap.others + 1} in the city · {snap.camLabel} · {snap.lookName}
+            {snap.universe ? ` · ${snap.universe.name} · ${snap.universe.isHome ? "Home" : "Visitor"}` : ""}
           </span>
           <Minimap me={snap.me} people={snap.people} seed={seed} />
         </div>
@@ -507,6 +623,7 @@ export default function App() {
           <button type="button" onClick={() => open("ads")}>Ads</button>
           <button type="button" onClick={() => open("radio")}>Radio</button>
           <button type="button" onClick={() => open("offices")}>Offices</button>
+          <button type="button" onClick={() => open("multiverse")}>Multiverse</button>
           <button type="button" onClick={() => open("events")}>Events</button>
           <button type="button" onClick={() => open("chat")}>Chat</button>
           <button type="button" onClick={() => open("phone")}>Phone</button>
@@ -521,12 +638,12 @@ export default function App() {
           <Stick onChange={(x, y) => gameRef.current?.runtime.setStick(x, y)} />
           <div className="pad-buttons">
             <Hold label="Jump" onDown={() => gameRef.current?.runtime.hold("jump", true)} onUp={() => gameRef.current?.runtime.hold("jump", false)} />
-            <button type="button" onClick={() => gameRef.current?.runtime.toggleFly()}>Fly</button>
+            <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.toggleFly(); }}>Fly</button>
             <Hold label="Down" onDown={() => gameRef.current?.runtime.hold("down", true)} onUp={() => gameRef.current?.runtime.hold("down", false)} />
-            <button type="button" onClick={() => gameRef.current?.runtime.interact()}>Use</button>
-            <button type="button" onClick={() => gameRef.current?.runtime.cycleCamera()}>Camera</button>
-            <button type="button" onClick={() => open("chat")}>Chat</button>
-            <button type="button" onClick={() => open("shop")}>Shop</button>
+            <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.interact(); }}>Use</button>
+            <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.cycleCamera(); }}>Camera</button>
+            <button type="button" onClick={() => { triggerHaptic("tap"); open("chat"); }}>Chat</button>
+            <button type="button" onClick={() => { triggerHaptic("tap"); open("shop"); }}>Shop</button>
             <button
               type="button"
               onPointerDown={(event) => {
@@ -547,7 +664,7 @@ export default function App() {
             >
               Emote
             </button>
-            <button type="button" onClick={() => gameRef.current?.runtime.toggleSpectator()}>Clip</button>
+            <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.toggleSpectator(); }}>Clip</button>
           </div>
         </div>
       ) : null}
@@ -561,6 +678,10 @@ export default function App() {
                 {panel === "ads" && "Book a billboard"}
                 {panel === "radio" && "Radio"}
                 {panel === "offices" && "OrbitX Tower offices"}
+                {panel === "garage" && "Hover Garage"}
+                {panel === "multiverse" && "Multiverse"}
+                {panel === "emergency" && "Emergency services"}
+                {panel === "district-offices" && "District offices"}
                 {panel === "events" && "Events"}
                 {panel === "chat" && "Chat"}
                 {panel === "phone" && "Phone"}
@@ -599,7 +720,20 @@ export default function App() {
                 <p className="muted">
                   Every job pays in City Sol — the game&apos;s own money, never real SOL. Job streak {snap.jobStreak}: +5% pay per job in a row, up to +50%.
                 </p>
-                {JOB_LIST.map((job) => {
+                {JOBS_20.map((job) => {
+                  const pay = Math.round(job.base * (1 + 0.05 * Math.min(snap.jobStreak, 10)));
+                  return (
+                    <article key={job.id}>
+                      <div>
+                        <b>{job.name}</b>
+                        <span>{job.duty} Pays {pay} City Sol.</span>
+                      </div>
+                      <button type="button" onClick={() => { gameRef.current?.runtime.startJob(job.id); close(); }}>Start</button>
+                    </article>
+                  );
+                })}
+                <h3>Also playable</h3>
+                {JOB_LIST.filter((job) => !JOBS_20.some((roster) => roster.id === job.id)).map((job) => {
                   const pay = Math.round(job.base * (1 + 0.05 * Math.min(snap.jobStreak, 10)));
                   return (
                     <article key={job.id}>
@@ -877,6 +1011,7 @@ export default function App() {
                                 if (officeBusy) return;
                                 setOfficeBusy(true);
                                 const res = await callCity("office-release", { suite: suite.id });
+                                triggerHaptic(res.ok ? "success" : "error");
                                 setOfficeMsg(String(res.message || ""));
                                 if (res.ok && Array.isArray(res.offices)) setOffices(res.offices as OfficeSuiteState[]);
                                 setOfficeBusy(false);
@@ -907,6 +1042,7 @@ export default function App() {
                           logo: officeLogo,
                           site: officeSite,
                         });
+                        triggerHaptic(res.ok ? "success" : "error");
                         if (res.ok) {
                           setOfficeMsg(String(res.message || "Claimed."));
                           if (Array.isArray(res.offices)) setOffices(res.offices as OfficeSuiteState[]);
@@ -968,6 +1104,272 @@ export default function App() {
                         {officeBusy ? "Claiming…" : `Confirm — pay ${price} City Sol`}
                       </button>
                       <button type="button" onClick={() => setOfficeSuite("")}>Cancel</button>
+                    </form>
+                  );
+                })()}
+              </div>
+            )}
+            {panel === "garage" && (
+              <div className="list">
+                <p className="muted">
+                  {snap.universe
+                    ? `Your cars live on ${snap.universe.name} — ${snap.universe.isHome ? "your home universe" : "you are visiting"}. Balance ${snap.balance} City Sol.`
+                    : "Sign in and pick a universe on the menu to sync cars — until then purchases are saved on this device only."}
+                </p>
+                {garageMsg ? <p>{garageMsg}</p> : null}
+                {CAR_SHOP.map((section) => (
+                  <div key={section.title}>
+                    <h3>{section.title}</h3>
+                    <p className="muted">{section.blurb}</p>
+                    {section.ids.map((id) => {
+                      const v = getVehicle(id);
+                      if (!v) return null;
+                      const owned = snap.vehicles.some((car) => car.id === id);
+                      const active = snap.activeVehicle === id;
+                      const color = garageColors[id] ?? snap.vehicles.find((car) => car.id === id)?.color ?? "black";
+                      const afford = snap.balance >= v.price;
+                      return (
+                        <article key={id}>
+                          <div>
+                            <b>{v.name}</b>
+                            <span>{v.brand} — {v.blurb}</span>
+                            <span>Speed {v.stats.speed}/10 · Accel {v.stats.accel}/10 · Handling {v.stats.handling}/10 · {v.stats.seats} seats · {v.price} City Sol</span>
+                            {v.fly ? <span>{FLY_CONTROLS.note}</span> : null}
+                            {v.kind === "skateboard" ? <span>Push W to go — no reverse.</span> : null}
+                            <span className="days">
+                              {Object.entries(VEHICLE_COLORS).map(([name, hex]) => (
+                                <button
+                                  key={name}
+                                  type="button"
+                                  className={color === name ? "on" : ""}
+                                  style={{
+                                    background: `#${hex.toString(16).padStart(6, "0")}`,
+                                    color: ((hex >> 16) & 255) * 0.299 + ((hex >> 8) & 255) * 0.587 + (hex & 255) * 0.114 > 140 ? "#000" : "#fff",
+                                  }}
+                                  onClick={() => setGarageColors((prev) => ({ ...prev, [id]: name }))}
+                                >
+                                  {name}
+                                </button>
+                              ))}
+                            </span>
+                          </div>
+                          {active ? (
+                            <button type="button" disabled>Selected</button>
+                          ) : owned ? (
+                            <button
+                              type="button"
+                              disabled={garageBusy}
+                              onClick={async () => {
+                                const rt = gameRef.current?.runtime;
+                                if (!rt || garageBusy) return;
+                                setGarageBusy(true);
+                                setGarageMsg(await rt.selectCar(id));
+                                setGarageBusy(false);
+                              }}
+                            >
+                              Select
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={garageBusy || !afford}
+                              onClick={async () => {
+                                const rt = gameRef.current?.runtime;
+                                if (!rt || garageBusy) return;
+                                setGarageBusy(true);
+                                setGarageMsg(await rt.buyCar(id, color));
+                                setGarageBusy(false);
+                              }}
+                            >
+                              {afford ? `Buy — ${v.price} City Sol` : "Not enough City Sol"}
+                            </button>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+            {panel === "multiverse" && (
+              <div className="list">
+                <p className="muted">Your cars, homes, and offices live per universe — travel is free, nothing follows you unless you carry it.</p>
+                {universeMsg ? <p>{universeMsg}</p> : null}
+                {(universes ?? fallbackUniverses()).map((u) => {
+                  const full = isFull(u);
+                  const current = snap.universe?.id === u.id;
+                  return (
+                    <article key={u.id}>
+                      <div>
+                        <b>{u.displayName}</b>
+                        <span>{u.tagline} · {u.playerCount}/{u.cap} players{u.isHome ? " · Home universe" : ""}{current ? " · You are here" : ""}{current && snap.universe && !snap.universe.isHome ? " · Visitor" : ""}</span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={full || current}
+                        onClick={async () => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          try {
+                            if (u.isHome) await rt.joinUniverse(u.id);
+                            else await rt.travelUniverse(u.id);
+                            close();
+                          } catch (err) {
+                            setUniverseMsg(err instanceof Error ? err.message : "Could not travel.");
+                          }
+                        }}
+                      >
+                        {joinButtonLabel(u)}
+                      </button>
+                    </article>
+                  );
+                })}
+                {universes && universes.every(isFull) ? <p>{ALL_UNIVERSES_FULL_MESSAGE}</p> : null}
+              </div>
+            )}
+            {panel === "emergency" && (
+              <div className="list">
+                {(() => {
+                  const dept = snap.emergency;
+                  if (!dept) return <p className="muted">Walk up to a department — Fire, Police, Hospital, or the Emergency Center — and press E.</p>;
+                  const jobId = ({ fire: "fire", police: "cop", hospital: "doctor", emergency: "paramedic" } as Record<string, string>)[dept.kind] ?? "";
+                  const roster = JOBS_20.find((job) => job.id === jobId);
+                  if (!roster) return <p className="muted">No job listed for {dept.name}.</p>;
+                  const pay = Math.round(roster.base * (1 + 0.05 * Math.min(snap.jobStreak, 10)));
+                  return (
+                    <article>
+                      <div>
+                        <b>{dept.name}</b>
+                        <span>{roster.name} — {roster.duty} Pays {pay} City Sol.</span>
+                      </div>
+                      <button type="button" onClick={() => { gameRef.current?.runtime.startJob(roster.id); close(); }}>Take job</button>
+                    </article>
+                  );
+                })()}
+              </div>
+            )}
+            {panel === "district-offices" && (
+              <div className="list">
+                <p className="muted">
+                  District offices — {snap.universe ? `${snap.universe.name} · Server ${snap.universe.id}` : "pick a universe on the menu first"}. Claims never cross universes.
+                </p>
+                <div className="days">
+                  {DISTRICTS.map((d) => (
+                    <button key={d.id} type="button" className={districtSel === d.id ? "on" : ""} onClick={() => setDistrictSel(d.id)}>
+                      {d.name}
+                    </button>
+                  ))}
+                  <button type="button" onClick={() => open("offices")}>HQ (OrbitX Tower)</button>
+                </div>
+                {districtMsg ? <p>{districtMsg}</p> : null}
+                {[2, 3, 4].map((floor) => {
+                  const floors = districtOffices.filter((s) => s.floor === floor);
+                  if (!floors.length) return null;
+                  return (
+                    <div key={floor}>
+                      <h3>Floor {floor}</h3>
+                      {floors.map((suite) => (
+                        <article key={suite.id}>
+                          <div>
+                            <b>{suite.name}</b>
+                            <span>{suite.tier} · {suite.prices[1]} City Sol / day · {suite.prices[7]} / week · {suite.prices[30]} / month{suite.claim ? ` · Claimed by ${suite.claim.project} until ${suite.claim.until}` : ""}</span>
+                          </div>
+                          {suite.claimable && !suite.claim ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDistrictSuite(suite.id);
+                                setDistrictTerm(7);
+                                setDistrictMsg("");
+                              }}
+                            >
+                              Claim
+                            </button>
+                          ) : null}
+                          {suite.claim && suite.claim.owner_id === snap.meId ? (
+                            <button
+                              type="button"
+                              disabled={districtBusy}
+                              onClick={async () => {
+                                const rt = gameRef.current?.runtime;
+                                if (!rt || districtBusy) return;
+                                setDistrictBusy(true);
+                                const res = await rt.releaseDistrictOffice(suite.id);
+                                triggerHaptic(res.ok ? "success" : "error");
+                                setDistrictMsg(res.message);
+                                if (res.ok) {
+                                  const rows = await rt.loadDistrictOffices(districtSel);
+                                  if (rows.ok) setDistrictOffices(rows.offices as DistrictOfficeDirectoryRow[]);
+                                }
+                                setDistrictBusy(false);
+                              }}
+                            >
+                              Release
+                            </button>
+                          ) : null}
+                        </article>
+                      ))}
+                    </div>
+                  );
+                })}
+                {(() => {
+                  const selected = districtOffices.find((suite) => suite.id === districtSuite) || null;
+                  if (!selected || !selected.claimable || selected.claim) return null;
+                  const price = selected.prices[districtTerm];
+                  return (
+                    <form
+                      onSubmit={async (event) => {
+                        event.preventDefault();
+                        const rt = gameRef.current?.runtime;
+                        if (!rt || districtBusy) return;
+                        setDistrictBusy(true);
+                        setDistrictMsg("");
+                        const res = await rt.claimDistrictOffice(selected.id, districtTerm, districtProject, districtLogo, districtSite);
+                        triggerHaptic(res.ok ? "success" : "error");
+                        if (res.ok) {
+                          setDistrictMsg(res.message);
+                          if (Array.isArray(res.offices)) setDistrictOffices(res.offices as DistrictOfficeDirectoryRow[]);
+                          setDistrictSuite("");
+                          setDistrictProject("");
+                          setDistrictLogo("");
+                          setDistrictSite("");
+                          rt.refreshMe();
+                        } else {
+                          setDistrictMsg(res.message);
+                        }
+                        setDistrictBusy(false);
+                      }}
+                    >
+                      <h3>Claim {selected.name} — Floor {selected.floor}</h3>
+                      <div className="days">
+                        {([1, 7, 30] as const).map((days) => (
+                          <button
+                            key={days}
+                            type="button"
+                            className={districtTerm === days ? "on" : ""}
+                            onClick={() => setDistrictTerm(days)}
+                          >
+                            {days === 1 ? "1 day" : days === 7 ? "7 days" : "30 days"} · {selected.prices[days]} City Sol
+                          </button>
+                        ))}
+                      </div>
+                      <label>
+                        Project name
+                        <input value={districtProject} maxLength={48} onChange={(event) => setDistrictProject(event.target.value)} />
+                      </label>
+                      <label>
+                        Logo URL
+                        <input value={districtLogo} maxLength={200} placeholder="https://…" onChange={(event) => setDistrictLogo(event.target.value)} />
+                      </label>
+                      <label>
+                        Site URL
+                        <input value={districtSite} maxLength={200} placeholder="https://…" onChange={(event) => setDistrictSite(event.target.value)} />
+                      </label>
+                      <p>
+                        {price} City Sol for {districtTerm === 1 ? "1 day" : districtTerm === 7 ? "7 days" : "30 days"}.
+                        Your balance {snap.balance} City Sol.
+                      </p>
+                      <button type="submit" disabled={districtBusy || snap.balance < price}>Claim — {price} City Sol</button>
                     </form>
                   );
                 })()}
@@ -1041,6 +1443,73 @@ export default function App() {
               });
             }} />}
             <FeaturePanel snap={{ ...snap, panel: panel as PanelName | "" }} rt={gameRef.current?.runtime ?? null} />
+            {panel === "home" && (() => {
+              const zoneId = snap.indoors || "";
+              const mineList = (
+                <>
+                  {homeMine.length ? <h3>Your homes on this universe{homeServer ? ` — Server ${homeServer}` : ""}</h3> : null}
+                  {homeMine.map((h) => {
+                    const def = homeById(h.homeId);
+                    return (
+                      <article key={`${h.homeId}:${h.server}`}>
+                        <div>
+                          <b>{def?.name ?? h.homeId}</b>
+                          <span>{h.price} City Sol · Server {h.server}</span>
+                        </div>
+                      </article>
+                    );
+                  })}
+                  {homeMsg ? <p>{homeMsg}</p> : null}
+                </>
+              );
+              if (!zoneId.startsWith("home-")) {
+                return (
+                  <div className="list">
+                    <p className="muted">Stand inside a state home to buy it — homes are priced per state, in City Sol.</p>
+                    {mineList}
+                  </div>
+                );
+              }
+              const home = homeById(zoneId);
+              if (!home) {
+                return (
+                  <div className="list">
+                    <p className="muted">This home is not for sale.</p>
+                    {mineList}
+                  </div>
+                );
+              }
+              const owned = homeMine.some((h) => h.homeId === zoneId);
+              const price = homePrice(zoneId) ?? home.price;
+              const afford = snap.balance >= price;
+              return (
+                <div className="list">
+                  <article>
+                    <div>
+                      <b>{home.name}</b>
+                      <span>{price} City Sol · {owned ? "Yours on this universe" : "Not owned yet"}</span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={owned || !afford}
+                      onClick={async () => {
+                        const rt = gameRef.current?.runtime;
+                        if (!rt) return;
+                        setHomeMsg(await rt.buyHome(zoneId));
+                        const res = await rt.homeStatus();
+                        if (res.ok) {
+                          setHomeMine(res.mine);
+                          setHomeServer(res.homeServer);
+                        }
+                      }}
+                    >
+                      {owned ? "Owned" : afford ? `Buy — ${price} City Sol` : "Not enough City Sol"}
+                    </button>
+                  </article>
+                  {mineList}
+                </div>
+              );
+            })()}
             {panel === "menu" && (
               <div className="list">
                 <p>{HELP} · P phone · N day/night · V push to talk · 1-4 emotes</p>
@@ -1053,6 +1522,9 @@ export default function App() {
                   ))}
                   <button type="button" onClick={() => gameRef.current?.runtime.cycleTime()}>Time: {snap.time}</button>
                 </div>
+                <button type="button" onClick={() => gameRef.current?.runtime.setHaptics(!snap.haptics)}>
+                  Haptics: {snap.haptics ? "On" : "Off"}
+                </button>
                 <p>On a phone, use the stick to move, drag the right side to look, pinch to zoom, and the Camera button to change view.</p>
                 <button
                   type="button"
@@ -1114,7 +1586,35 @@ export default function App() {
               }}
             />
           ) : (
-            <div className="card menu-wide">
+            <>
+              <div className="card menu-wide">
+                <h2>Pick your universe</h2>
+                <p className="muted">Your cars, homes, and offices live per universe. Travel between them is free — nothing follows you unless you carry it. Pick one before you play; you can travel in-world later.</p>
+                <div className="days">
+                  {(universes ?? fallbackUniverses()).map((u) => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      className={universeSel === u.id ? "on" : ""}
+                      disabled={isFull(u)}
+                      onClick={() => {
+                        triggerHaptic("tap");
+                        setUniverseSel(u.id);
+                        gameRef.current?.runtime.setUniverse(u.id);
+                      }}
+                    >
+                      {u.displayName} · {u.playerCount}/{u.cap}
+                      {u.isHome ? " · Home" : ""}
+                      {isFull(u) ? " · Full" : ""}
+                    </button>
+                  ))}
+                </div>
+                <p className="muted">
+                  Selected: {universeDisplayName(universeSel as 1 | 2 | 3 | 4 | 5)}
+                  {(universes ?? []).find((u) => u.id === universeSel)?.isHome ? " — your home universe" : ""}
+                </p>
+              </div>
+              <div className="card menu-wide">
               <CharacterSelect
                 seedText={seedText}
                 setSeedText={setSeedText}
@@ -1123,7 +1623,8 @@ export default function App() {
                 onPlay={play}
                 onBack={() => setMenuStep("home")}
               />
-            </div>
+              </div>
+            </>
           )}
         </section>
       )}
@@ -1167,7 +1668,7 @@ const MAP_LABEL_PRIORITY = ["shop", "cafe", "hall", "dock", "bank", "market", "a
 
 // Job board — single source of truth for the base pay the server pays
 // (api/city.js JOBS, plus the +5%-per-streak scaling in scaledPay).
-const JOB_LIST: Array<{ id: string; name: string; desc: string; base: number }> = [
+const JOB_LIST_BASE: Array<{ id: string; name: string; desc: string; base: number }> = [
   { id: "courier", name: "Courier", desc: "Pick up a package at the fountain and drop it at the shop.", base: 45 },
   { id: "taxi", name: "Taxi driver", desc: "Three fares around the city — pick up, drop off, repeat.", base: 90 },
   { id: "guide", name: "City guide", desc: "Visit the shop, the hall, and OrbitX HQ.", base: 60 },
@@ -1188,6 +1689,32 @@ const JOB_LIST: Array<{ id: string; name: string; desc: string; base: number }> 
   { id: "dj", name: "DJ", desc: "Play a set inside the Community Hall.", base: 55 },
   { id: "banker", name: "Bank teller", desc: "Open the window at OrbitX Bank.", base: 50 },
 ];
+
+// Cop + paramedic join the roster; fire/doctor get their extended duties
+// from emergency.ts. Photographer stays playable — it is just not in the
+// curated 20 (JOBS_20, rendered separately in the jobs panel).
+const JOB_LIST = [
+  ...JOB_LIST_BASE.map((job) =>
+    JOB_LIST_DESC_UPDATES[job.id] ? { ...job, desc: JOB_LIST_DESC_UPDATES[job.id] } : job,
+  ),
+  ...JOB_LIST_ADDITION,
+];
+
+// Offline multiverse roster (no counts, no home badge) — the picker still
+// records the choice so play() can join that universe once signed in.
+function fallbackUniverses(): Universe[] {
+  return UNIVERSE_IDS.map((id) => ({
+    id,
+    name: UNIVERSE_META[id].name,
+    displayName: universeDisplayName(id),
+    tagline: UNIVERSE_META[id].tagline,
+    cap: 150,
+    playerCount: 0,
+    status: "open" as const,
+    isHome: false,
+    realtimeEndpoint: null,
+  }));
+}
 
 function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"]; seed: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
