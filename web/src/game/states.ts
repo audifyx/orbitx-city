@@ -376,17 +376,21 @@ export function buildRegionCore(city: City, state: StateDef): void {
   pushBox(city, cx, 0.5, cz, 8, 1, 8, "stone");
   pushBox(city, cx, 1.05, cz, 6, 0.3, 6, "water");
   pushBox(city, cx, 1.8, cz, 1.2, 1.6, 1.2, "stone");
-  // Landmark tower: one textured facade (pretty renders the box + roof kit),
-  // one solid collider. Height + style carry the state's character.
+  // Landmark tower: one textured facade (pretty renders the box + roof
+  // kit). 2026-11-12: was a solid block (full-volume collider, no
+  // inside). Now enterable: a furnished lobby on the ground floor with
+  // the plaza fountain as its centrepiece, solid only above it.
   const tw = 24;
   const tower: Facade = {
     id: `${state.id}-landmark`,
     x: cx - tw / 2, z: cz - tw / 2, w: tw, d: tw, h: t.towerH,
-    style: t.style, door: "", enterable: false, hero: true,
+    style: t.style, door: "s", enterable: true, hero: true,
     face: "s", roof: "stepped", roofMat: t.roofMat, cornice: t.cornice,
   };
   city.facades.push(tower);
-  pushCol(city, cx, t.towerH / 2, cz, tw, t.towerH, tw);
+  pushWallColliders(city, cx - tw / 2, cz - tw / 2, tw, tw, 8, "s");
+  if (t.towerH > 8) pushCol(city, cx, (8 + t.towerH) / 2, cz, tw, t.towerH - 8, tw);
+  city.zones.push(furnishStateLandmark(city, state));
   // Gold beacon on top.
   pushBox(city, cx, t.towerH + 1, cz, 3, 2, 3, "gold");
   // Plaza corner lamps + state props.
@@ -541,6 +545,346 @@ function stateSignBoard(
   city.art.push(art);
 }
 
+/** A framed painting on a wall (gold frame + colour panels), the state
+ * twin of city.ts voxelPainting. rotY follows the art convention:
+ * 0 = faces +z, PI = faces -z, +/-PI/2 = faces +/-x. */
+function statePainting(city: City, x: number, y: number, z: number, rotY: number, w: number, h: number): void {
+  const nx = Math.sin(rotY);
+  const nz = Math.cos(rotY);
+  const alongX = Math.abs(nz) > 0.5;
+  const t = 0.12;
+  if (alongX) {
+    pushBox(city, x, y, z, w + 0.3, h + 0.3, t, "gold");
+    pushBox(city, x - w * 0.22, y + h * 0.1, z + nz * 0.1, w * 0.42, h * 0.5, 0.06, "cyan");
+    pushBox(city, x + w * 0.2, y - h * 0.12, z + nz * 0.1, w * 0.38, h * 0.42, 0.06, "warm");
+    pushBox(city, x + w * 0.05, y + h * 0.28, z + nz * 0.1, w * 0.24, h * 0.24, 0.06, "red");
+  } else {
+    pushBox(city, x, y, z, t, h + 0.3, w + 0.3, "gold");
+    pushBox(city, x + nx * 0.1, y + h * 0.1, z - w * 0.22, 0.06, h * 0.5, w * 0.42, "cyan");
+    pushBox(city, x + nx * 0.1, y - h * 0.12, z + w * 0.2, 0.06, h * 0.42, w * 0.38, "warm");
+    pushBox(city, x + nx * 0.1, y + h * 0.28, z + w * 0.05, 0.06, h * 0.24, w * 0.24, "red");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// District blocks — the 2026-11-12 audit found all 81 mid-ring blocks
+// (27/state) were solid: a facade + a full-volume collider, nothing
+// inside. Each one now gets a furnished ground-floor interior (same
+// layout math as city.ts furnishBlock, in the state's finish language)
+// and its own zone, with a south door. Every offset derives from w/d
+// and is clamped; the 4-wide door lane stays clear of solid furniture.
+// ---------------------------------------------------------------------------
+
+type StateBlockKindDef = { kind: Zone["kind"]; label: string; accent: Mat; floor: Mat };
+
+const STATE_BLOCK_KINDS: StateBlockKindDef[] = [
+  { kind: "shop", label: "Shop", accent: "gold", floor: "cream" },
+  { kind: "cafe", label: "Cafe", accent: "warm", floor: "wood" },
+  { kind: "market", label: "Market", accent: "red", floor: "cream" },
+  { kind: "bank", label: "Bank", accent: "cyan", floor: "stone" },
+  { kind: "library", label: "Reading Room", accent: "wood", floor: "wood" },
+  { kind: "gym", label: "Gym", accent: "red", floor: "black" },
+  { kind: "museum", label: "Museum", accent: "gold", floor: "cream" },
+  { kind: "hall", label: "Hall", accent: "white", floor: "wood" },
+  { kind: "office", label: "Office", accent: "cyan", floor: "cream" },
+  { kind: "hotel", label: "Inn", accent: "warm", floor: "wood" },
+];
+
+// Room-space point: `a` runs along the door wall, `t` runs inward from
+// the door wall (0 = door wall, T = back wall).
+function blockRoomPoint(door: Face, x0: number, z0: number, w: number, d: number, a: number, t: number) {
+  if (door === "n") return { x: x0 + a, z: z0 + t };
+  if (door === "s") return { x: x0 + w - a, z: z0 + d - t };
+  if (door === "w") return { x: x0 + t, z: z0 + a };
+  return { x: x0 + w - t, z: z0 + d - a };
+}
+
+// Furnished ground-floor interior for one district block (w/d 20-26).
+// Returns the block's zone (id = the facade id, unique).
+function furnishStateBlock(
+  city: City,
+  x0: number,
+  z0: number,
+  w: number,
+  d: number,
+  door: Face,
+  def: StateBlockKindDef,
+  district: DistrictDef,
+  id: string,
+): Zone {
+  const { kind, label, accent, floor } = def;
+  const cx = x0 + w / 2;
+  const cz = z0 + d / 2;
+  const mx = cx;
+  const mz = cz;
+  const alongX = door === "n" || door === "s";
+  const S = alongX ? w : d;
+  const T = alongX ? d : w;
+  const rput = (a: number, t: number, sa: number, y: number, sy: number, st: number, mat: Mat) => {
+    const p = blockRoomPoint(door, x0, z0, w, d, a, t);
+    pushBox(city, p.x, y, p.z, alongX ? sa : st, sy, alongX ? st : sa, mat);
+  };
+  const rcol = (a: number, t: number, sa: number, y: number, sy: number, st: number) => {
+    const p = blockRoomPoint(door, x0, z0, w, d, a, t);
+    pushCol(city, p.x, y, p.z, alongX ? sa : st, sy, alongX ? st : sa);
+  };
+
+  // Shell finish: floor, ceiling, striped wallpaper (district wall +
+  // kind accent), plants flanking the door.
+  pushBox(city, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, floor);
+  stateCeiling(city, x0, z0, w, d);
+  // The door wall keeps its wallpaper except across the 4-wide gap.
+  if (door === "w") {
+    stateWallpaperWall(city, true, z0 + 0.55, z0 + 0.62, x0 + 1.25, x0 + w - 1.25, 0, district.wall, accent);
+    stateWallpaperWall(city, true, z0 + d - 0.55, z0 + d - 0.62, x0 + 1.25, x0 + w - 1.25, 0, district.wall, accent);
+    stateWallpaperWall(city, false, x0 + 0.55, x0 + 0.62, z0 + 1.25, mz - 2, 0, district.wall, accent);
+    stateWallpaperWall(city, false, x0 + 0.55, x0 + 0.62, mz + 2, z0 + d - 1.25, 0, district.wall, accent);
+    stateWallpaperWall(city, false, x0 + w - 0.55, x0 + w - 0.62, z0 + 1.25, z0 + d - 1.25, 0, district.wall, accent);
+  } else if (door === "e") {
+    stateWallpaperWall(city, true, z0 + 0.55, z0 + 0.62, x0 + 1.25, x0 + w - 1.25, 0, district.wall, accent);
+    stateWallpaperWall(city, true, z0 + d - 0.55, z0 + d - 0.62, x0 + 1.25, x0 + w - 1.25, 0, district.wall, accent);
+    stateWallpaperWall(city, false, x0 + 0.55, x0 + 0.62, z0 + 1.25, z0 + d - 1.25, 0, district.wall, accent);
+    stateWallpaperWall(city, false, x0 + w - 0.55, x0 + w - 0.62, z0 + 1.25, mz - 2, 0, district.wall, accent);
+    stateWallpaperWall(city, false, x0 + w - 0.55, x0 + w - 0.62, mz + 2, z0 + d - 1.25, 0, district.wall, accent);
+  } else if (door === "n") {
+    stateWallpaperWall(city, true, z0 + 0.55, z0 + 0.62, x0 + 1.25, mx - 2, 0, district.wall, accent);
+    stateWallpaperWall(city, true, z0 + 0.55, z0 + 0.62, mx + 2, x0 + w - 1.25, 0, district.wall, accent);
+    stateWallpaperWall(city, true, z0 + d - 0.55, z0 + d - 0.62, x0 + 1.25, x0 + w - 1.25, 0, district.wall, accent);
+    stateWallpaperWall(city, false, x0 + 0.55, x0 + 0.62, z0 + 1.25, z0 + d - 1.25, 0, district.wall, accent);
+    stateWallpaperWall(city, false, x0 + w - 0.55, x0 + w - 0.62, z0 + 1.25, z0 + d - 1.25, 0, district.wall, accent);
+  } else {
+    stateWallpaperWall(city, true, z0 + 0.55, z0 + 0.62, x0 + 1.25, x0 + w - 1.25, 0, district.wall, accent);
+    stateWallpaperWall(city, true, z0 + d - 0.55, z0 + d - 0.62, x0 + 1.25, mx - 2, 0, district.wall, accent);
+    stateWallpaperWall(city, true, z0 + d - 0.55, z0 + d - 0.62, mx + 2, x0 + w - 1.25, 0, district.wall, accent);
+    stateWallpaperWall(city, false, x0 + 0.55, x0 + 0.62, z0 + 1.25, z0 + d - 1.25, 0, district.wall, accent);
+    stateWallpaperWall(city, false, x0 + w - 0.55, x0 + w - 0.62, z0 + 1.25, z0 + d - 1.25, 0, district.wall, accent);
+  }
+  // Plants flanking the door wall.
+  for (const a of [2.6, S - 2.6]) {
+    const p = blockRoomPoint(door, x0, z0, w, d, a, 2.6);
+    statePlant(city, p.x, p.z);
+  }
+
+  // Rug: centre, or pulled toward the door when a centre piece exists.
+  const big = S >= 17 && T >= 16;
+  const rugT = big ? T * 0.3 : T * 0.52;
+  {
+    const p = blockRoomPoint(door, x0, z0, w, d, S / 2, rugT);
+    stateRug(city, p.x, p.z, 0, Math.min(6, S - 6), Math.min(4, T - 6), accent);
+  }
+
+  // Back piece on the wall opposite the door (the door lane ends here).
+  const backW = Math.min(6.4, S - 6.4);
+  const backT = T - 2.4;
+  if (kind === "library") {
+    rput(S / 2, backT, backW, 1.1, 2.2, 1.15, "wood");
+    rcol(S / 2, backT, backW, 1.1, 2.2, 1.15);
+    for (let i = 0; i < 3; i++) {
+      rput(S / 2 - 2 + i * 2, backT, 0.4, 2.4, 0.4, 0.4, (["red", "cyan", "gold"] as Mat[])[i] as Mat);
+    }
+  } else if (kind === "gym") {
+    rput(S / 2, backT, backW, 0.9, 1.8, 1.0, "black");
+    rcol(S / 2, backT, backW, 0.9, 1.8, 1.0);
+    rput(S / 2, backT, 1.6, 1.95, 0.3, 0.6, "gold");
+  } else if (kind === "museum") {
+    rput(S / 2, backT, backW, 0.45, 0.9, 1.1, "stone");
+    rcol(S / 2, backT, backW, 0.45, 0.9, 1.1);
+    rput(S / 2, backT, 0.7, 1.2, 0.5, 0.7, "gold");
+  } else if (kind === "hall") {
+    rput(S / 2, backT, Math.min(9, S - 4), 0.06, 0.12, 2.2, "wood");
+    rput(S / 2, T - 1.4, Math.min(9, S - 4), 1.7, 1.6, 0.1, accent);
+  } else {
+    rput(S / 2, backT, backW, 0.55, 1.05, 1.15, kind === "hotel" ? "stone" : "wood");
+    rcol(S / 2, backT, backW, 0.55, 1.05, 1.15);
+    rput(S / 2, backT, backW + 0.2, 1.15, 0.12, 1.25, "stone");
+    rput(S / 2, backT, 0.35, 1.55, 0.55, 0.35, "gold");
+    if (kind === "cafe" || kind === "office") {
+      for (const side of [-1, 1]) {
+        rput(S / 2 + side * 2.8, T - 3.8, 0.45, 0.4, 0.45, 0.45, "black");
+        rcol(S / 2 + side * 2.8, T - 3.8, 0.45, 0.4, 0.45, 0.45);
+      }
+    } else if (kind === "bank") {
+      for (const side of [-1, 1]) {
+        rput(S / 2 + side * 2.8, T - 3.6, 0.15, 0.55, 1.1, 0.15, "gold");
+      }
+    }
+  }
+
+  // Side furniture: two units per side wall, at 38% and 66% of the depth.
+  const sideUnit = (a: number, t: number) => {
+    if (kind === "shop" || kind === "market") {
+      rput(a, t, 0.9, 1.2, 2.4, 2.4, "wood");
+      rcol(a, t, 0.9, 1.2, 2.4, 2.4);
+      for (let i = 0; i < 2; i++) {
+        rput(a, t - 0.6 + i * 1.2, 0.4, 2.6, 0.4, 0.4, (["cyan", "gold"] as Mat[])[i] as Mat);
+      }
+    } else if (kind === "cafe") {
+      rput(a, t, 1.0, 0.75, 0.1, 1.4, "wood");
+      rput(a, t, 0.2, 0.35, 0.7, 0.2, "black");
+      rcol(a, t, 1.0, 0.4, 0.8, 1.4);
+      rput(a + (a < S / 2 ? 1.1 : -1.1), t, 0.45, 0.4, 0.45, 0.45, "black");
+      rcol(a + (a < S / 2 ? 1.1 : -1.1), t, 0.45, 0.4, 0.45, 0.45);
+    } else if (kind === "library") {
+      rput(a, t, 0.9, 1.1, 2.2, 2.4, "wood");
+      rcol(a, t, 0.9, 1.1, 2.2, 2.4);
+      for (let i = 0; i < 3; i++) {
+        rput(a, t - 0.7 + i * 0.7, 0.4, 2.4, 0.4, 0.4, (["red", "cyan", "gold"] as Mat[])[i] as Mat);
+      }
+    } else if (kind === "gym") {
+      rput(a, t, 1.0, 0.4, 0.45, 2.4, "wood");
+      rcol(a, t, 1.0, 0.4, 0.45, 2.4);
+      rput(a, t - 0.6, 0.4, 0.75, 0.3, 0.4, "black");
+      rput(a, t + 0.6, 0.4, 0.75, 0.3, 0.4, "black");
+    } else if (kind === "museum") {
+      rput(a, t, 1.0, 0.55, 1.1, 1.1, "stone");
+      rcol(a, t, 1.0, 0.55, 1.1, 1.1);
+      rput(a, t, 0.5, 1.35, 0.5, 0.5, "cyan");
+    } else if (kind === "bank") {
+      rput(a, t, 0.9, 0.45, 0.85, 1.1, "black");
+      rcol(a, t, 0.9, 0.45, 0.85, 1.1);
+      rput(a, t, 0.15, 0.55, 1.1, 0.15, "gold");
+    } else if (kind === "hotel") {
+      rput(a, t, 1.1, 0.4, 0.45, 2.4, "warm");
+      rcol(a, t, 1.1, 0.4, 0.45, 2.4);
+      rput(a, t, 0.5, 0.7, 0.25, 0.5, "gold");
+    } else if (kind === "office") {
+      rput(a, t, 1.0, 0.55, 0.9, 2.2, "wood");
+      rcol(a, t, 1.0, 0.55, 0.9, 2.2);
+      rput(a, t, 0.5, 1.2, 0.6, 0.1, "cyan");
+    } else {
+      rput(a, t, 1.0, 0.4, 0.45, 2.4, "wood");
+      rcol(a, t, 1.0, 0.4, 0.45, 2.4);
+      rput(a, t, 0.5, 0.7, 0.2, 0.5, accent);
+    }
+  };
+  for (const a of [1.9, S - 1.9]) {
+    sideUnit(a, T * 0.38);
+    sideUnit(a, T * 0.66);
+  }
+
+  // Centre piece in big rooms only (the door lane runs around it).
+  if (big) {
+    if (kind === "museum") {
+      rput(S / 2, T * 0.5, 1.0, 0.55, 1.1, 1.1, "stone");
+      rcol(S / 2, T * 0.5, 1.0, 0.55, 1.1, 1.1);
+      rput(S / 2, T * 0.5, 0.5, 1.35, 0.5, 0.5, "gold");
+    } else if (kind === "gym") {
+      rput(S / 2, T * 0.5, 3.2, 0.06, 0.12, 2.2, "red");
+    } else if (kind !== "hall") {
+      rput(S / 2, T * 0.5, 3.2, 0.5, 1.0, 1.6, "wood");
+      rcol(S / 2, T * 0.5, 3.2, 0.5, 1.0, 1.6);
+      rput(S / 2, T * 0.5, 3.4, 1.05, 0.12, 1.8, "stone");
+    }
+  }
+
+  // Paintings on the side walls at mid-depth, a floor lamp mid-room,
+  // plants in the back corners.
+  const sideRot = (atStart: boolean): number => {
+    if (door === "n") return atStart ? Math.PI / 2 : -Math.PI / 2;
+    if (door === "s") return atStart ? -Math.PI / 2 : Math.PI / 2;
+    if (door === "w") return atStart ? 0 : Math.PI;
+    return atStart ? Math.PI : 0;
+  };
+  if (T >= 15) {
+    for (const atStart of [true, false]) {
+      const a = atStart ? 1.65 : S - 1.65;
+      const p = blockRoomPoint(door, x0, z0, w, d, a, T / 2);
+      statePainting(city, p.x, 1.9, p.z, sideRot(atStart), 1.6, 1.4);
+    }
+  }
+  {
+    const lamp = blockRoomPoint(door, x0, z0, w, d, S - 2.6, T * 0.5);
+    stateLamp(city, lamp.x, lamp.z);
+  }
+  for (const a of [2.6, S - 2.6]) {
+    const p = blockRoomPoint(door, x0, z0, w, d, a, T - 2.6);
+    statePlant(city, p.x, p.z);
+  }
+
+  // Point `inset` inside from the wall opposite the door, centred.
+  const backPt = (inset: number) => {
+    if (door === "n") return { x: cx, z: z0 + d - inset, rot: Math.PI };
+    if (door === "s") return { x: cx, z: z0 + inset, rot: 0 };
+    if (door === "w") return { x: x0 + w - inset, z: cz, rot: -Math.PI / 2 };
+    return { x: x0 + inset, z: cz, rot: Math.PI / 2 };
+  };
+  const back = backPt(2.4);
+  const service = backPt(4.1);
+  return {
+    id,
+    name: `${district.name} ${label}`,
+    kind,
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX: service.x,
+    serviceZ: service.z,
+    signX: back.x + (door === "w" ? -0.55 : door === "e" ? 0.55 : 0),
+    signY: 2.35,
+    signZ: back.z + (door === "n" ? -0.55 : door === "s" ? 0.55 : 0),
+    signRot: back.rot,
+  };
+}
+
+/**
+ * Furnished lobby for one state landmark tower (24x24, door "s"). The
+ * plaza fountain becomes the lobby's centrepiece: benches face it on
+ * all four sides, plants in the corners, a rug under it all, a sign
+ * board on the north wall. The fountain gets colliders so the player
+ * walks around it, not through it.
+ */
+function furnishStateLandmark(city: City, state: StateDef): Zone {
+  const { x: cx, z: cz } = REGION_CENTERS[state.id];
+  const x0 = cx - 12;
+  const z0 = cz - 12;
+  const w = 24;
+  const d = 24;
+  // Wallpaper (door wall split around the gap) + ceiling + rug.
+  stateWallpaperWall(city, true, z0 + 0.55, z0 + 0.62, x0 + 1.25, x0 + w - 1.25, 0, "white", "gold");
+  stateWallpaperWall(city, true, z0 + d - 0.55, z0 + d - 0.62, x0 + 1.25, cx - 2, 0, "white", "gold");
+  stateWallpaperWall(city, true, z0 + d - 0.55, z0 + d - 0.62, cx + 2, x0 + w - 1.25, 0, "white", "gold");
+  stateWallpaperWall(city, false, x0 + 0.55, x0 + 0.62, z0 + 1.25, z0 + d - 1.25, 0, "white", "gold");
+  stateWallpaperWall(city, false, x0 + w - 0.55, x0 + w - 0.62, z0 + 1.25, z0 + d - 1.25, 0, "white", "gold");
+  stateCeiling(city, x0, z0, w, d);
+  stateRug(city, cx, cz, 0, 20, 20, "gold");
+  // Fountain colliders (base + pillar): walk around the centrepiece.
+  pushCol(city, cx, 0.5, cz, 8, 1, 8);
+  pushCol(city, cx, 1.8, cz, 1.2, 1.6, 1.2);
+  // Benches facing the fountain on all four sides.
+  stateSofa(city, cx, cz - 7, 0, 3.4, "warm");
+  stateSofa(city, cx, cz + 7, 0, 3.4, "warm");
+  for (const sx of [cx - 7, cx + 7]) {
+    pushBox(city, sx, 0.38, cz, 1.1, 0.45, 3.4, "warm");
+    pushCol(city, sx, 0.38, cz, 1.1, 0.45, 3.4);
+  }
+  // Plants in the corners, lamps mid-room on the side walls.
+  for (const [px, pz] of [[x0 + 2.6, z0 + 2.6], [x0 + w - 2.6, z0 + 2.6], [x0 + 2.6, z0 + d - 2.6], [x0 + w - 2.6, z0 + d - 2.6]] as Array<[number, number]>) {
+    statePlant(city, px, pz);
+  }
+  stateLamp(city, x0 + 2.6, cz);
+  stateLamp(city, x0 + w - 2.6, cz);
+  // Sign board on the north (back) wall.
+  stateSignBoard(city, `${state.id}-landmark-sign`, cx, 2.35, z0 + 0.7, 0, 6, 1.8, [`${state.name} Landmark`], state.tagline);
+  return {
+    id: `${state.id}-landmark`,
+    name: `${state.name} Landmark`,
+    kind: "hall",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + d - 1.15,
+    serviceX: cx,
+    serviceZ: cz - 5.5,
+    signX: cx,
+    signY: 2.35,
+    signZ: z0 + 0.55,
+    signRot: 0,
+  };
+}
+
 /**
  * Mid-ring district buildings: the 6x6 ring of blocks around the plaza,
  * minus the plaza blocks, the office superblock and the services plots.
@@ -568,12 +912,22 @@ export function buildDistrictBlocks(city: City, state: StateDef, rng: Rng): void
         id: `${state.id}-b-${n}`,
         x: cx + bx - fw / 2, z: cz + bz - fd / 2, w: fw, d: fd, h,
         style: (t.style + (district.quadrant === "ne" || district.quadrant === "sw" ? 1 : 0)) % 6,
-        door: "", enterable: false, hero: false,
+        // 2026-11-12: was a solid block (facade + full-volume collider,
+        // nothing inside). Now a real building: ground-floor shell with
+        // a south door + furnished interior, solid only above the
+        // ground floor. Placement (cx+bx, cz+bz, fw, fd, h) untouched.
+        door: "s", enterable: true, hero: false,
         face: "s", roof, roofMat: t.roofMat,
         cornice: t.cornice, awning: t.awning,
       };
       city.facades.push(facade);
-      pushCol(city, cx + bx, h / 2, cz + bz, fw, h, fd);
+      const bx0 = cx + bx - fw / 2;
+      const bz0 = cz + bz - fd / 2;
+      const GH = 8;
+      pushWallColliders(city, bx0, bz0, fw, fd, GH, "s");
+      if (h > GH) pushCol(city, cx + bx, (GH + h) / 2, cz + bz, fw, h - GH, fd);
+      const def = STATE_BLOCK_KINDS[n % STATE_BLOCK_KINDS.length] as StateBlockKindDef;
+      city.zones.push(furnishStateBlock(city, bx0, bz0, fw, fd, "s", def, district, facade.id));
       // A gold band under the roofline for NY; a street awning for FL.
       if (t.cornice) pushBox(city, cx + bx, h - 0.4, cz + bz, fw + 0.2, 0.5, fd + 0.2, "gold");
       if (t.awning) pushBox(city, cx + bx, 3.4, cz + bz + fd / 2 + 0.8, fw * 0.7, 0.25, 1.6, "white");
