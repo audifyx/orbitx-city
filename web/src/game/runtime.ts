@@ -82,7 +82,13 @@ import { emergencyJobById, jobObjective, jobTargetFor } from "./emergency";
 import {
   buyHomeLocal,
   freshHomesSave,
+  garageLayoutFor,
+  garagePointIn,
   homeById,
+  homesOwnedOn,
+  isHomeOwnedOn,
+  type GarageLayout,
+  type HomeDef,
   type OwnedHome,
   type PlayerHomesSave,
 } from "./homes";
@@ -129,7 +135,7 @@ export interface Body {
   onGround: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "voice";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "voice";
 
 export interface PersonCard {
   id: string;
@@ -858,6 +864,13 @@ export function createRuntime(scene: Scene) {
       // The offline home still counts for this session.
     }
   }
+  // Home garages — the bay + parked cars at each owned home. The panel
+  // that opened the garage (see openHomeGarage); the groups currently
+  // mounted under root; and the signature of the last build, so the
+  // 250ms sync heartbeat can call syncHomeGarages() for free.
+  let garageHomeId: string | null = null;
+  let homeGarageGroups: Group[] = [];
+  let homeGarageSig = "";
   // Universe picked on the menu (servers 1-5). Persisted so a reload keeps
   // the pick; the server id rides on every per-server op.
   let currentUniverse: number | null = (() => {
@@ -1585,6 +1598,10 @@ export function createRuntime(scene: Scene) {
     boards.clear();
     cars.length = 0;
     ownedCarIndex = -1;
+    // The garage groups live under root too — drop them with it, and
+    // clear the signature so the next sync rebuilds them on the new root.
+    homeGarageGroups = [];
+    homeGarageSig = "";
     remotes.clear();
     beacon = null;
     packageMesh = null;
@@ -1659,6 +1676,8 @@ export function createRuntime(scene: Scene) {
     }
     wallet.name = me.name;
     saveWallet(wallet);
+    // Homes or cars may have changed on the server — re-park the garages.
+    syncHomeGarages();
   }
 
   // The player's active car for THIS universe's save, spawned on the
@@ -1675,7 +1694,7 @@ export function createRuntime(scene: Scene) {
     return localVehicles.find((v) => v.id === localActiveVehicle) ?? { id: localActiveVehicle, color: wallet.car };
   }
 
-  function spawnActiveCar() {
+  function spawnActiveCar(spot?: { x: number; z: number; yaw: number }) {
     if (ownedCarIndex >= 0) {
       const old = cars[ownedCarIndex];
       if (old) root.remove(old.group);
@@ -1683,7 +1702,10 @@ export function createRuntime(scene: Scene) {
       ownedCarIndex = -1;
     }
     const entry = activeVehicleEntry();
-    if (!entry) return;
+    if (!entry) {
+      syncHomeGarages();
+      return;
+    }
     let group: Group;
     try {
       group = buildVehicle(entry.id, entry.color);
@@ -1693,20 +1715,146 @@ export function createRuntime(scene: Scene) {
     let x = 202;
     let z = -69;
     let yaw = Math.PI / 2;
-    const spot = cars.findIndex((car) => car.id === "shop-row");
-    if (spot >= 0) {
-      const old = cars[spot];
-      root.remove(old.group);
-      x = old.x;
-      z = old.z;
-      yaw = old.yaw;
-      cars.splice(spot, 1);
+    if (spot) {
+      // A garage pick drives out of the home garage, not the shop.
+      x = spot.x;
+      z = spot.z;
+      yaw = spot.yaw;
+    } else {
+      const shopSpot = cars.findIndex((car) => car.id === "shop-row");
+      if (shopSpot >= 0) {
+        const old = cars[shopSpot];
+        root.remove(old.group);
+        x = old.x;
+        z = old.z;
+        yaw = old.yaw;
+        cars.splice(shopSpot, 1);
+      }
     }
     group.position.set(x, 0.12, z);
     group.rotation.y = Math.PI / 2 - yaw;
     root.add(group);
     cars.push({ id: "shop-row", group, x, z, yaw, lean: 0, vehicleId: entry.id, alt: 0, autoAlt: null });
     ownedCarIndex = cars.length - 1;
+    // The active car just left (or joined) the garage — re-park the rest.
+    syncHomeGarages();
+  }
+
+  // --- Home garages: park your own cars at home --------------------------
+  // The bay + parked cars for every home owned on the current universe.
+  // Pure display (buildVehicle models in their owned colours) plus the
+  // GARAGE sign on the home's front wall. The ACTIVE car is never parked
+  // here — it is the one out driving — so no car ever shows twice. A
+  // home the player does not own gets no bay, no sign, no cars.
+
+  /** The server the garage reads: the picked universe, else 1 (the offline buy-home default). */
+  function garageServer(): 1 | 2 | 3 | 4 | 5 {
+    return (currentUniverse ?? 1) as 1 | 2 | 3 | 4 | 5;
+  }
+
+  function ownedHomes(): OwnedHome[] {
+    return homesOwnedOn(localHomes, garageServer());
+  }
+
+  function homeGarageAt(body: Body): { home: HomeDef; layout: GarageLayout } | null {
+    for (const owned of ownedHomes()) {
+      const home = homeById(owned.homeId);
+      if (!home) continue;
+      const layout = garageLayoutFor(home, localVehicles.length);
+      if (garagePointIn(layout, body.x, body.z)) return { home, layout };
+    }
+    return null;
+  }
+
+  function syncHomeGarages() {
+    const owned = ownedHomes();
+    const sig = JSON.stringify({
+      homes: owned.map((h) => h.homeId),
+      cars: localVehicles.map((v) => `${v.id}:${v.color ?? ""}`),
+      active: localActiveVehicle,
+    });
+    if (sig === homeGarageSig) return;
+    homeGarageSig = sig;
+    for (const group of homeGarageGroups) root.remove(group);
+    homeGarageGroups = [];
+    if (!owned.length) return;
+    const slab = new BoxGeometry(1, 1, 1);
+    for (const o of owned) {
+      const home = homeById(o.homeId);
+      if (!home) continue;
+      const layout = garageLayoutFor(home, localVehicles.length);
+      const bay = layout.bay;
+      const group = new Group();
+      // Bay-local frame: +Z out of the home, +X along the front wall.
+      const bayGroup = new Group();
+      bayGroup.position.set(bay.cx, 0, bay.cz);
+      bayGroup.rotation.y = Math.atan2(bay.fx, bay.fz);
+      group.add(bayGroup);
+      const add = (material: Material, x: number, y: number, z: number, sx: number, sy: number, sz: number) => {
+        const mesh = new Mesh(slab, material);
+        mesh.position.set(x, y, z);
+        mesh.scale.set(sx, sy, sz);
+        bayGroup.add(mesh);
+        return mesh;
+      };
+      // Concrete slab + gold front edge + white slot dividers.
+      add(MATERIALS.stone, 0, 0.06, 0, bay.w, 0.12, bay.d);
+      add(GOLD, 0, 0.14, bay.d / 2 - 0.09, bay.w, 0.06, 0.18);
+      for (let i = 1; i < layout.slots.length; i++) {
+        add(MATERIALS.white, -bay.w / 2 + 0.8 + i * 3.2, 0.14, 0, 0.1, 0.05, bay.d - 0.6);
+      }
+      // Four posts + a flat dark roof: an open carport, so the parked
+      // cars stay visible from the street.
+      for (const px of [-bay.w / 2 + 0.3, bay.w / 2 - 0.3]) {
+        for (const pz of [-bay.d / 2 + 0.3, bay.d / 2 - 0.3]) {
+          add(MATERIALS.gray, px, 1.65, pz, 0.3, 3.3, 0.3);
+        }
+      }
+      add(MATERIALS.black, 0, 3.4, 0, bay.w + 0.4, 0.18, bay.d + 0.4);
+      // GARAGE sign on the home's front wall, above the bay.
+      const sign = new Mesh(
+        new PlaneGeometry(4.2, 1.5),
+        new MeshLambertMaterial({ map: paint(["GARAGE", home.name], "Your cars live here"), side: DoubleSide, emissive: 0x062028, emissiveIntensity: 0.35 }),
+      );
+      sign.position.set(layout.sign.x, layout.sign.y, layout.sign.z);
+      sign.rotation.y = layout.sign.rot;
+      group.add(sign);
+      // The owned cars, parked nose-out in their slots — every owned car
+      // except the active one, which is out driving.
+      let slot = 0;
+      for (const v of localVehicles) {
+        if (v.id === localActiveVehicle) continue;
+        if (slot >= layout.slots.length) break;
+        const spot = layout.slots[slot] as { x: number; z: number; yaw: number };
+        slot++;
+        let carGroup: Group;
+        try {
+          carGroup = buildVehicle(v.id, v.color);
+        } catch {
+          continue;
+        }
+        carGroup.position.set(spot.x, 0.12, spot.z);
+        carGroup.rotation.y = Math.PI / 2 - spot.yaw;
+        group.add(carGroup);
+      }
+      root.add(group);
+      homeGarageGroups.push(group);
+    }
+  }
+
+  /** Open the garage panel for one owned home (E at the bay, or the home panel). */
+  function openHomeGarage(homeId: string) {
+    const home = homeById(homeId);
+    if (!home || !isHomeOwnedOn(localHomes, homeId, garageServer())) {
+      say("That garage is not yours — buy the home first.");
+      triggerHaptic("error");
+      publish();
+      return;
+    }
+    garageHomeId = homeId;
+    panel = "homegarage";
+    triggerHaptic("tap");
+    publish();
   }
 
   function upsertRemote(state: NetState) {
@@ -2843,6 +2991,14 @@ export function createRuntime(scene: Scene) {
       else if (zone.kind === "museum") say("OrbitX Museum — four exhibits, +10 City Sol for each first view.");
       else say(zoneTitle(zone));
       publish();
+      return;
+    }
+    // Your own garage: E opens the garage panel (pick a car to drive),
+    // it does not walk you into the house — the bay is outside, by the
+    // door. The bay wins over a car parked nearby, same as a door does.
+    const homeGarage = homeGarageAt(body);
+    if (homeGarage) {
+      openHomeGarage(homeGarage.home.id);
       return;
     }
     // Closed doors: E by the inside of the door steps back outside.
@@ -4630,7 +4786,8 @@ export function createRuntime(scene: Scene) {
       } else if (zone && nearExitDoor(body, zone)) {
         // By the inside of a closed door: E steps back outside.
         prompt = "Press E — Exit";
-      } else if (nearestAnchor(body, 3.3)) {
+      } else if (homeGarageAt(body)) prompt = "Press E — open your garage";
+      else if (nearestAnchor(body, 3.3)) {
         // A close door / lift / board beats the race gate, same as
         // interact(): the mall door sits 5.6 units from the street-race
         // start gate, inside its 8-unit radius, so the prompt used to say
@@ -5294,6 +5451,21 @@ export function createRuntime(scene: Scene) {
         body.yaw = Math.atan2(zone.serviceX - body.x, -(zone.serviceZ - body.z));
         body.pitch = 0.05;
       }
+    } else if (shot === "homegarage") {
+      // First owned home's garage, from the driveway: the bay + parked
+      // cars fill the frame, the house behind them. Falls back to the
+      // first catalog home when nothing is owned (no bay renders there).
+      const owned = ownedHomes();
+      const home = (owned.length ? homeById(owned[0].homeId) : null) ?? homeById("home-ny-01");
+      if (home) {
+        const layout = garageLayoutFor(home, localVehicles.length);
+        body.flying = false;
+        body.x = layout.service.x + layout.bay.fx * (layout.bay.d / 2 + 3.5);
+        body.y = 0;
+        body.z = layout.service.z + layout.bay.fz * (layout.bay.d / 2 + 3.5);
+        body.yaw = Math.atan2(-layout.bay.fx, layout.bay.fz);
+        body.pitch = 0.12;
+      }
     } else if (shot === "yard") {
       const anchor = anchors.find((item) => item.id.startsWith("home-"));
       if (anchor) {
@@ -5671,7 +5843,7 @@ export function createRuntime(scene: Scene) {
     return `Bought ${v.name} for ${v.price} City Sol.`;
   }
 
-  async function selectCar(id: string) {
+  async function selectCar(id: string, spot?: { x: number; z: number; yaw: number }) {
     if (!world.online && !localVehicles.some((v) => v.id === id)) {
       triggerHaptic("error");
       return "You do not own that vehicle.";
@@ -5686,7 +5858,7 @@ export function createRuntime(scene: Scene) {
       try {
         await world.selectCar(id, currentUniverse);
         applyMe();
-        spawnActiveCar();
+        spawnActiveCar(spot);
         triggerHaptic("success");
         publish();
         say("Selected.");
@@ -5700,10 +5872,29 @@ export function createRuntime(scene: Scene) {
     }
     localActiveVehicle = id;
     saveLocalVehicles();
-    spawnActiveCar();
+    spawnActiveCar(spot);
     publish();
     say("Selected. Saved on this device only.");
     return "Selected.";
+  }
+
+  // Garage pick: the same select-car op, but the car drives out of THIS
+  // home's garage instead of the OrbitX Motors forecourt. The player is
+  // stepped out of the car first so they land on foot by the bay, never
+  // in the driver's seat inside the garage.
+  async function selectCarFromGarage(id: string) {
+    const home = garageHomeId ? homeById(garageHomeId) : null;
+    if (!home) return selectCar(id);
+    if (driving && lastBody) exitCar(lastBody);
+    const layout = garageLayoutFor(home, localVehicles.length);
+    const slotIndex = Math.max(0, localVehicles.findIndex((v) => v.id === id));
+    const spot = layout.driveOut[Math.min(slotIndex, layout.driveOut.length - 1)] as { x: number; z: number; yaw: number };
+    const message = await selectCar(id, spot);
+    if (message.startsWith("Selected")) {
+      say("Selected — it is waiting out front. Walk out and press E to drive.");
+      return "Selected — it is waiting out front. Walk out and press E to drive.";
+    }
+    return message;
   }
 
   // Shared rental-end path: the car goes back and the player is left on
@@ -5911,6 +6102,7 @@ export function createRuntime(scene: Scene) {
     saveWallet(wallet);
     localHomes = result.save;
     saveLocalHomes();
+    syncHomeGarages();
     triggerHaptic("success");
     publish();
     say(`Bought ${home.name} for ${result.price} City Sol. Saved on this device only.`);
@@ -6901,6 +7093,43 @@ export function createRuntime(scene: Scene) {
     },
     selectCar(id: string) {
       return selectCar(id);
+    },
+    // Home garage: open the garage panel for an owned home, read which
+    // home's garage is open, pick a car out of that garage, or teleport
+    // to it from My Properties. City Sol only — selection reuses the
+    // existing select-car op; nothing here buys or spends.
+    openHomeGarage(homeId: string) {
+      openHomeGarage(homeId);
+    },
+    getGarageHome() {
+      return garageHomeId;
+    },
+    selectCarFromGarage(id: string) {
+      return selectCarFromGarage(id);
+    },
+    goToGarage(homeId: string) {
+      const home = homeById(homeId);
+      if (!home || !lastBody) {
+        say("Could not find that home.");
+        publish();
+        return;
+      }
+      if (!isHomeOwnedOn(localHomes, homeId, garageServer())) {
+        say("You do not own that home on this universe.");
+        triggerHaptic("error");
+        publish();
+        return;
+      }
+      if (driving) exitCar(lastBody);
+      const layout = garageLayoutFor(home, localVehicles.length);
+      // Stand on the driveway facing the bay and the house.
+      lastBody.x = layout.service.x + layout.bay.fx * (layout.bay.d / 2 + 2.5);
+      lastBody.y = 0;
+      lastBody.z = layout.service.z + layout.bay.fz * (layout.bay.d / 2 + 2.5);
+      lastBody.vy = 0;
+      lastBody.yaw = Math.atan2(-layout.bay.fx, layout.bay.fz);
+      lastBody.pitch = 0.08;
+      openHomeGarage(homeId);
     },
     rentCar(id: string, color: string, days: number) {
       return rentCar(id, color, days);

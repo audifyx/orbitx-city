@@ -607,6 +607,94 @@ export function isHomeOwnedOn(save: PlayerHomesSave, homeId: string, server: Ser
   return (save.homes || []).some((h) => h.homeId === homeId && h.server === server);
 }
 
+// ---------------------------------------------------------------------------
+// Garage — park your own cars at home (City Sol only, no new server data)
+// ---------------------------------------------------------------------------
+// The garage is a bay in front of the home, to one side of the door so
+// the front path stays clear. The cars in it are the player's OWNED cars
+// from the per-server save (save.vehicles) — no new data, no new column.
+// The active car is never parked here: it is the one out driving (or
+// waiting on the OrbitX Motors forecourt / the garage drive-out spot),
+// so the bay never shows a car twice.
+
+/** Max cars shown parked in one home garage (the panel lists them all). */
+export const GARAGE_MAX_SLOTS = 4;
+/** Centre-to-centre slot pitch — catalog cars are at most 2 wide. */
+export const GARAGE_SLOT_PITCH = 3.2;
+/** Bay depth from the home's front wall (the longest catalog car is 6.4). */
+export const GARAGE_BAY_DEPTH = 8;
+
+export interface GarageSlot {
+  x: number;
+  z: number;
+  /** Same heading convention as the driven cars: forward = (sin yaw, -cos yaw). */
+  yaw: number;
+}
+
+export interface GarageLayout {
+  homeId: string;
+  /** Bay rect centre + size, in world coords. f = outward from the door wall, s = along it. */
+  bay: { cx: number; cz: number; w: number; d: number; fx: number; fz: number; sx: number; sz: number };
+  /** Parked-car spots, nose out toward the street. */
+  slots: GarageSlot[];
+  /** Where a selected car spawns to drive, one per slot, just past the bay. */
+  driveOut: GarageSlot[];
+  /** E-prompt / walk-up point: the middle of the bay. */
+  service: { x: number; z: number };
+  /** GARAGE sign on the home's front wall, above the bay. */
+  sign: { x: number; y: number; z: number; rot: number };
+}
+
+export function garageLayoutFor(home: HomeDef, carCount: number): GarageLayout {
+  // Outward from the door wall (f) and along it (s).
+  const fx = home.door === "w" ? -1 : home.door === "e" ? 1 : 0;
+  const fz = home.door === "n" ? -1 : home.door === "s" ? 1 : 0;
+  const sx = home.door === "n" || home.door === "s" ? 1 : 0;
+  const sz = home.door === "w" || home.door === "e" ? 1 : 0;
+  const cx = home.x0 + home.w / 2;
+  const cz = home.z0 + home.d / 2;
+  const fd = home.door === "n" || home.door === "s" ? home.d / 2 : home.w / 2;
+  // Even an empty garage gets one slot so the bay (and its sign) shows.
+  const slotsN = Math.max(1, Math.min(Math.max(0, carCount), GARAGE_MAX_SLOTS));
+  const bayW = slotsN * GARAGE_SLOT_PITCH + 1.6;
+  const bayD = GARAGE_BAY_DEPTH;
+  // The bay sits to one side of the door (patio slab is 6 wide, centred on
+  // the door; the bay's inner edge starts 3.4 out, so they never touch).
+  // The side alternates by home so two neighbouring garages face away
+  // from each other. At 4 slots the bay spans 17.8 laterally — inside the
+  // 36-wide plot — and 8.6 out from the front wall, short of the next lot.
+  const side = home.index % 2 === 0 ? 1 : -1;
+  const bayLat = side * (3.4 + bayW / 2);
+  const bayOut = fd + 0.6 + bayD / 2;
+  const yaw = Math.atan2(fx, -fz);
+  const at = (lat: number, out: number): GarageSlot => ({
+    x: cx + fx * out + sx * lat,
+    z: cz + fz * out + sz * lat,
+    yaw,
+  });
+  const slots = Array.from({ length: slotsN }, (_, i) =>
+    at(bayLat + (i - (slotsN - 1) / 2) * GARAGE_SLOT_PITCH, bayOut));
+  const driveOut = Array.from({ length: slotsN }, (_, i) =>
+    at(bayLat + (i - (slotsN - 1) / 2) * GARAGE_SLOT_PITCH, fd + 0.6 + bayD + 3.2));
+  return {
+    homeId: home.id,
+    bay: { cx: cx + fx * bayOut + sx * bayLat, cz: cz + fz * bayOut + sz * bayLat, w: bayW, d: bayD, fx, fz, sx, sz },
+    slots,
+    driveOut,
+    service: { x: cx + fx * bayOut + sx * bayLat, z: cz + fz * bayOut + sz * bayLat },
+    sign: { x: cx + fx * (fd + 0.18) + sx * bayLat, y: 3.0, z: cz + fz * (fd + 0.18) + sz * bayLat, rot: Math.atan2(fx, fz) },
+  };
+}
+
+/** True when (x, z) is inside the bay (1 unit of walk-up margin). */
+export function garagePointIn(layout: GarageLayout, x: number, z: number): boolean {
+  const dx = x - layout.bay.cx;
+  const dz = z - layout.bay.cz;
+  const along = dx * layout.bay.fx + dz * layout.bay.fz;
+  const across = dx * layout.bay.sx + dz * layout.bay.sz;
+  return Math.abs(along) < layout.bay.d / 2 + 1 && Math.abs(across) < layout.bay.w / 2 + 1;
+}
+
 /**
  * Pure validation mirror of the server `buy-home` op (WIRING.md §4).
  * Same order of checks, same failure strings — the client and the server

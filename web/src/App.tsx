@@ -338,6 +338,7 @@ function shotMode(): PlayMode | null {
     shot === "board-s" ||
     shot === "road" ||
     shot === "garage" ||
+    shot === "homegarage" ||
     shot === "leaders" ||
     shot === "race" ||
     shot === "race-run" ||
@@ -425,6 +426,9 @@ export default function App() {
   const [garageColors, setGarageColors] = useState<Record<string, string>>({});
   const [garageMsg, setGarageMsg] = useState("");
   const [garageBusy, setGarageBusy] = useState(false);
+  // Home-garage panel (parked cars at an owned home).
+  const [hgMsg, setHgMsg] = useState("");
+  const [hgBusy, setHgBusy] = useState(false);
   // Garage rentals: 0.5 City Sol/day, paid up front (2/3/7 days).
   const [garageRentDays, setGarageRentDays] = useState<2 | 3 | 7>(2);
   // District-offices panel (cloned from the HQ offices panel, per server).
@@ -930,6 +934,7 @@ export default function App() {
                 {panel === "offices" && "OrbitX Tower offices"}
                 {panel === "myprops" && "My Properties"}
                 {panel === "garage" && "OrbitX Motors"}
+                {panel === "homegarage" && "Your garage"}
                 {panel === "multiverse" && "Multiverse"}
                 {panel === "emergency" && "Emergency services"}
                 {panel === "district-offices" && "District offices"}
@@ -1530,6 +1535,17 @@ export default function App() {
                         Go to
                       </button>
                     ) : null}
+                    {row.kind === "home" ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic("tap");
+                          gameRef.current?.runtime.goToGarage(row.key);
+                        }}
+                      >
+                        Garage
+                      </button>
+                    ) : null}
                     {row.manage === "hq" ? (
                       <button type="button" onClick={() => { triggerHaptic("tap"); open("hq"); }}>
                         Manage
@@ -1695,6 +1711,86 @@ export default function App() {
                 ))}
               </div>
             )}
+            {panel === "homegarage" && (() => {
+              const homeId = gameRef.current?.runtime.getGarageHome() ?? null;
+              const home = homeId ? homeById(homeId) : null;
+              return (
+                <div className="list">
+                  <p className="muted">
+                    {home
+                      ? `Parked at ${home.name} — your own cars, on this universe. Pick one and it drives out of the garage.`
+                      : "Your cars, parked at home."}
+                  </p>
+                  {hgMsg ? <p>{hgMsg}</p> : null}
+                  {snap.vehicles.length === 0 ? (
+                    <>
+                      <p>No cars parked here yet — buy one at OrbitX Motors and it parks here.</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic("tap");
+                          gameRef.current?.runtime.request("garage");
+                        }}
+                      >
+                        Browse OrbitX Motors
+                      </button>
+                    </>
+                  ) : (
+                    snap.vehicles.map((car) => {
+                      const v = getVehicle(car.id);
+                      if (!v) return null;
+                      const active = snap.activeVehicle === car.id;
+                      const hex = VEHICLE_COLORS[car.color ?? "black"] ?? 0x16181f;
+                      return (
+                        <article key={car.id}>
+                          <div>
+                            <b>{v.name}</b>
+                            <span>
+                              {v.brand} ·{" "}
+                              <span
+                                style={{
+                                  display: "inline-block",
+                                  width: 12,
+                                  height: 12,
+                                  borderRadius: 6,
+                                  background: `#${hex.toString(16).padStart(6, "0")}`,
+                                  border: "1px solid #000",
+                                  verticalAlign: "-1px",
+                                }}
+                              />{" "}
+                              {car.color ?? v.defaultColor}
+                            </span>
+                            <span>Speed {v.stats.speed}/10 · Accel {v.stats.accel}/10 · Handling {v.stats.handling}/10 · {v.stats.seats} seats</span>
+                            {active ? <span>The selected car — it is waiting out front.</span> : <span>Parked in the garage.</span>}
+                          </div>
+                          {active ? (
+                            <button type="button" disabled>Selected</button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={hgBusy}
+                              onClick={async () => {
+                                const rt = gameRef.current?.runtime;
+                                if (!rt || hgBusy) return;
+                                setHgBusy(true);
+                                setHgMsg(await rt.selectCarFromGarage(car.id));
+                                setHgBusy(false);
+                              }}
+                            >
+                              Select &amp; drive
+                            </button>
+                          )}
+                        </article>
+                      );
+                    })
+                  )}
+                  <p className="muted">
+                    Your cars live per universe — this garage shows the cars on {snap.universe ? snap.universe.name : "this universe"}.
+                    The selected car waits out front: close this panel, walk out, press E to drive. City Sol only — nothing here buys or spends.
+                  </p>
+                </div>
+              );
+            })()}
             {panel === "multiverse" && (
               <div className="list">
                 <p className="muted">Your cars, homes, and offices live per universe — travel is free, nothing follows you unless you carry it.</p>
@@ -1961,6 +2057,15 @@ export default function App() {
                           <b>{def?.name ?? h.homeId}</b>
                           <span>{h.price} City Sol · Server {h.server}</span>
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            triggerHaptic("tap");
+                            gameRef.current?.runtime.goToGarage(h.homeId);
+                          }}
+                        >
+                          Garage
+                        </button>
                       </article>
                     );
                   })}
@@ -2011,6 +2116,17 @@ export default function App() {
                     >
                       {owned ? "Owned" : afford ? `Buy — ${price} City Sol` : "Not enough City Sol"}
                     </button>
+                    {owned ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic("tap");
+                          gameRef.current?.runtime.openHomeGarage(zoneId);
+                        }}
+                      >
+                        Open garage
+                      </button>
+                    ) : null}
                   </article>
                   {owned ? (
                     <article>
