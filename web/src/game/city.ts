@@ -391,33 +391,68 @@ function wallBox(cols: Collider[], x0: number, y0: number, z0: number, x1: numbe
 }
 
 function addWallCols(cols: Collider[], x0: number, y0: number, z0: number, w: number, h: number, d: number, door: Face) {
+  // Closed real doors (2026-11-12): every wall is solid, INCLUDING the
+  // door face. The door is a solid panel (addDoorPanel, in shellOpen), not
+  // a walk-through gap — the player walks up and presses E at the anchor
+  // to spawn inside (runtime stepInside), and E again inside to step out.
+  // The old 4-wide gap + lintel split made every building an open arch.
   const top = y0 + h;
-  const gap = 4;
   const faces: Face[] = ["n", "s", "e", "w"];
   for (const face of faces) {
-    const alongX = face === "n" || face === "s";
     const zA = face === "s" ? z0 + d - 1 : z0;
     const zB = face === "n" || face === "s" ? zA + 1 : z0 + d;
     const xA = face === "e" ? x0 + w - 1 : x0;
     const xB = face === "n" || face === "s" ? x0 + w : xA + 1;
-    if (face !== door) {
-      wallBox(cols, xA, y0, face === "w" || face === "e" ? z0 : zA, xB, top, face === "w" || face === "e" ? z0 + d : zB);
-      continue;
-    }
-    const span = alongX ? w : d - 2;
-    const origin = alongX ? x0 : z0 + 1;
-    const gap0 = origin + (span - gap) / 2;
-    const gap1 = gap0 + gap;
-    const lintel = y0 + 3;
+    wallBox(cols, xA, y0, face === "w" || face === "e" ? z0 : zA, xB, top, face === "w" || face === "e" ? z0 + d : zB);
+  }
+}
+
+/** A closed real door filling the 4-wide x 3-high gap on the `door` face:
+ * wood slab + white frame posts and lintel + gold handle on both sides,
+ * so the closed door reads as a door from the street and from inside.
+ * The slab is solid in the wall plane (the colliders above are a full
+ * wall); entry is E at the anchor, never a walk-through. */
+function addDoorPanel(boxes: Box[], x0: number, y0: number, z0: number, w: number, d: number, door: Face) {
+  if (!door) return;
+  const cx = x0 + w / 2;
+  const cz = z0 + d / 2;
+  const alongX = door === "n" || door === "s";
+  const zc = door === "n" ? z0 + 0.5 : z0 + d - 0.5;
+  const xc = door === "w" ? x0 + 0.5 : x0 + w - 0.5;
+  const sx = alongX ? 3.6 : 0.3;
+  const sz = alongX ? 0.3 : 3.6;
+  const px = alongX ? cx : xc;
+  const pz = alongX ? zc : cz;
+  // Slab + kick plate + two panel grooves (thin, proud of the slab).
+  put(boxes, px, y0 + 1.45, pz, sx, 2.9, sz, "wood");
+  put(boxes, px, y0 + 0.14, pz, sx, 0.26, sz, "black");
+  const grooveOut = alongX ? pz - 0.19 : px - 0.19;
+  const grooveIn = alongX ? pz + 0.19 : px + 0.19;
+  for (const off of [-0.85, 0.85]) {
     if (alongX) {
-      wallBox(cols, x0, y0, zA, gap0, top, zB);
-      wallBox(cols, gap1, y0, zA, x0 + w, top, zB);
-      wallBox(cols, gap0, lintel, zA, gap1, top, zB);
+      put(boxes, cx + off, y0 + 1.5, grooveOut, 0.09, 1.9, 0.06, "black");
+      put(boxes, cx + off, y0 + 1.5, grooveIn, 0.09, 1.9, 0.06, "black");
     } else {
-      wallBox(cols, xA, y0, z0, xB, top, gap0);
-      wallBox(cols, xA, y0, gap1, xB, top, z0 + d);
-      wallBox(cols, xA, lintel, gap0, xB, top, gap1);
+      put(boxes, grooveOut, y0 + 1.5, cz + off, 0.06, 1.9, 0.09, "black");
+      put(boxes, grooveIn, y0 + 1.5, cz + off, 0.06, 1.9, 0.09, "black");
     }
+  }
+  // Frame: posts at the gap edges + lintel above the slab.
+  const postA = alongX ? { x: cx - 1.95, z: pz, sx: 0.35, sz: 0.34 } : { x: px, z: cz - 1.95, sx: 0.34, sz: 0.35 };
+  const postB = alongX ? { x: cx + 1.95, z: pz, sx: 0.35, sz: 0.34 } : { x: px, z: cz + 1.95, sx: 0.34, sz: 0.35 };
+  put(boxes, postA.x, y0 + 1.55, postA.z, postA.sx, 3.1, postA.sz, "white");
+  put(boxes, postB.x, y0 + 1.55, postB.z, postB.sx, 3.1, postB.sz, "white");
+  put(boxes, px, y0 + 3.12, pz, alongX ? 4.3 : 0.34, 0.26, alongX ? 0.34 : 4.3, "white");
+  // Gold handle on both sides, toward one edge of the slab.
+  const hx = alongX ? cx + 1.25 : px;
+  const hz = alongX ? pz : cz + 1.25;
+  const out = alongX ? (door === "n" ? -0.24 : 0.24) : door === "w" ? -0.24 : 0.24;
+  if (alongX) {
+    put(boxes, hx, y0 + 1.15, pz + out, 0.16, 0.16, 0.14, "gold");
+    put(boxes, hx, y0 + 1.15, pz - out, 0.16, 0.16, 0.14, "gold");
+  } else {
+    put(boxes, px + out, y0 + 1.15, hz, 0.14, 0.16, 0.16, "gold");
+    put(boxes, px - out, y0 + 1.15, hz, 0.14, 0.16, 0.16, "gold");
   }
 }
 
@@ -443,6 +478,8 @@ function shellOpen(
   }
   put(boxes, x0 + w / 2, y0 + h + 0.5, z0 + d / 2, w, 1, d, roof);
   visualHide = false;
+  // The closed door panel fills the visual gap hole() left in the wall.
+  addDoorPanel(boxes, x0, y0, z0, w, d, door);
   addWallCols(cols, x0, y0, z0, w, h, d, door);
   cols.push({
     minX: x0,
@@ -603,7 +640,7 @@ function frontFace(cx: number, cz: number): Face {
   return cz > 0 ? "n" : "s";
 }
 
-function addTower(boxes: Box[], cols: Collider[]) {
+function addTower(boxes: Box[], cols: Collider[]): { top: number; zone: Zone; anchor: Anchor } {
   const tiers = [
     { w: 28, d: 26, h: 14 },
     { w: 24, d: 22, h: 10 },
@@ -614,28 +651,88 @@ function addTower(boxes: Box[], cols: Collider[]) {
     { w: 30, d: 16, h: 4 },
   ];
   let y = 0;
-  for (const tier of tiers) {
-    const x0 = -tier.w / 2;
-    const z0 = SOUTH - tier.d;
+  const t0 = tiers[0] as Tier;
+  const x0 = -t0.w / 2;
+  const z0 = SOUTH - t0.d;
+  // Ground floor: a real furnished lobby behind a closed door (2026-11-12
+  // interiors audit — the Tower was the one solid/empty building left).
+  // The door is on the porch face ("s", z = SOUTH). Upper tiers stay
+  // sealed shells, as before.
+  y = shellOpen(
+    boxes,
+    cols,
+    x0,
+    0,
+    z0,
+    t0.w,
+    t0.h,
+    t0.d,
+    (u, ly, f, len) => (hole(f, "s", u, ly, len) ? "air" : towerSample(len)(u, ly)),
+    "black",
+    "s",
+  );
+  // Lobby finish: floor, ceiling + beams, clad + striped wallpaper,
+  // plants flanking the door, gold rug, reception desk, sofas, paintings.
+  const cx = 0;
+  const cz = SOUTH - t0.d / 2;
+  put(boxes, cx, 0.08, cz, t0.w - 2.4, 0.08, t0.d - 2.4, "cream");
+  addCeiling(boxes, cols, x0, z0, t0.w, t0.d);
+  cladWalls(boxes, x0, z0, t0.w, t0.d, "s");
+  wallpaperWalls(boxes, x0, z0, t0.w, t0.d, "s", "white", "gold");
+  ceilingBeams(boxes, x0, z0, t0.w, t0.d);
+  doorCornerPlants(boxes, cols, x0, z0, t0.w, t0.d, "s");
+  put(boxes, cx, 0.12, cz, 8, 0.05, 6, "gold");
+  put(boxes, cx, 0.55, cz - 6, 4.2, 1.05, 1.2, "wood");
+  cols.push(col(cx, 0.55, cz - 6, 4.2, 1.05, 1.2));
+  put(boxes, cx, 1.15, cz - 6, 4.4, 0.12, 1.3, "stone");
+  put(boxes, cx, 1.45, cz - 6.4, 2.6, 0.5, 0.1, "cyan");
+  for (const side of [-1, 1]) {
+    put(boxes, cx + side * 8, 0.38, cz + 2, 3.4, 0.45, 1.1, "red");
+    cols.push(col(cx + side * 8, 0.38, cz + 2, 3.4, 0.45, 1.1));
+    put(boxes, cx + side * 8, 0.85, cz + 2.55, 3.4, 0.7, 0.2, "red");
+    put(boxes, cx + side * 8, 1.9, cz - 9, 2.2, 1.5, 0.15, "gold");
+    put(boxes, cx + side * 5, 0.5, cz + 8, 0.7, 0.9, 0.7, "leavesDark");
+    cols.push(col(cx + side * 5, 0.5, cz + 8, 0.7, 0.9, 0.7));
+  }
+  for (const tier of tiers.slice(1)) {
+    const tx0 = -tier.w / 2;
+    const tz0 = SOUTH - tier.d;
     const sample = towerSample(tier.w);
-    y = shell(boxes, cols, x0, y, z0, tier.w, tier.h, tier.d, (u, ly) => sample(u, ly), "black");
+    y = shell(boxes, cols, tx0, y, tz0, tier.w, tier.h, tier.d, (u, ly) => sample(u, ly), "black");
   }
   addTowerPorch(boxes, cols);
   facades.push({
     id: "tower",
-    x: -16,
-    z: SOUTH - 28,
-    w: 32,
-    d: 32,
+    x: -14,
+    z: SOUTH - 26,
+    w: 28,
+    d: 26,
     h: y,
     style: 0,
-    door: "n",
-    enterable: false,
+    door: "s",
+    enterable: true,
     hero: true,
-    face: "n",
+    face: "s",
     roof: "flat",
   });
-  return y;
+  const zone: Zone = {
+    id: "tower",
+    name: "ORBITX Tower",
+    kind: "office",
+    slot: 0,
+    minX: x0 + 1.15,
+    maxX: x0 + t0.w - 1.15,
+    minZ: z0 + 1.15,
+    maxZ: z0 + t0.d - 1.15,
+    serviceX: cx,
+    serviceZ: cz - 6,
+    signX: cx,
+    signY: 2.35,
+    signZ: z0 + 0.55,
+    signRot: 0,
+  };
+  const anchor = doorAnchor("tower", "ORBITX Tower", "office", x0, z0, t0.w, t0.d, "s", 0);
+  return { top: y, zone, anchor };
 }
 
 function hedgeRect(boxes: Box[], cols: Collider[], x0: number, z0: number, x1: number, z1: number) {
@@ -1067,6 +1164,10 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
           );
           const def = blockKindFor(fbx, fbz, style);
           zones.push(furnishBlock(boxes, cols, fbx, fbz, fbw, fbd, face, def, `block-${x0}-${z0}`));
+          // Closed door (2026-11-12): a block interior is only reachable
+          // through its door anchor now — E at the door spawns inside, E
+          // inside by the door steps back out. Anchor id = zone id.
+          anchors.push(doorAnchor(`block-${x0}-${z0}`, def.name, def.kind, fbx, fbz, fbw, fbd, face));
           y = slice + 1;
         } else {
           y = shell(
@@ -4819,7 +4920,8 @@ export function buildCity(seed: number): City {
   const colliders: Collider[] = [];
   addRoads(boxes);
   addPlaza(boxes, colliders);
-  const towerTop = addTower(boxes, colliders);
+  const tower = addTower(boxes, colliders);
+  const towerTop = tower.top;
   const built = addBuildings(boxes, colliders, rng, seed || 1);
   const fixed = addFixedPlaces(boxes, colliders);
   const mall = addMegaMall(boxes, colliders);
@@ -4867,9 +4969,9 @@ export function buildCity(seed: number): City {
     spawn: { x: sx, y: 0, z: sz, yaw: 0, pitch: 0.44 },
     focus: { x: 0, y: Math.max(36, towerTop * 0.45), z: -10 },
     fountain: FOUNTAIN,
-    anchors: [...fixed.anchors, ...built.anchors, ...mall.anchors, ...office.anchors, ...emergencyParts.anchors],
+    anchors: [...fixed.anchors, ...built.anchors, ...mall.anchors, ...office.anchors, ...emergencyParts.anchors, tower.anchor],
     boards: fixed.boards,
-    zones: [...fixed.zones, ...built.zones, ...mall.zones, ...office.zones, ...emergencyParts.zones],
+    zones: [...fixed.zones, ...built.zones, ...mall.zones, ...office.zones, ...emergencyParts.zones, tower.zone],
     facades: [...facades, ...emergencyParts.facades],
     art: [...art, ...emergencyParts.art],
     lifts: [...mall.lifts, ...office.lifts, ...emergencyParts.lifts],

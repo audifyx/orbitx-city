@@ -2208,6 +2208,54 @@ export function createRuntime(scene: Scene) {
     say(anchor.kind === "project" ? projectName(anchor.slot) : anchor.name);
   }
 
+  /** The anchor that enters a zone: same id first, else the same-kind
+   * anchor standing just outside this zone's rect (the door anchor is
+   * 1.4 outside the wall). Rect distance, not centre distance — the HQ
+   * and mall rects are wide, so a centre check would miss their doors. */
+  function anchorForZone(zone: Zone): Anchor | null {
+    const byId = anchors.find((a) => a.id === zone.id);
+    if (byId) return byId;
+    let best: Anchor | null = null;
+    let bestD = 5;
+    for (const a of anchors) {
+      if (a.kind !== zone.kind) continue;
+      const dx = Math.max(zone.minX - a.x, 0, a.x - zone.maxX);
+      const dz = Math.max(zone.minZ - a.z, 0, a.z - zone.maxZ);
+      const d = Math.hypot(dx, dz);
+      if (d < bestD) {
+        best = a;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  /** The spot inside the door where stepInside lands a player. */
+  function insideDoorPoint(anchor: Anchor) {
+    return { x: anchor.x + Math.sin(anchor.yaw) * 3.5, z: anchor.z - Math.cos(anchor.yaw) * 3.5 };
+  }
+
+  /** Standing by the inside of a closed door (ground floor only — a
+   * player on an upper floor above the door must use the lift/stairs). */
+  function nearExitDoor(body: Body, zone: Zone) {
+    const anchor = anchorForZone(zone);
+    if (!anchor || Math.abs(body.y - (anchor.y || 0)) > 3) return false;
+    const p = insideDoorPoint(anchor);
+    return Math.hypot(body.x - p.x, body.z - p.z) < 2.8;
+  }
+
+  /** Step back outside through the closed door: land on the anchor spot
+   * (1.4 outside the wall), facing away from the building. */
+  function stepOutside(anchor: Anchor, body: Body) {
+    body.x = anchor.x;
+    body.z = anchor.z;
+    body.y = 0;
+    body.vy = 0;
+    body.flying = false;
+    body.yaw = anchor.yaw + Math.PI;
+    say("Stepped outside.");
+  }
+
   let lastBody: Body | null = null;
 
   function applyEmote(group: Group, emote: string, baseYaw: number) {
@@ -2699,6 +2747,17 @@ export function createRuntime(scene: Scene) {
       else say(zoneTitle(zone));
       publish();
       return;
+    }
+    // Closed doors: E by the inside of the door steps back outside.
+    // (Checked after the service point — the desk/counter is never by
+    // the door — and before the anchor, which only fires outside.)
+    if (zone && nearExitDoor(body, zone)) {
+      const exitAnchor = anchorForZone(zone);
+      if (exitAnchor) {
+        stepOutside(exitAnchor, body);
+        publish();
+        return;
+      }
     }
     // A close door / lift / board beats the race gate: the mall door sits
     // 5.6 units from the street-race start gate, inside its 8-unit radius,
@@ -4263,6 +4322,9 @@ export function createRuntime(scene: Scene) {
       else if (driving) prompt = "Press E to get out";
       else if (zone && nearService(body, zone)) {
         prompt = zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "garage" ? "Press E to open the garage" : zone.kind === "carshop" ? "Press E — buy a car at OrbitX Motors" : isDeptKind(zone.kind as string) ? `Press E — ${zoneTitle(zone)}` : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zoneTitle(zone);
+      } else if (zone && nearExitDoor(body, zone)) {
+        // By the inside of a closed door: E steps back outside.
+        prompt = "Press E — Exit";
       } else if (nearestAnchor(body, 3.3)) {
         // A close door / lift / board beats the race gate, same as
         // interact(): the mall door sits 5.6 units from the street-race
@@ -4274,7 +4336,9 @@ export function createRuntime(scene: Scene) {
         // The tower door announces itself as an office entrance, never as a
         // photo spot — the anchor branch already runs before the photo check
         // below, so the door wins wherever the two ranges meet.
-        prompt = anchor.kind === "garage" ? "Press E — Hover Garage" : anchor.kind === "carshop" ? "Press E — OrbitX Motors" : anchor.kind === "office" ? "Press E — Enter office" : walkIn ? `Walk in — ${title}` : `Press E — ${title}`;
+        // Closed doors (2026-11-12): no more "Walk in" — the door is
+        // solid, and E at the door spawns the player inside.
+        prompt = anchor.kind === "garage" ? "Press E — Hover Garage" : anchor.kind === "carshop" ? "Press E — OrbitX Motors" : anchor.kind === "office" ? "Press E — Enter office" : walkIn ? `Press E — Enter ${title}` : `Press E — ${title}`;
       } else if (nearGate(body, 0, 8)) prompt = "Press E — street race";
       else if (sprint) prompt = `Sprint! Reach the gold line — ${((performance.now() - sprint.startAt) / 1000).toFixed(1)}s`;
       else if (dance) prompt = `Dance! Press E on the beat — ${dance.hits}/${DANCE_BEATS} hits, beat ${Math.min(dance.beat + 1, DANCE_BEATS)} of ${DANCE_BEATS}`;

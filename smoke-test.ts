@@ -29,9 +29,9 @@ for (const id of solidIds) {
   groups[p] = (groups[p] ?? 0) + 1;
 }
 console.log("solidByPrefix=" + JSON.stringify(groups));
-// The OrbitX Tower is the one deliberate exception: its stepped hero
-// mesh (pretty solidTower) has no door gap, so no in-scope interior
-// can be reached. Everything else solid is an empty block.
+// The OrbitX Tower used to be the one deliberate solid exception; it
+// has a furnished lobby + door anchor now (2026-11-12), so every solid
+// facade is an empty block.
 const emptyBlocks = solidIds.filter((id) => !id.startsWith("tower("));
 console.log("emptyBlockBuildings=" + emptyBlocks.length);
 for (const id of emptyBlocks.slice(0, 20)) console.log("  EMPTY " + id);
@@ -72,14 +72,17 @@ console.log("zonesWithFewerThan10InteriorBoxes=" + bare.length);
 for (const line of bare) console.log("  BARE " + line);
 console.log("zoneKindMinCounts=" + JSON.stringify(perKind));
 
-// Door-lane check: for every enterable facade with a door, the 4-wide
-// gap (y 0..2.95, 1.5 inside + 1.5 outside the wall) must stay
-// PASSABLE — a clear run of >= 1.2 units along the gap, from outside to
-// inside. A thin tree trunk or hedge chunk at the edge of the approach
-// is passable (walk around it); a run under 1.2 is not. Wall runs beside
-// the gap and the lintel (y>=3) never intersect this volume.
+// Closed-door check (2026-11-12): every enterable facade's door is a
+// SOLID panel — the 4-wide gap volume (y 0..2.95, 1.5 inside + 1.5
+// outside the wall) must have NO clear run >= 1.2 units, i.e. a player
+// cannot walk through the door. Entry is E at the door anchor, so every
+// enterable facade must also have an anchor within 4.5 units of the
+// door centre (outside face) — otherwise the building is sealed shut.
+// The OrbitX Tower used to be the one deliberate solid exception; it
+// has a furnished lobby + door anchor now, so zero solid facades remain.
 const cols = city.colliders;
 const blocked: string[] = [];
+const noAnchor: string[] = [];
 for (const f of city.facades) {
   if (!f.enterable || !f.door) continue;
   const cx = f.x + f.w / 2;
@@ -107,9 +110,16 @@ for (const f of city.facades) {
     cursor = Math.max(cursor, a1);
   }
   if (hi > cursor) widest = Math.max(widest, hi - cursor);
-  if (widest < 1.2) {
-    blocked.push(`${f.id} door=${f.door} widestClear=${widest.toFixed(2)} blocked=${JSON.stringify(blockedIntervals.map(([a, b]) => [Number(a.toFixed(1)), Number(b.toFixed(1))]))}`);
+  if (widest >= 1.2) {
+    blocked.push(`${f.id} door=${f.door} widestClear=${widest.toFixed(2)} — door is NOT solid`);
   }
+  // Door centre (outside face) -> nearest anchor.
+  const doorCx = f.door === "n" || f.door === "s" ? cx : f.door === "w" ? f.x - 1.4 : f.x + f.w + 1.4;
+  const doorCz = f.door === "n" ? f.z - 1.4 : f.door === "s" ? f.z + f.d + 1.4 : cz;
+  const near = city.anchors.some((a) => Math.hypot(a.x - doorCx, a.z - doorCz) < 4.5);
+  if (!near) noAnchor.push(`${f.id} door=${f.door} — no anchor at the door`);
 }
-console.log("doorLanesBlocked=" + blocked.length);
-for (const line of blocked.slice(0, 40)) console.log("  BLOCKED " + line);
+console.log("doorsNotSolid=" + blocked.length);
+for (const line of blocked.slice(0, 40)) console.log("  OPEN " + line);
+console.log("doorsMissingAnchor=" + noAnchor.length);
+for (const line of noAnchor.slice(0, 40)) console.log("  NOANCHOR " + line);

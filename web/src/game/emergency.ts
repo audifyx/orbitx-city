@@ -553,6 +553,26 @@ function shellWalls(
       solidBox(parts, x, h / 2, cz, t, h, d, wallMat);
     }
   }
+  // Closed real door (2026-11-12): a solid wood panel fills the gap, with
+  // a lintel above it and a gold handle on both sides. The door is solid —
+  // entry is E at the door anchor, never a walk-through.
+  const alongX = door === "n" || door === "s";
+  const dz = door === "n" ? z0 : door === "s" ? z0 + d : cz;
+  const dx = door === "w" ? x0 : door === "e" ? x0 + w : cx;
+  const px = alongX ? cx : dx;
+  const pz = alongX ? dz : cz;
+  solidBox(parts, px, 1.45, pz, alongX ? doorW - 0.1 : 0.35, 2.9, alongX ? 0.35 : doorW - 0.1, "wood");
+  solidBox(parts, px, 3 + (h - 3) / 2, pz, alongX ? doorW : t, h - 3, alongX ? t : doorW, wallMat);
+  const hx = alongX ? cx + 1.1 : dx;
+  const hz = alongX ? dz : cz + 1.1;
+  const out = alongX ? (door === "n" ? -0.3 : 0.3) : door === "w" ? -0.3 : 0.3;
+  if (alongX) {
+    box(parts, hx, 1.15, pz + out, 0.16, 0.16, 0.14, "gold");
+    box(parts, hx, 1.15, pz - out, 0.16, 0.16, 0.14, "gold");
+  } else {
+    box(parts, px + out, 1.15, hz, 0.14, 0.16, 0.16, "gold");
+    box(parts, px - out, 1.15, hz, 0.14, 0.16, 0.16, "gold");
+  }
 }
 
 function floorSlab(parts: CityParts, x0: number, z0: number, w: number, d: number, y: number, mat: Mat): void {

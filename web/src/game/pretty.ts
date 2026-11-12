@@ -299,42 +299,59 @@ function hollow(facade: Facade, material: MeshStandardMaterial) {
   const group = new Group();
   const { x, z, w, d, h, door } = facade;
   const t = 0.45;
-  const gap = 4;
   const cx = x + w / 2;
   const cz = z + d / 2;
   const midY = h / 2;
-  const place = (alongX: boolean) => {
-    const span = alongX ? w : d;
-    const origin = alongX ? x : z;
-    const gap0 = origin + (span - gap) / 2;
-    const gap1 = gap0 + gap;
-    if (alongX) {
-      addWall(group, (x + gap0) / 2, midY, z + t / 2, gap0 - x, h, t, material);
-      addWall(group, (gap1 + x + w) / 2, midY, z + t / 2, x + w - gap1, h, t, material);
-      addWall(group, (gap0 + gap1) / 2, 3 + (h - 3) / 2, z + t / 2, gap, h - 3, t, material);
-    } else {
-      addWall(group, x + t / 2, midY, (z + gap0) / 2, t, h, gap0 - z, material);
-      addWall(group, x + t / 2, midY, (gap1 + z + d) / 2, t, h, z + d - gap1, material);
-      addWall(group, x + t / 2, 3 + (h - 3) / 2, (gap0 + gap1) / 2, t, h - 3, gap, material);
+  // Closed real doors (2026-11-12): the door face is a FULL solid wall,
+  // and a wood door slab + white frame + gold handle sits in it. Entry is
+  // E at the door anchor — the old 4-wide open gap is gone.
+  const doorMat = new MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.65, metalness: 0.1 });
+  const frameMat = new MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.4, metalness: 0.15 });
+  const handleMat = new MeshStandardMaterial({ color: 0xe0b33a, roughness: 0.3, metalness: 0.7, emissive: 0x6a5208, emissiveIntensity: 0.4 });
+  const addDoor = (alongX: boolean) => {
+    const px = alongX ? cx : door === "w" ? x + t / 2 : x + w - t / 2;
+    const pz = alongX ? (door === "n" ? z + t / 2 : z + d - t / 2) : cz;
+    const slab = new Mesh(box, doorMat);
+    slab.position.set(px, 1.45, pz);
+    slab.scale.set(alongX ? 3.4 : 0.5, 2.9, alongX ? 0.5 : 3.4);
+    slab.castShadow = true;
+    slab.receiveShadow = true;
+    group.add(slab);
+    for (const off of [-1.85, 1.85]) {
+      const post = new Mesh(box, frameMat);
+      post.position.set(alongX ? cx + off : px, 1.55, alongX ? pz : cz + off);
+      post.scale.set(alongX ? 0.35 : 0.5, 3.1, alongX ? 0.5 : 0.35);
+      post.castShadow = true;
+      group.add(post);
+    }
+    const lintel = new Mesh(box, frameMat);
+    lintel.position.set(alongX ? cx : px, 3.12, alongX ? pz : cz);
+    lintel.scale.set(alongX ? 4.3 : 0.5, 0.26, alongX ? 0.5 : 4.3);
+    group.add(lintel);
+    for (const side of [-0.26, 0.26]) {
+      const handle = new Mesh(box, handleMat);
+      if (alongX) handle.position.set(cx + 1.2, 1.15, pz + side);
+      else handle.position.set(px + side, 1.15, cz + 1.2);
+      handle.scale.set(0.16, 0.16, 0.16);
+      group.add(handle);
     }
   };
-  if (door === "n") place(true);
-  else addWall(group, cx, midY, z + t / 2, w, h, t, material);
+  // Every face is a full wall; the door face also gets the closed door.
+  if (door === "n") {
+    addWall(group, cx, midY, z + t / 2, w, h, t, material);
+    addDoor(true);
+  } else addWall(group, cx, midY, z + t / 2, w, h, t, material);
   if (door === "s") {
-    const gap0 = x + (w - gap) / 2;
-    const gap1 = gap0 + gap;
-    addWall(group, (x + gap0) / 2, midY, z + d - t / 2, gap0 - x, h, t, material);
-    addWall(group, (gap1 + x + w) / 2, midY, z + d - t / 2, x + w - gap1, h, t, material);
-    addWall(group, (gap0 + gap1) / 2, 3 + (h - 3) / 2, z + d - t / 2, gap, h - 3, t, material);
+    addWall(group, cx, midY, z + d - t / 2, w, h, t, material);
+    addDoor(true);
   } else addWall(group, cx, midY, z + d - t / 2, w, h, t, material);
-  if (door === "w") place(false);
-  else addWall(group, x + t / 2, midY, cz, t, h, d, material);
+  if (door === "w") {
+    addWall(group, x + t / 2, midY, cz, t, h, d, material);
+    addDoor(false);
+  } else addWall(group, x + t / 2, midY, cz, t, h, d, material);
   if (door === "e") {
-    const gap0 = z + (d - gap) / 2;
-    const gap1 = gap0 + gap;
-    addWall(group, x + w - t / 2, midY, (z + gap0) / 2, t, h, gap0 - z, material);
-    addWall(group, x + w - t / 2, midY, (gap1 + z + d) / 2, t, h, z + d - gap1, material);
-    addWall(group, x + w - t / 2, 3 + (h - 3) / 2, (gap0 + gap1) / 2, t, h - 3, gap, material);
+    addWall(group, x + w - t / 2, midY, cz, t, h, d, material);
+    addDoor(false);
   } else addWall(group, x + w - t / 2, midY, cz, t, h, d, material);
   const roofMat = new MeshStandardMaterial({ color: 0x141820, roughness: 0.7, metalness: 0.2 });
   addWall(group, cx, h + 0.2, cz, w, 0.4, d, roofMat);
@@ -717,6 +734,33 @@ function solidTower(facade: Facade) {
   atrium.position.set(0, 5, -3 + 0.75);
   atrium.scale.set(8, 10, 1.5);
   group.add(atrium);
+  // Closed real door in front of the glass atrium (2026-11-12): a wood
+  // slab + white frame + gold handles, centred on the porch face. Entry
+  // is E at the tower door anchor — the lobby behind it is furnished.
+  const towerDoorMat = new MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.65, metalness: 0.1 });
+  const towerFrameMat = new MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.4, metalness: 0.15 });
+  const towerHandleMat = new MeshStandardMaterial({ color: 0xe0b33a, roughness: 0.3, metalness: 0.7, emissive: 0x6a5208, emissiveIntensity: 0.4 });
+  const towerSlab = new Mesh(box, towerDoorMat);
+  towerSlab.position.set(0, 1.45, -1.4);
+  towerSlab.scale.set(3.4, 2.9, 0.16);
+  towerSlab.castShadow = true;
+  group.add(towerSlab);
+  for (const off of [-1.85, 1.85]) {
+    const post = new Mesh(box, towerFrameMat);
+    post.position.set(off, 1.55, -1.4);
+    post.scale.set(0.35, 3.1, 0.2);
+    group.add(post);
+  }
+  const towerLintel = new Mesh(box, towerFrameMat);
+  towerLintel.position.set(0, 3.12, -1.4);
+  towerLintel.scale.set(4.3, 0.26, 0.2);
+  group.add(towerLintel);
+  for (const side of [-0.18, 0.18]) {
+    const handle = new Mesh(box, towerHandleMat);
+    handle.position.set(1.2, 1.15, -1.4 + side);
+    handle.scale.set(0.16, 0.16, 0.16);
+    group.add(handle);
+  }
   const top = tiers[tiers.length - 1];
   const roofY = y + 1.35;
   const front = orbitWord();

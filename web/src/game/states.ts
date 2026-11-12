@@ -263,48 +263,28 @@ export function pushCol(
 }
 
 /**
- * Wall colliders for an enterable shell at (x0,z0,w,d), height h, with a
- * 4-wide door gap centred on the `door` face — the same gap pretty.ts's
- * hollow() renders, so the visual shell and the solid shell agree.
- * Includes the lintel collider above the door (y 3..h).
+ * Wall colliders for an enterable shell at (x0,z0,w,d), height h.
+ * Closed real doors (2026-11-12): the door face is a FULL solid wall —
+ * the door panel is visual + solid, and entry is E at the door anchor
+ * (runtime stepInside), never a walk-through gap. The old 4-wide gap +
+ * lintel made every building an open arch.
  */
 export function pushWallColliders(
   city: City,
   x0: number, z0: number, w: number, d: number, h: number, door: Face,
 ): void {
   const t = 0.6;
-  const gap = 4;
   const midY = h / 2;
   const run = (
     cx: number, cz: number, sx: number, sz: number,
     cy: number = midY, sy: number = h,
   ) => pushCol(city, cx, cy, cz, sx, sy, sz);
-  const gapRuns = (alongX: boolean, fixed: number) => {
-    // Two runs either side of the gap + a lintel above it.
-    const span = alongX ? w : d;
-    const origin = alongX ? x0 : z0;
-    const gap0 = origin + (span - gap) / 2;
-    const gap1 = gap0 + gap;
-    if (alongX) {
-      run((x0 + gap0) / 2, fixed, gap0 - x0, t);
-      run((gap1 + x0 + w) / 2, fixed, x0 + w - gap1, t);
-      run((gap0 + gap1) / 2, fixed, gap, t, 3 + (h - 3) / 2, h - 3);
-    } else {
-      run(fixed, (z0 + gap0) / 2, t, gap0 - z0);
-      run(fixed, (gap1 + z0 + d) / 2, t, z0 + d - gap1);
-      run(fixed, (gap0 + gap1) / 2, t, gap, 3 + (h - 3) / 2, h - 3);
-    }
-  };
   // North wall (z = z0) and south wall (z = z0 + d).
-  if (door === "n") gapRuns(true, z0 + t / 2);
-  else run(x0 + w / 2, z0 + t / 2, w, t);
-  if (door === "s") gapRuns(true, z0 + d - t / 2);
-  else run(x0 + w / 2, z0 + d - t / 2, w, t);
+  run(x0 + w / 2, z0 + t / 2, w, t);
+  run(x0 + w / 2, z0 + d - t / 2, w, t);
   // West wall (x = x0) and east wall (x = x0 + w).
-  if (door === "w") gapRuns(false, x0 + t / 2);
-  else run(x0 + t / 2, z0 + d / 2, t, d);
-  if (door === "e") gapRuns(false, x0 + w - t / 2);
-  else run(x0 + w - t / 2, z0 + d / 2, t, d);
+  run(x0 + t / 2, z0 + d / 2, t, d);
+  run(x0 + w - t / 2, z0 + d / 2, t, d);
 }
 
 /** Door face pointing from a plot toward the region centre (street-facing). */
@@ -391,6 +371,9 @@ export function buildRegionCore(city: City, state: StateDef): void {
   pushWallColliders(city, cx - tw / 2, cz - tw / 2, tw, tw, 8, "s");
   if (t.towerH > 8) pushCol(city, cx, (8 + t.towerH) / 2, cz, tw, t.towerH - 8, tw);
   city.zones.push(furnishStateLandmark(city, state));
+  // Closed door (2026-11-12): the landmark lobby is only reachable
+  // through its door anchor now — E at the door spawns inside.
+  city.anchors.push(doorAnchorFor(`${state.id}-landmark`, `${state.name} Landmark`, "hall", cx - tw / 2, cz - tw / 2, tw, tw, "s", 0));
   // Gold beacon on top.
   pushBox(city, cx, t.towerH + 1, cz, 3, 2, 3, "gold");
   // Plaza corner lamps + state props.
@@ -928,6 +911,10 @@ export function buildDistrictBlocks(city: City, state: StateDef, rng: Rng): void
       if (h > GH) pushCol(city, cx + bx, (GH + h) / 2, cz + bz, fw, h - GH, fd);
       const def = STATE_BLOCK_KINDS[n % STATE_BLOCK_KINDS.length] as StateBlockKindDef;
       city.zones.push(furnishStateBlock(city, bx0, bz0, fw, fd, "s", def, district, facade.id));
+      // Closed door (2026-11-12): a state block interior is only reachable
+      // through its door anchor now — E at the door spawns inside, E
+      // inside by the door steps back out. Anchor id = zone id.
+      city.anchors.push(doorAnchorFor(facade.id, def.label, def.kind, bx0, bz0, fw, fd, "s", 0));
       // A gold band under the roofline for NY; a street awning for FL.
       if (t.cornice) pushBox(city, cx + bx, h - 0.4, cz + bz, fw + 0.2, 0.5, fd + 0.2, "gold");
       if (t.awning) pushBox(city, cx + bx, 3.4, cz + bz + fd / 2 + 0.8, fw * 0.7, 0.25, 1.6, "white");
@@ -1291,12 +1278,15 @@ export function buildOfficeTower(city: City, state: StateDef): void {
   // furnishStateTower — NOT a solid block (audit 2026-11-11: the solid
   // collider made the lift's Floors 2-4 and the 12 catalogued suites
   // unreachable, and embedded the lobby's front desk).
+  // Closed doors (2026-11-12): the upper mass has NO street door — the
+  // lobby door below is the only entrance, reached by the lift inside.
+  // Its old door:"s" drew a ground-floor gap into the lobby's back wall.
   const upW = 30;
   const upD = 20;
   const upH = t.officeH;
   city.facades.push({
     id: `${state.id}-tower-upper`, x: cx - upW / 2, z: lz0 + 4, w: upW, d: upD, h: upH,
-    style: (t.style + 1) % 6, door: "s", enterable: true, hero: false,
+    style: (t.style + 1) % 6, door: "", enterable: true, hero: false,
     face: "s", roof: "stepped", roofMat: t.roofMat, cornice: t.cornice,
   });
   pushBox(city, cx, upH + 0.8, lz0 + 4 + upD / 2, 4, 1.6, 4, t.officeAccent);
