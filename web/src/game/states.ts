@@ -39,6 +39,7 @@ import type {
   Zone,
 } from "./city";
 import { makeRng, type Rng } from "./seed";
+import { buildStraitWater } from "./water";
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -1360,6 +1361,11 @@ export function buildStateRegion(stateId: StateId, city: City, seed = 1): void {
 /** All three states, in one call. */
 export function buildAllRegions(city: City, seed = 1): void {
   for (const s of STATES) buildStateRegion(s.id, city, seed);
+  // Deep water between the states (water.ts): fills the void between the
+  // home slab and each region with a real strait — surface at y=-1 over a
+  // seabed at y=-6. Runs after the region ground slabs so the shorelines
+  // abut the slab edges exactly.
+  buildStraitWater(city);
 }
 
 // ---------------------------------------------------------------------------
