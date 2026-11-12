@@ -5806,6 +5806,7 @@ export function createRuntime(scene: Scene) {
       if (data.me) applySaveMe(data.me);
       if (data.paid || data.done) {
         say(String(data.message || "Mission step done."));
+        notify("JOB", String(data.message || "Mission step done."), "job");
         triggerHaptic("jobPay");
       }
       publish();
@@ -5889,7 +5890,9 @@ export function createRuntime(scene: Scene) {
     const base = amounts[id] ?? 0;
     const restedBonus = isRested() && base > 0 ? Math.max(1, Math.round(base * 0.1)) : 0;
     if (!world.online) {
-      say(earn(wallet, amounts[id] + restedBonus, jobTitle(id) + (restedBonus ? " · rested +10%" : "")));
+      const offlineMsg = earn(wallet, amounts[id] + restedBonus, jobTitle(id) + (restedBonus ? " · rested +10%" : ""));
+      say(offlineMsg);
+      notify("JOB", offlineMsg, "job");
       triggerHaptic("jobPay");
       return true;
     }
@@ -5900,6 +5903,7 @@ export function createRuntime(scene: Scene) {
       let msg = String(data.message || "Paid.");
       if (restedBonus) msg += " " + earn(wallet, restedBonus, "Rested bonus (+10% job pay)");
       say(msg);
+      notify("JOB", msg, "job");
       // Mission chain: a completed job is the "job" step (server-verified
       // against the job streak snapshot).
       void attemptMission();
@@ -7470,7 +7474,9 @@ export function createRuntime(scene: Scene) {
   async function radioRegister(name: string, path: string) {
     if (!world.online) return { ok: false as const, message: "Offline." };
     try {
-      return await world.radioRegister(name, path);
+      const result = await world.radioRegister(name, path);
+      if (result.ok) notify("CITY", `"${name}" added to the radio.`, "event");
+      return result;
     } catch (err) {
       return { ok: false as const, message: err instanceof Error ? err.message : "Could not add the track." };
     }
@@ -7507,6 +7513,7 @@ export function createRuntime(scene: Scene) {
         triggerHaptic("success");
         publish();
         say(String(data.message || "Bought."));
+        notify("MONEY", String(data.message || "Bought."), "money");
         return String(data.message || "Bought.");
       } catch (err) {
         const message = err instanceof Error ? err.message : "The city refused the purchase.";
@@ -8041,6 +8048,7 @@ export function createRuntime(scene: Scene) {
         triggerHaptic("success");
         publish();
         say(String(data.message || `Bought ${home.name} for ${home.price} City Sol.`));
+        notify("MONEY", String(data.message || `Bought ${home.name} for ${home.price} City Sol.`), "money");
         return String(data.message || "Bought.");
       } catch (err) {
         const message = err instanceof Error ? err.message : "The city refused the purchase.";
@@ -8448,6 +8456,14 @@ export function createRuntime(scene: Scene) {
       const result = peopleFrom(data as Record<string, unknown>);
       applyPeople(data as Record<string, unknown>);
       if (result.message) say(result.message);
+      // The notable people events pop up too — rent money in, a house
+      // party starting/ending, a home rented out. Chats (npc-talk) stay
+      // as the notice line only, or every hello would be a pop-up.
+      if (result.message && result.ok) {
+        if (op === "people-collect-rent") notify("MONEY", result.message, "money");
+        else if (op === "people-party-start" || op === "people-party-end") notify("PARTY", result.message, "party");
+        else if (op === "people-rent-out" || op === "people-end-rent") notify("MONEY", result.message, "money");
+      }
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : "The city server said no.";
@@ -9560,16 +9576,81 @@ export function createRuntime(scene: Scene) {
       volumeFor(id, value);
     },
     friendAsk(id: string) {
-      void world.friendAsk(id).then((data) => say(String(data.message || "Request sent."))).catch((err) => say(err.message));
+      void world.friendAsk(id).then((data) => {
+        say(String(data.message || "Request sent."));
+        if (data.ok) notify("FRIEND", String(data.message || "Friend request sent."), "friend");
+      }).catch((err) => say(err.message));
     },
     friendAccept(id: string) {
       void world.friendAccept(id).then((data) => {
         applyMe();
         say(String(data.message || "Friend added."));
+        if (data.ok) notify("FRIEND", String(data.message || "Friend added."), "friend");
+      }).catch((err) => say(err.message));
+    },
+    // Decline a friend request or a party invite (drops the inbox item).
+    declineRequest(id: string, kind: string) {
+      void world.declineRequest(id, kind).then((data) => {
+        applyMe();
+        say(String(data.message || "Request declined."));
       }).catch((err) => say(err.message));
     },
     partyInvite(id = "") {
-      void world.partyInvite(id).then(() => say(id ? "Party invite sent." : "Party started.")).catch((err) => say(err.message));
+      void world.partyInvite(id).then((data) => {
+        say(id ? "Party invite sent." : "Party started.");
+        if (data.ok) notify("PARTY", id ? String(data.message || "Party invite sent.") : "Party started.", "party");
+      }).catch((err) => say(err.message));
+    },
+    partyAccept(id: string) {
+      void world.partyAccept(id).then((data) => {
+        applyMe();
+        say(String(data.message || "Joined the party."));
+        if (data.ok) notify("PARTY", String(data.message || "Joined the party."), "party");
+      }).catch((err) => say(err.message));
+    },
+    partyLeave() {
+      void world.partyLeave().then((data) => {
+        applyMe();
+        say(String(data.message || "Left the party."));
+        if (data.ok) notify("PARTY", "You left the party.", "party");
+      }).catch((err) => say(err.message));
+    },
+    // Teleport to a player in the city (FREE): steps out of the car /
+    // train / bus first, then lands on foot beside them. Same universe
+    // only — the panel only lists players the game can actually see.
+    teleportToPlayer(id: string) {
+      const found = remotes.get(id);
+      if (!found || !lastBody) {
+        say("That player is gone.");
+        publish();
+        return;
+      }
+      const target = found.state;
+      if (driving) exitCar(lastBody);
+      ridingTrain = false;
+      ridingBus = false;
+      lastBody.x = target.x + 2;
+      lastBody.z = target.z + 2;
+      lastBody.y = 0;
+      lastBody.vy = 0;
+      lastBody.flying = false;
+      lastBody.yaw = Math.atan2(lastBody.x - target.x, lastBody.z - target.z);
+      panel = "";
+      say(`Teleported to ${target.name}.`);
+      publish();
+    },
+    // Dismiss one toast early (tap it) — it leaves the live stack but
+    // stays in the Alerts history.
+    dismissToast(id: number) {
+      const item = toasts.find((toast) => toast.id === id);
+      if (item) item.read = true;
+      publish();
+    },
+    // Mark every notification read (the Alerts panel calls this on open)
+    // so the badge clears once you have looked.
+    markAlertsRead() {
+      for (const item of toasts) item.read = true;
+      publish();
     },
     addEvent(title: string, where: string, when: string, detail: string) {
       void world.addEvent(title, where, when, detail).then(() => say("Event posted."));
