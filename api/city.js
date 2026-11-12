@@ -610,6 +610,60 @@ const VEHICLE_NAMES = {
   "board-long": "Cruiser Longboard"
 };
 
+// --- Home furniture (furniture shop + Edit Home) ------------------------
+// City Sol only, no burn. Catalog mirrors web/src/game/runtime.ts
+// FURNITURE_CATALOG — the server is the price authority. Placed pieces
+// live inside the per-server save's homes JSON (no new column):
+//   save.homes.furniture     = { [homeId]: [{ id, item, x, z, rot }] }
+//   save.homes.furnitureOwned = [itemId, ...] (one entry per owned copy)
+// A placed piece consumes one owned copy: furniture-save rejects a list
+// that places more copies of an item than the player owns.
+const FURNITURE_CATALOG = {
+  tv: { name: "OrbitX TV", price: 450 },
+  couch: { name: "Sofa", price: 600 },
+  bed: { name: "Double Bed", price: 750 },
+  "dining-table": { name: "Dining Table", price: 320 },
+  chair: { name: "Chair", price: 120 },
+  lamp: { name: "Floor Lamp", price: 90 },
+  rug: { name: "Rug", price: 150 },
+  shelf: { name: "Shelf", price: 260 },
+  plant: { name: "Potted Plant", price: 80 },
+  kitchen: { name: "Kitchen Set", price: 800 },
+  desk: { name: "Desk", price: 340 },
+  armchair: { name: "Armchair", price: 290 },
+  "coffee-table": { name: "Coffee Table", price: 210 },
+  "tv-stand": { name: "TV Stand", price: 180 },
+};
+const FURNITURE_MAX_PER_HOME = 40;
+
+function furnitureCatalogPublic() {
+  return Object.entries(FURNITURE_CATALOG).map(([id, item]) => ({ id, name: item.name, price: item.price }));
+}
+
+function sanitizeFurniturePlaced(list) {
+  if (!Array.isArray(list)) return [];
+  const clamp = (v) => Math.max(-400, Math.min(400, Number(v) || 0));
+  return list
+    .filter((p) => p && FURNITURE_CATALOG[p.item] && typeof p.id === "string" && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.z)) && Number.isFinite(Number(p.rot)))
+    .slice(0, FURNITURE_MAX_PER_HOME)
+    .map((p) => ({ id: String(p.id).slice(0, 32), item: String(p.item), x: clamp(p.x), z: clamp(p.z), rot: Number(p.rot) || 0 }));
+}
+
+function sanitizeFurnitureOwned(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((id) => FURNITURE_CATALOG[id]).map((id) => String(id));
+}
+
+function sanitizeFurnitureMap(raw) {
+  const out = {};
+  if (raw && typeof raw === "object") {
+    for (const [homeId, list] of Object.entries(raw)) {
+      out[String(homeId)] = sanitizeFurniturePlaced(list);
+    }
+  }
+  return out;
+}
+
 // --- Home catalog (homes.ts HOMES, mirrored) ------------------------------
 // Same rule as vehicles: duplicated from the TS catalog, server is the
 // authority. Regenerate from homes.ts whenever the catalog changes
@@ -1223,7 +1277,12 @@ function sanitizeOwnedHome(home) {
 
 function sanitizeHomes(homes) {
   const list = Array.isArray(homes?.homes) ? homes.homes : [];
-  return { homeServer: Number(homes?.homeServer || 0), homes: list.map(sanitizeOwnedHome) };
+  return {
+    homeServer: Number(homes?.homeServer || 0),
+    homes: list.map(sanitizeOwnedHome),
+    furniture: sanitizeFurnitureMap(homes?.furniture),
+    furnitureOwned: sanitizeFurnitureOwned(homes?.furnitureOwned),
+  };
 }
 
 function sanitizeVehicles(vehicles) {
@@ -2687,6 +2746,83 @@ async function buyHome(player, save, body) {
   return { ok: true, home: homeId, price, server, me: publicPlayer(save) };
 }
 
+// --- Home furniture ops (shop + Edit Home) ---
+
+function furnitureListOp(save) {
+  const homes = save.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
+  return {
+    ok: true,
+    catalog: furnitureCatalogPublic(),
+    owned: sanitizeFurnitureOwned(homes.furnitureOwned),
+    placed: sanitizeFurnitureMap(homes.furniture),
+    me: publicPlayer(save),
+  };
+}
+
+async function furnitureBuyOp(player, save, body) {
+  const itemId = String(body.item || "");
+  const item = FURNITURE_CATALOG[itemId];
+  if (!item) return { ok: false, message: "That furniture is not for sale.", status: 400 };
+  if (save.balance < item.price) return { ok: false, message: "Not enough City Sol.", status: 400 };
+  // City Sol only: a furniture buy is a purchase, not a burn event.
+  save.balance -= item.price;
+  player.balance = save.balance;
+  const homes = save.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
+  homes.furnitureOwned = [...sanitizeFurnitureOwned(homes.furnitureOwned), itemId];
+  save.homes = homes;
+  await saveSave(save);
+  return { ok: true, message: `Bought ${item.name} for ${item.price} City Sol — place it in Edit Home.`, item: itemId, owned: homes.furnitureOwned, me: publicPlayer(save) };
+}
+
+async function furnitureSaveOp(save, body) {
+  const server = parseServerId(body.server);
+  const homeId = String(body.home || "");
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const homes = save.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
+  if (!(homes.homes || []).some((h) => h.homeId === homeId && h.server === server)) {
+    return { ok: false, message: "You can only decorate a home you own on this server.", status: 400 };
+  }
+  const pieces = sanitizeFurniturePlaced(body.furniture);
+  const owned = sanitizeFurnitureOwned(homes.furnitureOwned);
+  const counts = {};
+  for (const piece of pieces) counts[piece.item] = (counts[piece.item] || 0) + 1;
+  for (const [itemId, n] of Object.entries(counts)) {
+    const have = owned.filter((id) => id === itemId).length;
+    if (n > have) {
+      return { ok: false, message: `You only own ${have} ${FURNITURE_CATALOG[itemId]?.name || itemId} — buy another in the shop first.`, status: 400 };
+    }
+  }
+  const furniture = sanitizeFurnitureMap(homes.furniture);
+  furniture[homeId] = pieces;
+  homes.furniture = furniture;
+  save.homes = homes;
+  await saveSave(save);
+  return { ok: true, message: "Home saved.", placed: pieces, me: publicPlayer(save) };
+}
+
+async function furnitureSellOp(player, save, body) {
+  const itemId = String(body.item || "");
+  const item = FURNITURE_CATALOG[itemId];
+  if (!item) return { ok: false, message: "That furniture is not for sale.", status: 400 };
+  const homes = save.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
+  const owned = sanitizeFurnitureOwned(homes.furnitureOwned);
+  const idx = owned.indexOf(itemId);
+  if (idx < 0) return { ok: false, message: `You don't own a ${item.name}.`, status: 400 };
+  const furniture = sanitizeFurnitureMap(homes.furniture);
+  const placedCount = Object.values(furniture).flat().filter((p) => p.item === itemId).length;
+  if (owned.length - placedCount <= 0) {
+    return { ok: false, message: `Your ${item.name} is placed in your home — remove it in Edit Home first.`, status: 400 };
+  }
+  owned.splice(idx, 1);
+  homes.furnitureOwned = owned;
+  save.homes = homes;
+  const refund = Math.floor(item.price / 2);
+  save.balance += refund;
+  player.balance = save.balance;
+  await saveSave(save);
+  return { ok: true, message: `Sold ${item.name} for ${refund} City Sol.`, refund, owned, me: publicPlayer(save) };
+}
+
 // --- Mission chain + new earning ops (fix-server) ------------------------
 // All pay into the per-server save (City Sol only). See MISSION_CHAIN
 // for the mission list and the per-step trust model.
@@ -3329,6 +3465,23 @@ export async function POST(request) {
       mine,
       me: save ? publicPlayer(save) : publicPlayer(player),
     });
+  }
+
+  // Home furniture — shop + Edit Home, per-server homes (City Sol only).
+  // furniture-list is a read: never mint a save for it — guests still get
+  // the catalog, with an empty inventory.
+  if (op === "furniture-list" || op === "furniture-buy" || op === "furniture-save" || op === "furniture-sell") {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5) first." }, 400);
+    const save = await ensureSave(player, server, { mint: op !== "furniture-list" });
+    if (!save) return json({ ok: true, catalog: furnitureCatalogPublic(), owned: [], placed: {} });
+    let result;
+    if (op === "furniture-list") result = furnitureListOp(save);
+    else if (op === "furniture-buy") result = await furnitureBuyOp(player, save, body);
+    else if (op === "furniture-save") result = await furnitureSaveOp(save, body);
+    else result = await furnitureSellOp(player, save, body);
+    if (result.ok) await mirrorBalance(player, save);
+    return json(result, result.ok ? 200 : result.status || 400);
   }
 
   // District office suites — same City Sol leases as the HQ, scoped by
