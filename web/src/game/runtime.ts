@@ -5864,6 +5864,7 @@ export function createRuntime(scene: Scene) {
       stopped: trainState.stopped,
       dwell: Math.round(trainState.dwell * 10) / 10,
       riding: ridingTrain,
+      hasGroup: !!trainGroup,
     };
     const now = performance.now();
     for (const [id, remote] of remotes) {
@@ -9944,6 +9945,7 @@ declare global {
       stopped: boolean;
       dwell: number;
       riding: boolean;
+      hasGroup: boolean;
     };
   }
 }
