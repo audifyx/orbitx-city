@@ -172,9 +172,17 @@ function cleanFurniture(list) {
   }));
 }
 
+// Lots + announcements are shared truth and they change (a purchase, a
+// brand, a note). Vercel runs many serverless instances, each holding its own
+// in-memory copy of the world. The old code read the tables once per
+// instance (lotsLoaded) and then served that stale snapshot forever — so a
+// lot you just bought showed owned on the instance that took the purchase
+// and for-sale on every other instance, and the panel glitched between the
+// two. The database is the truth: re-read it on every call and let its rows
+// overwrite the in-memory copy. When there is no database (memory-only dev)
+// the re-read is a no-op and the in-memory lots written by persistLot stand.
 async function loadWorld(ctx) {
   const store = ensureStore(ctx);
-  if (store.lotsLoaded) return store;
   store.lotsLoaded = true;
   const client = ctx.sb();
   if (client) {
@@ -199,7 +207,6 @@ async function loadWorld(ctx) {
     try {
       const rows = await ctx.sql`SELECT id, owner_id, owner_name, furniture, brand FROM properties`;
       for (const row of rows) {
-        if (store.lots.has(row.id)) continue;
         const furniture = typeof row.furniture === "string" ? JSON.parse(row.furniture || "[]") : row.furniture || [];
         const brand =
           typeof row.brand === "string" ? JSON.parse(row.brand || "{}") : row.brand || {};
@@ -217,7 +224,7 @@ async function loadWorld(ctx) {
     try {
       const rows = await ctx.sql`SELECT id, text, author FROM announcements`;
       for (const row of rows) {
-        if (!store.notes.has(row.id)) store.notes.set(row.id, { text: row.text || "", author: row.author || "" });
+        store.notes.set(row.id, { text: row.text || "", author: row.author || "" });
       }
     } catch {
       // Same as properties: memory still works for this process.

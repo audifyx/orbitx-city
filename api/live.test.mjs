@@ -132,3 +132,52 @@ test("external wallet link is no longer a live op", async () => {
   const linked = await handleLive(ctx, ada, "wallet-link", { pubkey: "x" });
   assert.equal(linked, null);
 });
+
+// A bought lot must stay bought: the digest re-reads the properties table
+// fresh on every call, so a lot owned in the database never flips back to
+// for-sale on a later read (the bug that made a bought HQ glitch in and out
+// and the panel message revert to "Buy this HQ").
+test("a bought HQ stays owned on the next digest, even when the in-memory copy went stale", async () => {
+  // One shared "database" (the Supabase properties table) behind a fake client.
+  // select() is a thenable so `await .select()` resolves to the result and
+  // `.select().limit(n)` works for the leaderboard read.
+  const db = { properties: new Map(), announcements: new Map() };
+  const fakeSb = () => ({
+    from(table) {
+      const rows = table === "properties" ? db.properties : table === "announcements" ? db.announcements : new Map();
+      const result = { error: null, data: [...rows.values()].map((row) => ({ ...row })) };
+      return {
+        select() {
+          return {
+            ...result,
+            then(resolve) { resolve(result); },
+            limit() { return Promise.resolve(result); },
+          };
+        },
+        upsert(row) {
+          rows.set(row.id, { ...row });
+          return Promise.resolve({ error: null });
+        },
+      };
+    },
+  });
+  const ctx = ctxFor();
+  ctx.sb = fakeSb;
+  const ada = player("ada");
+  // First digest: nothing owned yet.
+  const before = await handleLive(ctx, ada, "digest", {});
+  assert.equal(before.ok, true);
+  assert.equal(before.lots.find((lot) => lot.id === "hq-0")?.ownerId || "", "");
+  // Buy the HQ — the database now has it owned by Ada.
+  const bought = await handleLive(ctx, ada, "property-buy", { id: "hq-0" });
+  assert.equal(bought.ok, true);
+  assert.equal(db.properties.get("hq-0")?.owner_id, "ada");
+  // Simulate the stale in-memory copy an instance holds when it loaded lots
+  // before the purchase: wipe the ownership from the in-memory store.
+  ctx.store.lots.set("hq-0", { id: "hq-0", ownerId: "", ownerName: "", furniture: [], brand: {} });
+  // The next digest must re-read the database and show the HQ as owned.
+  const after = await handleLive(ctx, ada, "digest", {});
+  assert.equal(after.ok, true);
+  assert.equal(after.lots.find((lot) => lot.id === "hq-0")?.ownerId, "ada");
+  assert.equal(after.lots.find((lot) => lot.id === "hq-0")?.ownerName, "Ada");
+});
