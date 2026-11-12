@@ -554,6 +554,11 @@ export const DANCE_BEAT_MS = 850;
 // ever moves.
 // Museum: stand points 2 units in front of each exhibit pedestal. First
 // view of each pays MUSEUM_REWARD; viewing all four pays MUSEUM_BONUS.
+// SPACING (2026-11-11): these track the museum's origin (-172,152) —
+// pedestals sit at [x0+2.2, z0+4] / [x0+w-2.2, z0+d-4] in furnishMuseum
+// (city.ts), stand points 2 units toward the room centre from each one.
+// The old values pointed at the (-99,176) museum and were never moved
+// when it shifted to (-98,185), so the stands sat outside the building.
 export interface MuseumExhibit {
   id: string;
   name: string;
@@ -561,10 +566,10 @@ export interface MuseumExhibit {
   z: number;
 }
 export const MUSEUM_EXHIBITS: MuseumExhibit[] = [
-  { id: "genesis", name: "Genesis Block", x: -94.8, z: 180 },
-  { id: "coin", name: "First ORBITX Coin", x: -94.8, z: 192 },
-  { id: "relic", name: "Pump.fun Relic", x: -83.2, z: 180 },
-  { id: "chart", name: "The $100K Chart", x: -83.2, z: 192 },
+  { id: "genesis", name: "Genesis Block", x: -167.8, z: 156 },
+  { id: "coin", name: "First ORBITX Coin", x: -167.8, z: 168 },
+  { id: "relic", name: "Pump.fun Relic", x: -156.2, z: 156 },
+  { id: "chart", name: "The $100K Chart", x: -156.2, z: 168 },
 ];
 export const MUSEUM_REWARD = 10;
 export const MUSEUM_BONUS = 20;

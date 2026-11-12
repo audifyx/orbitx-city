@@ -400,7 +400,9 @@ export const PHOTO_LANDMARKS: { id: string; name: string; x: number; z: number }
   { id: "cafe", name: "Cafe Nova", x: -5.6, z: 54 },
   { id: "shop", name: "OrbitX Shop", x: 5.6, z: 54 },
   { id: "market", name: "Night Market", x: -18, z: 77.6 },
-  { id: "museum", name: "OrbitX Museum", x: -99, z: 176 },
+  // SPACING (2026-11-11): museum door anchor for the museum at
+  // (-172,152) — the old (-99,176) value was the pre-move venue origin.
+  { id: "museum", name: "OrbitX Museum", x: -150.6, z: 162 },
 ];
 // How the client recognises the mission "visit" places. Tour-stop coords
 // and door anchors disagree by a few units (the hall door is at 41.6, 90,

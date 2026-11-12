@@ -333,9 +333,11 @@ const DEPT_H = 7;
  * and gates, clear of the seeded hill ring, and clear of the outer grid
  * blocks (including the grid homes). Do NOT re-tighten these to a shared
  * table — the constraints differ per district:
- * - harbor: the z=180 road caps the north side (hospital max gap 8
- *   there, so it takes the NW corner instead); seeded hills sit SW and S
- *   of the tower, so fire/police/emergency stack on the east side.
+ * - harbor: the z=180 road caps the north side, so the hospital takes
+ *   the NW corner instead — and it must sit WEST of the x=-144 road
+ *   (dx -46: x -172..-154, 5 clear of the asphalt); at dx -38 its east
+ *   3 units sat ON the road. Seeded hills sit SW and S of the tower,
+ *   so fire/police/emergency stack on the east side.
  * - north: the z=-180 road caps the south side, so emergency takes the
  *   SE corner; the hill ring caps the north at dz -32.
  * - east: the x=180 road + outer grid blocks leave no room west of the
@@ -344,16 +346,15 @@ const DEPT_H = 7;
  * - west: mirror of east — the bridge-west deck/gate occupy the
  *   mid-west, so fire/police take the NW/SW corners west of the tower.
  * Doors face the tower wherever the forecourt allows; the one exception
- * is harbor fire, whose door faces south, toward the police station,
- * because the museum sits in its west-door apron.
+ * is harbor fire, whose door faces south, toward the police station.
  * Gaps after the move (tower <-> department, smallest first): harbor
  * police/emergency 18, north police/emergency 18, hospital 20-21
- * (corner), east/west outer rows 26-28. */
+ * (corner) except harbor hospital at 29, east/west outer rows 26-28. */
 const DEPT_OFFSETS: Record<DistrictId, Record<DepartmentKind, { dx: number; dz: number; door: Face }>> = {
   harbor: {
     fire: { dx: 50, dz: -20, door: "s" },
     police: { dx: 46, dz: 8, door: "w" },
-    hospital: { dx: -38, dz: -20, door: "e" },
+    hospital: { dx: -46, dz: -20, door: "e" },
     emergency: { dx: 46, dz: 32, door: "w" },
   },
   north: {
