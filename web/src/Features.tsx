@@ -58,6 +58,31 @@ function Daily({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
 
 function Talk({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   const talk = snap.talk;
+  // PEOPLE: this NPC's relationship — chatting builds it (Stranger →
+  // Acquaintance → Friend → Close Friend → Best Friend). Friends can be
+  // invited over to your place; Close Friends come to house parties.
+  const [rel, setRel] = useState<{ label: string; talks: number; level: number; canVisit: boolean; canParty: boolean } | null>(null);
+  const [chatMsg, setChatMsg] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+  const talkName = talk?.name ?? "";
+  useEffect(() => {
+    if (!talkName) return;
+    let live = true;
+    setRel(null);
+    setChatMsg("");
+    void rt
+      ?.peopleStatus()
+      .then((res) => {
+        if (!live || !res.ok) return;
+        const found = res.relationships.find((item) => item.npc === talkName);
+        if (found) setRel(found);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [talkName]);
   if (!talk) return <p>Chat over — close the panel and keep playing.</p>;
   return (
     <div className="list" data-feature="talk">
@@ -93,6 +118,39 @@ function Talk({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           Browse all jobs
         </button>
       )}
+      <h3>Relationship</h3>
+      <p>
+        {rel ? `${rel.label} · ${rel.talks} chat${rel.talks === 1 ? "" : "s"}` : "…"}
+      </p>
+      <p className="quiet">
+        {rel && rel.level < 2
+          ? `Chat ${3 - rel.talks} more time${3 - rel.talks === 1 ? "" : "s"} to become Friends — Friends come over to your place.`
+          : rel && rel.level === 2
+            ? "Friends come over — invite them from your home panel. 8 chats for Close Friend."
+            : rel
+              ? "Close Friend — they will come to your house parties."
+              : "Chatting builds a relationship — 3 chats to become Friends."}
+      </p>
+      <button
+        type="button"
+        disabled={chatBusy}
+        onClick={async () => {
+          if (!rt) return;
+          setChatBusy(true);
+          try {
+            const res = await rt.npcTalk(talk.name);
+            if (res.ok && res.relationship) setRel(res.relationship);
+            setChatMsg(res.message || "");
+          } catch (err) {
+            setChatMsg(err instanceof Error ? err.message : "Could not chat.");
+          } finally {
+            setChatBusy(false);
+          }
+        }}
+      >
+        Chat
+      </button>
+      {chatMsg ? <p>{chatMsg}</p> : null}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
 import type { AdOrder, MyPropertyClaim, PanelName, RadioTrack, Runtime, Snap } from "./game/runtime";
-import { FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/runtime";
+import { EMPTY_CITY_PEOPLE, FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/runtime";
 import { PROXIMITY_RANGE, PROXIMITY_ROOM } from "./game/voice";
 import { loadLooks } from "./game/avatar";
 import { GROCERY_FOOD_BY_ID, GYM_WORKOUTS, OFFICE_SUITES, RECIPES, RESTAURANT_BY_ID, RESTAURANT_MENUS, adUsdPrice, foodSpeedMult, hungerLabel } from "./game/content";
@@ -351,6 +351,7 @@ const EMPTY: Snap = {
   haptics: false,
   emergency: null,
   districtOffice: "harbor",
+  cityPeople: EMPTY_CITY_PEOPLE,
 };
 
 function shotMode(): PlayMode | null {
@@ -521,7 +522,61 @@ export default function App() {
   const [homeMsg, setHomeMsg] = useState("");
   // FOOD: one in-flight food op at a time (cook / eat / order / work out).
   const [foodBusy, setFoodBusy] = useState(false);
-  const [officeTerm, setOfficeTerm] = useState<1 | 7 | 30>(7);
+  // PEOPLE (Home + My Properties panels): feedback + busy flag for the
+  // invite / party / rent actions — all City Sol, all server-side.
+  const [peopleMsg, setPeopleMsg] = useState("");
+  const [peopleBusy, setPeopleBusy] = useState(false);
+
+  // Home panel: home-status poll for the current universe (the snapshot
+  // also carries rentals, party, guests + relationships for the panel).
+  const refreshHome = () => {
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    void rt.homeStatus().then((res) => {
+      if (res.ok) {
+        setHomeMine(res.mine);
+        setHomeServer(res.homeServer);
+      } else setHomeMsg(String(res.message || ""));
+    });
+  };
+
+  // My Properties panel: one fresh snapshot (the snapshot also carries the
+  // property-empire rentals + party + guests).
+  const refreshMyProps = () => {
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    setMyPropsMsg("");
+    void rt.myProperties().then((res) => {
+      if (!res.ok) {
+        setMyPropsMsg(String(res.message || "Could not load your properties."));
+        setMyProps([]);
+        return;
+      }
+      setMyPropsServer(res.server);
+      setMyProps(buildMyPropertyRows(res));
+    });
+  };
+
+  // Run one PEOPLE action (invite / party / rent), show the server's line,
+  // then refresh both panels so the state is server-fresh.
+  const runPeople = async (fn: (rt: Runtime) => Promise<{ ok: boolean; message: string }>) => {
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    setPeopleMsg("");
+    setPeopleBusy(true);
+    try {
+      const res = await fn(rt);
+      setPeopleMsg(res.message || (res.ok ? "Done." : "Could not do that."));
+      if (res.ok) {
+        refreshHome();
+        refreshMyProps();
+      }
+    } catch (err) {
+      setPeopleMsg(err instanceof Error ? err.message : "Could not do that.");
+    } finally {
+      setPeopleBusy(false);
+    }
+  };  const [officeTerm, setOfficeTerm] = useState<1 | 7 | 30>(7);
   const [officeProject, setOfficeProject] = useState("");
   const [officeLogo, setOfficeLogo] = useState("");
   const [officeSite, setOfficeSite] = useState("");
@@ -556,6 +611,39 @@ export default function App() {
     if (menu) stopRadio();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menu]);
+
+  // House party: when a party starts, the in-game Radio starts playing the
+  // first public track if nothing is playing; when the party ends, the
+  // party's music stops. Only fires when a NEW party starts (startedAt
+  // change), so stopping the radio by hand mid-party stays stopped.
+  const partyRadioStartedAt = useRef(0);
+  const partyRadioAuto = useRef(false);
+  useEffect(() => {
+    const party = snap.cityPeople?.party;
+    const startedAt = party?.startedAt ?? 0;
+    if (party && startedAt && startedAt !== partyRadioStartedAt.current) {
+      partyRadioStartedAt.current = startedAt;
+      if (menu) return;
+      const audio = radioAudioRef.current;
+      if (audio && !audio.paused) return;
+      const rt = gameRef.current?.runtime;
+      if (!rt) return;
+      void rt.radioList().then((res) => {
+        const tracks = (res as { tracks?: RadioTrack[] }).tracks || [];
+        if (tracks.length) {
+          playRadio(tracks[0]);
+          partyRadioAuto.current = true;
+        }
+      });
+    } else if (!party) {
+      partyRadioStartedAt.current = 0;
+      if (partyRadioAuto.current) {
+        partyRadioAuto.current = false;
+        stopRadio();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snap.cityPeople?.party?.startedAt]);
 
   // Stop the radio when this screen goes away.
   useEffect(() => {
@@ -609,19 +697,10 @@ export default function App() {
   // server, never local.
   useEffect(() => {
     if (panel !== "myprops") return;
-    const rt = gameRef.current?.runtime;
-    if (!rt) return;
     setMyPropsMsg("");
     setMyProps(null);
-    void rt.myProperties().then((res) => {
-      if (!res.ok) {
-        setMyPropsMsg(String(res.message || "Could not load your properties."));
-        setMyProps([]);
-        return;
-      }
-      setMyPropsServer(res.server);
-      setMyProps(buildMyPropertyRows(res));
-    });
+    refreshMyProps();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panel]);
 
   // Multiverse picker on the menu: counts + home badge when signed in,
@@ -671,14 +750,8 @@ export default function App() {
   useEffect(() => {
     if (panel !== "home") return;
     setHomeMsg("");
-    const rt = gameRef.current?.runtime;
-    if (!rt) return;
-    void rt.homeStatus().then((res) => {
-      if (res.ok) {
-        setHomeMine(res.mine);
-        setHomeServer(res.homeServer);
-      } else setHomeMsg(String(res.message || ""));
-    });
+    refreshHome();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panel]);
 
   // Garage panel: rental-status poll for the current universe, so the
@@ -1979,6 +2052,65 @@ export default function App() {
                   Everything you own on {snap.universe ? snap.universe.name : myPropsServer ? `Server ${myPropsServer}` : "this universe"} — one tap to go there.
                   Go to lands you inside the place. City Sol only, nothing real.
                 </p>
+                {(() => {
+                  // Property empire: rent out homes you do not live in —
+                  // 5% of the price a week, first payout in 7 days.
+                  const cityPeople = snap.cityPeople;
+                  const homeRows = (myProps ?? []).filter((row) => row.kind === "home");
+                  if (!homeRows.length) return null;
+                  const totalDue = cityPeople.rentals.reduce((sum, r) => sum + r.due, 0);
+                  return (
+                    <>
+                      <h3>Property empire</h3>
+                      <p className="muted">Rent out a home you own but do not live in — 5% of the price a week, first payout in 7 days.</p>
+                      {totalDue > 0 ? (
+                        <article>
+                          <div>
+                            <b>{totalDue} City Sol rent due</b>
+                            <span>Across your rented homes</span>
+                          </div>
+                          <button type="button" disabled={peopleBusy} onClick={() => void runPeople((rt) => rt.peopleCollectRent())}>
+                            Collect rent
+                          </button>
+                        </article>
+                      ) : null}
+                      {homeRows.map((row) => {
+                        const def = homeById(row.key);
+                        const price = def ? homePrice(def.id) ?? def.price : 0;
+                        const weekly = Math.max(10, Math.round((price * 0.05) / 10) * 10);
+                        const rental = cityPeople.rentals.find((r) => r.homeId === row.key);
+                        return (
+                          <article key={`empire-${row.key}`}>
+                            <div>
+                              <b>{row.name}</b>
+                              <span>
+                                {rental
+                                  ? `Rented to ${rental.tenant} · ${rental.weeklyRent} City Sol/week · ${rental.collected} collected`
+                                  : `${weekly} City Sol/week if rented out`}
+                              </span>
+                              {rental && rental.weeksDue > 0 ? (
+                                <span>
+                                  {rental.due} City Sol due ({rental.weeksDue} week{rental.weeksDue === 1 ? "" : "s"})
+                                </span>
+                              ) : null}
+                              {rental ? <span>Next payout {new Date(rental.nextRentAt).toLocaleDateString()}</span> : null}
+                            </div>
+                            {rental ? (
+                              <button type="button" disabled={peopleBusy} onClick={() => void runPeople((rt) => rt.peopleEndRent(row.key))}>
+                                End lease
+                              </button>
+                            ) : (
+                              <button type="button" disabled={peopleBusy} onClick={() => void runPeople((rt) => rt.peopleRentOut(row.key))}>
+                                Rent out — {weekly}/week
+                              </button>
+                            )}
+                          </article>
+                        );
+                      })}
+                      {peopleMsg ? <p>{peopleMsg}</p> : null}
+                    </>
+                  );
+                })()}
                 {myPropsMsg ? <p>{myPropsMsg}</p> : null}
                 {myProps === null && !myPropsMsg ? <p>Loading your properties…</p> : null}
                 {myProps !== null && myProps.length === 0 ? (
@@ -2731,11 +2863,25 @@ export default function App() {
                   {homeMine.length ? <h3>Your homes on this universe{homeServer ? ` — Server ${homeServer}` : ""}</h3> : null}
                   {homeMine.map((h) => {
                     const def = homeById(h.homeId);
+                    const rental = snap.cityPeople.rentals.find((r) => r.homeId === h.homeId);
+                    const partyHere = snap.cityPeople.party?.homeId === h.homeId;
+                    const guestsHere = snap.cityPeople.guests.filter((g) => g.homeId === h.homeId).length;
                     return (
                       <article key={`${h.homeId}:${h.server}`}>
                         <div>
                           <b>{def?.name ?? h.homeId}</b>
                           <span>{h.price} City Sol · Server {h.server}</span>
+                          {rental ? (
+                            <span>
+                              Rented to {rental.tenant} · {rental.weeklyRent} City Sol/week{rental.weeksDue > 0 ? ` · ${rental.due} due` : ""}
+                            </span>
+                          ) : null}
+                          {partyHere ? <span>House party is going here</span> : null}
+                          {guestsHere > 0 ? (
+                            <span>
+                              {guestsHere} guest{guestsHere === 1 ? "" : "s"} hanging out here
+                            </span>
+                          ) : null}
                         </div>
                         <button
                           type="button"
@@ -2774,7 +2920,100 @@ export default function App() {
               const price = homePrice(zoneId) ?? home.price;
               const afford = snap.balance >= price;
               const ownedFurniture = snap.furnitureOwned.length;
-              return (
+              // PEOPLE: party + guests + invite for this home, from the
+              // server snapshot the home-status poll already carries.
+              const people = snap.cityPeople;
+              const rentalHere = people.rentals.find((r) => r.homeId === zoneId);
+              const partyHere = people.party && people.party.homeId === zoneId ? people.party : null;
+              const partyElsewhere = people.party && people.party.homeId !== zoneId ? people.party : null;
+              const guestsHere = people.guests.filter((g) => g.homeId === zoneId);
+              const inviteable = people.relationships.filter((rel) => rel.canVisit && !guestsHere.some((g) => g.name === rel.npc));
+              const friendInviteable = snap.friends.filter((f) => !guestsHere.some((g) => g.name === f.name));
+              const peopleSection = !owned ? null : rentalHere ? (
+                <article>
+                  <div>
+                    <b>Rented out to {rentalHere.tenant}</b>
+                    <span>
+                      {rentalHere.weeklyRent} City Sol a week · {rentalHere.collected} City Sol collected so far
+                      {rentalHere.weeksDue > 0
+                        ? ` · ${rentalHere.due} City Sol due (${rentalHere.weeksDue} week${rentalHere.weeksDue === 1 ? "" : "s"})`
+                        : ` · next payout ${new Date(rentalHere.nextRentAt).toLocaleDateString()}`}
+                    </span>
+                  </div>
+                  <button type="button" disabled={peopleBusy} onClick={() => void runPeople((rt) => rt.peopleEndRent(zoneId))}>
+                    End lease
+                  </button>
+                </article>
+              ) : (
+                <>
+                  <h3>People</h3>
+                  {partyHere ? (
+                    <article>
+                      <div>
+                        <b>House party is going</b>
+                        <span>
+                          Music from the Radio · food and drinks out · {partyHere.guests.length ? `${partyHere.guests.join(", ")} came over` : "no guests yet"} · ends in {Math.max(1, Math.ceil(partyHere.endsInMs / 60000))} min
+                        </span>
+                      </div>
+                      <button type="button" disabled={peopleBusy} onClick={() => void runPeople((rt) => rt.peoplePartyEnd())}>
+                        End party
+                      </button>
+                    </article>
+                  ) : (
+                    <article>
+                      <div>
+                        <b>Throw a house party</b>
+                        <span>
+                          50 City Sol for food and drinks · 10 minutes · your Friends show up
+                          {partyElsewhere ? " · a party is already going at another home" : ""}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={peopleBusy || snap.balance < 50 || !!partyElsewhere}
+                        onClick={() => void runPeople((rt) => rt.peoplePartyStart(zoneId))}
+                      >
+                        {snap.balance < 50 ? "Not enough City Sol" : "Throw a party — 50 City Sol"}
+                      </button>
+                    </article>
+                  )}
+                  {guestsHere.length ? (
+                    <article>
+                      <div>
+                        <b>
+                          {guestsHere.map((g) => g.name).join(", ")} {guestsHere.length === 1 ? "is" : "are"} hanging out here
+                        </b>
+                        <span>
+                          In your place · {Math.max(1, Math.ceil(Math.max(...guestsHere.map((g) => g.endsInMs)) / 60000))} min left
+                        </span>
+                      </div>
+                    </article>
+                  ) : null}
+                  {inviteable.length || friendInviteable.length ? (
+                    <article>
+                      <div>
+                        <b>Invite someone over</b>
+                        <span>Friends come to your place for 10 minutes</span>
+                      </div>
+                      <div className="days">
+                        {inviteable.map((rel) => (
+                          <button key={rel.npc} type="button" disabled={peopleBusy} onClick={() => void runPeople((rt) => rt.peopleInvite({ npc: rel.npc, home: zoneId }))}>
+                            Invite {rel.npc}
+                          </button>
+                        ))}
+                        {friendInviteable.map((f) => (
+                          <button key={f.id} type="button" disabled={peopleBusy} onClick={() => void runPeople((rt) => rt.peopleInvite({ player: f.id, home: zoneId }))}>
+                            Invite {f.name}
+                          </button>
+                        ))}
+                      </div>
+                    </article>
+                  ) : (
+                    <p className="muted">Chat with people around the city 3 times to become Friends — then you can invite them over.</p>
+                  )}
+                  {peopleMsg ? <p>{peopleMsg}</p> : null}
+                </>
+              );              return (
                 <div className="list">
                   <article>
                     <div>
@@ -2844,7 +3083,7 @@ export default function App() {
                   </article>
                     </>
                   ) : null}
-                  {mineList}
+                  {peopleSection}                  {mineList}
                 </div>
               );
             })()}

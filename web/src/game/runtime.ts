@@ -244,6 +244,65 @@ export interface ShopCatalogItem {
 
 export type ActiveRental = { id: string; color: string; days: number; daysLeft: number; expiresAt: number };
 
+// --- PEOPLE: roommates + guests, house parties, property empire, meet people
+// Same shapes the server returns (api/city.js peopleStatusFor). `cityPeople`
+// rides in the Snap so the Home + My Properties + Talk panels read it
+// without a second round-trip; the server is the authority, this is a copy.
+export interface PeopleRelationship {
+  npc: string;
+  role: string;
+  talks: number;
+  level: number;
+  label: string;
+  canVisit: boolean;
+  canParty: boolean;
+  lastTalkAt: number;
+}
+export interface PeopleRental {
+  homeId: string;
+  tenant: string;
+  weeklyRent: number;
+  nextRentAt: number;
+  startedAt: number;
+  collected: number;
+  weeksDue: number;
+  due: number;
+}
+export interface PeopleParty {
+  homeId: string;
+  startedAt: number;
+  endsAt: number;
+  endsInMs: number;
+  cost: number;
+  guests: string[];
+}
+export interface PeopleGuest {
+  name: string;
+  kind: "npc" | "friend";
+  homeId: string;
+  until: number;
+  endsInMs: number;
+}
+export interface CityPeople {
+  relationships: PeopleRelationship[];
+  rentals: PeopleRental[];
+  party: PeopleParty | null;
+  guests: PeopleGuest[];
+}
+export const EMPTY_CITY_PEOPLE: CityPeople = { relationships: [], rentals: [], party: null, guests: [] };
+/** One people-op result: the status snapshot plus the op's own fields. */
+export interface PeopleResult {
+  ok: boolean;
+  message: string;
+  relationships: PeopleRelationship[];
+  rentals: PeopleRental[];
+  party: PeopleParty | null;
+  guests: PeopleGuest[];
+  relationship?: PeopleRelationship;
+  visited?: boolean;
+  collected?: number;
+}
+
 export interface Snap {
   playing: boolean;
   touch: boolean;
@@ -402,6 +461,8 @@ export interface Snap {
   haptics: boolean;
   emergency: { kind: string; name: string } | null;
   districtOffice: string;
+  // PEOPLE: guests, parties, rentals + NPC relationships (server snapshot).
+  cityPeople: CityPeople;
 }
 
 interface Remote {
@@ -1360,6 +1421,11 @@ export function createRuntime(scene: Scene) {
     waypoints: Array<{ x: number; z: number }>;
     wp: number;
     waitUntil: number;
+    // PEOPLE: a guest visiting a home (not a patrolling citizen). guestHome
+    // is the home they are in; partyGuest mills about faster at a party.
+    guest?: boolean;
+    guestHome?: string;
+    partyGuest?: boolean;
   }
   const npcs: Npc[] = [];
   // Talk state: the open dialogue (null when no chat is open). Lives outside
@@ -2209,6 +2275,9 @@ export function createRuntime(scene: Scene) {
     // The current universe's active car spawns on the OrbitX Motors
     // forecourt (shop-row spot).
     spawnActiveCar();
+    // PEOPLE: guests + party + rentals for this universe, so a guest you
+    // invited yesterday is standing in your home when you walk in.
+    if (world.online) void peopleStatus().catch(() => {});
     for (const slot of next.boards) mountBoard(slot);
     for (const item of next.art) mountArt(item);
     buildLiftCabs();
@@ -2506,6 +2575,7 @@ export function createRuntime(scene: Scene) {
       haptics: isHapticsEnabled(),
       emergency: emergencyDept ? { ...emergencyDept } : null,
       districtOffice: districtOfficeSel,
+      cityPeople,
     };
     panel = "";
     for (const listener of listeners) listener(snap);
@@ -4367,6 +4437,8 @@ export function createRuntime(scene: Scene) {
   let missions: MissionCard[] = [];
   let missionMsg = "";
   let missionsLoaded = false;
+  // PEOPLE: the server's snapshot (relationships, rentals, party, guests).
+  let cityPeople: CityPeople = EMPTY_CITY_PEOPLE;
   // Client-side throttle for mission-step attempts — the server enforces a
   // 3s step cooldown; attempting faster only earns rejections.
   let lastMissionTry = 0;
@@ -4990,6 +5062,24 @@ export function createRuntime(scene: Scene) {
       tickBusk(body);
       tickWash(body);
     }
+    // PEOPLE: a party or a guest that ran out while no panel was open
+    // clears itself — no stale guest standing in the home, no party tag
+    // outliving the party. One publish on the transition, then quiet.
+    if (cityPeople.party || cityPeople.guests.length) {
+      const now = Date.now();
+      const partyGone = !!cityPeople.party && cityPeople.party.endsAt <= now;
+      const guestsGone = cityPeople.guests.some((guest) => guest.until <= now);
+      if (partyGone || guestsGone) {
+        cityPeople = {
+          relationships: cityPeople.relationships,
+          rentals: cityPeople.rentals,
+          party: partyGone ? null : cityPeople.party,
+          guests: cityPeople.guests.filter((guest) => guest.until > now),
+        };
+        syncPeopleGuests();
+        publish();
+      }
+    }
     // NPC patrol: walk the loop of waypoints around the home spot, pausing
     // at each stop; face the player while talking.
     for (const [index, npc] of npcs.entries()) {
@@ -5021,7 +5111,8 @@ export function createRuntime(scene: Scene) {
       const dist = Math.hypot(dx, dz);
       if (dist < 0.15) {
         npc.wp = (npc.wp + 1) % npc.waypoints.length;
-        npc.waitUntil = clock + 1.5 + (index % 3) * 0.9;
+        // Party guests mill about instead of lingering at each stop.
+        npc.waitUntil = clock + (npc.partyGuest ? 0.5 : 1.5 + (index % 3) * 0.9);
         continue;
       }
       const step = Math.min(dist, 1.1 * dt);
@@ -6875,13 +6966,24 @@ export function createRuntime(scene: Scene) {
     if (world.online && currentUniverse) {
       try {
         const data = await world.homeStatus(currentUniverse);
-        return { ok: true as const, homeServer: Number(data.homeServer || 0), mine: (data.mine as OwnedHome[]) || [] };
+        // home-status carries the PEOPLE snapshot — the Home panel reads
+        // rentals, party + guests from it without a second round-trip.
+        applyPeople(data as Record<string, unknown>);
+        return {
+          ok: true as const,
+          homeServer: Number(data.homeServer || 0),
+          mine: (data.mine as OwnedHome[]) || [],
+          rentals: (data.rentals as PeopleRental[]) || [],
+          party: (data.party as PeopleParty | null) ?? null,
+          guests: (data.guests as PeopleGuest[]) || [],
+          relationships: (data.relationships as PeopleRelationship[]) || [],
+        };
       } catch (err) {
-        return { ok: false as const, message: err instanceof Error ? err.message : "Could not load homes.", homeServer: 0, mine: [] as OwnedHome[] };
+        return { ok: false as const, message: err instanceof Error ? err.message : "Could not load homes.", homeServer: 0, mine: [] as OwnedHome[], rentals: [] as PeopleRental[], party: null as PeopleParty | null, guests: [] as PeopleGuest[], relationships: [] as PeopleRelationship[] };
       }
     }
     const server = currentUniverse ?? 0;
-    return { ok: true as const, homeServer: localHomes.homeServer, mine: localHomes.homes.filter((h) => h.server === server) };
+    return { ok: true as const, homeServer: localHomes.homeServer, mine: localHomes.homes.filter((h) => h.server === server), rentals: [] as PeopleRental[], party: null as PeopleParty | null, guests: [] as PeopleGuest[], relationships: [] as PeopleRelationship[] };
   }
 
   // Everything the player owns on the CURRENT universe, for the HUD's
@@ -6892,12 +6994,19 @@ export function createRuntime(scene: Scene) {
     if (world.online && currentUniverse) {
       try {
         const data = await world.myProperties(currentUniverse);
+        // my-properties carries the same PEOPLE snapshot — the Property
+        // empire section reads rentals + party + guests from it.
+        applyPeople(data as Record<string, unknown>);
         return {
           ok: true as const,
           server: Number(data.server || currentUniverse),
           lots: (data.lots as string[]) || [],
           offices: (data.offices as MyPropertyClaim[]) || [],
           homes: (data.homes as OwnedHome[]) || [],
+          rentals: (data.rentals as PeopleRental[]) || [],
+          party: (data.party as PeopleParty | null) ?? null,
+          guests: (data.guests as PeopleGuest[]) || [],
+          relationships: (data.relationships as PeopleRelationship[]) || [],
         };
       } catch (err) {
         return {
@@ -6907,6 +7016,10 @@ export function createRuntime(scene: Scene) {
           lots: [] as string[],
           offices: [] as MyPropertyClaim[],
           homes: [] as OwnedHome[],
+          rentals: [] as PeopleRental[],
+          party: null as PeopleParty | null,
+          guests: [] as PeopleGuest[],
+          relationships: [] as PeopleRelationship[],
         };
       }
     }
@@ -6917,7 +7030,222 @@ export function createRuntime(scene: Scene) {
       lots: [...((world.me?.owned as string[]) || [])],
       offices: [] as MyPropertyClaim[],
       homes: localHomes.homes.filter((h) => h.server === server),
+      rentals: [] as PeopleRental[],
+      party: null as PeopleParty | null,
+      guests: [] as PeopleGuest[],
+      relationships: [] as PeopleRelationship[],
     };
+  }
+
+  // --- PEOPLE: roommates + guests, house parties, property empire, meet
+  // people. All City Sol, all server-side (api/city.js people-* ops); the
+  // client only shows the snapshot and spawns the guest bodies.
+  function peopleFrom(data: Record<string, unknown>): PeopleResult {
+    return {
+      ok: true,
+      message: String(data.message || ""),
+      relationships: (Array.isArray(data.relationships) ? data.relationships : []) as PeopleRelationship[],
+      rentals: (Array.isArray(data.rentals) ? data.rentals : []) as PeopleRental[],
+      party: (data.party as PeopleParty | null) ?? null,
+      guests: (Array.isArray(data.guests) ? data.guests : []) as PeopleGuest[],
+      relationship: data.relationship as PeopleRelationship | undefined,
+      visited: data.visited === true,
+      collected: typeof data.collected === "number" ? data.collected : undefined,
+    };
+  }
+
+  function peopleError(message: string): PeopleResult {
+    return { ok: false, message, relationships: [], rentals: [], party: null, guests: [] };
+  }
+
+  /** Take a server PEOPLE snapshot into the Snap and sync guest bodies. */
+  function applyPeople(data: Record<string, unknown>) {
+    if (!Array.isArray(data.relationships) && !Array.isArray(data.rentals) && !("party" in data) && !Array.isArray(data.guests)) return;
+    cityPeople = {
+      relationships: (Array.isArray(data.relationships) ? data.relationships : cityPeople.relationships) as PeopleRelationship[],
+      rentals: (Array.isArray(data.rentals) ? data.rentals : cityPeople.rentals) as PeopleRental[],
+      party: ("party" in data ? (data.party as PeopleParty | null) : cityPeople.party) ?? null,
+      guests: (Array.isArray(data.guests) ? data.guests : cityPeople.guests) as PeopleGuest[],
+    };
+    syncPeopleGuests();
+    publish();
+  }
+
+  /** One people op: run it, take the snapshot + balance, toast the line. */
+  async function peopleCall(op: string, extra: Record<string, unknown> = {}): Promise<PeopleResult> {
+    if (!world.online || !currentUniverse) {
+      const message = "Sign in and pick a universe first — people live on the city server.";
+      say(message);
+      return peopleError(message);
+    }
+    try {
+      const data = await cityOp(op, { server: serverId(), ...extra });
+      if (data.me) applySaveMe(data.me);
+      const result = peopleFrom(data as Record<string, unknown>);
+      applyPeople(data as Record<string, unknown>);
+      if (result.message) say(result.message);
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "The city server said no.";
+      say(message);
+      return peopleError(message);
+    }
+  }
+
+  async function peopleStatus(): Promise<PeopleResult> {
+    if (!world.online || !currentUniverse) return peopleError("Sign in and pick a universe first.");
+    try {
+      const data = await cityOp("people-status", { server: serverId() });
+      if (data.me) applySaveMe(data.me);
+      const result = peopleFrom(data as Record<string, unknown>);
+      applyPeople(data as Record<string, unknown>);
+      return result;
+    } catch (err) {
+      return peopleError(err instanceof Error ? err.message : "Could not load people.");
+    }
+  }
+
+  async function npcTalk(npc: string): Promise<PeopleResult> {
+    return peopleCall("npc-talk", { npc });
+  }
+
+  async function peopleInvite(opts: { npc?: string; player?: string; home?: string }): Promise<PeopleResult> {
+    return peopleCall("people-invite", opts);
+  }
+
+  async function peoplePartyStart(homeId: string): Promise<PeopleResult> {
+    return peopleCall("people-party-start", { home: homeId });
+  }
+
+  async function peoplePartyEnd(): Promise<PeopleResult> {
+    return peopleCall("people-party-end");
+  }
+
+  async function peopleRentOut(homeId: string): Promise<PeopleResult> {
+    return peopleCall("people-rent-out", { home: homeId });
+  }
+
+  async function peopleEndRent(homeId: string): Promise<PeopleResult> {
+    return peopleCall("people-end-rent", { home: homeId });
+  }
+
+  async function peopleCollectRent(): Promise<PeopleResult> {
+    return peopleCall("people-collect-rent");
+  }
+
+  // Guest bodies: the server lists active guests (name, homeId, until);
+  // each one gets an NPC body patrolling the home interior, so a guest you
+  // invited is actually visible standing in your place. Party guests mill
+  // about faster, and a "House party" tag + drinks table appear at the
+  // party home while it runs.
+  const GUEST_COLORS = ["gold", "cyan", "sunset", "red", "silver", "white"];
+  function guestColor(name: string) {
+    let hash = 0;
+    for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+    return GUEST_COLORS[hash % GUEST_COLORS.length] as string;
+  }
+  let partyTag: Sprite | null = null;
+  let partyProps: Group | null = null;
+
+  function syncPeopleGuests() {
+    const now = Date.now();
+    const party = cityPeople.party && cityPeople.party.endsAt > now ? cityPeople.party : null;
+    const live = new Map<string, PeopleGuest>();
+    for (const guest of cityPeople.guests) if (guest.until > now) live.set(guest.name, guest);
+    // Remove guests who left, expired, or moved home.
+    for (let i = npcs.length - 1; i >= 0; i--) {
+      const npc = npcs[i] as Npc;
+      if (!npc.guest) continue;
+      const guest = live.get(npc.name);
+      if (!guest || guest.homeId !== npc.guestHome) {
+        root.remove(npc.group);
+        npcs.splice(i, 1);
+        if (talkNpc === i) {
+          talk = null;
+          talkLines = [];
+          talkNpc = -1;
+        } else if (talkNpc > i) {
+          talkNpc -= 1;
+        }
+      } else {
+        npc.partyGuest = !!party && party.guests.includes(npc.name);
+        live.delete(npc.name);
+      }
+    }
+    // Add a body for each guest with none yet, patrolling the home interior.
+    for (const guest of live.values()) {
+      const home = homeById(guest.homeId);
+      if (!home) continue;
+      const cx = home.x0 + home.w / 2;
+      const cz = home.z0 + home.d / 2;
+      const rx = Math.max(1, home.w / 2 - 2);
+      const rz = Math.max(1, home.d / 2 - 2);
+      const group = makePerson(guestColor(guest.name), "none");
+      const tag = makeLabel(guest.name, true);
+      tag.position.y = 2.35;
+      group.add(tag);
+      group.position.set(cx, 0, cz);
+      root.add(group);
+      npcs.push({
+        group,
+        name: guest.name,
+        homeX: cx,
+        homeZ: cz,
+        x: cx,
+        z: cz,
+        prevX: cx,
+        prevZ: cz,
+        yaw: 0,
+        waypoints: [
+          { x: cx - rx, z: cz - rz },
+          { x: cx + rx, z: cz - rz },
+          { x: cx + rx, z: cz + rz },
+          { x: cx - rx, z: cz + rz },
+        ],
+        wp: 1,
+        waitUntil: 0,
+        guest: true,
+        guestHome: guest.homeId,
+        partyGuest: !!party && party.guests.includes(guest.name),
+      });
+    }
+    // Party dressing at the party home: tag + drinks table, or nothing.
+    if (partyTag) {
+      root.remove(partyTag);
+      partyTag = null;
+    }
+    if (partyProps) {
+      root.remove(partyProps);
+      partyProps = null;
+    }
+    if (party) {
+      const home = homeById(party.homeId);
+      if (home) {
+        const cx = home.x0 + home.w / 2;
+        const cz = home.z0 + home.d / 2;
+        partyTag = makeLabel("House party", false);
+        partyTag.position.set(cx, home.h + 2.2, cz);
+        root.add(partyTag);
+        partyProps = new Group();
+        const table = new Mesh(new BoxGeometry(2.2, 0.12, 1.1), MATERIALS.black);
+        table.position.set(cx, 0.55, cz);
+        const leg = new Mesh(new BoxGeometry(0.14, 0.55, 0.14), MATERIALS.black);
+        leg.position.set(cx - 0.9, 0.28, cz);
+        const leg2 = leg.clone();
+        leg2.position.x = cx + 0.9;
+        const drinkCols = [0xe0b33a, 0xd43a2e, 0x7eefff];
+        for (let i = 0; i < 3; i++) {
+          const drink = new Mesh(
+            new BoxGeometry(0.22, 0.34, 0.22),
+            new MeshLambertMaterial({ color: drinkCols[i] as number }),
+          );
+          drink.position.set(cx - 0.6 + i * 0.6, 0.78, cz);
+          partyProps.add(drink);
+        }
+        partyProps.add(table, leg, leg2);
+        root.add(partyProps);
+      }
+    }
   }
 
   function setUniverse(id: number) {
@@ -6948,6 +7276,8 @@ export function createRuntime(scene: Scene) {
     // Food + hunger are per-server: reload them for the new universe.
     if (world.online) void loadFood();
     spawnActiveCar();
+    // PEOPLE: the new universe has its own guests, parties + rentals.
+    void peopleStatus().catch(() => {});
     publish();
     return result;
   }
@@ -6967,6 +7297,8 @@ export function createRuntime(scene: Scene) {
     // Food + hunger are per-server: reload them for the new universe.
     if (world.online) void loadFood();
     spawnActiveCar();
+    // PEOPLE: the new universe has its own guests, parties + rentals.
+    void peopleStatus().catch(() => {});
     publish();
     return result;
   }
@@ -8107,6 +8439,31 @@ export function createRuntime(scene: Scene) {
     },
     myProperties() {
       return myProperties();
+    },
+    // PEOPLE: guests, parties, property empire, NPC relationships.
+    peopleStatus() {
+      return peopleStatus();
+    },
+    npcTalk(npc: string) {
+      return npcTalk(npc);
+    },
+    peopleInvite(opts: { npc?: string; player?: string; home?: string }) {
+      return peopleInvite(opts);
+    },
+    peoplePartyStart(homeId: string) {
+      return peoplePartyStart(homeId);
+    },
+    peoplePartyEnd() {
+      return peoplePartyEnd();
+    },
+    peopleRentOut(homeId: string) {
+      return peopleRentOut(homeId);
+    },
+    peopleEndRent(homeId: string) {
+      return peopleEndRent(homeId);
+    },
+    peopleCollectRent() {
+      return peopleCollectRent();
     },
     // Fast travel to a property the player owns: one tap in the HUD's
     // "My Props" panel lands the player inside the place (the same
