@@ -23,6 +23,8 @@ import {
 import { buildCity, type City, type Mat, type RailPoint, type ShipPath } from "./city";
 import { MATERIALS } from "./materials";
 import { createRuntime, wantsTouch, type Body, type Runtime } from "./runtime";
+import { bridgeGateFor, stateById } from "./states";
+import { createMoveSmoother } from "./movement";
 import { mountPretty, setPrettyNight, type QualityName } from "./pretty";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
@@ -129,11 +131,11 @@ export function createGame(
   renderer.shadowMap.type = PCFSoftShadowMap;
 
   const scene = new Scene();
-  const baseFog = new Fog(0xf09158, touch ? 100 : 170, touch ? 420 : 620);
+  const baseFog = new Fog(0xf09158, touch ? 100 : 170, touch ? 2000 : 2800);
   scene.fog = baseFog;
   const runtime = createRuntime(scene);
 
-  const camera = new PerspectiveCamera(62, 1, 0.08, 520);
+  const camera = new PerspectiveCamera(62, 1, 0.08, 2600);
 
   const hemi = new HemisphereLight(0xffc9a2, 0x2a221c, 0.78);
   const sun = new DirectionalLight(0xffd0a2, 1.9);
@@ -149,7 +151,7 @@ export function createGame(
   const fill = new DirectionalLight(0x93a4ff, 0.32);
   fill.position.set(-60, 28, -40);
   const ambient = new AmbientLight(0xffb080, 0.16);
-  scene.add(hemi, sun, fill, ambient);
+  scene.add(hemi, sun, sun.target, fill, ambient);
 
   const sky = new Mesh(
     new SphereGeometry(1, 28, 16),
@@ -205,7 +207,7 @@ export function createGame(
   );
   sky.renderOrder = -1;
   sky.frustumCulled = false;
-  sky.scale.setScalar(420);
+  sky.scale.setScalar(2600);
   scene.add(sky);
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
@@ -241,6 +243,14 @@ export function createGame(
   };
 
   const keys = new Set<string>();
+  // On-foot movement easing (movement.ts): ~0.25s in, ~0.15s out. Module
+  // scope in createGame, NOT inside tick().
+  const moveSmoother = createMoveSmoother();
+  // Magic-bridge hop state: per-gate cooldown + the arrival line shown in
+  // the status line for 5s after a hop.
+  const lastBridgeHop = new Map<string, number>();
+  let bridgeNotice = "";
+  let bridgeNoticeUntil = 0;
   const nose = new Vector3(1, 0, 0);
   const dir = new Vector3();
   const look = new Vector3();
@@ -323,7 +333,8 @@ export function createGame(
   }
 
   function tick(dt: number) {
-    const { f, s } = runtime.moveAxes(keys);
+    const rawAxes = runtime.moveAxes(keys);
+    const { f, s } = moveSmoother.update(rawAxes.f, rawAxes.s, dt);
     const shift = keys.has("ShiftLeft") || keys.has("ShiftRight") || runtime.downHeld();
     const ctrl = keys.has("ControlLeft") || keys.has("ControlRight");
     const space = keys.has("Space") || runtime.jumpHeld();
@@ -345,6 +356,31 @@ export function createGame(
       move((sin * f + cos * s) * speed * dt, player.vy * dt, (-cos * f + sin * s) * speed * dt);
       player.onGround = overlaps(player.x, player.y - 0.04, player.z) || player.y <= 0.001;
     }
+    // Magic bridge hop (states.ts): stepping into a gate rect teleports on
+    // foot to the paired landing, facing onward. Landings sit outside the
+    // far gate rect so a crossing can never immediately re-trigger; the
+    // 1.5s per-gate cooldown is belt-and-braces against double-firing on a
+    // slow frame. Driving players do not hop here — tick() never runs while
+    // driving and the car is owned by runtime.drive (no clean car hook in
+    // engine), so a driver steps out (E) and walks through.
+    const gate = bridgeGateFor(player.x, player.z);
+    if (gate) {
+      const gateKey = `${gate.bridgeId}:${gate.side}`;
+      if (clock - (lastBridgeHop.get(gateKey) ?? -10) > 1.5) {
+        lastBridgeHop.set(gateKey, clock);
+        player.x = gate.landing.x;
+        player.z = gate.landing.z;
+        player.y = 0;
+        player.vy = 0;
+        player.yaw = gate.landing.yaw;
+        moveSmoother.reset();
+        bridgeNotice =
+          gate.to === "home"
+            ? "OrbitX City — back home."
+            : `${stateById(gate.to).name} — ${stateById(gate.to).tagline}`;
+        bridgeNoticeUntil = clock + 5;
+      }
+    }
     if (!runtime.indoors() && (player.y < -4 || player.y > 220)) {
       player.x = spawn.x;
       player.y = spawn.y;
@@ -352,6 +388,12 @@ export function createGame(
       player.vy = 0;
       player.flying = false;
     }
+    // The sun rides with the player so the ±150 shadow box stays crisp in
+    // every state. Never widen the shadow box to cover the whole world —
+    // the 2048 shadow map would go blurry.
+    sun.position.set(player.x + 110, 42, player.z + 30);
+    sun.target.position.set(player.x, 0, player.z);
+    sun.target.updateMatrixWorld();
   }
 
   let spawn = { x: 0, y: 0, z: 100, yaw: 0, pitch: 0.2 };
@@ -669,6 +711,15 @@ export function createGame(
   let fpsStamp = performance.now();
   let clock = 0;
 
+  // Status line: for 5s after a bridge hop it shows the arrival line
+  // instead of the coords (the engine cannot reach runtime's say() toast —
+  // say is not on the Runtime return — so the status line is the visible
+  // channel until the client agent exposes it).
+  function statusFor(label: string) {
+    if (bridgeNotice && clock < bridgeNoticeUntil) return bridgeNotice;
+    return `${label}  ${Math.round(player.x)} ${Math.round(player.y)} ${Math.round(player.z)}  seed ${seed}`;
+  }
+
   function frame(now: number) {
     try {
     let real = (now - last) / 1000;
@@ -761,10 +812,10 @@ export function createGame(
       camera.up.set(0, 1, 0);
       camera.lookAt(look);
       const label = runtime.driving() ? "DRIVING" : player.flying ? "FLYING" : "WALKING";
-      onStatus(`${label}  ${Math.round(player.x)} ${Math.round(player.y)} ${Math.round(player.z)}  seed ${seed}`);
+      onStatus(statusFor(label));
     } else {
       const label = runtime.driving() ? "DRIVING" : "WALKING";
-      onStatus(`${label}  ${Math.round(player.x)} ${Math.round(player.y)} ${Math.round(player.z)}  seed ${seed}`);
+      onStatus(statusFor(label));
     }
 
     if (quality === "high") composer.render();
