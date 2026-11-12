@@ -339,9 +339,11 @@ export function buildRegionRoads(city: City, state: StateDef): void {
     pushBox(city, cx, 0.1, cz + c + 6.5, span, 0.12, 2, "sidewalk");
   }
   // Boulevard centre-line dashes on the two central avenues only.
+  // At o=0 the two dashes would both sit on the region centre and
+  // overlap (z-fight) — the E/W dash alone marks the crossing.
   for (let o = -168; o <= 168; o += 24) {
     pushBox(city, cx + o, 0.13, cz, 8, 0.04, 0.8, state.theme.boulevard);
-    pushBox(city, cx, 0.13, cz + o, 0.8, 0.04, 8, state.theme.boulevard);
+    if (o !== 0) pushBox(city, cx, 0.13, cz + o, 0.8, 0.04, 8, state.theme.boulevard);
   }
   // Florida: a boardwalk strip along the region's south edge.
   if (state.id === "fl") {

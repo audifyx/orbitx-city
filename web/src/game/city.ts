@@ -3869,9 +3869,13 @@ function addSunsetPark(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   const cx = x0 + w / 2;
   const cz = z0 + d / 2;
   put(boxes, cx, 0.08, cz, w - 1, 0.14, d - 1, "grass");
-  // Stone cross paths.
+  // Stone cross paths. The N/S path is split in two so it never overlaps
+  // the E/W path at the centre (two coplanar strips z-fight there).
   put(boxes, cx, 0.17, cz, w - 2, 0.05, 2.2, "stone");
-  put(boxes, cx, 0.17, cz, 2.2, 0.05, d - 2, "stone");
+  const nsLen = (d - 2) / 2 - 1.1;
+  const nsOff = (d - 2) / 4 + 0.55;
+  put(boxes, cx, 0.17, cz - nsOff, 2.2, 0.05, nsLen, "stone");
+  put(boxes, cx, 0.17, cz + nsOff, 2.2, 0.05, nsLen, "stone");
   // Pond with a stone rim, west of center; the rim keeps players out.
   const px = cx - 9;
   const pz = cz - 1;
@@ -5406,11 +5410,13 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
   zones.push(addStadium(boxes, cols, 148, 204, 46, 26));
   // Stone promenade linking the z=180 road to the gym + park, so the
   // waterfront venues are reachable on foot, not across bare grass.
+  // Butt-jointed (no overlaps): the N/S path ends at the E/W strip and
+  // the east E/W strip starts where the west one ends.
   put(boxes, 103, 0.1, 201, 94, 0.06, 4, "stone");
-  put(boxes, 73, 0.1, 192.5, 6, 0.06, 15, "stone");
+  put(boxes, 73, 0.1, 192, 6, 0.06, 14, "stone");
   // Promenade extension to the stadium door + a stone path from the z=180
   // road to the nightclub door.
-  put(boxes, 171, 0.1, 201, 46, 0.06, 4, "stone");
+  put(boxes, 172, 0.1, 201, 44, 0.06, 4, "stone");
   put(boxes, 182, 0.1, 184, 6, 0.06, 8, "stone");
   addHarbor(boxes, cols);
   // Harbor Office (door north, pass-through south): the pier road runs
