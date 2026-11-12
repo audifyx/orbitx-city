@@ -188,7 +188,22 @@ export interface TrainPose {
   dwelling: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts";
+
+// --- NOTIFICATIONS: in-game pop-ups (toasts) + the Alerts history.
+// A toast is a short card that slides in, shows for ~5s, and can be
+// tapped away. The Alerts panel keeps the history so nothing important
+// disappears. `icon` is a short text label (FRIEND / PARTY / VOICE /
+// JOB / MONEY / CITY) — no emoji icons, per the HUD style.
+export type ToastKind = "friend" | "party" | "voice" | "job" | "money" | "event" | "info";
+export interface ToastItem {
+  id: number;
+  icon: string;
+  text: string;
+  at: number;
+  kind: ToastKind;
+  read: boolean;
+}
 export interface PersonCard {
   id: string;
   name: string;
@@ -397,6 +412,13 @@ export interface Snap {
   jobTitle: string;
   objective: string;
   notice: string;
+  /** Live toasts (unread, under 5s old, newest first, max 5) — the
+   * pop-up cards the HUD shows. */
+  toasts: ToastItem[];
+  /** Notification history (newest first, max 30) — the Alerts panel. */
+  alerts: ToastItem[];
+  /** Unread notification count — the badge on the Alerts HUD button. */
+  unreadAlerts: number;
   chat: ChatLine[];
   others: number;
   netMode: string;
@@ -421,7 +443,9 @@ export interface Snap {
   districts: { id: string; name: string; x: number; z: number }[];
   people: PersonCard[];
   friends: { id: string; name: string }[];
-  requests: { id: string; name: string }[];
+  // Inbox: friend requests carry no kind; party invites carry
+  // kind "party" + the party id. The Players panel tells them apart.
+  requests: { id: string; name: string; kind?: string; party?: string }[];
   party: { id: string; name: string }[];
   lobbies: { id: string; name: string; members: { id: string; name: string; speaking: boolean }[] }[];
   lobby: string;
@@ -1344,6 +1368,17 @@ export function createRuntime(scene: Scene) {
   let cribView: ReturnType<typeof createCribView> | null = null;
   let notice = "";
   let noticeUntil = 0;
+  // --- NOTIFICATIONS: toast history (newest first, max 30) + the
+  // previous social snapshot the diff watches (inbox, friends, party,
+  // current voice lobby). The diff only fires on CHANGES, and the first
+  // publish primes the previous sets without notifying.
+  let toasts: ToastItem[] = [];
+  let toastSeq = 0;
+  let prevInbox: { id: string; name: string; kind?: string }[] = [];
+  let prevFriends: { id: string; name: string }[] = [];
+  let prevPartyMembers: { id: string; name: string }[] = [];
+  let prevLobbyMembers: { id: string; name: string }[] = [];
+  let socialDiffPrimed = false;
   let job = "";
   let phase = 0;
   // Dwell jobs (lifeguard scan, cleaner sweep): seconds held at the target.
@@ -2649,7 +2684,11 @@ export function createRuntime(scene: Scene) {
   }
 
   function publish() {
+    // Social diffs (friend requests, party joins, VC joins) fire their
+    // pop-ups here — publish runs at 5 Hz and on every event.
+    diffSocial();
     const wardrobe = wardrobeFromOwned(wallet.owned);
+    const now = Date.now();
     const snap: Snap = {
       playing,
       touch,
@@ -2699,6 +2738,11 @@ export function createRuntime(scene: Scene) {
       jobTitle: job ? jobTitle(job) : "",
       objective: objectiveText(),
       notice: clock < noticeUntil ? notice : "",
+      // Live toasts: unread and under 5s old, newest first, max 5.
+      // The Alerts panel reads the full history below.
+      toasts: toasts.filter((item) => !item.read && now - item.at < 5000).slice(0, 5),
+      alerts: [...toasts],
+      unreadAlerts: toasts.filter((item) => !item.read).length,
       chat: world.online
         ? world.chat.slice(-12).map((line) => ({
             id: line.id,
@@ -2959,6 +3003,83 @@ export function createRuntime(scene: Scene) {
     notice = text;
     noticeUntil = clock + 5;
     publish();
+  }
+
+  // --- NOTIFICATIONS: pop a toast card + keep it in the Alerts history.
+  // `icon` is a short text label (FRIEND / PARTY / VOICE / JOB / MONEY /
+  // CITY) — no emoji icons. Live toasts auto-expire after 5s in the Snap
+  // builder; the history keeps the last 30 for the Alerts panel.
+  // pushToast does NOT publish — diffSocial() calls it from inside
+  // publish(), and a nested publish there would re-run the diff before
+  // the previous sets update (infinite pop-ups for one event).
+  function pushToast(icon: string, text: string, kind: ToastKind = "info") {
+    toastSeq += 1;
+    toasts.unshift({ id: toastSeq, icon, text, at: Date.now(), kind, read: false });
+    if (toasts.length > 30) toasts.length = 30;
+  }
+
+  function notify(icon: string, text: string, kind: ToastKind = "info") {
+    pushToast(icon, text, kind);
+    publish();
+  }
+
+  // Watch the social snapshot for changes the player should hear about:
+  // friend requests + party invites landing in the inbox, friends added,
+  // party members joining/leaving, and voice-lobby members joining/leaving.
+  // Runs inside publish() (5 Hz) — cheap, small arrays. The first publish
+  // primes the previous sets without notifying, so loading the game never
+  // fires a burst for friends/party you already had.
+  function diffSocial() {
+    const me = world.me;
+    const inbox = (me?.inbox ?? []) as { id: string; name: string; kind?: string; party?: string }[];
+    const friends = (me?.friends ?? []) as { id: string; name: string }[];
+    const partyMembers = (world.party?.members ?? []) as { id: string; name: string }[];
+    const myLobby = world.lobby || "";
+    const lobbyRoom = myLobby ? (world.lobbies || []).find((room) => room.id === myLobby) : null;
+    const lobbyMembers = (lobbyRoom?.members ?? []) as { id: string; name: string; speaking?: boolean }[];
+    if (!socialDiffPrimed) {
+      prevInbox = inbox.map((item) => ({ ...item }));
+      prevFriends = friends.map((item) => ({ ...item }));
+      prevPartyMembers = partyMembers.map((item) => ({ ...item }));
+      prevLobbyMembers = lobbyMembers.map((item) => ({ ...item }));
+      socialDiffPrimed = true;
+      return;
+    }
+    for (const item of inbox) {
+      if (prevInbox.some((old) => old.id === item.id && (old.kind || "") === (item.kind || ""))) continue;
+      if (item.kind === "party") pushToast("PARTY", `${item.name} invited you to their party`, "party");
+      else pushToast("FRIEND", `Friend request from ${item.name}`, "friend");
+    }
+    for (const friend of friends) {
+      if (prevFriends.some((old) => old.id === friend.id)) continue;
+      pushToast("FRIEND", `${friend.name} is now your friend`, "friend");
+    }
+    for (const member of partyMembers) {
+      if (prevPartyMembers.some((old) => old.id === member.id)) continue;
+      if (member.id === world.id) continue;
+      pushToast("PARTY", `${member.name} joined your party`, "party");
+    }
+    for (const old of prevPartyMembers) {
+      if (partyMembers.some((member) => member.id === old.id)) continue;
+      if (old.id === world.id) continue;
+      pushToast("PARTY", `${old.name} left the party`, "party");
+    }
+    if (myLobby) {
+      for (const member of lobbyMembers) {
+        if (prevLobbyMembers.some((old) => old.id === member.id)) continue;
+        if (member.id === world.id) continue;
+        pushToast("VOICE", `${member.name} joined the voice chat`, "voice");
+      }
+      for (const old of prevLobbyMembers) {
+        if (lobbyMembers.some((member) => member.id === old.id)) continue;
+        if (old.id === world.id) continue;
+        pushToast("VOICE", `${old.name} left the voice chat`, "voice");
+      }
+    }
+    prevInbox = inbox.map((item) => ({ ...item }));
+    prevFriends = friends.map((item) => ({ ...item }));
+    prevPartyMembers = partyMembers.map((item) => ({ ...item }));
+    prevLobbyMembers = lobbyMembers.map((item) => ({ ...item }));
   }
 
   function nearestAnchor(body: Body, max = 3.2) {

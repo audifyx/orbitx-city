@@ -70,7 +70,9 @@ export interface CityMe {
   // CRIB (home life) — per (player, server); the server is the authority.
   crib?: CribState;
   friends: { id: string; name: string }[];
-  inbox: { id: string; name: string }[];
+  // Inbox: friend requests carry no kind (back-compat); party invites
+  // carry kind "party" + the party id they invite you to.
+  inbox: { id: string; name: string; kind?: string; party?: string }[];
   party: string;
   look?: string;
   earned?: number;
@@ -489,10 +491,36 @@ class CityWorld {
     return data;
   }
 
+  // Party invite: an empty id starts a party (the old "party" op);
+  // with an id it sends an invite the other player accepts or declines
+  // (new "party-invite" op — the invite lands in their inbox).
   async partyInvite(id = "") {
-    const data = await this.call("party", { invite: id });
+    if (!id) {
+      const data = await this.call("party", { invite: "" });
+      if (data.me) this.me = data.me as CityMe;
+      this.party = (data.party as CityWorld["party"]) || this.party;
+      return data;
+    }
+    return this.call("party-invite", { id });
+  }
+
+  async partyAccept(id: string) {
+    const data = await this.call("party-accept", { id });
     if (data.me) this.me = data.me as CityMe;
     this.party = (data.party as CityWorld["party"]) || this.party;
+    return data;
+  }
+
+  async partyLeave() {
+    const data = await this.call("party-leave", {});
+    if (data.me) this.me = data.me as CityMe;
+    this.party = (data.party as CityWorld["party"]) || null;
+    return data;
+  }
+
+  async declineRequest(id: string, kind: string) {
+    const data = await this.call("decline-request", { id, kind });
+    if (data.me) this.me = data.me as CityMe;
     return data;
   }
 
