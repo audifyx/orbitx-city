@@ -45,7 +45,14 @@ export interface CityMe {
   activeVehicle?: string | null;
   // GTA garage rental — the live rental on this universe's save, or null.
   rental?: { id: string; color: string; days: number; daysLeft: number; expiresAt: number } | null;
-  homes?: { homeServer: number; homes: OwnedHome[] };
+  homes?: {
+    homeServer: number;
+    homes: OwnedHome[];
+    // Edit Home: placed pieces per home + owned inventory (one entry per
+    // copy). The server mirrors these from save.homes JSON.
+    furniture?: Record<string, { id: string; item: string; x: number; z: number; rot: number }[]>;
+    furnitureOwned?: string[];
+  };
   friends: { id: string; name: string }[];
   inbox: { id: string; name: string }[];
   party: string;
@@ -278,6 +285,29 @@ class CityWorld {
 
   async spend(item: string) {
     const data = await this.call("spend", { item });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  // Home furniture — shop + Edit Home (per-server homes, City Sol only).
+  async furnitureList(server: number) {
+    return this.call("furniture-list", { server });
+  }
+
+  async furnitureBuy(item: string, server: number) {
+    const data = await this.call("furniture-buy", { item, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async furnitureSave(home: string, furniture: { id: string; item: string; x: number; z: number; rot: number }[], server: number) {
+    const data = await this.call("furniture-save", { home, furniture, server });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async furnitureSell(item: string, server: number) {
+    const data = await this.call("furniture-sell", { item, server });
     if (data.me) this.me = data.me as CityMe;
     return data;
   }

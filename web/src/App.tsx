@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
 import type { AdOrder, MyPropertyClaim, PanelName, RadioTrack, Runtime, Snap } from "./game/runtime";
-import { PHOTO_LANDMARKS } from "./game/runtime";
+import { FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/runtime";
 import { PROXIMITY_RANGE, PROXIMITY_ROOM } from "./game/voice";
 import { loadLooks } from "./game/avatar";
 import { OFFICE_SUITES, adUsdPrice } from "./game/content";
@@ -779,7 +779,7 @@ export default function App() {
       {!menu && snap.lookHint && !snap.hideHud ? <p className="look-hint">{snap.lookHint}</p> : null}
       {!menu && snap.banner ? <RaceBanner text={snap.banner} /> : null}
       {!menu && snap.wheel ? <EmoteWheel index={snap.wheelIndex} /> : null}
-      {!menu && snap.decorate ? <DecorBar kind={snap.decorKind} rt={gameRef.current?.runtime ?? null} /> : null}
+      {!menu && snap.decorate ? <DecorBar kind={snap.decorKind} mode={snap.decorMode} owned={snap.furnitureOwned} rt={gameRef.current?.runtime ?? null} /> : null}
       {!menu && snap.spectator ? <SpectateBar snap={snap} rt={gameRef.current?.runtime ?? null} /> : null}
       {!menu && !snap.hideHud && (
         <div className="hud" id="hud">
@@ -932,6 +932,36 @@ export default function App() {
                       >
                         {owned ? "Equip" : "Buy"}
                       </button>
+                    </article>
+                  );
+                })}
+                <h3>Furniture — for your own home</h3>
+                <p className="muted">
+                  Buy it here, then stand inside a home you own and press X (Edit Home) to place it where you want it. City Sol only — no burn.
+                  Sell a piece back for half price from here, as long as it is not placed.
+                </p>
+                {FURNITURE_CATALOG.map((item) => {
+                  const ownedCount = snap.furnitureOwned.filter((id) => id === item.id).length;
+                  return (
+                    <article key={item.id}>
+                      <div>
+                        <b>{item.name}</b>
+                        <span>{item.price} City Sol{ownedCount ? ` · owned ×${ownedCount}` : ""}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => gameRef.current?.runtime.buyFurniture(item.id)}
+                      >
+                        Buy
+                      </button>
+                      {ownedCount ? (
+                        <button
+                          type="button"
+                          onClick={() => gameRef.current?.runtime.sellFurniture(item.id)}
+                        >
+                          Sell +{Math.floor(item.price / 2)}
+                        </button>
+                      ) : null}
                     </article>
                   );
                 })}
@@ -1895,6 +1925,7 @@ export default function App() {
               const owned = homeMine.some((h) => h.homeId === zoneId);
               const price = homePrice(zoneId) ?? home.price;
               const afford = snap.balance >= price;
+              const ownedFurniture = snap.furnitureOwned.length;
               return (
                 <div className="list">
                   <article>
@@ -1919,6 +1950,25 @@ export default function App() {
                       {owned ? "Owned" : afford ? `Buy — ${price} City Sol` : "Not enough City Sol"}
                     </button>
                   </article>
+                  {owned ? (
+                    <article>
+                      <div>
+                        <b>Edit Home</b>
+                        <span>
+                          {ownedFurniture ? `You own ${ownedFurniture} piece${ownedFurniture === 1 ? "" : "s"} of furniture — buy more in the shop.` : "No furniture yet — buy some in the shop first."}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPanel("");
+                          gameRef.current?.runtime.toggleDecor();
+                        }}
+                      >
+                        Edit Home
+                      </button>
+                    </article>
+                  ) : null}
                   {mineList}
                 </div>
               );

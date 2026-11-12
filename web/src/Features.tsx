@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { requestExportCode } from "./auth";
 import type { Runtime, Snap } from "./game/runtime";
+import { FURNITURE_CATALOG } from "./game/runtime";
 import { EMOTES, FURNITURE } from "./game/life";
 
 export function FeaturePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
@@ -566,16 +567,33 @@ export function EmoteWheel({ index }: { index: number }) {
   );
 }
 
-export function DecorBar({ kind, rt }: { kind: string; rt: Runtime | null }) {
+export function DecorBar({ kind, rt, mode, owned }: { kind: string; rt: Runtime | null; mode?: string; owned?: string[] }) {
+  const home = mode === "home";
+  const ownedCounts = new Map<string, number>();
+  for (const id of owned || []) ownedCounts.set(id, (ownedCounts.get(id) || 0) + 1);
+  const homeChoices = FURNITURE_CATALOG.filter((item) => (ownedCounts.get(item.id) || 0) > 0);
   return (
     <div className="decor-bar" data-feature="decorate">
-      {FURNITURE.map((name) => (
-        <button key={name} type="button" className={kind === name ? "on" : ""} onClick={() => rt?.pickFurniture(name)}>
-          {name}
-        </button>
-      ))}
+      {home ? (
+        homeChoices.length ? (
+          homeChoices.map((item) => (
+            <button key={item.id} type="button" className={kind === item.id ? "on" : ""} onClick={() => rt?.pickFurniture(item.id)}>
+              {item.name} ×{ownedCounts.get(item.id)}
+            </button>
+          ))
+        ) : (
+          <span className="muted">No furniture yet — buy some in the shop first.</span>
+        )
+      ) : (
+        FURNITURE.map((name) => (
+          <button key={name} type="button" className={kind === name ? "on" : ""} onClick={() => rt?.pickFurniture(name)}>
+            {name}
+          </button>
+        ))
+      )}
       <button type="button" onClick={() => rt?.placeFurniture()}>Place</button>
       <button type="button" onClick={() => rt?.spinDecor(1)}>Rotate</button>
+      {home ? <button type="button" onClick={() => rt?.moveFurniture()}>Move</button> : null}
       <button type="button" onClick={() => rt?.removeFurniture()}>Remove</button>
       <button type="button" onClick={() => rt?.toggleDecor()}>Done</button>
     </div>

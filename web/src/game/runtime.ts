@@ -309,6 +309,12 @@ export interface Snap {
   wheelIndex: number;
   decorate: boolean;
   decorKind: string;
+  // Edit Home: "home" when decorating a bought home, "lot" for the
+  // classic lot decorate; owned furniture ids (one entry per copy) and
+  // whether a picked-up piece is being carried to a new spot.
+  decorMode: "home" | "lot" | "";
+  furnitureOwned: string[];
+  carrying: boolean;
   hqIndex: number;
   banner: string;
   talk: { name: string; role: string; line: string; index: number; total: number; jobId: string; jobName: string; offerLabel: string } | null;
@@ -398,6 +404,40 @@ const SHOP_CATALOG: ShopCatalogItem[] = [
   { id: "trail-neon", kind: "trail", name: "Neon trail", value: "neon", price: 50 },
   { id: "trail-gold", kind: "trail", name: "Gold trail", value: "gold", price: 75 },
 ];
+
+// Home furniture catalog (Edit Home) — mirrors api/city.js
+// FURNITURE_CATALOG, the server is the price authority; prices must match.
+// Bought in the Shop panel, placed in Edit Home inside a home you own.
+// City Sol only, no burn.
+export const FURNITURE_CATALOG: { id: string; name: string; price: number }[] = [
+  { id: "tv", name: "OrbitX TV", price: 450 },
+  { id: "couch", name: "Sofa", price: 600 },
+  { id: "bed", name: "Double Bed", price: 750 },
+  { id: "dining-table", name: "Dining Table", price: 320 },
+  { id: "chair", name: "Chair", price: 120 },
+  { id: "lamp", name: "Floor Lamp", price: 90 },
+  { id: "rug", name: "Rug", price: 150 },
+  { id: "shelf", name: "Shelf", price: 260 },
+  { id: "plant", name: "Potted Plant", price: 80 },
+  { id: "kitchen", name: "Kitchen Set", price: 800 },
+  { id: "desk", name: "Desk", price: 340 },
+  { id: "armchair", name: "Armchair", price: 290 },
+  { id: "coffee-table", name: "Coffee Table", price: 210 },
+  { id: "tv-stand", name: "TV Stand", price: 180 },
+];
+
+export function furnitureName(id: string): string {
+  return FURNITURE_CATALOG.find((item) => item.id === id)?.name || id;
+}
+
+/** One placed piece in a home (Edit Home). World coords inside the home. */
+export interface HomeFurniturePiece {
+  id: string;
+  item: string;
+  x: number;
+  z: number;
+  rot: number;
+}
 
 // Photo Safari landmarks (server place ids) — the 8 spots the photo op
 // pays for, 15 City Sol each, once per landmark per day. Coords are the
@@ -1083,8 +1123,23 @@ export function createRuntime(scene: Scene) {
   let wheelOpen = false;
   let wheelIndex = 0;
   let decorating = false;
-  let decorKind: (typeof FURNITURE)[number] = "couch";
+  let decorKind = "couch";
   let decorRot = 0;
+  // Edit Home (home furniture): the mode, the home being edited, the
+  // owned inventory (one entry per bought copy), the placed pieces per
+  // home (server is the authority, applyMe refreshes these), and the
+  // piece currently picked up to move.
+  let decorMode: "home" | "lot" | "" = "";
+  let decorHomeId = "";
+  let furnitureOwned: string[] = [];
+  let homeFurniture: Record<string, HomeFurniturePiece[]> = {};
+  let carrying: HomeFurniturePiece | null = null;
+  // A home is "own" only when this universe's save owns it.
+  function ownHomeId(homeId: string): boolean {
+    return (world.me?.homes?.homes || []).some(
+      (home) => home.homeId === homeId && home.server === (currentUniverse ?? world.me?.homes?.homeServer ?? 0),
+    );
+  }
   let raceHoldUntil = 0;
   let raceNext = -1;
   let hitting = false;
@@ -1575,6 +1630,18 @@ export function createRuntime(scene: Scene) {
     if (me.homes) {
       localHomes = { homeServer: (me.homes.homeServer ?? 0) as PlayerHomesSave["homeServer"], homes: [...(me.homes.homes ?? [])] };
       saveLocalHomes();
+      // Edit Home: owned inventory + placed pieces ride on me.homes.
+      // While a piece is being carried the local list is the truth for
+      // this home (the server still has the pre-pickup list) — the
+      // heartbeat must not restore the piece under the ghost.
+      furnitureOwned = Array.isArray(me.homes.furnitureOwned) ? [...me.homes.furnitureOwned] : [];
+      const nextPlaced = me.homes.furniture && typeof me.homes.furniture === "object" ? { ...me.homes.furniture } : {};
+      homeFurniture = carrying ? { ...nextPlaced, [decorHomeId]: homeFurniture[decorHomeId] || [] } : nextPlaced;
+      if (carrying && !(homeFurniture[decorHomeId] || []).some((piece) => piece.id === carrying.id)) {
+        // The server saved the drop while we were mid-move — drop the
+        // carry instead of duplicating the piece.
+        carrying = null;
+      }
     }
     wallet.name = me.name;
     saveWallet(wallet);
@@ -1998,6 +2065,9 @@ export function createRuntime(scene: Scene) {
       wheelIndex,
       decorate: decorating,
       decorKind,
+      decorMode,
+      furnitureOwned: [...furnitureOwned],
+      carrying: !!carrying,
       hqIndex,
       banner: raceHoldUntil > Date.now()
         ? `Race starts in ${Math.ceil((raceHoldUntil - Date.now()) / 1000)}`
@@ -4366,10 +4436,20 @@ export function createRuntime(scene: Scene) {
         // range: clear the prompt (leaving it untouched kept "Press E to
         // drive" on screen 30-40 m after the player walked away).
         if (nearestCar(body, 7) >= 0) prompt = "Press E to drive";
-        else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : lot?.ownerId === world.id ? `${lot.name} — press X to decorate` : zoneTitle(zone);
+        else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : zone.id.startsWith("home-") && ownHomeId(zone.id) ? `${zoneTitle(zone)} — press X to edit your home` : lot?.ownerId === world.id ? `${lot.name} — press X to decorate` : zoneTitle(zone);
         else prompt = "";
       }
     }
+    // Edit Home: the carried piece previews as a ghost at the drop point.
+    const homeZone = decorHomeId ? zones.find((item) => item.id === decorHomeId) : undefined;
+    const ghost = carrying && lastBody && homeZone
+      ? {
+          kind: carrying.item,
+          x: Math.min(homeZone.maxX - 1.3, Math.max(homeZone.minX + 1.3, lastBody.x + Math.sin(lastBody.yaw) * 1.5)),
+          z: Math.min(homeZone.maxZ - 1.3, Math.max(homeZone.minZ + 1.3, lastBody.z - Math.cos(lastBody.yaw) * 1.5)),
+          rot: decorRot,
+        }
+      : null;
     life?.sync({
       lots: world.lots,
       leaders: world.leaders,
@@ -4377,6 +4457,8 @@ export function createRuntime(scene: Scene) {
       notes: world.notes,
       market: world.market,
       raceNext,
+      homeFurniture: Object.values(homeFurniture).flat().map((piece) => ({ kind: piece.item, x: piece.x, z: piece.z, rot: piece.rot })),
+      ghost,
     });
     let tookCamera = false;
     if (!opts.orbit && (playing || localBody)) {
@@ -6158,24 +6240,92 @@ export function createRuntime(scene: Scene) {
       publish();
     },
     toggleDecor() {
+      if (decorating) {
+        // Leaving Edit Home with a piece still in hand puts it back —
+        // the server still has the pre-pickup list; the next heartbeat
+        // restores it from me.homes.
+        decorating = false;
+        decorMode = "";
+        decorHomeId = "";
+        carrying = null;
+        publish();
+        return;
+      }
+      // Inside your own home: Edit Home mode (furniture you bought).
+      const zone = lastBody ? zoneAt(lastBody) : null;
+      if (zone && zone.id.startsWith("home-") && ownHomeId(zone.id)) {
+        if (!world.online) {
+          say("Sign in to edit your home.");
+          return;
+        }
+        decorating = true;
+        decorMode = "home";
+        decorHomeId = zone.id;
+        decorKind = "couch";
+        say("Edit Home — pick a piece, press Place to drop it, Q/R to rotate.");
+        publish();
+        return;
+      }
       const lot = currentLot();
-      if (!decorating && (!lot || lot.ownerId !== world.id)) {
+      if (!lot || lot.ownerId !== world.id) {
         decorating = false;
         say(lot ? "Only the owner can decorate." : "Step inside a place you own, then press X.");
         publish();
         return;
       }
-      decorating = !decorating;
+      decorating = true;
+      decorMode = "lot";
       publish();
     },
     pickFurniture(kind: string) {
-      if ((FURNITURE as readonly string[]).includes(kind)) decorKind = kind as (typeof FURNITURE)[number];
+      if (decorMode === "home") {
+        if (FURNITURE_CATALOG.some((item) => item.id === kind)) decorKind = kind;
+      } else if ((FURNITURE as readonly string[]).includes(kind)) {
+        decorKind = kind as (typeof FURNITURE)[number];
+      }
       publish();
     },
     spinDecor(dir: number) {
       decorRot += dir * 0.45;
     },
     placeFurniture() {
+      if (decorMode === "home") {
+        if (!world.online || !currentUniverse || !lastBody) {
+          say("Sign in to a universe to place furniture.");
+          return;
+        }
+        const zone = zones.find((item) => item.id === decorHomeId);
+        if (!zone) return;
+        const x = Math.min(zone.maxX - 1.3, Math.max(zone.minX + 1.3, lastBody.x + Math.sin(lastBody.yaw) * 1.5));
+        const z = Math.min(zone.maxZ - 1.3, Math.max(zone.minZ + 1.3, lastBody.z - Math.cos(lastBody.yaw) * 1.5));
+        const pieces = [...(homeFurniture[decorHomeId] || [])];
+        let wasMove = false;
+        if (carrying) {
+          // Dropping a moved piece: same id, new spot.
+          pieces.push({ ...carrying, x, z, rot: decorRot });
+          wasMove = true;
+          carrying = null;
+        } else {
+          const itemId = decorKind as string;
+          const ownedCount = furnitureOwned.filter((id) => id === itemId).length;
+          const placedCount = pieces.filter((piece) => piece.item === itemId).length;
+          if (placedCount >= ownedCount) {
+            say(`Buy a ${furnitureName(itemId)} in the shop first.`);
+            return;
+          }
+          pieces.push({ id: `hf${Date.now().toString(36)}`, item: itemId, x, z, rot: decorRot });
+        }
+        void world.furnitureSave(decorHomeId, pieces, currentUniverse).then(() => {
+          applyMe();
+          publish();
+          say(wasMove ? "Moved." : `Placed a ${furnitureName(decorKind)}.`);
+        }).catch((err) => {
+          carrying = null;
+          say(err.message);
+          publish();
+        });
+        return;
+      }
       const lot = currentLot();
       if (!lot || lot.ownerId !== world.id || !lastBody) {
         say("Stand inside your place to drop furniture.");
@@ -6188,7 +6338,59 @@ export function createRuntime(scene: Scene) {
       const furniture = [...lot.furniture, { id: `f${Date.now().toString(36)}`, kind: decorKind, x, z, rot: decorRot }];
       void world.saveFurniture(lot.id, furniture).then(() => say(`Placed a ${decorKind}.`)).catch((err) => say(err.message));
     },
+    moveFurniture() {
+      if (decorMode !== "home" || !lastBody) return;
+      if (carrying) {
+        say("Already carrying a piece — press Place to drop it.");
+        return;
+      }
+      const pieces = [...(homeFurniture[decorHomeId] || [])];
+      let best = -1;
+      let bestD = 2.4;
+      pieces.forEach((piece, index) => {
+        const d = Math.hypot(piece.x - (lastBody?.x || 0), piece.z - (lastBody?.z || 0));
+        if (d < bestD) {
+          best = index;
+          bestD = d;
+        }
+      });
+      if (best < 0) {
+        say("Stand next to a piece to move it.");
+        return;
+      }
+      carrying = pieces[best];
+      decorKind = carrying.item;
+      decorRot = carrying.rot;
+      homeFurniture = { ...homeFurniture, [decorHomeId]: pieces.filter((_, index) => index !== best) };
+      say(`Picked up the ${furnitureName(carrying.item)} — move and press Place to drop it.`);
+      publish();
+    },
     removeFurniture() {
+      if (decorMode === "home") {
+        if (!world.online || !currentUniverse || !lastBody) return;
+        const pieces = [...(homeFurniture[decorHomeId] || [])];
+        let best = -1;
+        let bestD = 2.4;
+        pieces.forEach((piece, index) => {
+          const d = Math.hypot(piece.x - (lastBody?.x || 0), piece.z - (lastBody?.z || 0));
+          if (d < bestD) {
+            best = index;
+            bestD = d;
+          }
+        });
+        if (best < 0) {
+          say("Stand next to a piece to remove it.");
+          return;
+        }
+        const removed = pieces[best];
+        const next = pieces.filter((_, index) => index !== best);
+        void world.furnitureSave(decorHomeId, next, currentUniverse).then(() => {
+          applyMe();
+          publish();
+          say(`Removed the ${furnitureName(removed.item)} — back in your owned furniture.`);
+        }).catch((err) => say(err.message));
+        return;
+      }
       const lot = currentLot();
       if (!lot || lot.ownerId !== world.id || !lastBody) return;
       let best = -1;
@@ -6206,6 +6408,69 @@ export function createRuntime(scene: Scene) {
       }
       const furniture = lot.furniture.filter((_, index) => index !== best);
       void world.saveFurniture(lot.id, furniture).then(() => say("Removed.")).catch((err) => say(err.message));
+    },
+    buyFurniture(id: string) {
+      const item = FURNITURE_CATALOG.find((entry) => entry.id === id);
+      if (!item) return Promise.resolve("Unknown furniture.");
+      if (!world.online) {
+        const message = "Sign in to buy furniture.";
+        say(message);
+        return Promise.resolve(message);
+      }
+      if (!currentUniverse) {
+        const message = "Pick a universe on the menu first.";
+        say(message);
+        return Promise.resolve(message);
+      }
+      return world.furnitureBuy(id, currentUniverse).then((data) => {
+        applyMe();
+        triggerHaptic("success");
+        publish();
+        say(String(data.message || "Bought."));
+        return String(data.message || "Bought.");
+      }).catch((err) => {
+        const message = err instanceof Error ? err.message : "The city refused the purchase.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      });
+    },
+    sellFurniture(id: string) {
+      if (!world.online) {
+        const message = "Sign in to sell furniture.";
+        say(message);
+        return Promise.resolve(message);
+      }
+      if (!currentUniverse) {
+        const message = "Pick a universe on the menu first.";
+        say(message);
+        return Promise.resolve(message);
+      }
+      return world.furnitureSell(id, currentUniverse).then((data) => {
+        applyMe();
+        triggerHaptic("success");
+        publish();
+        say(String(data.message || "Sold."));
+        return String(data.message || "Sold.");
+      }).catch((err) => {
+        const message = err instanceof Error ? err.message : "The city refused the sale.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      });
+    },
+    furnitureList() {
+      if (!world.online || !currentUniverse) return Promise.resolve({ ok: false, catalog: FURNITURE_CATALOG, owned: [] as string[], placed: {} as Record<string, HomeFurniturePiece[]> });
+      return world.furnitureList(currentUniverse).then((data) => {
+        if (data.ok && Array.isArray((data as { owned?: unknown }).owned)) {
+          furnitureOwned = [...((data as { owned: string[] }).owned || [])];
+          if (data.placed && typeof data.placed === "object") {
+            homeFurniture = { ...(data.placed as Record<string, HomeFurniturePiece[]>) };
+          }
+          publish();
+        }
+        return data;
+      });
     },
     buyLot(id: string) {
       void world.buyLot(id).then((data) => {

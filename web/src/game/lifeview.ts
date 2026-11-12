@@ -224,6 +224,56 @@ export function createLifeView(root: Group, zones: Zone[], anchors: Anchor[]) {
       add(new Mesh(box, new MeshLambertMaterial({ color: 0x7ef6ff, emissive: 0x19d8ff, emissiveIntensity: 0.4 })), 0, 0.72, 0.06, 1.05, 0.6, 0.02);
     } else if (kind === "rug") {
       add(new Mesh(box, new MeshLambertMaterial({ color: 0x8d4b2a })), 0, 0.05, 0, 2.2, 0.06, 1.4);
+    } else if (kind === "tv" || kind === "screen") {
+      // OrbitX TV: black slab + cyan glow screen, on a low stand.
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x101820 })), 0, 0.15, 0, 1.4, 0.3, 0.45);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x101820 })), 0, 0.95, 0, 1.7, 1.05, 0.08);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x7ef6ff, emissive: 0x19d8ff, emissiveIntensity: 0.5 })), 0, 0.95, 0.06, 1.55, 0.9, 0.02);
+    } else if (kind === "tv-stand") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), 0, 0.28, 0, 1.7, 0.5, 0.5);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xe0b33a })), 0, 0.28, 0.26, 1.5, 0.06, 0.02);
+    } else if (kind === "bed") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), 0, 0.18, 0, 1.7, 0.3, 2.3);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xf2f0e6 })), 0, 0.42, 0, 1.55, 0.22, 2.15);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xe0b33a })), 0, 0.55, -0.9, 1.3, 0.14, 0.35);
+    } else if (kind === "dining-table") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), 0, 0.75, 0, 1.9, 0.1, 1.0);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), -0.8, 0.35, -0.4, 0.1, 0.7, 0.1);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), 0.8, 0.35, -0.4, 0.1, 0.7, 0.1);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), -0.8, 0.35, 0.4, 0.1, 0.7, 0.1);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), 0.8, 0.35, 0.4, 0.1, 0.7, 0.1);
+    } else if (kind === "chair") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xc4493a })), 0, 0.45, 0, 0.5, 0.1, 0.5);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x8d2f28 })), 0, 0.85, -0.22, 0.5, 0.7, 0.08);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), -0.2, 0.22, -0.2, 0.07, 0.45, 0.07);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), 0.2, 0.22, 0.2, 0.07, 0.45, 0.07);
+    } else if (kind === "shelf") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), -0.55, 0.9, 0, 0.08, 1.7, 0.35);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), 0.55, 0.9, 0, 0.08, 1.7, 0.35);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), 0, 0.5, 0, 1.2, 0.07, 0.35);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), 0, 1.1, 0, 1.2, 0.07, 0.35);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xc4493a })), -0.25, 1.22, 0, 0.4, 0.18, 0.3);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x7ef6ff })), 0.3, 0.62, 0, 0.3, 0.18, 0.3);
+    } else if (kind === "kitchen") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x222222 })), -0.7, 0.45, 0, 1.6, 0.9, 0.9);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xe8e4d8 })), -0.7, 0.95, 0, 1.6, 0.08, 0.95);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xf2f0e6 })), 0.9, 0.95, 0, 0.7, 1.9, 0.7);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x7ef6ff, emissive: 0x19d8ff, emissiveIntensity: 0.3 })), 0.9, 0.55, 0.36, 0.5, 0.5, 0.02);
+    } else if (kind === "desk") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), 0, 0.75, 0, 1.6, 0.08, 0.8);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), -0.7, 0.35, -0.3, 0.08, 0.7, 0.08);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), 0.7, 0.35, -0.3, 0.08, 0.7, 0.08);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x101820 })), 0, 1.05, -0.2, 0.7, 0.45, 0.05);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x7ef6ff, emissive: 0x19d8ff, emissiveIntensity: 0.4 })), 0, 1.05, -0.17, 0.6, 0.35, 0.02);
+    } else if (kind === "armchair") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x2a4b6b })), 0, 0.38, 0, 0.85, 0.42, 0.75);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x1f3550 })), 0, 0.72, -0.28, 0.85, 0.45, 0.16);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x1f3550 })), -0.44, 0.55, 0, 0.12, 0.35, 0.7);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x1f3550 })), 0.44, 0.55, 0, 0.12, 0.35, 0.7);
+    } else if (kind === "coffee-table") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), 0, 0.4, 0, 1.25, 0.08, 0.65);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), -0.5, 0.18, -0.22, 0.08, 0.36, 0.08);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), 0.5, 0.18, 0.22, 0.08, 0.36, 0.08);
     } else {
       add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), 0, 0.42, 0, 1.2, 0.1, 0.7);
       add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), -0.45, 0.2, -0.25, 0.08, 0.4, 0.08);
@@ -240,6 +290,11 @@ export function createLifeView(root: Group, zones: Zone[], anchors: Anchor[]) {
       notes: NoteCard[];
       market: MarketCard | null;
       raceNext: number;
+      // Edit Home: placed pieces in the player's own homes (world coords,
+      // rendered in the same furniture group as lot pieces) + the ghost
+      // preview of the piece being carried.
+      homeFurniture?: { kind: string; x: number; z: number; rot: number }[];
+      ghost?: { kind: string; x: number; z: number; rot: number } | null;
     }) {
       const leaderKey = JSON.stringify(input.leaders);
       if (leaderMesh.userData.key !== leaderKey) {
@@ -285,7 +340,7 @@ export function createLifeView(root: Group, zones: Zone[], anchors: Anchor[]) {
           (row.sprite.material as SpriteMaterial).needsUpdate = true;
         }
       }
-      const furnStamp = JSON.stringify(input.lots.map((lot) => [lot.id, lot.furniture]));
+      const furnStamp = JSON.stringify([input.lots.map((lot) => [lot.id, lot.furniture]), input.homeFurniture || [], input.ghost || null]);
       if (furnKey.value !== furnStamp) {
         furnKey.value = furnStamp;
         furniture.clear();
@@ -296,6 +351,26 @@ export function createLifeView(root: Group, zones: Zone[], anchors: Anchor[]) {
             mesh.rotation.y = piece.rot;
             furniture.add(mesh);
           }
+        }
+        for (const piece of input.homeFurniture || []) {
+          const mesh = pieceMesh(piece.kind);
+          mesh.position.set(piece.x, 0, piece.z);
+          mesh.rotation.y = piece.rot;
+          furniture.add(mesh);
+        }
+        if (input.ghost) {
+          // Semi-transparent preview of the carried piece at the drop point.
+          const mesh = pieceMesh(input.ghost.kind);
+          mesh.position.set(input.ghost.x, 0, input.ghost.z);
+          mesh.rotation.y = input.ghost.rot;
+          mesh.traverse((child) => {
+            const mat = (child as Mesh).material as MeshLambertMaterial | undefined;
+            if (mat) {
+              mat.transparent = true;
+              mat.opacity = 0.55;
+            }
+          });
+          furniture.add(mesh);
         }
       }
       gates.forEach((mesh, index) => {
