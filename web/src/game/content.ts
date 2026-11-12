@@ -102,9 +102,9 @@ export const DEFAULT_BILLBOARDS: BillboardInfo[] = [
   },
   {
     id: "district-row",
-    project: "Project District",
-    text: "YOUR OFFICE HERE",
-    image: "",
+    project: "OrbitX",
+    text: "TRADE EVERYTHING. OWN THE FUTURE.",
+    image: "/orbitx-banner.jpg",
     start: "2026-01-01",
     end: "2026-12-31",
   },

@@ -282,6 +282,35 @@ function paint(lines: string[], sub: string) {
   return texture;
 }
 
+function paintBillboard(face: BillboardInfo) {
+  if (!face.image) return paint([face.project, face.text], `${face.start} → ${face.end}`);
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  const texture = new CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  if (ctx) {
+    // Text board first so the sign is never blank while the image loads.
+    ctx.drawImage(paint([face.project, face.text], `${face.start} → ${face.end}`).image, 0, 0);
+  }
+  const img = new Image();
+  img.onload = () => {
+    if (!ctx) return;
+    // Black field (the banner is a space scene on black) then the whole
+    // banner, contain-fit — no crop, no stretch, logo and links intact.
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, 512, 256);
+    const scale = Math.min(512 / img.width, 256 / img.height);
+    const w = img.width * scale;
+    const h = img.height * scale;
+    ctx.drawImage(img, (512 - w) / 2, (256 - h) / 2, w, h);
+    texture.needsUpdate = true;
+  };
+  img.src = face.image;
+  return texture;
+}
+
 function labelTexture(text: string) {
   const canvas = document.createElement("canvas");
   canvas.width = 512;
@@ -876,7 +905,9 @@ export function createRuntime(scene: Scene) {
 
   function faceFor(info: BillboardInfo): BillboardInfo {
     const shared = world.bookings.find((item) => item.id === info.id);
-    if (shared) return { ...info, project: shared.project, text: shared.text, start: shared.start, end: shared.end };
+    // A paid booking is a text ad — it clears the house image so the
+    // buyer's own creative shows, not our banner.
+    if (shared) return { ...info, project: shared.project, text: shared.text, start: shared.start, end: shared.end, image: "" };
     return bookings()[info.id] ?? info;
   }
 
@@ -885,7 +916,7 @@ export function createRuntime(scene: Scene) {
     if (!board) return;
     const face = faceFor(board.base);
     board.texture.dispose();
-    const texture = paint([face.project, face.text], `${face.start} → ${face.end}`);
+    const texture = paintBillboard(face);
     board.texture = texture;
     (board.mesh.material as MeshLambertMaterial).map = texture;
     (board.mesh.material as MeshLambertMaterial).needsUpdate = true;
@@ -1323,7 +1354,7 @@ export function createRuntime(scene: Scene) {
       start: "2026-01-01",
       end: "2026-12-31",
     };
-    const texture = paint([faceFor(base).project, faceFor(base).text], `${base.start} → ${base.end}`);
+    const texture = paintBillboard(faceFor(base));
     // Two single-sided planes back to back: a DoubleSide plane shows the
     // texture mirrored from behind, so roadside boards read reversed from
     // one side of the street. Both faces read correctly now.
