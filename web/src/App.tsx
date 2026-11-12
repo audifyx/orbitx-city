@@ -761,6 +761,26 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panel]);
 
+  // Home panel: fetch the owned-homes list + CRIB state when it opens, so
+  // the panel knows what is yours even in a session that never opened the
+  // menu (autostart spawns straight inside the home — without this the
+  // panel saw an empty homeMine and offered to re-buy a home you own,
+  // hiding every CRIB section).
+  useEffect(() => {
+    if (panel !== "home") return;
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    void rt.homeStatus().then((res) => {
+      if (res.ok) {
+        setHomeMine(res.mine);
+        setHomeServer(res.homeServer);
+      }
+    });
+    void rt.cribStatus().then((res) => {
+      if (res.ok) setCrib(res.crib);
+    });
+  }, [panel]);
+
   // Multiverse picker on the menu: counts + home badge when signed in,
   // static roster when offline. Default: home universe if they have one
   // and no universe was picked before, else Universe 1.
