@@ -193,6 +193,217 @@ const STANDARD_COLORS = ["white", "black", "silver", "red", "blue", "cyan", "gol
 const TESLA_COLORS = ["pearl", "midnight", "quicksilver", "stealth", "crimson", "red", "blue", "white", "black"];
 
 // ---------------------------------------------------------------------------
+// Customization — CARS expansion (City Sol only, no burn).
+// Premium paints live here, NOT in VEHICLE_COLORS: the shop color picker
+// iterates VEHICLE_COLORS, so a premium key there would be a free repaint
+// at buy time. Premium paint is bought per-car via customize-car (150)
+// and then rides on the vehicle's `color` field like any other paint.
+// paintHex() resolves both maps, so buildVehicle/retint just work.
+// ---------------------------------------------------------------------------
+
+/** Premium paint keys -> hex. Bought per car, 150 City Sol each. */
+export const CUSTOM_PAINT_HEX: Record<string, number> = {
+  "matte-black": 0x1a1a1c,
+  chrome: 0xdfe3e8,
+  "rose-gold": 0xe0a387,
+  "pearl-pink": 0xf2c4d4,
+  mint: 0x9fe8c0,
+  "midnight-purple": 0x2e1a4d,
+  lava: 0xff4d00,
+  ice: 0xcfeeff,
+};
+
+export const CUSTOM_PAINT_PRICE = 150;
+export const CUSTOM_PAINT_NAMES: Record<string, string> = {
+  "matte-black": "Matte Black",
+  chrome: "Chrome",
+  "rose-gold": "Rose Gold",
+  "pearl-pink": "Pearl Pink",
+  mint: "Mint",
+  "midnight-purple": "Midnight Purple",
+  lava: "Lava",
+  ice: "Ice",
+};
+
+export type RimStyle = "stock" | "sport" | "chrome" | "gold" | "black";
+export const RIM_STYLES: RimStyle[] = ["stock", "sport", "chrome", "gold", "black"];
+export const RIM_PRICES: Record<RimStyle, number> = { stock: 0, sport: 200, chrome: 250, gold: 300, black: 150 };
+export const RIM_NAMES: Record<RimStyle, string> = {
+  stock: "Stock",
+  sport: "Sport",
+  chrome: "Chrome",
+  gold: "Gold",
+  black: "Stealth Black",
+};
+
+export type SpoilerStyle = "none" | "lip" | "gt" | "drag" | "delete";
+export const SPOILER_STYLES: SpoilerStyle[] = ["none", "lip", "gt", "drag", "delete"];
+export const SPOILER_PRICES: Record<SpoilerStyle, number> = { none: 0, lip: 180, gt: 320, drag: 450, delete: 0 };
+export const SPOILER_NAMES: Record<SpoilerStyle, string> = {
+  none: "As built",
+  lip: "Lip spoiler",
+  gt: "GT wing",
+  drag: "Drag wing",
+  delete: "Wing delete",
+};
+
+export const NEON_COLORS = ["cyan", "pink", "gold", "green", "purple", "red"] as const;
+export const NEON_PRICE = 220;
+
+/** Window tint level: 0 clear (free), 1 light, 2 medium, 3 dark. */
+export const TINT_PRICES = [0, 80, 140, 200];
+export const TINT_NAMES = ["Clear", "Light tint", "Medium tint", "Dark tint"];
+
+/** Engine level: 0 stock, 1-3 tuned. Each level is a real stat change
+ * (see driveParamsFor). Levels must be bought in order. */
+export const ENGINE_PRICES = [0, 600, 1400, 2600];
+export const ENGINE_NAMES = ["Stock engine", "Stage 1 tune", "Stage 2 tune", "Stage 3 tune"];
+
+/** Tire level: 0 stock, 1 street (grip), 2 race (grip+). In order. */
+export const TIRE_PRICES = [0, 350, 800];
+export const TIRE_NAMES = ["Stock tires", "Street tires", "Race tires"];
+
+/** Per-car mods, stored on the owned-vehicle entry (see OwnedVehicle). */
+export interface VehicleMods {
+  rims: RimStyle;
+  spoiler: SpoilerStyle;
+  /** Neon underglow paint key, or null = off. */
+  neon: string | null;
+  /** Window tint level 0-3. */
+  tint: number;
+  /** Engine tune level 0-3. */
+  engine: number;
+  /** Tire level 0-2. */
+  tires: number;
+}
+
+export const DEFAULT_MODS: VehicleMods = {
+  rims: "stock",
+  spoiler: "none",
+  neon: null,
+  tint: 0,
+  engine: 0,
+  tires: 0,
+};
+
+/** Wear: 0-100 each. Dirt builds with driving distance, damage with
+ * crashes (see accumulateWear). Both dull the look and soften the stats
+ * (see driveParamsFor); wash/repair reset them. */
+export interface VehicleWear {
+  dirt: number;
+  damage: number;
+}
+
+export function normalizeMods(mods?: Partial<VehicleMods> | null): VehicleMods {
+  const m = mods ?? {};
+  return {
+    rims: RIM_STYLES.includes(m.rims as RimStyle) ? (m.rims as RimStyle) : "stock",
+    spoiler: SPOILER_STYLES.includes(m.spoiler as SpoilerStyle) ? (m.spoiler as SpoilerStyle) : "none",
+    neon: typeof m.neon === "string" && (NEON_COLORS as readonly string[]).includes(m.neon) ? m.neon : null,
+    tint: Number.isFinite(m.tint) ? Math.max(0, Math.min(3, Math.floor(m.tint as number))) : 0,
+    engine: Number.isFinite(m.engine) ? Math.max(0, Math.min(3, Math.floor(m.engine as number))) : 0,
+    tires: Number.isFinite(m.tires) ? Math.max(0, Math.min(2, Math.floor(m.tires as number))) : 0,
+  };
+}
+
+export function normalizeWear(wear?: Partial<VehicleWear> | null): VehicleWear {
+  const clamp = (n: unknown) => (Number.isFinite(n as number) ? Math.max(0, Math.min(100, Math.round(n as number))) : 0);
+  return { dirt: clamp(wear?.dirt), damage: clamp(wear?.damage) };
+}
+
+/** Price of one mod change, or null when the (mod, value) pair is invalid.
+ * Mirrors api/city.js — the server is the price authority. */
+export function modPrice(mod: string, value: unknown): number | null {
+  switch (mod) {
+    case "paint":
+      return typeof value === "string" && value in CUSTOM_PAINT_HEX ? CUSTOM_PAINT_PRICE : null;
+    case "rims":
+      return typeof value === "string" && value in RIM_PRICES ? RIM_PRICES[value as RimStyle] : null;
+    case "spoiler":
+      return typeof value === "string" && value in SPOILER_PRICES ? SPOILER_PRICES[value as SpoilerStyle] : null;
+    case "neon":
+      if (value === null) return 0;
+      return typeof value === "string" && (NEON_COLORS as readonly string[]).includes(value) ? NEON_PRICE : null;
+    case "tint": {
+      const level = Math.floor(Number(value));
+      return Number.isInteger(level) && level >= 0 && level <= 3 ? TINT_PRICES[level] : null;
+    }
+    case "engine": {
+      const level = Math.floor(Number(value));
+      return Number.isInteger(level) && level >= 0 && level <= 3 ? ENGINE_PRICES[level] : null;
+    }
+    case "tires": {
+      const level = Math.floor(Number(value));
+      return Number.isInteger(level) && level >= 0 && level <= 2 ? TIRE_PRICES[level] : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** Wear accumulation: ~1 dirt per 60 units driven, 4 damage per crash.
+ * Pure + clamped, so the client and the server apply the same rule. */
+export function accumulateWear(
+  wear: VehicleWear,
+  distance: number,
+  crashes: number,
+): VehicleWear {
+  const d = Math.max(0, Math.min(100, wear.dirt + Math.floor(Math.max(0, distance) / 60)));
+  const g = Math.max(0, Math.min(100, wear.damage + Math.max(0, Math.floor(crashes)) * 4));
+  return { dirt: d, damage: g };
+}
+
+/** Wash price: 30 + dirt (30-130 City Sol). Repair: 50 + 2 per damage
+ * point (50-250 City Sol). Mirrors api/city.js. */
+export function washCost(dirt: number): number {
+  return 30 + Math.max(0, Math.min(100, Math.round(dirt)));
+}
+export function repairCost(damage: number): number {
+  return 50 + Math.max(0, Math.min(100, Math.round(damage))) * 2;
+}
+
+// --- Garage upgrades (per-server save, see api/city.js) ------------------
+// Base parking: 3 owned cars per universe. Each slots tier adds 2.
+// Workshop unlocks tuning/wash/repair at the home garage; showroom puts
+// the whole collection on display, lit up.
+/** Extra parking slots per universe: 3 base + 2 per tier (max 9). */
+export const GARAGE_BASE_SLOTS = 3;
+export const GARAGE_SLOT_PRICES = [800, 1800, 3200];
+export const GARAGE_WORKSHOP_PRICE = 1500;
+export const GARAGE_SHOWROOM_PRICE = 2500;
+
+export interface GarageUpgrades {
+  /** Slots tiers bought, 0-3. */
+  slots: number;
+  workshop: boolean;
+  showroom: boolean;
+}
+
+export const DEFAULT_GARAGE: GarageUpgrades = { slots: 0, workshop: false, showroom: false };
+
+export function normalizeGarage(g?: Partial<GarageUpgrades> | null): GarageUpgrades {
+  return {
+    slots: Number.isFinite(g?.slots) ? Math.max(0, Math.min(3, Math.floor(g?.slots as number))) : 0,
+    workshop: !!g?.workshop,
+    showroom: !!g?.showroom,
+  };
+}
+
+/** Owned-car cap for a garage level. */
+export function garageCap(garage?: GarageUpgrades | null): number {
+  return GARAGE_BASE_SLOTS + normalizeGarage(garage).slots * 2;
+}
+
+export function garageUpgradePrice(upgrade: string, garage?: GarageUpgrades | null): number | null {
+  const g = normalizeGarage(garage);
+  if (upgrade === "slots") return g.slots >= 3 ? null : GARAGE_SLOT_PRICES[g.slots];
+  if (upgrade === "workshop") return g.workshop ? null : GARAGE_WORKSHOP_PRICE;
+  if (upgrade === "showroom") return g.showroom ? null : GARAGE_SHOWROOM_PRICE;
+  return null;
+}
+
+
+// ---------------------------------------------------------------------------
 // Plan helpers — small builders so each entry reads as its own shape.
 // ---------------------------------------------------------------------------
 
@@ -1365,10 +1576,17 @@ export const CAR_SHOP_ITEMS: Array<Pick<VehicleDef, "id" | "name" | "brand" | "k
     }),
   );
 
-/** A player's owned vehicle: which car, in which paint. */
+/** A player's owned vehicle: which car, in which paint — plus, since the
+ * CARS expansion, its per-car mods and wear. Stored verbatim in the
+ * per-server save's `vehicles` JSON (api/city.js, no new DB column):
+ * `{ id, color, mods: {...}, dirt, damage }`. `mods`/`dirt`/`damage`
+ * are optional so pre-expansion saves (plain `{id, color}`) still load. */
 export interface OwnedVehicle {
   id: string;
   color: string;
+  mods?: VehicleMods;
+  dirt?: number;
+  damage?: number;
 }
 
 /** Total price of the whole catalog, for shop sanity checks. */
@@ -1380,24 +1598,30 @@ export const CATALOG_TOTAL_CITY_SOL: number = VEHICLES.reduce((sum, v) => sum + 
 // same named "wheel" children, same userData.paints for retint().
 // ---------------------------------------------------------------------------
 
-/** Resolve a paint key (or raw hex) to a hex number. */
+/** Resolve a paint key (or raw hex) to a hex number. Premium custom
+ * paints resolve here too (CUSTOM_PAINT_HEX) — they ride on `color`
+ * like any other paint once bought. */
 export function paintHex(color: string, fallback = "black"): number {
   if (color.startsWith("#")) {
     const n = Number.parseInt(color.slice(1), 16);
     return Number.isNaN(n) ? VEHICLE_COLORS[fallback] : n;
   }
-  return VEHICLE_COLORS[color] ?? VEHICLE_COLORS[fallback];
+  return VEHICLE_COLORS[color] ?? CUSTOM_PAINT_HEX[color] ?? VEHICLE_COLORS[fallback];
 }
 
-function partMaterial(mat: PartMat, paint: MeshStandardMaterial): Material {
+function partMaterial(mat: PartMat, paint: MeshStandardMaterial, tint = 0): Material {
   switch (mat) {
     case "paint":
       return paint;
-    case "glass":
+    case "glass": {
+      // Window tint: darker + less see-through as the level rises.
+      const t = Math.max(0, Math.min(3, tint)) / 3;
+      const c = new THREEColor().setHex(0xbfe6ff).lerp(new THREEColor().setHex(0x0a0f14), t);
       return new MeshStandardMaterial({
-        color: 0xbfe6ff, emissive: 0x3d7fa8, emissiveIntensity: 0.55,
-        roughness: 0.12, metalness: 0.35, transparent: true, opacity: 0.85,
+        color: c.getHex(), emissive: 0x3d7fa8, emissiveIntensity: 0.55 * (1 - t * 0.8),
+        roughness: 0.12, metalness: 0.35, transparent: true, opacity: 0.85 - t * 0.4,
       });
+    }
     case "chrome":
       return new MeshStandardMaterial({ color: 0xc9ced6, roughness: 0.25, metalness: 0.8 });
     case "dark":
