@@ -1765,7 +1765,7 @@ export default function App() {
                             {active ? (
                               <span>{snap.activeCarOut ? "The selected car — it is waiting out front." : "The selected car — parked in the garage."}</span>
                             ) : (
-                              <span>Parked in the garage.</span>
+                              <span>{v.fly ? "Parked in the sky — select it and it drives out." : "Parked in the garage."}</span>
                             )}
                           </div>
                           {active ? (

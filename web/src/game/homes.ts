@@ -611,11 +611,16 @@ export function isHomeOwnedOn(save: PlayerHomesSave, homeId: string, server: Ser
 // Garage — park your own cars at home (City Sol only, no new server data)
 // ---------------------------------------------------------------------------
 // The garage is a bay in front of the home, to one side of the door so
-// the front path stays clear. The cars in it are the player's OWNED cars
-// from the per-server save (save.vehicles) — no new data, no new column.
-// Every owned car parks here; the only one that hides is the car that
-// drove out of a garage (activeCarHomeId in runtime.ts) — it waits out
-// front until another car is picked or it is respawned at the shop.
+// the front path stays clear. The cars in it are the player's OWNED
+// ground vehicles from the per-server save (save.vehicles) — no new
+// data, no new column. Flyers (planes, helicopters, the blimp, flying
+// cars) park in the sky, not the bay: a helicopter rotor spans 5.4+
+// against a 3.2 slot pitch. The runtime filters them out before it
+// counts slots (see garageParkedVehicles); the panel still lists them
+// all, and selecting one still drives it out. Every owned ground car
+// parks here; the only one that hides is the car that drove out of a
+// garage (activeCarHomeId in runtime.ts) — it waits out front until
+// another car is picked or it is respawned at the shop.
 
 /** Max cars shown parked in one home garage (the panel lists them all). */
 export const GARAGE_MAX_SLOTS = 4;

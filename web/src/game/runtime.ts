@@ -1758,10 +1758,12 @@ export function createRuntime(scene: Scene) {
   // --- Home garages: park your own cars at home --------------------------
   // The bay + parked cars for every home owned on the current universe.
   // Pure display (buildVehicle models in their owned colours) plus the
-  // GARAGE sign on the home's front wall. Every owned car parks here —
-  // the only one that hides is the car that drove out of a garage (see
-  // activeCarHomeId): it is waiting out front, not in the bay. A home
-  // the player does not own gets no bay, no sign, no cars.
+  // GARAGE sign on the home's front wall. Every owned ground vehicle
+  // parks here — the only one that hides is the car that drove out of
+  // a garage (see activeCarHomeId): it is waiting out front, not in
+  // the bay. Flyers park in the sky, not the bay (see
+  // garageParkedVehicles). A home the player does not own gets no bay,
+  // no sign, no cars.
 
   /** The server the garage reads: the picked universe, else 1 (the offline buy-home default). */
   function garageServer(): 1 | 2 | 3 | 4 | 5 {
@@ -1772,11 +1774,21 @@ export function createRuntime(scene: Scene) {
     return homesOwnedOn(localHomes, garageServer());
   }
 
+  // The vehicles that park in the bay: ground vehicles only. Flyers
+  // (planes, helicopters, the blimp, flying cars) park in the sky —
+  // a helicopter rotor spans 5.4+ against a 3.2 slot pitch, so one
+  // would clip through its neighbours. They stay listed (and
+  // selectable) in the garage panel; only the 3D bay skips them.
+  // Unknown catalog ids park as ground vehicles (safer default).
+  function garageParkedVehicles(): OwnedVehicle[] {
+    return localVehicles.filter((v) => !(getVehicle(v.id)?.fly ?? false));
+  }
+
   function homeGarageAt(body: Body): { home: HomeDef; layout: GarageLayout } | null {
     for (const owned of ownedHomes()) {
       const home = homeById(owned.homeId);
       if (!home) continue;
-      const layout = garageLayoutFor(home, localVehicles.length);
+      const layout = garageLayoutFor(home, garageParkedVehicles().length);
       if (garagePointIn(layout, body.x, body.z)) return { home, layout };
     }
     return null;
@@ -1784,9 +1796,10 @@ export function createRuntime(scene: Scene) {
 
   function syncHomeGarages() {
     const owned = ownedHomes();
+    const parked = garageParkedVehicles();
     const sig = JSON.stringify({
       homes: owned.map((h) => h.homeId),
-      cars: localVehicles.map((v) => `${v.id}:${v.color ?? ""}`),
+      cars: parked.map((v) => `${v.id}:${v.color ?? ""}`),
       active: localActiveVehicle,
       activeHome: activeCarHomeId,
     });
@@ -1799,7 +1812,7 @@ export function createRuntime(scene: Scene) {
     for (const o of owned) {
       const home = homeById(o.homeId);
       if (!home) continue;
-      const layout = garageLayoutFor(home, localVehicles.length);
+      const layout = garageLayoutFor(home, parked.length);
       const bay = layout.bay;
       const group = new Group();
       // Bay-local frame: +Z out of the home, +X along the front wall.
@@ -1836,10 +1849,11 @@ export function createRuntime(scene: Scene) {
       sign.position.set(layout.sign.x, layout.sign.y, layout.sign.z);
       sign.rotation.y = layout.sign.rot;
       group.add(sign);
-      // The owned cars, parked nose-out in their slots — every owned car
-      // except the one that drove out of a garage, which waits out front.
+      // The owned ground vehicles, parked nose-out in their slots —
+      // every one except the car that drove out of a garage, which
+      // waits out front. Flyers park in the sky, not the bay.
       let slot = 0;
-      for (const v of localVehicles) {
+      for (const v of parked) {
         if (v.id === localActiveVehicle && activeCarHomeId !== null) continue;
         if (slot >= layout.slots.length) break;
         const spot = layout.slots[slot] as { x: number; z: number; yaw: number };
@@ -5478,7 +5492,7 @@ export function createRuntime(scene: Scene) {
       const owned = ownedHomes();
       const home = (owned.length ? homeById(owned[0].homeId) : null) ?? homeById("home-ny-01");
       if (home) {
-        const layout = garageLayoutFor(home, localVehicles.length);
+        const layout = garageLayoutFor(home, garageParkedVehicles().length);
         body.flying = false;
         body.x = layout.service.x + layout.bay.fx * (layout.bay.d / 2 - 0.5);
         body.y = 0;
@@ -5906,8 +5920,9 @@ export function createRuntime(scene: Scene) {
     const home = garageHomeId ? homeById(garageHomeId) : null;
     if (!home) return selectCar(id);
     if (driving && lastBody) exitCar(lastBody);
-    const layout = garageLayoutFor(home, localVehicles.length);
-    const slotIndex = Math.max(0, localVehicles.findIndex((v) => v.id === id));
+    const parked = garageParkedVehicles();
+    const layout = garageLayoutFor(home, parked.length);
+    const slotIndex = Math.max(0, parked.findIndex((v) => v.id === id));
     const spot = layout.driveOut[Math.min(slotIndex, layout.driveOut.length - 1)] as { x: number; z: number; yaw: number };
     const message = await selectCar(id, spot, home.id);
     if (message.startsWith("Selected")) {
@@ -7141,7 +7156,7 @@ export function createRuntime(scene: Scene) {
         return;
       }
       if (driving) exitCar(lastBody);
-      const layout = garageLayoutFor(home, localVehicles.length);
+      const layout = garageLayoutFor(home, garageParkedVehicles().length);
       // Stand on the driveway facing the bay and the house.
       lastBody.x = layout.service.x + layout.bay.fx * (layout.bay.d / 2 + 2.5);
       lastBody.y = 0;
