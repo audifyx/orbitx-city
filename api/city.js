@@ -1791,6 +1791,7 @@ function publicPlayer(player) {
     homeServer: player.homeServer ?? null,
     homes: sanitizeHomes(player.homes),
     garage: sanitizeGarage(player.homes?.garage),
+    crib: sanitizeCrib(player.homes),
     vehicles: sanitizeVehicles(player.vehicles),
     activeVehicle: player.activeVehicle || null,
     rental: sanitizeRental(player.rental),
@@ -3459,6 +3460,8 @@ async function buyHome(player, save, body) {
     ownerName: save.name,
     price,
     boughtAt: Date.now(),
+    // CRIB: first week's bills are due 7 days after purchase.
+    crib: freshHomeCrib(price, Date.now()),
   });
   homes.homeServer = server; // buying here makes this server their home server
   save.homes = homes;
@@ -4293,6 +4296,359 @@ async function crazySetSeason(player, save, body) {
   await saveSave(save);
   return { ok: true, season: crazyEffectiveSeason(homes), override: season, me: publicPlayer(save) };
 }
+// --- CRIB (home life) --------------------------------------------------
+// Bills, sleep/energy, pets, home upgrades, walls & floors, working
+// stuff (TV / fridge / lights). City Sol only — no real money, no burn,
+// no wallet. Per (player, server), like homes.
+//
+// STORAGE (no DDL): everything lives inside the EXISTING `player_saves`
+// `homes` JSON column. The column JSON is
+//   { homeServer, homes: [OwnedHome...], crib: CribPlayer }
+// Per-home crib state rides ON the OwnedHome entry as `crib`:
+//   homes[i].crib = { tier, decor: {wall, floor, light}, lightsOn, tvOn,
+//                     bills: { dueAt, amount, paidUntil, lightsOff } }
+// Player-level crib state rides on the same JSON as `crib`:
+//   homes.crib = { energy, energyAt, pet: {kind, name, fedAt} | null,
+//                  food: { pizza: n, burger: n, soda: n, petfood: n } }
+// `sanitizeCrib` (below) is what publicPlayer returns as `me.crib`.
+// Bills amount: rent (2% of home price, min 40) + lights (20), weekly.
+// Energy: 0-100, drains while playing (client ticks it, syncs it), sleep
+// in your own bed restores it to 100. Energy >= 70 = Rested (+15% walk/
+// run speed, +10% job pay); energy 0 = Exhausted (x0.65 speed).
+const CRIB_WEEK_MS = 7 * 86400000;
+const CRIB_LIGHTS_FEE = 20;
+const CRIB_TIERS = [
+  { tier: 0, name: "Apartment", price: 0 },
+  { tier: 1, name: "House", price: 1500 },
+  { tier: 2, name: "Mansion", price: 5000 },
+  { tier: 3, name: "Penthouse", price: 12000 },
+];
+const CRIB_PETS = {
+  dog: { name: "Dog", price: 500 },
+  cat: { name: "Cat", price: 400 },
+};
+const CRIB_FOODS = {
+  pizza: { name: "Pizza slice", price: 12, energy: 12 },
+  burger: { name: "Burger", price: 10, energy: 10 },
+  soda: { name: "Soda", price: 5, energy: 4 },
+  petfood: { name: "Pet food", price: 15, energy: 0 },
+};
+const CRIB_WALLS = {
+  cream: { name: "Cream paint", price: 60 },
+  gold: { name: "Gold paint", price: 80 },
+  cyan: { name: "Aqua paint", price: 60 },
+  red: { name: "Ember paint", price: 60 },
+  black: { name: "Midnight paint", price: 60 },
+  white: { name: "Cloud paint", price: 60 },
+};
+const CRIB_FLOORS = {
+  wood: { name: "Wood floor", price: 80 },
+  marble: { name: "Marble floor", price: 150 },
+  gold: { name: "Gold floor", price: 120 },
+  black: { name: "Onyx floor", price: 100 },
+  grass: { name: "Grass floor", price: 90 },
+};
+const CRIB_LIGHTS = {
+  warm: { name: "Warm lights", price: 50 },
+  cool: { name: "Cool lights", price: 50 },
+  gold: { name: "Gold lights", price: 70 },
+  cyan: { name: "Aqua lights", price: 60 },
+};
+const CRIB_PET_HAPPY_MS = 6 * 3600000; // a fed pet stays happy 6h
+
+function cribBillAmount(price) {
+  return Math.max(40, Math.round(Number(price || 0) * 0.02)) + CRIB_LIGHTS_FEE;
+}
+
+function freshHomeCrib(price, now) {
+  const amount = cribBillAmount(price);
+  return {
+    tier: 0,
+    decor: { wall: "cream", floor: "wood", light: "warm" },
+    lightsOn: true,
+    tvOn: false,
+    bills: { dueAt: now + CRIB_WEEK_MS, amount, paidUntil: now + CRIB_WEEK_MS, lightsOff: false },
+  };
+}
+
+function ensureCribPlayer(save) {
+  const homes = save.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
+  if (!homes.crib || typeof homes.crib !== "object") {
+    homes.crib = { energy: 100, energyAt: Date.now(), pet: null, food: {} };
+  }
+  const crib = homes.crib;
+  if (typeof crib.energy !== "number" || !Number.isFinite(crib.energy)) crib.energy = 100;
+  crib.energy = Math.max(0, Math.min(100, crib.energy));
+  if (!crib.energyAt) crib.energyAt = Date.now();
+  if (!crib.food || typeof crib.food !== "object") crib.food = {};
+  save.homes = homes;
+  return crib;
+}
+
+function ownedCribHome(save, homeId, server) {
+  const homes = save.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
+  const entry = (homes.homes || []).find((h) => h.homeId === homeId && h.server === server);
+  if (!entry) return null;
+  if (!entry.crib || typeof entry.crib !== "object") {
+    entry.crib = freshHomeCrib(entry.price || HOME_PRICES[homeId] || 0, Number(entry.boughtAt || Date.now()));
+  }
+  return entry;
+}
+
+/** Refresh one home's bill state for "now": overdue => lights cut out. */
+function refreshBill(entry, now) {
+  const crib = entry.crib;
+  if (!crib || !crib.bills) return null;
+  const bills = crib.bills;
+  const overdue = now > Number(bills.dueAt || 0);
+  bills.lightsOff = overdue;
+  return {
+    homeId: entry.homeId,
+    amount: Number(bills.amount || 0),
+    dueAt: Number(bills.dueAt || 0),
+    paidUntil: Number(bills.paidUntil || 0),
+    overdue,
+    lightsOff: bills.lightsOff,
+  };
+}
+
+function sanitizeCribHome(entry, now) {
+  const crib = entry.crib || freshHomeCrib(entry.price || 0, now);
+  return {
+    homeId: entry.homeId,
+    tier: Number(crib.tier || 0),
+    tierName: (CRIB_TIERS[Number(crib.tier || 0)] || CRIB_TIERS[0]).name,
+    decor: {
+      wall: String(crib.decor?.wall || "cream"),
+      floor: String(crib.decor?.floor || "wood"),
+      light: String(crib.decor?.light || "warm"),
+    },
+    lightsOn: crib.lightsOn !== false,
+    tvOn: !!crib.tvOn,
+    bills: refreshBill({ ...entry, crib }, now) || { homeId: entry.homeId, amount: 0, dueAt: 0, paidUntil: 0, overdue: false, lightsOff: false },
+  };
+}
+
+function sanitizeCrib(homes) {
+  const now = Date.now();
+  const list = Array.isArray(homes?.homes) ? homes.homes : [];
+  const crib = homes?.crib && typeof homes.crib === "object" ? homes.crib : null;
+  const pet = crib?.pet && typeof crib.pet === "object" ? crib.pet : null;
+  return {
+    energy: Math.max(0, Math.min(100, Math.round(Number(crib?.energy ?? 100)))),
+    pet: pet
+      ? {
+          kind: String(pet.kind || ""),
+          name: String(pet.name || ""),
+          happy: Number(pet.fedAt || 0) > 0 && now - Number(pet.fedAt || 0) < CRIB_PET_HAPPY_MS,
+          fedAt: Number(pet.fedAt || 0),
+        }
+      : null,
+    food: { ...(crib?.food && typeof crib.food === "object" ? crib.food : {}) },
+    homes: list.map((entry) => sanitizeCribHome(entry, now)),
+  };
+}
+
+/** Rested bonus: energy >= 70 pays +10% on a job. The client shows it. */
+function cribEnergyBonus(save) {
+  const crib = ensureCribPlayer(save);
+  return Number(crib.energy || 0) >= 70;
+}
+
+async function cribStatusOp(save, server) {
+  ensureCribPlayer(save);
+  const now = Date.now();
+  const homes = save.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
+  const mine = (homes.homes || []).filter((h) => h.server === server);
+  for (const entry of mine) {
+    if (!entry.crib) entry.crib = freshHomeCrib(entry.price || HOME_PRICES[entry.homeId] || 0, Number(entry.boughtAt || now));
+    refreshBill(entry, now);
+  }
+  await saveSave(save);
+  return { ok: true, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
+}
+
+async function cribPayBill(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const entry = ownedCribHome(save, String(body.home || ""), server);
+  if (!entry) return { ok: false, message: "You don't own that home on this server.", status: 400 };
+  const now = Date.now();
+  const bill = refreshBill(entry, now);
+  const amount = Number(bill.amount || 0);
+  if (save.balance < amount) return { ok: false, message: `Not enough City Sol — this week's bills are ${amount}.`, status: 400 };
+  save.balance -= amount;
+  entry.crib.bills.dueAt = now + CRIB_WEEK_MS;
+  entry.crib.bills.paidUntil = now + CRIB_WEEK_MS;
+  entry.crib.bills.lightsOff = false;
+  await saveSave(save);
+  return { ok: true, message: `Bills paid — ${amount} City Sol. Lights are back on until next week.`, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
+}
+
+async function cribSleep(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const entry = ownedCribHome(save, String(body.home || ""), server);
+  if (!entry) return { ok: false, message: "You can only sleep in a bed in your own home.", status: 400 };
+  const crib = ensureCribPlayer(save);
+  crib.energy = 100;
+  crib.energyAt = Date.now();
+  await saveSave(save);
+  return { ok: true, message: "You slept like a rock — energy 100, Rested. +15% speed, +10% job pay while rested.", crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
+}
+
+async function cribEnergySync(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const crib = ensureCribPlayer(save);
+  const next = Math.max(0, Math.min(100, Math.round(Number(body.energy ?? crib.energy))));
+  if (Number.isFinite(next)) {
+    crib.energy = next;
+    crib.energyAt = Date.now();
+  }
+  await saveSave(save);
+  return { ok: true, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
+}
+
+async function cribBuyPet(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const kind = String(body.kind || "");
+  const pet = CRIB_PETS[kind];
+  if (!pet) return { ok: false, message: "Pick a dog or a cat.", status: 400 };
+  const crib = ensureCribPlayer(save);
+  if (crib.pet) return { ok: false, message: `You already have a ${CRIB_PETS[crib.pet.kind]?.name || "pet"} — one pet per home life.`, status: 400 };
+  if (save.balance < pet.price) return { ok: false, message: `Not enough City Sol — a ${pet.name.toLowerCase()} is ${pet.price}.`, status: 400 };
+  save.balance -= pet.price;
+  crib.pet = { kind, name: String(body.name || pet.name), fedAt: Date.now() };
+  await saveSave(save);
+  return { ok: true, message: `You adopted a ${pet.name.toLowerCase()}! It follows you around your home. Feed it pet food to keep it happy.`, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
+}
+
+async function cribFeedPet(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const crib = ensureCribPlayer(save);
+  if (!crib.pet) return { ok: false, message: "You don't have a pet yet.", status: 400 };
+  const food = crib.food || {};
+  // Pet food first; any other food works too (a pet eats what you have).
+  const item = Number(food.petfood || 0) > 0 ? "petfood" : ["pizza", "burger", "soda"].find((f) => Number(food[f] || 0) > 0);
+  if (!item) return { ok: false, message: "No food to feed it — buy pet food or groceries in the Shop.", status: 400 };
+  food[item] = Number(food[item] || 0) - 1;
+  crib.food = food;
+  crib.pet.fedAt = Date.now();
+  await saveSave(save);
+  return { ok: true, message: `Your ${CRIB_PETS[crib.pet.kind]?.name.toLowerCase() || "pet"} is fed and happy.`, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
+}
+
+async function cribBuyFood(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const item = CRIB_FOODS[String(body.item || "")];
+  if (!item) return { ok: false, message: "That food is not on the shelf.", status: 400 };
+  const qty = Math.max(1, Math.min(10, Math.floor(Number(body.qty || 1))));
+  const cost = item.price * qty;
+  if (save.balance < cost) return { ok: false, message: "Not enough City Sol.", status: 400 };
+  const crib = ensureCribPlayer(save);
+  const food = crib.food || {};
+  food[String(body.item)] = Number(food[String(body.item)] || 0) + qty;
+  crib.food = food;
+  save.balance -= cost;
+  await saveSave(save);
+  return { ok: true, message: `Bought ${qty}x ${item.name} for ${cost} City Sol — it's in your fridge.`, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
+}
+
+async function cribEat(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const key = String(body.item || "");
+  const item = CRIB_FOODS[key];
+  if (!item || key === "petfood") return { ok: false, message: "That's pet food — your pet eats that, not you.", status: 400 };
+  const crib = ensureCribPlayer(save);
+  const food = crib.food || {};
+  if (Number(food[key] || 0) <= 0) return { ok: false, message: `No ${item.name} in your fridge.`, status: 400 };
+  food[key] = Number(food[key] || 0) - 1;
+  crib.food = food;
+  crib.energy = Math.max(0, Math.min(100, Number(crib.energy || 0) + item.energy));
+  crib.energyAt = Date.now();
+  await saveSave(save);
+  return { ok: true, message: `Ate ${item.name} — +${item.energy} energy.`, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
+}
+
+async function cribUpgrade(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const entry = ownedCribHome(save, String(body.home || ""), server);
+  if (!entry) return { ok: false, message: "You don't own that home on this server.", status: 400 };
+  const tier = Number(entry.crib.tier || 0);
+  const next = CRIB_TIERS[tier + 1];
+  if (!next) return { ok: false, message: "Already a penthouse — the top tier.", status: 400 };
+  if (save.balance < next.price) return { ok: false, message: `Not enough City Sol — ${next.name} is ${next.price}.`, status: 400 };
+  save.balance -= next.price;
+  entry.crib.tier = next.tier;
+  await saveSave(save);
+  return { ok: true, message: `Upgraded to a ${next.name}! More rooms, more space, more flex.`, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
+}
+
+async function cribDecor(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const entry = ownedCribHome(save, String(body.home || ""), server);
+  if (!entry) return { ok: false, message: "You don't own that home on this server.", status: 400 };
+  const decor = entry.crib.decor || { wall: "cream", floor: "wood", light: "warm" };
+  let total = 0;
+  const changes = [];
+  if (body.wall != null && String(body.wall) !== decor.wall) {
+    const opt = CRIB_WALLS[String(body.wall)];
+    if (!opt) return { ok: false, message: "Unknown wall colour.", status: 400 };
+    total += opt.price;
+    changes.push(["wall", String(body.wall), opt]);
+  }
+  if (body.floor != null && String(body.floor) !== decor.floor) {
+    const opt = CRIB_FLOORS[String(body.floor)];
+    if (!opt) return { ok: false, message: "Unknown flooring.", status: 400 };
+    total += opt.price;
+    changes.push(["floor", String(body.floor), opt]);
+  }
+  if (body.light != null && String(body.light) !== decor.light) {
+    const opt = CRIB_LIGHTS[String(body.light)];
+    if (!opt) return { ok: false, message: "Unknown lighting.", status: 400 };
+    total += opt.price;
+    changes.push(["light", String(body.light), opt]);
+  }
+  if (!changes.length) return { ok: false, message: "That is already how your home looks.", status: 400 };
+  if (save.balance < total) return { ok: false, message: `Not enough City Sol — that redecoration is ${total}.`, status: 400 };
+  save.balance -= total;
+  for (const [key, value] of changes) decor[key] = value;
+  entry.crib.decor = decor;
+  await saveSave(save);
+  return { ok: true, message: `Redecorated — ${changes.map(([, , opt]) => opt.name).join(", ")} for ${total} City Sol.`, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
+}
+
+async function cribLights(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const entry = ownedCribHome(save, String(body.home || ""), server);
+  if (!entry) return { ok: false, message: "You don't own that home on this server.", status: 400 };
+  const on = body.on !== false && body.on !== "false";
+  const bill = refreshBill(entry, Date.now());
+  if (on && bill.lightsOff) return { ok: false, message: "The lights are cut off — pay this week's bills first.", status: 400 };
+  entry.crib.lightsOn = on;
+  await saveSave(save);
+  return { ok: true, message: on ? "Lights on." : "Lights off — it's dark in here now.", crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
+}
+
+async function cribTv(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const entry = ownedCribHome(save, String(body.home || ""), server);
+  if (!entry) return { ok: false, message: "You don't own that home on this server.", status: 400 };
+  const on = body.on !== false && body.on !== "false";
+  entry.crib.tvOn = on;
+  await saveSave(save);
+  return { ok: true, message: on ? "TV on — the radio is playing through it." : "TV off.", crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
+}
+
 // --- Mission chain + new earning ops (fix-server) ------------------------
 // All pay into the per-server save (City Sol only). See MISSION_CHAIN
 // for the mission list and the per-step trust model.
@@ -5123,7 +5479,11 @@ export async function POST(request) {
     if (Date.now() - Number(save.job.started) < JOB_MS) {
       return json({ ok: false, message: "Finish the route. The city checks the clock." }, 400);
     }
-    save.balance += pay;
+    // CRIB: rested players (energy >= 70) earn +10% — sleep in your own
+    // bed to stay rested. The bonus is real pay, not a display trick.
+    const rested = cribEnergyBonus(save);
+    const finalPay = rested ? Math.round(pay * 1.1) : pay;
+    save.balance += finalPay;
     save.job = null;
     save.jobStreak = Number(save.jobStreak || 0) + 1;
     save.earned = Number(save.earned || 0) + pay;
@@ -5138,12 +5498,12 @@ export async function POST(request) {
     // `earned` total (the leaderboard reads it).
     player.job = null;
     player.jobStreak = save.jobStreak;
-    const bonus = noteEarn(player, id, pay, save);
+    const bonus = noteEarn(player, id, finalPay, save);
     await saveSave(save);
     await mirrorBalance(player, save);
     await savePlayer(player);
     const extra = bonus ? ` Quest paid ${bonus} City Sol.` : "";
-    return json({ ok: true, message: `${id} paid ${pay} City Sol.${fedBonus > 0 ? ` Satisfied bonus +${fedBonus}.` : ""} Job streak ${save.jobStreak}.${extra}`, me: publicPlayer(save) });
+    return json({ ok: true, message: `${id} paid ${finalPay} City Sol.${rested ? " Rested bonus +10%." : ""}${fedBonus > 0 ? ` Satisfied bonus +${fedBonus}.` : ""} Job streak ${save.jobStreak}.${extra}`, me: publicPlayer(save) });
   }
 
   // Real billboards: pay SOL from the in-app wallet, Jupiter swaps
@@ -5351,6 +5711,29 @@ export async function POST(request) {
     else if (op === "people-end-rent") result = await peopleEndRent(player, save, body);
     else result = await peopleCollectRent(player, save);    return json(result, result.ok ? 200 : result.status || 400);
   }
+  // CRIB (home life) — bills, sleep/energy, pets, upgrades, decor,
+  // TV / fridge / lights. All City Sol, all per (player, server).
+  if (op === "crib-status" || op === "crib-pay-bill" || op === "crib-sleep" || op === "crib-energy" || op === "crib-buy-pet" || op === "crib-feed-pet" || op === "crib-buy-food" || op === "crib-eat" || op === "crib-upgrade" || op === "crib-decor" || op === "crib-lights" || op === "crib-tv") {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5) first." }, 400);
+    const save = await ensureSave(player, server);
+    let result;
+    if (op === "crib-status") result = await cribStatusOp(save, server);
+    else if (op === "crib-pay-bill") result = await cribPayBill(save, body);
+    else if (op === "crib-sleep") result = await cribSleep(save, body);
+    else if (op === "crib-energy") result = await cribEnergySync(save, body);
+    else if (op === "crib-buy-pet") result = await cribBuyPet(save, body);
+    else if (op === "crib-feed-pet") result = await cribFeedPet(save, body);
+    else if (op === "crib-buy-food") result = await cribBuyFood(save, body);
+    else if (op === "crib-eat") result = await cribEat(save, body);
+    else if (op === "crib-upgrade") result = await cribUpgrade(save, body);
+    else if (op === "crib-decor") result = await cribDecor(save, body);
+    else if (op === "crib-lights") result = await cribLights(save, body);
+    else result = await cribTv(save, body);
+    if (result.ok) await mirrorBalance(player, save);
+    return json(result, result.ok ? 200 : result.status || 400);
+  }
+
   // District office suites — same City Sol leases as the HQ, scoped by
   // (suite, server) in the one office_claims table. The attached `me`
   // is the server-scoped save, not the global player row.
