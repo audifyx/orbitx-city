@@ -5553,6 +5553,16 @@ export function createRuntime(scene: Scene) {
       );
     }
     if (ridingBus) rideBus(dt, body);
+    window.__ORBITX_BUS = {
+      x: Math.round(bus.x * 10) / 10,
+      z: Math.round(bus.z * 10) / 10,
+      yaw: Math.round(bus.yaw * 100) / 100,
+      dwelling: bus.dwelling,
+      atStop: bus.atStop?.id ?? "",
+      nextStop: bus.nextStop()?.name ?? "",
+      speed: Math.round(bus.speed * 10) / 10,
+      riding: ridingBus,
+    };
     // Rental expiry — once a second, while playing. The car goes back and
     // the player is left on foot where the car was.
     if (playing) checkRentalExpiry(body);
@@ -9782,5 +9792,16 @@ export type Runtime = ReturnType<typeof createRuntime>;
 declare global {
   interface Window {
     __ORBITX_SNAP?: Snap;
+    /** City Loop bus debug state (read-only snapshot, like __ORBITX_FPS). */
+    __ORBITX_BUS?: {
+      x: number;
+      z: number;
+      yaw: number;
+      dwelling: boolean;
+      atStop: string;
+      nextStop: string;
+      speed: number;
+      riding: boolean;
+    };
   }
 }

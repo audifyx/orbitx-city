@@ -182,10 +182,12 @@ export class BusSim {
     this.z = start.z;
     // Heading east toward waypoint 1.
     this.yaw = Math.PI / 2;
-    // Start parked at Central Station so the loop is visible from spawn.
+    // Start parked at Central Station so the loop is visible from spawn —
+    // the first dwell is longer so a player walking in from spawn (32 units)
+    // can catch it.
     this.dwelling = true;
     this.atStop = BUS_STOP_AT[0];
-    this.dwellUntil = 4;
+    this.dwellUntil = 8;
   }
 
   reset(): void {
@@ -197,7 +199,7 @@ export class BusSim {
     this.dwelling = true;
     this.speed = 0;
     this.atStop = BUS_STOP_AT[0];
-    this.dwellUntil = 4;
+    this.dwellUntil = 8;
     this.hopCooldownUntil = 0;
     this.hoppedAt = -1e9;
     this.clock = 0;
