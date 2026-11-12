@@ -1,0 +1,145 @@
+{owned ? (() => {
+                    // CRAZY stuff for this home — pool / theater / rooftop /
+                    // plants / season decor. All City Sol, all on the owned
+                    // record; the server is the authority on every price.
+                    const record = crazyMine.find((h) => h.homeId === zoneId);
+                    const ex = crazyOf(record);
+                    const tier = typeof record?.tier === "string" ? record.tier : "";
+                    const act = async (p: Promise<{ ok: boolean; message: string }>) => {
+                      const res = await p;
+                      setCrazyMsg(res.message);
+                      await refreshCrazy();
+                    };
+                    const rt = gameRef.current?.runtime ?? null;
+                    return (
+                      <div className="list">
+                        <h3>CRAZY stuff — City Sol only</h3>
+                        {crazyMsg ? <p>{crazyMsg}</p> : null}
+                        {snap.swimming ? <p>Swimming in your {snap.swimming === "pool" ? "pool" : "hot tub"} — walk out to get dry.</p> : null}
+                        <article>
+                          <div>
+                            <b>{ex.pool === "pool" ? "Pool" : ex.pool === "hottub" ? "Hot tub" : "Pool / hot tub"}</b>
+                            <span>{ex.pool ? "In your yard — walk in to swim" : "A pool or hot tub in the yard"}</span>
+                          </div>
+                          {!ex.pool ? (
+                            <div className="days">
+                              <button type="button" disabled={!rt || snap.balance < CRAZY_PRICES.pool} onClick={() => rt && void act(rt.crazyBuyPool(zoneId, "pool"))}>
+                                Pool — {CRAZY_PRICES.pool} City Sol
+                              </button>
+                              <button type="button" disabled={!rt || snap.balance < CRAZY_PRICES.hottub} onClick={() => rt && void act(rt.crazyBuyPool(zoneId, "hottub"))}>
+                                Hot tub — {CRAZY_PRICES.hottub} City Sol
+                              </button>
+                            </div>
+                          ) : null}
+                        </article>
+                        <article>
+                          <div>
+                            <b>Home theater</b>
+                            <span>{ex.theater ? "Big screen + seats — watch with friends" : "Big screen, friends come sit and watch"}</span>
+                          </div>
+                          {!ex.theater ? (
+                            <button type="button" disabled={!rt || snap.balance < CRAZY_PRICES.theater} onClick={() => rt && void act(rt.crazyBuyTheater(zoneId))}>
+                              Theater — {CRAZY_PRICES.theater} City Sol
+                            </button>
+                          ) : snap.theaterPlaying === zoneId ? (
+                            <button type="button" onClick={() => rt?.stopTheater()}>Stop the show</button>
+                          ) : (
+                            <button type="button" onClick={() => rt?.watchTheater(zoneId)}>Watch the show</button>
+                          )}
+                        </article>
+                        <article>
+                          <div>
+                            <b>Rooftop / balcony</b>
+                            <span>{ex.rooftop ? "Deck on top — go up and hang out" : "Outdoor space on top of the penthouse"}</span>
+                          </div>
+                          {!ex.rooftop ? (
+                            tier === "penthouse" ? (
+                              <button type="button" disabled={!rt || snap.balance < CRAZY_PRICES.rooftop} onClick={() => rt && void act(rt.crazyBuyRooftop(zoneId))}>
+                                Rooftop deck — {CRAZY_PRICES.rooftop} City Sol
+                              </button>
+                            ) : (
+                              <span>Rooftop decks are for penthouses — crib tiers aren&apos;t live yet, so no home can buy one right now.</span>
+                            )
+                          ) : snap.onRooftop === zoneId ? (
+                            <button type="button" onClick={() => rt?.goDownstairs(zoneId)}>Go downstairs</button>
+                          ) : (
+                            <button type="button" onClick={() => rt?.goToRooftop(zoneId)}>Go up to the rooftop</button>
+                          )}
+                        </article>
+                        <article>
+                          <div>
+                            <b>Plants</b>
+                            <span>{ex.plants.length ? `${ex.plants.length} of 6 planted — water them and they grow` : "Buy a plant, put it on the balcony, water it"}</span>
+                          </div>
+                          <div className="days">
+                            {(Object.keys(CRAZY_PLANT_INFO) as Array<keyof typeof CRAZY_PLANT_INFO>).map((kind) => (
+                              <button
+                                key={kind}
+                                type="button"
+                                disabled={!rt || ex.plants.length >= 6 || snap.balance < CRAZY_PRICES.plants[kind]}
+                                onClick={() => rt && void act(rt.crazyBuyPlant(zoneId, kind))}
+                              >
+                                {CRAZY_PLANT_INFO[kind].name} — {CRAZY_PRICES.plants[kind]} City Sol
+                              </button>
+                            ))}
+                          </div>
+                          {ex.plants.map((plant) => {
+                            const stage = plantStageLive(plant);
+                            const info = CRAZY_PLANT_INFO[plant.kind] ?? CRAZY_PLANT_INFO.sunflower;
+                            return (
+                              <article key={plant.id}>
+                                <div>
+                                  <b>{info.name} — {CRAZY_PLANT_STAGE_NAMES[stage]}</b>
+                                  <span>{plant.watered ? "Watered — growing" : stage >= 2 ? "Grown — ready to harvest" : "Thirsty — water it to grow"}</span>
+                                </div>
+                                {stage < 2 ? (
+                                  <button type="button" disabled={!rt || plant.watered} onClick={() => rt && void act(rt.crazyWaterPlant(zoneId, plant.id))}>
+                                    {plant.watered ? "Watered" : "Water"}
+                                  </button>
+                                ) : (
+                                  <button type="button" disabled={!rt} onClick={() => rt && void act(rt.crazyHarvestPlant(zoneId, plant.id))}>
+                                    Harvest — +{info.harvest} City Sol
+                                  </button>
+                                )}
+                              </article>
+                            );
+                          })}
+                        </article>
+                        <article>
+                          <div>
+                            <b>Season decorations</b>
+                            <span>Season on the block: {CRAZY_SEASON_LABELS[crazySeason as keyof typeof CRAZY_SEASON_LABELS] ?? crazySeason}</span>
+                          </div>
+                          <div className="days">
+                            {(Object.keys(CRAZY_DECOR_INFO) as Array<keyof typeof CRAZY_DECOR_INFO>).map((kind) => {
+                              const ownedDecor = !!ex.decor[kind as keyof typeof ex.decor];
+                              return (
+                                <button
+                                  key={kind}
+                                  type="button"
+                                  disabled={!rt || ownedDecor || snap.balance < CRAZY_PRICES.decor[kind]}
+                                  onClick={() => rt && void act(rt.crazyBuyDecor(zoneId, kind))}
+                                >
+                                  {ownedDecor ? `${CRAZY_DECOR_INFO[kind].name} — Owned` : `${CRAZY_DECOR_INFO[kind].name} — ${CRAZY_PRICES.decor[kind]} City Sol`}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="days">
+                            {(["auto", "winter", "halloween", "spring", "summer"] as const).map((s) => (
+                              <button
+                                key={s}
+                                type="button"
+                                className={crazyOverride === s ? "on" : ""}
+                                disabled={!rt}
+                                onClick={() => rt && void act(rt.crazySetSeason(s))}
+                              >
+                                {s === "auto" ? "Auto" : CRAZY_SEASON_LABELS[s]}
+                              </button>
+                            ))}
+                          </div>
+                          <span>Season changes the whole block — winter lights + tree, Halloween pumpkins, spring flowers, summer lanterns.</span>
+                        </article>
+                      </div>
+                    );
+                  })() : null}
