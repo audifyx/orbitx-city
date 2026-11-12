@@ -643,7 +643,7 @@ export const WASH_COOLDOWN_MS = 45000;
 // The grocery store (Piece 2) sells GROCERY_FOODS and tops up the
 // pantry; cooking eats the pantry, restaurants and the gym are below.
 // Lots were verified CLEAR against buildCity(1): no zone, no tall
-// collider, no road strip (see lot-check2-food.ts — the museum's old
+// collider, no road strip (see lot-verify-food.ts — the museum's old
 // slot and the casino forecourt stay empty on purpose, never build there).
 export interface GroceryFood {
   id: string;
