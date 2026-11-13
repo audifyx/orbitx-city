@@ -2197,6 +2197,36 @@ async function activeCount(serverId) {
   return count;
 }
 
+// Which universe a player is playing on RIGHT NOW: the universe whose
+// save has the freshest heartbeat (lastSeen inside the 5-minute
+// window). Null when they have no recent heartbeat anywhere — they are
+// offline, or they have never joined a universe. This is how a join
+// finds the other person: party-accept and the universe picker read it
+// instead of guessing the inviter's home universe (which is where the
+// "sometimes I join and I'm not with them" bug came from — the joiner
+// kept landing on their OWN saved/home universe while the friend was
+// on another one). Backend-agnostic: saveKey covers Supabase / Neon /
+// Redis / memory, one read per universe, and a miss is just null.
+async function currentUniverseFor(playerId) {
+  if (!playerId) return null;
+  try {
+    const since = Date.now() - MULTIVERSE_HEARTBEAT_MS;
+    let best = null;
+    let bestSeen = 0;
+    for (const serverId of SERVERS) {
+      const save = await saveKey(playerId, serverId);
+      const seen = Number(save?.lastSeen || 0);
+      if (seen > since && seen > bestSeen) {
+        best = serverId;
+        bestSeen = seen;
+      }
+    }
+    return best;
+  } catch {
+    return null;
+  }
+}
+
 // Identity fields live on players, not on the save — copy them onto a
 // loaded save before it is rendered as `me`, so the client sees one
 // complete CityMe. Nothing here is persisted to player_saves:
@@ -5411,9 +5441,17 @@ export async function POST(request) {
     for (const id of SERVERS) {
       universes.push({ id, playerCount: await activeCount(id), realtimeEndpoint: null });
     }
+    // Where the player's friends are RIGHT NOW, so the menu picker can
+    // tag the universe a friend is on ("TJR is here") and the player
+    // joins the same room instead of their own saved universe. Null
+    // when a friend has no recent heartbeat (offline / never joined).
+    const friends = [];
+    for (const friend of player.friends || []) {
+      friends.push({ id: friend.id, name: friend.name, server: await currentUniverseFor(friend.id) });
+    }
     // currentServerId is client-side state (Vercel functions are
     // stateless) — the client tracks which universe it joined.
-    return json({ ok: true, universes, homeServerId: player.homeServer ?? null, currentServerId: null });
+    return json({ ok: true, universes, friends, homeServerId: player.homeServer ?? null, currentServerId: null });
   }
 
   if (op === "universe-join" || op === "universe-travel") {
@@ -5937,7 +5975,12 @@ export async function POST(request) {
       if (error) noteSupabase(error.message);
     }
     await savePlayer(player);
-    return json({ ok: true, party, me: publicPlayer(player), message: `You joined ${other.name}'s party.` });
+    // Tell the accepter which universe the inviter is on RIGHT NOW, so
+    // the client can travel there instead of leaving them on their own
+    // universe while the party is on another one. Null when the inviter
+    // has no recent heartbeat (offline / never joined) — the client
+    // then just joins the party where it is.
+    return json({ ok: true, party, me: publicPlayer(player), server: await currentUniverseFor(other.id), message: `You joined ${other.name}'s party.` });
   }
 
   if (op === "party-leave") {
@@ -6041,6 +6084,10 @@ export async function POST(request) {
     // but never mints a save.
     const syncSave = await ensureSave(player, currentServerFor(body, player), { mint: false });
     const state = sanitizeState(player, body.state || {});
+    // Presence carries the writer's universe, so the client can tell
+    // which room a player is in — teleport and the Players panel read
+    // it instead of assuming everyone is on this universe.
+    state.server = currentServerFor(body, player);
     if (body.ghost || body.state?.ghost) ensureGhost();
     await writePresence(state);
     const people = await readWorld();
