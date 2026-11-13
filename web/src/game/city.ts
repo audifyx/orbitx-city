@@ -863,7 +863,7 @@ function intervalsOverlap(a0: number, a1: number, b0: number, b1: number) {
   return a0 < b1 && a1 > b0;
 }
 
-function addYard(boxes: Box[], cols: Collider[], x0: number, z0: number, x1: number, z1: number, face: Face, rng: Rng): { tree: boolean; lamp: boolean } {
+function addYard(boxes: Box[], _cols: Collider[], x0: number, z0: number, x1: number, z1: number, face: Face, rng: Rng): { tree: boolean; lamp: boolean } {
   // Phase 1 — the lawn only, plus the tree/lamp decisions, drawn here so
   // the yard rng stream never moves. The path, hedges, tree and lamp are
   // placed by addYardDoor once the door anchor is known: the door sits on

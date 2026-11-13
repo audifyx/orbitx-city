@@ -1684,7 +1684,7 @@ export function buildBridge(city: City, bridge: BridgeDef): void {
         // The lift walk-up corridor runs 1.1 west + 4.0 east of the door,
         // so the gap is asymmetric: it must cover the whole corridor.
         if (liftX !== null && liftX - 1.5 > a0 && liftX + 4.5 < a1) {
-          segs = [[a0, liftX - 1.5], [liftX + 4.5, a1]].filter(([a, b]) => b - a >= 2);
+          segs = ([[a0, liftX - 1.5], [liftX + 4.5, a1]] as Array<[number, number]>).filter(([a, b]) => b - a >= 2);
         }
       }
       for (const [a, b] of segs) {
