@@ -206,6 +206,10 @@ export interface ToastItem {
   kind: ToastKind;
   read: boolean;
   action?: "chat";
+  // A friend request / party invite this toast is about — the toast
+  // renders Accept / Decline for it (the pop-up IS the accept surface;
+  // a dismiss-only toast left the user with nowhere to accept from).
+  request?: { id: string; kind: "friend" | "party" };
 }
 export interface PersonCard {
   id: string;
@@ -3030,14 +3034,20 @@ export function createRuntime(scene: Scene) {
   // pushToast does NOT publish — diffSocial() calls it from inside
   // publish(), and a nested publish there would re-run the diff before
   // the previous sets update (infinite pop-ups for one event).
-  function pushToast(icon: string, text: string, kind: ToastKind = "info", action?: "chat") {
+  // The 4th arg is one of two things, kept from both branches that
+  // merged here: "chat" (chat pop-ups — tapping the toast opens the
+  // Chat panel) or a { id, kind } request (friend-accept — the toast
+  // renders Accept / Decline for it). Both call sites stay unchanged.
+  function pushToast(icon: string, text: string, kind: ToastKind = "info", actionOrRequest?: "chat" | { id: string; kind: "friend" | "party" }) {
     toastSeq += 1;
-    toasts.unshift({ id: toastSeq, icon, text, at: Date.now(), kind, read: false, action });
+    const action = actionOrRequest === "chat" ? "chat" : undefined;
+    const request = actionOrRequest && actionOrRequest !== "chat" ? actionOrRequest : undefined;
+    toasts.unshift({ id: toastSeq, icon, text, at: Date.now(), kind, read: false, action, request });
     if (toasts.length > 30) toasts.length = 30;
   }
 
-  function notify(icon: string, text: string, kind: ToastKind = "info") {
-    pushToast(icon, text, kind);
+  function notify(icon: string, text: string, kind: ToastKind = "info", actionOrRequest?: "chat" | { id: string; kind: "friend" | "party" }) {
+    pushToast(icon, text, kind, actionOrRequest);
     publish();
   }
 
@@ -3087,8 +3097,8 @@ export function createRuntime(scene: Scene) {
     }
     for (const item of inbox) {
       if (prevInbox.some((old) => old.id === item.id && (old.kind || "") === (item.kind || ""))) continue;
-      if (item.kind === "party") pushToast("PARTY", `${item.name} invited you to their party`, "party");
-      else pushToast("FRIEND", `Friend request from ${item.name}`, "friend");
+      if (item.kind === "party") pushToast("PARTY", `${item.name} invited you to their party`, "party", { id: item.id, kind: "party" });
+      else pushToast("FRIEND", `Friend request from ${item.name}`, "friend", { id: item.id, kind: "friend" });
     }
     for (const friend of friends) {
       if (prevFriends.some((old) => old.id === friend.id)) continue;
@@ -9781,6 +9791,24 @@ export function createRuntime(scene: Scene) {
     dismissToast(id: number) {
       const item = toasts.find((toast) => toast.id === id);
       if (item) item.read = true;
+      publish();
+    },
+    // Answer a friend request / party invite straight from its pop-up —
+    // the toast IS the accept surface. The request is cleared from the
+    // toast once answered so the Alerts history stops offering Accept
+    // for it (the confirmation toast says what happened).
+    answerToast(id: number, accept: boolean) {
+      const item = toasts.find((toast) => toast.id === id);
+      if (!item || !item.request) return;
+      const req = item.request;
+      item.request = undefined;
+      item.read = true;
+      if (accept) {
+        if (req.kind === "party") this.partyAccept(req.id);
+        else this.friendAccept(req.id);
+      } else {
+        this.declineRequest(req.id, req.kind);
+      }
       publish();
     },
     // Mark every notification read (the Alerts panel calls this on open)

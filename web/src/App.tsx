@@ -1229,15 +1229,25 @@ export default function App() {
           </span>
         </div>
       )}
-      {/* Notification pop-ups: tap one to dismiss it early. Live toasts
+      {/* Notification pop-ups: tap the text to dismiss it early; a
+       * friend request / party invite pop-up carries Accept / Decline
+       * right on it — the pop-up IS the accept surface. Live toasts
        * auto-expire after 5s; the full history lives in the Alerts panel. */}
       {!menu && !snap.hideHud && snap.toasts.length > 0 && (
         <div className="toasts" aria-live="polite">
           {snap.toasts.map((toast) => (
-            <button type="button" key={toast.id} className="toast" onClick={() => { gameRef.current?.runtime.dismissToast(toast.id); if (toast.action === "chat") open("chat"); }}>
-              <span className="toast-icon">{toast.icon}</span>
-              <span className="toast-text">{toast.text}</span>
-            </button>
+            <div key={toast.id} className="toast" role="button" tabIndex={0} onClick={() => { gameRef.current?.runtime.dismissToast(toast.id); if (toast.action === "chat") open("chat"); }}>
+              <div className="toast-row">
+                <span className="toast-icon">{toast.icon}</span>
+                <span className="toast-text">{toast.text}</span>
+              </div>
+              {toast.request ? (
+                <div className="toast-actions" onClick={(e) => e.stopPropagation()}>
+                  <button type="button" className="toast-accept" onClick={() => gameRef.current?.runtime.answerToast(toast.id, true)}>Accept</button>
+                  <button type="button" className="toast-decline" onClick={() => gameRef.current?.runtime.answerToast(toast.id, false)}>Decline</button>
+                </div>
+              ) : null}
+            </div>
           ))}
         </div>
       )}
@@ -4365,6 +4375,12 @@ function AlertsPanel({ snap, rt, onOpenChat }: { snap: Snap; rt: Runtime | null;
             title={alert.kind === "chat" ? "Tap to open chat" : undefined}
           >
             <div><b>{alert.icon}</b><span>{alert.text}</span></div>
+            {alert.request ? (
+              <div className="days">
+                <button type="button" onClick={() => rt?.answerToast(alert.id, true)}>Accept</button>
+                <button type="button" onClick={() => rt?.answerToast(alert.id, false)}>Decline</button>
+              </div>
+            ) : null}
             <span>{new Date(alert.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
           </article>
         ))
