@@ -26,11 +26,14 @@
 
 import {
   BoxGeometry,
+  CanvasTexture,
   Color,
   CylinderGeometry,
   Group,
   Mesh,
   MeshStandardMaterial,
+  PlaneGeometry,
+  SRGBColorSpace,
   type Material,
 } from "three";
 import { GOLD, MATERIALS } from "./materials";
@@ -1731,6 +1734,9 @@ function buildBoat(v: VehicleDef, color?: string): Group {
     mesh.position.set(x, y, z);
     mesh.scale.set(sx, sy, sz);
     if (rz) mesh.rotation.z = rz;
+    // World-quality upgrade (2026-11-13): boats cast shadows like the
+    // cars do — the AI demo's vehicles all sit in a soft drop shadow.
+    mesh.castShadow = true;
     group.add(mesh);
     return mesh;
   };
@@ -1771,6 +1777,38 @@ function buildBoat(v: VehicleDef, color?: string): Group {
 }
 
 /**
+ * Shared rear license-plate material (world-quality upgrade 2026-11-13):
+ * "ORBITX" on white with a gold rule, drawn once on a canvas and shared
+ * by every car. Guarded for node (api tests import this module's types
+ * only in the browser bundle — the document check keeps non-browser
+ * imports from crashing).
+ */
+let plateMat: MeshStandardMaterial | undefined;
+function plateMaterial(): MeshStandardMaterial | undefined {
+  if (plateMat) return plateMat;
+  if (typeof document === "undefined") return undefined;
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 32;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return undefined;
+  ctx.fillStyle = "#f4f6fa";
+  ctx.fillRect(0, 0, 128, 32);
+  ctx.fillStyle = "#e0b33a";
+  ctx.fillRect(0, 0, 128, 4);
+  ctx.fillRect(0, 28, 128, 4);
+  ctx.fillStyle = "#10141c";
+  ctx.font = "bold 20px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("ORBITX", 64, 17);
+  const tex = new CanvasTexture(canvas);
+  tex.colorSpace = SRGBColorSpace;
+  plateMat = new MeshStandardMaterial({ map: tex, roughness: 0.4, metalness: 0.1 });
+  return plateMat;
+}
+
+/**
  * Build a THREE.Group for a catalog vehicle.
  * @param id Vehicle id from VEHICLES.
  * @param color Paint key (see VEHICLE_COLORS) or "#rrggbb". Defaults to the
@@ -1808,6 +1846,10 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
     const mesh = new Mesh(box, material);
     mesh.position.set(x, y, z);
     mesh.scale.set(sx, sy, sz);
+    // World-quality upgrade (2026-11-13): cars cast shadows. Before this
+    // no vehicle mesh set castShadow, so every car floated shadowless on
+    // the road while the AI demo's cars sit in a soft drop shadow.
+    mesh.castShadow = true;
     group.add(mesh);
     return mesh;
   };
@@ -1836,6 +1878,16 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
     add(paint, p.cabinX, cabinY, 0, p.cabinLen, p.cabinH, p.cabinW);
     if (p.glassCabin) {
       add(partMaterial("glass", paint, mods.tint), p.cabinX + 0.05, cabinY + p.cabinH / 2 - 0.02, 0, p.cabinLen - 0.5, 0.16, p.cabinW - 0.22);
+      // Sloped windshield (world-quality upgrade 2026-11-13): the old
+      // cabin was a sheer glass box; the AI demo's cars rake the
+      // windshield back from the nose. A thin glass panel, top leaning
+      // rearward (rotation.z +0.45 tips +Y toward -X).
+      const shield = new Mesh(box, partMaterial("glass", paint, mods.tint));
+      shield.scale.set(0.08, p.cabinH * 0.85, p.cabinW - 0.3);
+      shield.position.set(p.cabinX + p.cabinLen / 2 - 0.08, cabinY + p.cabinH * 0.08, 0);
+      shield.rotation.z = 0.45;
+      shield.castShadow = true;
+      group.add(shield);
     } else {
       add(paint, p.cabinX, cabinY + p.cabinH / 2 + 0.05, 0, p.cabinLen - 0.2, 0.1, p.cabinW - 0.1);
     }
@@ -1922,6 +1974,33 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
   // Vehicle-signature extras (scoops, stripes, doors, thrusters...).
   for (const part of p.extras ?? []) addPart(part);
 
+  // World-quality upgrade (2026-11-13): mirrors, bumpers, plate — the
+  // details the AI demo's cars have that the old builder skipped.
+  if (!isBoard && !isBike) {
+    // Side mirrors: small dark tabs at the cabin nose.
+    if (p.cabinLen > 0) {
+      const mirrorY = p.bodyY + p.bodyH / 2 + 0.12;
+      const mirrorX = p.cabinX + p.cabinLen / 2 - 0.15;
+      for (const s of [-1, 1]) {
+        add(partMaterial("dark", paint), mirrorX, mirrorY, s * (p.width / 2 + 0.06), 0.16, 0.1, 0.08);
+      }
+    }
+    // Front + rear bumpers: dark slabs that read as the car's chin.
+    add(partMaterial("dark", paint), half - 0.06, p.bodyY - 0.08, 0, 0.16, 0.2, p.width - 0.08);
+    add(partMaterial("dark", paint), -half + 0.06, p.bodyY - 0.08, 0, 0.16, 0.2, p.width - 0.08);
+    // Rear license plate: "ORBITX" on white with a gold rule, like the
+    // red sedan in the demo (plate "ORBITX 42"). One shared canvas
+    // texture for every car; the plane faces -X (rear) and reads
+    // correctly from behind (rotation.y -PI/2).
+    const plate = plateMaterial();
+    if (plate) {
+      const plateMesh = new Mesh(new PlaneGeometry(0.72, 0.2), plate);
+      plateMesh.position.set(-half - 0.05, p.bodyY + 0.06, 0);
+      plateMesh.rotation.y = -Math.PI / 2;
+      group.add(plateMesh);
+    }
+  }
+
   // Wheels: named "wheel" so drive()'s spin loop finds them. Hubcaps + glow
   // match makeCar; boards get no hubcaps or underglow (tiny wheels).
   // Rim mod recolours the hub: stock chrome, sport dark, chrome bright,
@@ -1937,11 +2016,13 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
     mesh.rotation.x = Math.PI / 2;
     mesh.position.set(w.x, w.r, w.z);
     mesh.name = "wheel";
+    mesh.castShadow = true;
     group.add(mesh);
     if (!isBoard) {
       const hub = new Mesh(new CylinderGeometry(w.r * 0.45, w.r * 0.45, w.w + 0.02, 10), rimMat);
       hub.rotation.x = Math.PI / 2;
       hub.position.set(w.x, w.r, w.z);
+      hub.castShadow = true;
       group.add(hub);
     }
   }

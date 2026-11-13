@@ -1,4 +1,9 @@
-import { MeshStandardMaterial } from "three";
+import {
+  CanvasTexture,
+  MeshStandardMaterial,
+  RepeatWrapping,
+  SRGBColorSpace,
+} from "three";
 import type { Mat } from "./city";
 
 function styledMaterial(opts: {
@@ -28,9 +33,9 @@ function styledMaterial(opts: {
 
 export const MATERIALS: Record<Mat, MeshStandardMaterial> = {
   asphalt: styledMaterial({ color: 0x2a2f3a }),
-  sidewalk: styledMaterial({ color: 0xc5c9d1, grid: 0.35 }),
+  sidewalk: styledMaterial({ color: 0xcfd3da, grid: 0.35 }),
   plaza: styledMaterial({ color: 0xe4e7ee, grid: 0.45 }),
-  grass: styledMaterial({ color: 0x3c9a3a, grid: 0.4 }),
+  grass: styledMaterial({ color: 0x46a844, grid: 0.4 }),
   hedge: styledMaterial({ color: 0x1d6e32, grid: 0.7 }),
   leaves: styledMaterial({ color: 0x37b24a, grid: 0.55 }),
   leavesDark: styledMaterial({ color: 0x1f8a34, grid: 0.55 }),
@@ -85,5 +90,83 @@ export const MATERIALS: Record<Mat, MeshStandardMaterial> = {
   }),
 };
 MATERIALS.water.depthWrite = false;
+
+/**
+ * Procedural surface grain (2026-11-13, world-quality upgrade). The
+ * `grid` option on styledMaterial was accepted but IGNORED — every
+ * surface was a flat colour, which reads dead next to the AI demo's
+ * textured bark / foliage / pavement. Grain is a near-white canvas
+ * (so the material colour still dominates) with darker + lighter
+ * flecks; it multiplies the colour, it never replaces it.
+ *
+ * Scale rule: a CanvasTexture maps 0-1 across ONE box face, so grain
+ * only reads on small boxes (trunk, leaves, stone, wood). The huge
+ * ground slabs (grass 760u, sidewalk 400u) would stretch one texture
+ * over the whole slab, so they deliberately get NO map — their richness
+ * comes from colour + roughness only.
+ *
+ * Lazy + guarded: document is unavailable in node (api tests,
+ * door-blockers check), so a missing document just means no map.
+ * Strengths match the `grid` values on the literal above.
+ */
+const grainCache = new Map<string, CanvasTexture>();
+function grainTexture(kind: "speckle" | "streak", strength: number): CanvasTexture | undefined {
+  const key = `${kind}:${strength.toFixed(2)}`;
+  const hit = grainCache.get(key);
+  if (hit) return hit;
+  if (typeof document === "undefined") return undefined;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return undefined;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, 128, 128);
+  if (kind === "streak") {
+    // Vertical bark / wood-grain streaks, full height of the face.
+    for (let i = 0; i < 110; i++) {
+      const x = Math.random() * 128;
+      const w = 1 + Math.random() * 3;
+      const light = Math.random() > 0.5;
+      ctx.fillStyle = light
+        ? `rgba(255,255,255,${(strength * 0.22).toFixed(3)})`
+        : `rgba(0,0,0,${(strength * 0.32).toFixed(3)})`;
+      ctx.fillRect(x, 0, w, 128);
+    }
+  } else {
+    // Speckle: leaf / stone / pavement grain.
+    for (let i = 0; i < 900; i++) {
+      const x = Math.random() * 128;
+      const y = Math.random() * 128;
+      const s = 1 + Math.random() * 2;
+      const light = Math.random() > 0.5;
+      ctx.fillStyle = light
+        ? `rgba(255,255,255,${(strength * 0.28).toFixed(3)})`
+        : `rgba(0,0,0,${(strength * 0.32).toFixed(3)})`;
+      ctx.fillRect(x, y, s, s);
+    }
+  }
+  const tex = new CanvasTexture(canvas);
+  tex.wrapS = RepeatWrapping;
+  tex.wrapT = RepeatWrapping;
+  tex.colorSpace = SRGBColorSpace;
+  grainCache.set(key, tex);
+  return tex;
+}
+
+const GRAIN: Partial<Record<Mat, { kind: "speckle" | "streak"; strength: number }>> = {
+  trunk: { kind: "streak", strength: 0.4 },
+  wood: { kind: "streak", strength: 0.55 },
+  leaves: { kind: "speckle", strength: 0.55 },
+  leavesDark: { kind: "speckle", strength: 0.55 },
+  hedge: { kind: "speckle", strength: 0.7 },
+  stone: { kind: "speckle", strength: 0.65 },
+  black: { kind: "speckle", strength: 0.85 },
+  gray: { kind: "speckle", strength: 0.7 },
+  white: { kind: "speckle", strength: 0.75 },
+};
+for (const [key, spec] of Object.entries(GRAIN) as Array<[Mat, { kind: "speckle" | "streak"; strength: number }]>) {
+  const tex = grainTexture(spec.kind, spec.strength);
+  if (tex) MATERIALS[key].map = tex;
+}
 
 export const GOLD = MATERIALS.gold;
