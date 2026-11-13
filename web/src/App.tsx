@@ -396,6 +396,9 @@ const EMPTY: Snap = {
   emergency: null,
   districtOffice: "harbor",
   cityPeople: EMPTY_CITY_PEOPLE,
+  cityStats: null,
+  cityStatsLoading: false,
+  cityStatsError: "",
 };
 
 function shotMode(): PlayMode | null {
