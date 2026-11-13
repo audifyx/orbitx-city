@@ -1834,9 +1834,11 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
   const paint = new MeshStandardMaterial({
     color: dirtPaintHex(paintHex(color ?? v.defaultColor), wear.dirt),
     emissive: 0x12141c,
-    emissiveIntensity: 0.28,
+    emissiveIntensity: 0.18,
     // Dirt kills the shine: roughness climbs with the dirt level.
-    roughness: 0.35 + 0.55 * (wear.dirt / 100),
+    // World-quality upgrade (2026-11-13): glossier base (0.28) so clean
+    // cars read like the AI demo's glossy sedan, not matte plastic.
+    roughness: 0.28 + 0.55 * (wear.dirt / 100),
     metalness: 0.45,
   });
   paints.push(paint);
@@ -1886,7 +1888,8 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
       shield.scale.set(0.08, p.cabinH * 0.85, p.cabinW - 0.3);
       shield.position.set(p.cabinX + p.cabinLen / 2 - 0.08, cabinY + p.cabinH * 0.08, 0);
       shield.rotation.z = 0.45;
-      shield.castShadow = true;
+      // Glass casts no solid shadow (three.js shadows ignore transparency).
+      shield.castShadow = false;
       group.add(shield);
     } else {
       add(paint, p.cabinX, cabinY + p.cabinH / 2 + 0.05, 0, p.cabinLen - 0.2, 0.1, p.cabinW - 0.1);

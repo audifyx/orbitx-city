@@ -239,15 +239,6 @@ const STYLE_EMISSIVE = [0x9af6ff, 0xffc27a, 0xbfe6ff, 0xffc27a, 0x9af6ff, 0x9af6
 const ROOF_MATS = [0x232830, 0x8a4a34, 0x3a4a5c, 0xe0b33a].map(
   (color) => new MeshStandardMaterial({ color, roughness: 0.65, metalness: 0.15 }),
 );
-const GLASS_MAT = new MeshStandardMaterial({
-  color: 0x9af6ff,
-  emissive: 0x1ad8ff,
-  emissiveIntensity: 0.55,
-  roughness: 0.12,
-  metalness: 0.4,
-  transparent: true,
-  opacity: 0.45,
-});
 // ---- glazing pass: real glass for the office towers + homes. ----
 // Warm-lit home windows + cool curtain glass for the towers. Both register
 // in nightMats so the lit interior reads after dark (same day/night drive
@@ -370,6 +361,15 @@ const GOLD_MAT = new MeshStandardMaterial({
 const WHITE_MAT = new MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.45, metalness: 0.1 });
 const WOOD_MAT = new MeshStandardMaterial({ color: 0x7a5a3a, roughness: 0.8, metalness: 0.05 });
 const DARK_MAT = new MeshStandardMaterial({ color: 0x141820, roughness: 0.7, metalness: 0.2 });
+
+// Shop-interior goods (world-quality upgrade 2026-11-13): bright, slightly
+// emissive so they read through the tinted storefront glass.
+const GOODS_MATS = [
+  new MeshStandardMaterial({ color: 0xe0392f, roughness: 0.5, metalness: 0.1, emissive: 0x5a0f0a, emissiveIntensity: 0.5 }),
+  new MeshStandardMaterial({ color: 0x1ad8ff, roughness: 0.5, metalness: 0.1, emissive: 0x0a4a5a, emissiveIntensity: 0.5 }),
+  new MeshStandardMaterial({ color: 0x37b24a, roughness: 0.5, metalness: 0.1, emissive: 0x0f3a16, emissiveIntensity: 0.5 }),
+  new MeshStandardMaterial({ color: 0xe0b33a, roughness: 0.5, metalness: 0.1, emissive: 0x6a5208, emissiveIntensity: 0.5 }),
+];
 
 function facadeMaterial(style: number, w: number, h: number) {
   const src = paints[style % paints.length];
@@ -564,6 +564,26 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
       const c = origin + span / 2;
       openings.push({ a0: c - gap / 2, a1: c + gap / 2, y0: 0, y1: 3, door: true });
     }
+    // Storefront display windows (world-quality upgrade 2026-11-13): the
+    // AI demo's shop is see-through glass with shelves inside; the old
+    // wall was solid here with a decorative pane on top. Real glass
+    // openings flank the door (or one full pane when the door is on
+    // another face), so the interior shows through. The glass + frame
+    // land via the openings loop below, like any window.
+    if (facade.storefront && facade.face === face) {
+      const c = origin + span / 2;
+      const paneW = Math.min(span * 0.72, 12);
+      const p0 = c - paneW / 2;
+      const p1 = c + paneW / 2;
+      const keep: Array<[number, number]> = [];
+      if (door === face || passThrough === face) keep.push([c - gap / 2, c + gap / 2]);
+      let cur = p0;
+      for (const [k0, k1] of [...keep].sort((a, b) => a[0] - b[0])) {
+        if (k0 > cur + 0.3) openings.push({ a0: cur, a1: k0, y0: 0.15, y1: 3.35 });
+        cur = Math.max(cur, k1);
+      }
+      if (p1 > cur + 0.3) openings.push({ a0: cur, a1: p1, y0: 0.15, y1: 3.35 });
+    }
     for (const op of windowsFor(face, span, origin)) openings.push(op);
     openings.sort((a, b) => a.a0 - b.a0);
     // Wall centre plane (inward from the rect edge) and outer face plane.
@@ -677,6 +697,66 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
 
   const roofMat = new MeshStandardMaterial({ color: 0x141820, roughness: 0.7, metalness: 0.2 });
   addWall(group, cx, h + 0.2, cz, w, 0.4, d, roofMat);
+
+  // ---- shop interior (world-quality upgrade 2026-11-13) ----
+  // The AI demo's shop shows colourful shelves through the glass; the old
+  // shell was empty behind a decorative pane. Two low display counters
+  // flank the centre door lane (never in it — the door stays clear),
+  // goods on top, and a tall back shelf against the rear wall. Inside the
+  // hollow shell: no collider, no door-zone impact, and it renders at
+  // every quality so the user's phone sees it too.
+  if (facade.storefront) {
+    const sFace = facade.face;
+    const sAlongX = sFace === "n" || sFace === "s";
+    const sSpan = sAlongX ? w : d;
+    const sPaneW = Math.min(sSpan * 0.72, 12);
+    const sInX = sFace === "e" ? -1 : sFace === "w" ? 1 : 0;
+    const sInZ = sFace === "s" ? -1 : sFace === "n" ? 1 : 0;
+    let gi = 0;
+    const goods = (px: number, py: number, pz: number) => {
+      const g = new Mesh(box, GOODS_MATS[gi++ % GOODS_MATS.length]);
+      g.position.set(px, py, pz);
+      g.scale.set(0.42, 0.42, 0.42);
+      group.add(g);
+    };
+    const counterW = Math.min(2.6, sPaneW / 2 - 2.0 - 0.4);
+    if (counterW > 0.8) {
+      for (const s of [-1, 1]) {
+        const cc = s * (2.0 + counterW / 2 + 0.3);
+        const ccx = sAlongX ? cx + cc : cx + sInX * 1.7;
+        const ccz = sAlongX ? cz + sInZ * 1.7 : cz + cc;
+        const counter = new Mesh(box, WOOD_MAT);
+        counter.position.set(ccx, 0.5, ccz);
+        counter.scale.set(sAlongX ? counterW : 1.2, 1.0, sAlongX ? 1.2 : counterW);
+        counter.castShadow = true;
+        counter.receiveShadow = true;
+        group.add(counter);
+        const gOff = counterW / 2 - 0.5;
+        for (const gs of [-1, 1]) {
+          goods(sAlongX ? ccx + gs * gOff : ccx, 1.22, sAlongX ? ccz : ccz + gs * gOff);
+        }
+      }
+    }
+    // Tall back shelf against the rear wall — skipped when the door is on
+    // that face, so nothing ever sits behind a door.
+    const rearFace = sFace === "n" ? "s" : sFace === "s" ? "n" : sFace === "w" ? "e" : "w";
+    if (door !== rearFace) {
+      const bsx = sAlongX ? 4 : 0.8;
+      const bsz = sAlongX ? 0.8 : 4;
+      const bxc = sAlongX ? cx : sFace === "e" ? x + 0.7 : x + w - 0.7;
+      const bzc = sAlongX ? (sFace === "n" ? z + d - 0.7 : z + 0.7) : cz;
+      const back = new Mesh(box, WOOD_MAT);
+      back.position.set(bxc, 1.2, bzc);
+      back.scale.set(bsx, 2.4, bsz);
+      back.castShadow = true;
+      back.receiveShadow = true;
+      group.add(back);
+      for (const off of [-1.2, 0, 1.2]) {
+        goods(sAlongX ? bxc + off : bxc, 2.61, sAlongX ? bzc : bzc + off);
+      }
+    }
+  }
+
   return group;
 }
 
@@ -877,30 +957,23 @@ function addStorefront(group: Group, f: Facade) {
   const paneW = Math.min(span * 0.72, 12);
   const cx = f.x + f.w / 2;
   const cz = f.z + f.d / 2;
-  const glass = new Mesh(box, GLASS_MAT);
+  // The glass is the REAL opening in the wall now (hollow() cuts display
+  // windows into the storefront face) — the old proud pane on top of a
+  // solid wall hid the interior. Only the gold sign band + awning stay.
   const band = new Mesh(box, GOLD_MAT);
   if (face === "n") {
-    glass.position.set(cx, 1.75, f.z - 0.12);
-    glass.scale.set(paneW, 3.2, 0.18);
     band.position.set(cx, 3.65, f.z - 0.16);
     band.scale.set(paneW, 0.9, 0.24);
   } else if (face === "s") {
-    glass.position.set(cx, 1.75, f.z + f.d + 0.12);
-    glass.scale.set(paneW, 3.2, 0.18);
     band.position.set(cx, 3.65, f.z + f.d + 0.16);
     band.scale.set(paneW, 0.9, 0.24);
   } else if (face === "w") {
-    glass.position.set(f.x - 0.12, 1.75, cz);
-    glass.scale.set(0.18, 3.2, paneW);
     band.position.set(f.x - 0.16, 3.65, cz);
     band.scale.set(0.24, 0.9, paneW);
   } else {
-    glass.position.set(f.x + f.w + 0.12, 1.75, cz);
-    glass.scale.set(0.18, 3.2, paneW);
     band.position.set(f.x + f.w + 0.16, 3.65, cz);
     band.scale.set(0.24, 0.9, paneW);
   }
-  group.add(glass);
   group.add(band);
   if (f.awning) {
     const awn = new Mesh(box, GOLD_MAT);

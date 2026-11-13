@@ -219,7 +219,7 @@ export function createGame(
             col = mix(col, cloudCol, cloud * 0.55);
           }
           col = mix(col, vec3(0.03, 0.05, 0.12), uNight);
-          col = mix(col, vec3(0.45, 0.72, 0.95), uDay * 0.65);
+          col = mix(col, vec3(0.45, 0.72, 0.95), uDay * 0.9);
           gl_FragColor = vec4(col, 1.0);
         }
       `,

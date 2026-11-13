@@ -642,6 +642,17 @@ function addBench(boxes: Box[], cols: Collider[], x: number, z: number, alongX: 
   cols.push(col(x, 0.55, z, sx, 0.7, sz));
 }
 
+// Street trash bins (world-quality upgrade 2026-11-13): the AI demo's
+// sidewalks have coloured bins by the shops (black, grey, green). One
+// body + lid, door-guarded like the lamps so a bin never lands in a
+// door walk-up.
+const BIN_MATS: Mat[] = ["black", "gray", "leaves"];
+function addBin(boxes: Box[], cols: Collider[], x: number, z: number, i: number) {
+  put(boxes, x, 0.5, z, 0.7, 1.0, 0.7, BIN_MATS[i % BIN_MATS.length]);
+  put(boxes, x, 1.06, z, 0.78, 0.12, 0.78, "gray");
+  cols.push(col(x, 0.55, z, 0.7, 1.1, 0.7));
+}
+
 function disc(boxes: Box[], cx: number, cy: number, cz: number, r: number, h: number, mat: Mat, hole = 0) {
   const R = Math.ceil(r);
   for (let x = -R; x <= R; x++) {
@@ -1572,6 +1583,7 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng, zones: DoorZone
         lampI++;
         if (lampI % 2 === 0 && !lampBlockedByDoor(x, z, zones)) addLamp(boxes, x, z);
         else if (rng() > 0.55 && !treeOverhangsTrain(x, z) && !treeBlockedByDoor(x, z, zones)) addTree(boxes, cols, x, z, 0);
+        if (lampI % 6 === 0 && !lampBlockedByDoor(x, z + 1.4, zones)) addBin(boxes, cols, x, z + 1.4, lampI);
       }
     }
   }
@@ -1584,6 +1596,7 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng, zones: DoorZone
         if (inMega(x, z)) continue;
         if (rng() > 0.5 && !lampBlockedByDoor(x, z, zones)) addLamp(boxes, x, z);
         if (rng() > 0.72 && !treeOverhangsTrain(x, z) && !treeBlockedByDoor(x, z, zones)) addTree(boxes, cols, x, z, 0);
+        if (((x + 170) / 16) % 6 === 0 && !lampBlockedByDoor(x + 1.4, z, zones)) addBin(boxes, cols, x + 1.4, z, (x + 170) / 16);
       }
     }
   }
