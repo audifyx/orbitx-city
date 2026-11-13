@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { AuthPanel } from "./AuthPanel";
 import type { Account } from "./auth";
+import { CITY_URL, GITHUB_URL, MenuFooter, MenuHeader, TELEGRAM_URL, X_URL, type HomePage } from "./HomePages";
+import { universeDisplayName } from "./game/multiverse";
 
 const TIPS = [
   "E at a door opens it",
@@ -33,13 +35,31 @@ interface MenuHomeProps {
   onAccount: (account: Account) => void;
   onGuest: () => void;
   onBackToLogin: () => void;
+  // Social (home rebrand): live counts from the menu's universe list.
+  // `online` is null while the server has not answered — the section says
+  // so instead of inventing a number.
+  online: number | null;
+  friendsOnline: Array<{ id: string; name: string; server: number | null }>;
+  onOpenPage: (page: HomePage) => void;
 }
 
-export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogin }: MenuHomeProps) {
+export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogin, online, friendsOnline, onOpenPage }: MenuHomeProps) {
   const [showHow, setShowHow] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const share = () => {
+    const done = () => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    };
+    if (navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(CITY_URL).then(done).catch(() => setCopied(false));
+    }
+  };
 
   return (
     <div className="menu-home">
+      <MenuHeader who={who} onNavigate={onOpenPage} onPlay={onChoose} />
       <div className="menu-hero">
         <p className="menu-kicker">ORBITX · LAUNCHES DEC 5, 2026</p>
         <h1 className="menu-title">ORBITX CITY</h1>
@@ -88,6 +108,39 @@ export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogi
           <span><b>18</b> venues</span>
           <span><b>0</b> fees</span>
         </div>
+        <div className="menu-social" aria-label="Community">
+          <h2>IN THE CITY NOW</h2>
+          <p className="menu-online">
+            {online === null
+              ? "Checking who's online…"
+              : online === 1
+                ? "1 player online right now"
+                : `${online.toLocaleString()} players online right now`}
+          </p>
+          {friendsOnline.length > 0 ? (
+            <p className="menu-friends">
+              Friends online:{" "}
+              {friendsOnline.map((f) => `${f.name}${f.server ? ` · ${universeDisplayName(f.server as 1 | 2 | 3 | 4 | 5)}` : ""}`).join(" · ")}
+            </p>
+          ) : (
+            <p className="menu-friends">No friends online right now — invite one in and meet at the fountain.</p>
+          )}
+          <div className="menu-community-links">
+            <a href={X_URL} target="_blank" rel="noreferrer">
+              X @orbitx_wrld
+            </a>
+            <a href={TELEGRAM_URL} target="_blank" rel="noreferrer">
+              Telegram @orbitxwrld
+            </a>
+            <a href={GITHUB_URL} target="_blank" rel="noreferrer">
+              GitHub
+            </a>
+            <button type="button" onClick={share}>
+              {copied ? "Link copied ✓" : "Share the city ↗"}
+            </button>
+          </div>
+          <p className="menu-leaders">LEADERBOARDS — richest, top couriers, most burned — coming soon.</p>
+        </div>
       </div>
       <div className="menu-bottom">
         <div className="menu-ticker" aria-hidden="true">
@@ -102,7 +155,7 @@ export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogi
             <div key={i} className="sky-b" style={{ height: `${height}%` }} />
           ))}
         </div>
-        <p className="menu-foot">Demo credits only. No real tokens. · orbitx.world</p>
+        <MenuFooter onNavigate={onOpenPage} />
       </div>
     </div>
   );

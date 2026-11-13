@@ -9,6 +9,8 @@ import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
 import { CharacterSelect } from "./Roster";
 import { MenuHome } from "./MenuHome";
+import { IntroScene } from "./Intro";
+import { AboutPage, MenuFooter, MenuHeader, PrivacyPage, SettingsPage, TermsPage, type HomePage } from "./HomePages";
 import { accountToken, signOutAccount, type Account } from "./auth";
 import { DecorBar, EmoteWheel, FeaturePanel, PhoneExtra, RaceBanner, SpectateBar, featureTitle } from "./Features";
 import { EMPTY_LEADERS, EMPTY_RACE } from "./game/life";
@@ -466,6 +468,13 @@ export default function App() {
   const [menu, setMenu] = useState(() => shotMode() === null);
   // Title flow: "home" is the new landing screen, "roster" the character select.
   const [menuStep, setMenuStep] = useState<"home" | "roster">("home");
+  // Home rebrand: info pages (about / settings / privacy / terms) shown
+  // inside the menu instead of the home step. "home" = the landing screen.
+  const [menuPage, setMenuPage] = useState<"home" | HomePage>("home");
+  // Intro scene: the 30s flyover on open. Skipped in shot/rig mode and
+  // when the player turned it off in Settings (orbitx-intro = "off").
+  const [intro, setIntro] = useState(() => shotMode() === null && localStorage.getItem("orbitx-intro") !== "off");
+  const [introOn, setIntroOn] = useState(() => localStorage.getItem("orbitx-intro") !== "off");
   const [busy, setBusy] = useState(false);
   const [seedText, setSeedText] = useState(() => new URLSearchParams(window.location.search).get("seed") ?? "");
   const [seed, setSeed] = useState(() => parseSeed(new URLSearchParams(window.location.search).get("seed") ?? "1"));
@@ -918,6 +927,10 @@ export default function App() {
       setMenu(false);
     } else {
       game.start(startSeed, "orbit");
+      // Intro scene (home rebrand): fly the orbit camera through the
+      // scripted path while the overlay plays. Skipped in shot mode and
+      // when the player turned it off in Settings.
+      if (localStorage.getItem("orbitx-intro") !== "off") game.setIntro(true);
     }
     return () => {
       off();
@@ -951,6 +964,29 @@ export default function App() {
     setPanel("");
     gameRef.current?.runtime.setPaused(false);
     gameRef.current?.runtime.setTyping(false);
+  };
+
+  // Intro scene (home rebrand): end it (SKIP / timer / ENTER) and hand the
+  // camera back to the slow orbit; replay it from Settings. The menu is
+  // always in orbit mode when these run, so no game restart is needed.
+  const endIntro = () => {
+    setIntro(false);
+    gameRef.current?.setIntro(false);
+  };
+  const startIntro = () => {
+    setMenu(true);
+    setMenuStep("home");
+    setMenuPage("home");
+    setIntro(true);
+    gameRef.current?.setIntro(true);
+  };
+  const setIntroPref = (on: boolean) => {
+    setIntroOn(on);
+    try {
+      localStorage.setItem("orbitx-intro", on ? "on" : "off");
+    } catch {
+      // Storage unavailable — the preference just does not persist.
+    }
   };
 
   // Wardrobe (style theme): which store tab the Shop shows, the fit name
@@ -3746,6 +3782,7 @@ export default function App() {
                     close();
                     setMenu(true);
                     setMenuStep("home");
+                    setMenuPage("home");
                     gameRef.current?.start(parseSeed(seedText || "1"), "orbit");
                   }}
                 >
@@ -3779,8 +3816,9 @@ export default function App() {
           </div>
         </section>
       ) : null}
-      {menu && (
-        <section className={menuStep === "roster" ? "menu menu-roster" : "menu"} id="menu">
+      {menu && intro && <IntroScene onDone={endIntro} />}
+      {menu && !intro && (
+        <section className={menuStep === "roster" || menuPage !== "home" ? "menu menu-roster" : "menu"} id="menu">
           {menu && looksFailed ? (
             <p
               className="menu-warning"
@@ -3789,7 +3827,26 @@ export default function App() {
               Character list failed to load — only TJR is available right now. Check your connection and reload to see all twelve characters.
             </p>
           ) : null}
-          {menuStep === "home" ? (
+          {menuPage !== "home" ? (
+            <>
+              <MenuHeader who={who} onNavigate={setMenuPage} onPlay={() => { setMenuPage("home"); setMenuStep("roster"); }} />
+              {menuPage === "about" ? <AboutPage /> : null}
+              {menuPage === "settings" ? (
+                <SettingsPage
+                  snap={snap}
+                  introOn={introOn}
+                  onQuality={(level) => gameRef.current?.runtime.setQuality(level)}
+                  onHaptics={(on) => gameRef.current?.runtime.setHaptics(on)}
+                  onCycleTime={() => gameRef.current?.runtime.cycleTime()}
+                  onIntroToggle={setIntroPref}
+                  onReplayIntro={startIntro}
+                />
+              ) : null}
+              {menuPage === "privacy" ? <PrivacyPage /> : null}
+              {menuPage === "terms" ? <TermsPage /> : null}
+              <MenuFooter onNavigate={setMenuPage} />
+            </>
+          ) : menuStep === "home" ? (
             <MenuHome
               gate={gate}
               who={who}
@@ -3806,9 +3863,13 @@ export default function App() {
                 setGate("login");
                 setWho(null);
               }}
+              online={universes ? universes.reduce((n, u) => n + u.playerCount, 0) : null}
+              friendsOnline={friendsHere.filter((f) => f.server !== null)}
+              onOpenPage={setMenuPage}
             />
           ) : (
             <>
+              <MenuHeader who={who} onNavigate={setMenuPage} onPlay={() => setMenuStep("roster")} />
               <div className="card menu-wide">
                 <h2>Pick your universe</h2>
                 <p className="muted">Your cars, homes, and offices live per universe. Travel between them is free — nothing follows you unless you carry it. Pick one before you play; you can travel in-world later.</p>
@@ -3850,6 +3911,7 @@ export default function App() {
                 onBack={() => setMenuStep("home")}
               />
               </div>
+              <MenuFooter onNavigate={setMenuPage} />
             </>
           )}
         </section>

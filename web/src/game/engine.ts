@@ -114,6 +114,10 @@ export interface Game {
   start: (seed: number, mode: PlayMode) => void;
   dispose: () => void;
   runtime: Runtime;
+  // Intro scene: drives the orbit camera through the scripted 30s
+  // flyover (see INTRO_KEYS below). The React overlay owns the timer
+  // and the title cards; the engine only moves the camera.
+  setIntro: (on: boolean) => void;
 }
 
 export function createGame(
@@ -259,6 +263,48 @@ export function createGame(
   let seed = 1;
   let mode: PlayMode = "orbit";
   let playing = false;
+
+  // Intro flyover (home rebrand): a scripted 30s camera path through the
+  // real city — high aerial over the south bridge approach, a sweep west
+  // over Empire Span, a low pass over the plaza, a rise past the OrbitX
+  // Tower, then a pull-back that lands exactly on the slow orbit circle
+  // (190, 78, 10, looking at the tower) so the handoff is seamless.
+  // Positions are in world units; the base city is at the origin, NY at
+  // x -800, LA at x +800, Florida at z +900.
+  const INTRO_LEN = 30;
+  const INTRO_KEYS: Array<{ t: number; pos: [number, number, number]; look: [number, number, number] }> = [
+    { t: 0, pos: [0, 150, 560], look: [0, 10, 0] },
+    { t: 6, pos: [-300, 95, 300], look: [0, 25, 0] },
+    { t: 12, pos: [180, 55, -180], look: [0, 10, 20] },
+    { t: 18, pos: [40, 30, 90], look: [0, 45, 0] },
+    { t: 24, pos: [-90, 70, 190], look: [0, 20, 0] },
+    { t: 30, pos: [190, 78, 10], look: [0, 26, 20] },
+  ];
+  let introOn = false;
+  let introT = 0;
+  // Smoothstep between two intro keyframes (position + look target).
+  function introPose(t: number, out: { pos: Vector3; look: Vector3 }) {
+    const clamped = Math.max(0, Math.min(INTRO_LEN, t));
+    let i = 0;
+    while (i < INTRO_KEYS.length - 2 && INTRO_KEYS[i + 1].t <= clamped) i++;
+    const a = INTRO_KEYS[i];
+    const b = INTRO_KEYS[i + 1];
+    const span = Math.max(0.001, b.t - a.t);
+    const raw = Math.max(0, Math.min(1, (clamped - a.t) / span));
+    const e = raw * raw * (3 - 2 * raw);
+    out.pos.set(
+      a.pos[0] + (b.pos[0] - a.pos[0]) * e,
+      a.pos[1] + (b.pos[1] - a.pos[1]) * e,
+      a.pos[2] + (b.pos[2] - a.pos[2]) * e,
+    );
+    out.look.set(
+      a.look[0] + (b.look[0] - a.look[0]) * e,
+      a.look[1] + (b.look[1] - a.look[1]) * e,
+      a.look[2] + (b.look[2] - a.look[2]) * e,
+    );
+  }
+  const introPos = new Vector3();
+  const introLook = new Vector3();
 
   const player: Body = {
     x: 0,
@@ -992,9 +1038,19 @@ export function createGame(
     scene.fog = runtime.indoors() ? null : baseFog;
     const tookCamera = runtime.after(dt, player, camera, { orbit: mode === "orbit", fountain, trains: trainPoses });
     if (mode === "orbit") {
-      const t = clock * 0.07;
-      camera.position.set(Math.sin(t) * 190, 78, Math.cos(t) * 132 + 10);
-      camera.lookAt(0, 26, 20);
+      if (introOn) {
+        // Intro flyover: the scripted path runs 30s, then holds the final
+        // frame (the slow-orbit circle) until the overlay dismisses it.
+        introT = Math.min(INTRO_LEN, introT + dt);
+        introPose(introT, { pos: introPos, look: introLook });
+        camera.position.copy(introPos);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(introLook);
+      } else {
+        const t = clock * 0.07;
+        camera.position.set(Math.sin(t) * 190, 78, Math.cos(t) * 132 + 10);
+        camera.lookAt(0, 26, 20);
+      }
     } else if (!tookCamera) {
       const cp = Math.cos(player.pitch);
       const sp = Math.sin(player.pitch);
@@ -1114,6 +1170,10 @@ export function createGame(
       unit.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
+    },
+    setIntro(on: boolean) {
+      introOn = on;
+      if (on) introT = 0;
     },
     runtime,
   };

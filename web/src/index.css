@@ -1476,3 +1476,319 @@ body.touch .touch-ui {
     width: min(340px, calc(100vw - 24px));
   }
 }
+
+/* ---- Home rebrand: intro scene, header, footer, social, info pages ---- */
+/* Contrast rule: white bg = black text, black bg = white text. Palette
+// black / white / gold (#e0b33a) only. */
+
+/* Intro: full-screen overlay on the live 3D flyover. The canvas keeps
+// rendering behind it; the cards are the only DOM on top. */
+.intro {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 18px 20px 22px;
+  color: #ffffff;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0.08) 45%, rgba(0, 0, 0, 0.42));
+  pointer-events: none;
+}
+.intro-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.intro-word {
+  font-weight: 900;
+  letter-spacing: 0.22em;
+  font-size: 14px;
+  color: #ffffff;
+  text-shadow: 0 1px 3px #000000;
+}
+.intro-skip {
+  pointer-events: auto;
+  min-height: 44px;
+  padding: 10px 20px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  background: rgba(0, 0, 0, 0.72);
+  color: #ffffff;
+  border: 2px solid #e0b33a;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.intro-card {
+  text-align: center;
+  max-width: 860px;
+  margin: 0 auto;
+  animation: intro-card-in 0.9s ease both;
+}
+@keyframes intro-card-in {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.intro-kicker {
+  margin: 0 0 10px;
+  color: #e0b33a;
+  font-weight: 800;
+  letter-spacing: 0.32em;
+  font-size: 13px;
+  text-shadow: 0 1px 3px #000000;
+}
+.intro-title {
+  margin: 0;
+  font-size: clamp(38px, 8vw, 84px);
+  line-height: 0.98;
+  letter-spacing: 0.06em;
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow: 0 4px 0 #000000, 0 10px 32px rgba(0, 0, 0, 0.6);
+  border-bottom: 4px solid #e0b33a;
+  padding-bottom: 14px;
+  display: inline-block;
+}
+.intro-sub {
+  margin: 16px auto 0;
+  max-width: 560px;
+  font-size: clamp(16px, 2.4vw, 20px);
+  line-height: 1.45;
+  color: #ffffff;
+  text-shadow: 0 1px 3px #000000, 0 0 12px #000000;
+}
+.intro-enter {
+  pointer-events: auto;
+  margin-top: 24px;
+  padding: 16px 34px;
+  font-size: 20px;
+  font-weight: 800;
+  background: #e0b33a;
+  color: #000000;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.intro-bottom {
+  max-width: 560px;
+  margin: 0 auto;
+  width: 100%;
+}
+.intro-progress {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.intro-progress-fill {
+  height: 100%;
+  background: #e0b33a;
+  border-radius: 3px;
+  transition: width 0.12s linear;
+}
+.intro-hint {
+  margin: 10px 0 0;
+  text-align: center;
+  color: #ffffff;
+  font-size: 13px;
+  text-shadow: 0 1px 3px #000000;
+}
+@media (prefers-reduced-motion: reduce) {
+  .intro-card { animation: none; }
+  .menu-ticker-track { animation-duration: 120s; }
+}
+
+/* Header: wordmark, nav, player chip. Sits over the 3D view on the home
+// step, and above the cards on the roster / page steps. */
+.menu-header {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 4px 4px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.menu-word {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: #ffffff;
+  text-shadow: 0 1px 3px #000000;
+  cursor: pointer;
+}
+.menu-word span { color: #e0b33a; }
+.menu-nav {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.menu-nav button {
+  background: none;
+  border: none;
+  margin: 0;
+  padding: 10px 12px;
+  min-height: 44px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffffff;
+  text-shadow: 0 1px 3px #000000;
+  cursor: pointer;
+}
+.menu-chip {
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.72);
+  border: 2px solid #e0b33a;
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Footer: legal + community links, launch line, City Sol line. */
+.menu-footer {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px 4px 18px;
+  text-align: center;
+}
+.menu-footer-links {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+}
+.menu-footer-links button,
+.menu-footer-links a {
+  background: none;
+  border: none;
+  margin: 0;
+  padding: 6px 2px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-shadow: 0 1px 3px #000000;
+  cursor: pointer;
+}
+.menu-footer-line {
+  margin: 6px 0 0;
+  color: #dedede;
+  font-size: 12px;
+  text-shadow: 0 1px 3px #000000;
+}
+
+/* Social section on the home hero: live counts, friends, links, share. */
+.menu-social {
+  margin: 26px auto 0;
+  max-width: 620px;
+  background: rgba(0, 0, 0, 0.66);
+  border: 2px solid #e0b33a;
+  padding: 16px 18px;
+  text-align: center;
+}
+.menu-social h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  letter-spacing: 0.22em;
+  color: #e0b33a;
+}
+.menu-online {
+  margin: 0;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+}
+.menu-friends {
+  margin: 8px 0 0;
+  color: #dedede;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.menu-community-links {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 12px;
+}
+.menu-community-links a,
+.menu-community-links button {
+  background: none;
+  border: none;
+  margin: 0;
+  padding: 8px 4px;
+  min-height: 36px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.menu-leaders {
+  margin: 12px 0 0;
+  color: #e0b33a;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* Info pages: black card, white text, gold headings — same as the rest. */
+.menu-page-card {
+  text-align: left;
+}
+.menu-page-card h2 {
+  margin: 0 0 12px;
+  text-align: center;
+  letter-spacing: 0.08em;
+}
+.legal h3 {
+  margin: 18px 0 6px;
+  color: #e0b33a;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+}
+.legal p {
+  margin: 6px 0;
+  color: #ffffff;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.legal a {
+  color: #7ef6ff;
+}
+.legal .days {
+  margin: 8px 0 4px;
+}
+@media (max-width: 700px) {
+  .menu-header {
+    padding-top: 0;
+  }
+  .menu-word {
+    font-size: 16px;
+  }
+  .menu-nav button {
+    padding: 10px 8px;
+    font-size: 14px;
+  }
+  .menu-chip {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  .menu-social {
+    margin-top: 20px;
+    padding: 14px 12px;
+  }
+  .intro {
+    padding: 14px 14px 18px;
+  }
+}

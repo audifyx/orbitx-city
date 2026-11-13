@@ -225,7 +225,7 @@ export function CharacterSelect({ seedText, setSeedText, webglMissing, busy, onP
           />
         </label>
         <p className="help">{HELP}</p>
-        <p className="help">Demo credits only. No real tokens. · Looks: see web/public/config/character-looks.md</p>
+        <p className="help">City Sol is in-game only — no real money. · Looks: see web/public/config/character-looks.md</p>
       </div>
       <div className="char-playbar">
         <button id="play" type="button" disabled={webglMissing || busy} onClick={onPlay}>
