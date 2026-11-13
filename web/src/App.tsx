@@ -259,6 +259,8 @@ const EMPTY: Snap = {
     bus: { at: "", next: "", dwelling: false, riding: false },
     loop: { dwelling: false, riding: false },
   },
+  drivingTrain: false,
+  canDriveLoopTrain: false,
   indoors: "",
   swimming: null,
   onRooftop: null,
