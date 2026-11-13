@@ -414,6 +414,8 @@ test("people: sync stamps the writer's universe on presence, universe-list shows
   const friendRow = (list.friends || []).find((f) => f.id === host.id);
   assert.ok(friendRow, "the friend shows in universe-list");
   assert.equal(friendRow.server, 2, "universe-list reports the friend's current universe");
+});
+
 test("people: profile-view returns the public profile, never private fields", async () => {
   const owner = await guest("ProfileOwner");
   await buyTwoHomes(owner.token);
