@@ -9037,6 +9037,7 @@ export function createRuntime(scene: Scene) {
         equip(item);
         triggerHaptic("success");
         say(String(data.message || "Bought."));
+        notify("MONEY", String(data.message || "Bought."), "money");
         // Mission chain: a bought item is the "buy" step (server-verified
         // against the owned-count snapshot).
         void attemptMission();
@@ -9058,6 +9059,7 @@ export function createRuntime(scene: Scene) {
     if (result.ok) triggerHaptic("success");
     else triggerHaptic("error");
     say(result.message);
+    if (result.ok) notify("MONEY", result.message, "money");
     return result.message;
   }
 
