@@ -637,8 +637,14 @@ function addLamp(boxes: Box[], x: number, z: number, y0 = 0) {
 function addBench(boxes: Box[], cols: Collider[], x: number, z: number, alongX: boolean) {
   const sx = alongX ? 1.7 : 0.5;
   const sz = alongX ? 0.5 : 1.7;
-  put(boxes, x, 0.48, z, sx, 0.16, sz, "gray");
-  put(boxes, x, 0.78, z, alongX ? sx : 0.16, 0.5, alongX ? 0.16 : sz, "black");
+  // Wooden slats (the AI demo's sidewalks have wooden benches) + legs so
+  // the seat no longer floats.
+  put(boxes, x, 0.48, z, sx, 0.16, sz, "trunk");
+  put(boxes, x, 0.78, z, alongX ? sx : 0.16, 0.5, alongX ? 0.16 : sz, "trunk");
+  const lx = alongX ? 0.7 : 0;
+  const lz = alongX ? 0 : 0.7;
+  put(boxes, x - lx, 0.2, z - lz, 0.12, 0.4, 0.12, "black");
+  put(boxes, x + lx, 0.2, z + lz, 0.12, 0.4, 0.12, "black");
   cols.push(col(x, 0.55, z, sx, 0.7, sz));
 }
 
@@ -651,6 +657,16 @@ function addBin(boxes: Box[], cols: Collider[], x: number, z: number, i: number)
   put(boxes, x, 0.5, z, 0.7, 1.0, 0.7, BIN_MATS[i % BIN_MATS.length]);
   put(boxes, x, 1.06, z, 0.78, 0.12, 0.78, "gray");
   cols.push(col(x, 0.55, z, 0.7, 1.1, 0.7));
+}
+
+// Street planters (world-quality upgrade 2026-11-13): the AI demo's
+// sidewalks have grey planters with a green shrub beside the benches.
+// One stone tub + a leaves shrub, door-guarded like the lamps.
+function addPlanter(boxes: Box[], cols: Collider[], x: number, z: number) {
+  put(boxes, x, 0.35, z, 0.9, 0.7, 0.9, "gray");
+  put(boxes, x, 0.95, z, 0.7, 0.5, 0.7, "leaves");
+  put(boxes, x, 1.3, z, 0.45, 0.3, 0.45, "leavesDark");
+  cols.push(col(x, 0.6, z, 0.9, 1.2, 0.9));
 }
 
 function disc(boxes: Box[], cx: number, cy: number, cz: number, r: number, h: number, mat: Mat, hole = 0) {
@@ -1584,6 +1600,11 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng, zones: DoorZone
         if (lampI % 2 === 0 && !lampBlockedByDoor(x, z, zones)) addLamp(boxes, x, z);
         else if (rng() > 0.55 && !treeOverhangsTrain(x, z) && !treeBlockedByDoor(x, z, zones)) addTree(boxes, cols, x, z, 0);
         if (lampI % 6 === 0 && !lampBlockedByDoor(x, z + 1.4, zones)) addBin(boxes, cols, x, z + 1.4, lampI);
+        // Wooden benches + planters on the sidewalk, offset along the
+        // street from the lamp/bin slot so nothing overlaps; door-guarded
+        // like the lamps so one never lands in a door walk-up.
+        if (lampI % 12 === 3 && !lampBlockedByDoor(x, z + 4, zones)) addBench(boxes, cols, x, z + 4, false);
+        if (lampI % 12 === 9 && !lampBlockedByDoor(x, z - 4, zones)) addPlanter(boxes, cols, x, z - 4);
       }
     }
   }
@@ -1597,6 +1618,9 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng, zones: DoorZone
         if (rng() > 0.5 && !lampBlockedByDoor(x, z, zones)) addLamp(boxes, x, z);
         if (rng() > 0.72 && !treeOverhangsTrain(x, z) && !treeBlockedByDoor(x, z, zones)) addTree(boxes, cols, x, z, 0);
         if (((x + 170) / 16) % 6 === 0 && !lampBlockedByDoor(x + 1.4, z, zones)) addBin(boxes, cols, x + 1.4, z, (x + 170) / 16);
+        const slot = (x + 170) / 16;
+        if (slot % 12 === 3 && !lampBlockedByDoor(x + 4, z, zones)) addBench(boxes, cols, x + 4, z, true);
+        if (slot % 12 === 9 && !lampBlockedByDoor(x - 4, z, zones)) addPlanter(boxes, cols, x - 4, z);
       }
     }
   }
@@ -5100,6 +5124,11 @@ function addMegaMall(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: 
     { id: "store-designer", name: "AURUM Boutique — Designer", kind: "store", x: 83.4, y: 0, z: 24.6, yaw: Math.PI, slot: 0 },
   ];
   const lifts: Lift[] = [{ id: "mall-lift", name: "Mall Lift", x: 95, z: -25, w: 4, d: 4, floors: [0, MALL_FLOOR2], stops: ["Ground Floor", "Mezzanine"], landing: "w" }];
+  // Tall vertical sign on the plaza-facing west wall (the AI demo's
+  // streets are lined with big colourful vertical signs). Same wall
+  // plane as the ground-floor zone sign (x 44.6), 0.15 proud so it
+  // never z-fights the upper glass, higher up and clear of the door.
+  roomSign("mall-sign-v", 44.45, 6.5, 18, Math.PI / 2, 3.2, 5.5, ["MEGA", "MALL"], "Shops · food court · mezzanine");
   return { zones, anchors, lifts };
 }
 
@@ -5282,6 +5311,9 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
     cols.push(col(px, 0.55, 6, 0.3, 1.1, 0.3));
   }
   roomSign("hq-dir-0", -64, 3.35, 6.3, 0, 4.6, 0.85, ["OFFICE DIRECTORY"], "OrbitX HQ");
+  // Tall vertical sign on the plaza-facing east wall (same wall plane
+  // as the ground-floor HQ sign, x -44.4), clear of the lobby door.
+  roomSign("hq-sign-v", -44.25, 7, -14, -Math.PI / 2, 3.2, 5.5, ["ORBITX", "HQ"], "Walk in");
   roomSign("hq-dir-2", -64, 2.45, 6.3, 0, 4.6, 0.85, ["Floor 2", "Suites 2A – 2H"], "Standard offices");
   roomSign("hq-dir-3", -64, 1.55, 6.3, 0, 4.6, 0.85, ["Floor 3", "Suites 3A – 3H"], "Standard offices");
   roomSign("hq-dir-4", -64, 0.65, 6.3, 0, 4.6, 0.85, ["Floor 4", "Founder's Office · 4A – 4H"], "Premium suites · Roof Terrace above");

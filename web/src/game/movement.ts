@@ -123,6 +123,19 @@ function findTorso(group: Group): Mesh | null {
   return null;
 }
 
+/** Head mesh: the 0.4 skin cube at face height. Its material is the skin. */
+function findHead(group: Group): Mesh | null {
+  for (const child of group.children) {
+    if (!isMesh(child)) continue;
+    const p = child.position;
+    const s = child.scale;
+    if (p.y > 1.5 && p.y < 1.66 && s.x > 0.35 && s.x < 0.45 && s.y > 0.35 && s.y < 0.45) {
+      return child;
+    }
+  }
+  return null;
+}
+
 function makeLimb(material: Material, sx: number, sy: number, sz: number, y: number): Mesh {
   const mesh = new Mesh(UNIT_BOX, material);
   mesh.scale.set(sx, sy, sz);
@@ -198,16 +211,23 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
 
   // Arms: the avatar has none — add them. Pivots at shoulder height,
   // boxes hang 0.6 below so the swing reads from across the plaza.
+  // Two-tone like the AI demo's people: an outfit-coloured sleeve on
+  // top, a skin forearm + hand below (same 0.6 total reach as before).
+  const skinMaterial: Material = look
+    ? outfitMaterial(look.colors.skin)
+    : (findHead(group)?.material as Material) ?? outfitMaterial("#f0c2a0");
   const armL = new Group();
   armL.name = "walkArmL";
   armL.position.set(-0.38, 1.24, 0);
   armL.rotation.z = 0.08;
-  armL.add(makeLimb(armMaterial, 0.16, 0.6, 0.18, -0.27));
+  armL.add(makeLimb(armMaterial, 0.16, 0.36, 0.18, -0.15));
+  armL.add(makeLimb(skinMaterial, 0.14, 0.24, 0.16, -0.45));
   const armR = new Group();
   armR.name = "walkArmR";
   armR.position.set(0.38, 1.24, 0);
   armR.rotation.z = -0.08;
-  armR.add(makeLimb(armMaterial, 0.16, 0.6, 0.18, -0.27));
+  armR.add(makeLimb(armMaterial, 0.16, 0.36, 0.18, -0.15));
+  armR.add(makeLimb(skinMaterial, 0.14, 0.24, 0.16, -0.45));
 
   group.add(legL, legR, armL, armR);
 
