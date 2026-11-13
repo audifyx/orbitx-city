@@ -1497,7 +1497,45 @@ function treeOverhangsTrain(x: number, z: number): boolean {
   return z > 29 && z < 37 && x > -147 && x < 147;
 }
 
-function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng) {
+// Door approach zones, for the street-life guard below. A door anchor's
+// yaw faces the street (doorAnchor convention: n=pi, s=0, w=pi/2, e=-pi/2);
+// the walk-up corridor runs from 1.1 behind the anchor (just short of the
+// door face) to 4.6 in front of it, 0.9 wide. A street tree's canopy is
+// r=2, so a trunk within 3.0 of the corridor centre line (across) and
+// within the canopy strip (along -3.4..5.1) would drape the door + sign.
+// Lamps are thin posts with no canopy, so they only need the walk-up
+// corridor clear. Board anchors (jobs / events / ads kiosks) have no
+// door/sign, so only the trunk / post in the walk-up corridor counts.
+export interface DoorZone { x: number; z: number; nx: number; nz: number; board: boolean }
+export function doorZonesFor(anchors: Anchor[]): DoorZone[] {
+  return anchors.map((a) => ({
+    x: a.x, z: a.z,
+    nx: -Math.sin(a.yaw), nz: Math.cos(a.yaw),
+    board: a.kind === "jobs" || a.kind === "events" || a.kind === "ads",
+  }));
+}
+function treeBlockedByDoor(x: number, z: number, zones: DoorZone[]): boolean {
+  for (const zn of zones) {
+    const along = (x - zn.x) * zn.nx + (z - zn.z) * zn.nz;
+    const across = (x - zn.x) * zn.nz - (z - zn.z) * zn.nx;
+    if (zn.board) {
+      if (Math.abs(across) < 0.9 && along > -0.25 && along < 6.45) return true;
+    } else if (Math.abs(across) < 3.0 && along > -3.4 && along < 5.1) return true;
+  }
+  return false;
+}
+function lampBlockedByDoor(x: number, z: number, zones: DoorZone[]): boolean {
+  for (const zn of zones) {
+    const along = (x - zn.x) * zn.nx + (z - zn.z) * zn.nz;
+    const across = (x - zn.x) * zn.nz - (z - zn.z) * zn.nx;
+    if (zn.board) {
+      if (Math.abs(across) < 0.6 && along > 0.05 && along < 6.15) return true;
+    } else if (Math.abs(across) < 0.6 && along > -1.25 && along < 4.75) return true;
+  }
+  return false;
+}
+
+function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng, zones: DoorZone[]) {
   let lampI = 0;
   for (const cx of CENTERS) {
     for (const side of [-1, 1]) {
@@ -1507,8 +1545,8 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng) {
         if (Math.abs(x) < 32 && Math.abs(z) < 32) continue;
         if (inMega(x, z)) continue;
         lampI++;
-        if (lampI % 2 === 0) addLamp(boxes, x, z);
-        else if (rng() > 0.55 && !treeOverhangsTrain(x, z)) addTree(boxes, cols, x, z, 0);
+        if (lampI % 2 === 0 && !lampBlockedByDoor(x, z, zones)) addLamp(boxes, x, z);
+        else if (rng() > 0.55 && !treeOverhangsTrain(x, z) && !treeBlockedByDoor(x, z, zones)) addTree(boxes, cols, x, z, 0);
       }
     }
   }
@@ -1519,8 +1557,8 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng) {
         if (CENTERS.some((c) => Math.abs(x - c) < 10)) continue;
         if (Math.abs(x) < 32 && Math.abs(z) < 32) continue;
         if (inMega(x, z)) continue;
-        if (rng() > 0.5) addLamp(boxes, x, z);
-        if (rng() > 0.72 && !treeOverhangsTrain(x, z)) addTree(boxes, cols, x, z, 0);
+        if (rng() > 0.5 && !lampBlockedByDoor(x, z, zones)) addLamp(boxes, x, z);
+        if (rng() > 0.72 && !treeOverhangsTrain(x, z) && !treeBlockedByDoor(x, z, zones)) addTree(boxes, cols, x, z, 0);
       }
     }
   }
@@ -5586,7 +5624,17 @@ export function buildCity(seed: number): City {
   // without walking grass. The state regions build their own district
   // bridges + ground inside buildAllRegions (states.ts).
   buildAllDistrictBridges(emergencyParts);
-  addStreetLife(boxes, colliders, rng);
+  // Door zones for the street-life guard: every door anchor placed so far
+  // (central-city buildings, fixed places, mega mall/office, district
+  // towers + departments, the OrbitX Tower). The guard refuses to plant a
+  // tree or lamp in any door approach, so a tree can never again land in
+  // front of a door the way one did at the OrbitX Shop.
+  const doorZones = doorZonesFor([...fixed.anchors, ...built.anchors, ...mall.anchors, ...office.anchors, ...emergencyParts.anchors, tower.anchor]);
+  addStreetLife(boxes, colliders, rng, doorZones);
+  // The OrbitX Shop tree (was at 6.15, 54, dead in front of the shop door)
+  // is refused by the guard now; replant it on the same street-tree line,
+  // 8 units north, clear of every door.
+  addTree(boxes, colliders, 6.15, 62, 0);
   const rail = loopPoints();
   addMonorail(boxes, colliders, rail);
   const trainLine = addTrainLine(boxes, colliders);
