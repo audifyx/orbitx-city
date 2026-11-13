@@ -1654,13 +1654,28 @@ export function buildBridge(city: City, bridge: BridgeDef): void {
       pushBox(city, cx + 10.5, 0.1, cz, 3, 0.12, d, "sidewalk");
     }
     // Gold rails along both long edges (real colliders — no falling off).
+    // One exception per crossing (bus-route fix): the bus detour joins
+    // the deck through a 10-wide gap in the rail at the mouth — a proper
+    // road junction, like an on-ramp. East: north rail, x 253..263 (the
+    // span, x 250..550). West: south rail, x -263..-253 (span -550..-250).
     const railLen = alongX ? w : d;
     const railOff = 11.4;
     for (const s of [-1, 1]) {
       const rx = alongX ? cx : cx + s * railOff;
       const rz = alongX ? cz + s * railOff : cz;
-      pushBox(city, rx, 0.7, rz, alongX ? railLen : 0.4, 0.5, alongX ? 0.4 : railLen, "gold");
-      pushCol(city, rx, 0.7, rz, alongX ? railLen : 0.4, 1.2, alongX ? 0.4 : railLen);
+      // Rail segments along the deck (world coords) for this rect + side.
+      let segs: Array<[number, number]> = [[alongX ? deck.x0 : deck.z0, alongX ? deck.x1 : deck.z1]];
+      const isSpan = deck === bridge.span;
+      if (isSpan && alongX && bridge.id === "bridge-east" && s === 1) segs = [[250, 253], [263, 550]];
+      if (isSpan && alongX && bridge.id === "bridge-west" && s === -1) segs = [[-550, -263], [-253, -250]];
+      for (const [a, b] of segs) {
+        const mid = (a + b) / 2;
+        const len = b - a;
+        const sx = alongX ? mid : rx;
+        const sz = alongX ? rz : mid;
+        pushBox(city, sx, 0.7, sz, alongX ? len : 0.4, 0.5, alongX ? 0.4 : len, "gold");
+        pushCol(city, sx, 0.7, sz, alongX ? len : 0.4, 1.2, alongX ? 0.4 : len);
+      }
     }
   }
   // Home-side apron: a flat asphalt pad (deck height, no rails — the
@@ -1673,6 +1688,14 @@ export function buildBridge(city: City, bridge: BridgeDef): void {
     : bridge.id === "bridge-east" ? { x0: 185, z0: -12, x1: 190, z1: 12 }
     : { x0: -12, z0: 246, x1: 12, z1: 258 };
   pushBox(city, (apron.x0 + apron.x1) / 2, 0.06, (apron.z0 + apron.z1) / 2, apron.x1 - apron.x0, 0.12, apron.z1 - apron.z0, "asphalt");
+  // State-side apron (bus-route fix): the same flat pad where the deck
+  // meets the state road — without it the bus merges from its offset
+  // deck lane to the road centreline across 5 units of open grass.
+  const apronFar =
+    bridge.id === "bridge-west" ? { x0: -615, z0: -12, x1: -610, z1: 12 }
+    : bridge.id === "bridge-east" ? { x0: 610, z0: -12, x1: 615, z1: 12 }
+    : { x0: -12, z0: 710, x1: 12, z1: 715 };
+  pushBox(city, (apronFar.x0 + apronFar.x1) / 2, 0.06, (apronFar.z0 + apronFar.z1) / 2, apronFar.x1 - apronFar.x0, 0.12, apronFar.z1 - apronFar.z0, "asphalt");
   // Lamps down the middle, one run along the WHOLE crossing (stubs + span),
   // every 20 units — a single run, so no lamp is ever duplicated at a joint
   // and none spills off the deck ends.
