@@ -574,6 +574,10 @@ export function createGame(
     if (!playing) return;
     if (event.code === "KeyF" && !event.repeat) runtime.toggleFly(player);
     if (event.code === "KeyE" && !event.repeat) runtime.interact(player);
+    // K takes the driver's seat of the loop train dwelling at the Loop
+    // Station (the Drive button does the same on a phone). Silent unless
+    // the player is on the platform — see runtime.driveLoopTrain.
+    if (event.code === "KeyK" && !event.repeat) runtime.driveLoopTrain();
     if (event.code === "KeyB" && !event.repeat) runtime.request("shop");
     if (event.code === "KeyJ" && !event.repeat) runtime.request("jobs");
     if (event.code === "KeyC" && !event.repeat) runtime.cycleCamera();
@@ -801,19 +805,19 @@ export function createGame(
     clock += dt;
     if (runtime.paused()) keys.clear();
     if (playing && mode !== "orbit" && !runtime.paused() && !runtime.typing() && !runtime.frozen()) {
-      // While driving, the arrows steer the CAR (see drive()), so they must
-      // not also swing the camera — otherwise the chase cam would spin
-      // while you steer. Q/R keep turning the camera while driving. On
-      // foot (and while decorating) the arrows turn the camera / spin the
-      // decor as before. ArrowUp/Down are gas/brake while driving, so they
-      // must not pitch the camera either.
+      // While driving a car the arrows steer it, so they must not also
+      // swing the camera. While driving the loop train the arrows are the
+      // throttle (Up = Gas, Down = Brake), so they must not pitch the
+      // camera either — but Left / Right still turn it, since a train
+      // has no steering to fight over.
+      const trainDriving = runtime.drivingTrain() >= 0;
       const yawKeys = runtime.decorating()
         ? (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0)
         : runtime.driving()
           ? (keys.has("KeyR") ? 1 : 0) - (keys.has("KeyQ") ? 1 : 0)
           : (keys.has("ArrowRight") || keys.has("KeyR") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("KeyQ") ? 1 : 0);
       if (runtime.decorating() && (keys.has("KeyQ") || keys.has("KeyR"))) runtime.spinDecor((keys.has("KeyR") ? 1 : 0) - (keys.has("KeyQ") ? 1 : 0));
-      const pitchKeys = runtime.driving() ? 0 : (keys.has("ArrowDown") ? 1 : 0) - (keys.has("ArrowUp") ? 1 : 0);
+      const pitchKeys = runtime.driving() || trainDriving ? 0 : (keys.has("ArrowDown") ? 1 : 0) - (keys.has("ArrowUp") ? 1 : 0);
       if (yawKeys || pitchKeys) runtime.addLook(yawKeys * 1.7 * dt, pitchKeys * 1.15 * dt);
       let left = dt;
       while (left > 0.0001) {
@@ -824,7 +828,8 @@ export function createGame(
         // A rider is carried by the train — runtime.after() snaps the body
         // to the train pose each frame, so the walk physics must not run
         // (it would drop the rider through the car floor to the street).
-        else if (!runtime.riding()) tick(step);
+        // Same for the driver: after() snaps them to the front car.
+        else if (!runtime.riding() && runtime.drivingTrain() < 0) tick(step);
         left -= step;
       }
     }
@@ -835,10 +840,64 @@ export function createGame(
     // profile is a function of the distance ahead (sqrt curve, 90-unit
     // braking zone), so the stop is smooth and lands on the mark; the
     // stop check runs before the move so a slow frame can never jump the
-    // station and sail past it.
+    // station and sail past it. One train can be player-driven
+    // (runtime.drivingTrain()): Gas / Brake set its speed, it auto-brakes
+    // into the Loop Station stop and waits there for Gas to depart, and
+    // it never closes within 25 units of the other train. The automatic
+    // train follows the same rule in reverse — it holds short of a driven
+    // train ahead of it — so the two can never meet on the loop.
+    const driven = runtime.drivingTrain();
     const trainPoses: TrainPose[] = [];
     for (let i = 0; i < trains.length; i++) {
-      if (trainDwell[i] > 0) {
+      if (i === driven) {
+        // Player-driven: W / ArrowUp / the Gas hold button is the
+        // throttle, S / ArrowDown / Brake slows it down, coasting decays.
+        const gas = keys.has("KeyW") || keys.has("ArrowUp") || runtime.gasHeld();
+        const brake = keys.has("KeyS") || keys.has("ArrowDown") || runtime.brakeHeld();
+        if (trainDwell[i] > 0) {
+          // Dwelling at the Loop Station: the driver decides when to
+          // leave — Gas departs at once, otherwise the train waits with
+          // its doors open so a passenger could still board.
+          trainSpeed[i] = 0;
+          if (gas) {
+            trainDwell[i] = 0;
+            trainDist[i] = (stationDist + 1) % railLen;
+            trainSpeed[i] = 2;
+          }
+        } else {
+          const ahead = (((stationDist - trainDist[i]) % railLen) + railLen) % railLen;
+          // The station stop cap, same sqrt profile as the automatic
+          // trains — the driver can never sail past the only station.
+          const stopCap = TRAIN_CRUISE * Math.sqrt(Math.min(1, ahead / 90));
+          // The other train ahead is a moving wall: never close within
+          // 25 units of it, never outrun it inside 60. This cap is
+          // approached with a brake (22 u/s^2), never a teleport down —
+          // the gap only ever shrinks gradually, so there is room.
+          let followCap = TRAIN_CRUISE;
+          if (trains.length > 1) {
+            const other = 1 - i;
+            const gap = (((trainDist[other] - trainDist[i]) % railLen) + railLen) % railLen;
+            if (gap < 25) followCap = 0;
+            else if (gap < 60) followCap = trainSpeed[other];
+          }
+          if (trainSpeed[i] > followCap) trainSpeed[i] = Math.max(followCap, trainSpeed[i] - 22 * dt);
+          else if (brake) trainSpeed[i] = Math.max(0, trainSpeed[i] - 22 * dt);
+          else if (gas) trainSpeed[i] = Math.min(trainSpeed[i] + 14 * dt, stopCap);
+          else {
+            trainSpeed[i] *= 1 - 0.5 * dt;
+            if (trainSpeed[i] < 0.3) trainSpeed[i] = 0;
+            trainSpeed[i] = Math.min(trainSpeed[i], stopCap);
+          }
+          const step = trainSpeed[i] * dt;
+          if (ahead <= step + 0.15) {
+            trainDist[i] = stationDist;
+            trainSpeed[i] = 0;
+            trainDwell[i] = TRAIN_DWELL;
+          } else {
+            trainDist[i] = (trainDist[i] + step) % railLen;
+          }
+        }
+      } else if (trainDwell[i] > 0) {
         trainDwell[i] -= dt;
         trainSpeed[i] = 0;
         if (trainDwell[i] <= 0) {
@@ -850,6 +909,17 @@ export function createGame(
         const ahead = (((stationDist - trainDist[i]) % railLen) + railLen) % railLen;
         const target = Math.min(TRAIN_CRUISE, TRAIN_CRUISE * Math.sqrt(Math.min(1, ahead / 90)));
         trainSpeed[i] = Math.min(target, trainSpeed[i] + 14 * dt);
+        // A driven train ahead is a moving wall: hold short of it (brake
+        // smoothly inside 25 units, match its speed inside 60) so the
+        // automatic train never runs into the one the player is driving.
+        if (driven >= 0) {
+          const gap = (((trainDist[driven] - trainDist[i]) % railLen) + railLen) % railLen;
+          if (gap < 25) trainSpeed[i] = Math.max(0, trainSpeed[i] - 22 * dt);
+          else if (gap < 60) {
+            const cap = trainSpeed[driven];
+            if (trainSpeed[i] > cap) trainSpeed[i] = Math.max(cap, trainSpeed[i] - 22 * dt);
+          }
+        }
         const step = trainSpeed[i] * dt;
         if (ahead <= step + 0.15) {
           trainDist[i] = stationDist;
@@ -871,11 +941,12 @@ export function createGame(
         dwelling: trainDwell[i] > 0,
       });
     }
-    (window as unknown as { __ORBITX_TRAIN?: { dist: number[]; dwell: number[]; speed: number[]; station: number } }).__ORBITX_TRAIN = {
+    (window as unknown as { __ORBITX_TRAIN?: { dist: number[]; dwell: number[]; speed: number[]; station: number; driving: number } }).__ORBITX_TRAIN = {
       dist: [...trainDist],
       dwell: [...trainDwell],
       speed: [...trainSpeed],
       station: stationDist,
+      driving: driven,
     };
     for (let i = 0; i < ships.length; i++) {
       const path = shipPaths[i];

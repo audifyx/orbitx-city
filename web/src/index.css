@@ -967,6 +967,20 @@ body.touch .touch-ui {
   letter-spacing: 0.12em;
 }
 
+/* Driving the loop train: same gold chip as FLYING, so the driver's seat
+   state is visible at a glance in the HUD. */
+.hud .driving-chip {
+  display: inline-block;
+  align-self: flex-start;
+  padding: 1px 8px;
+  border: 1px solid #e0b33a;
+  color: #ffd97a;
+  background: rgba(224, 179, 58, 0.18);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
 /* Hunger meter: gold bar on dark, red when low. The HUD is
    pointer-events: none, so the row re-enables events for the Eat
    quick-eat button (the only clickable thing in the HUD). */

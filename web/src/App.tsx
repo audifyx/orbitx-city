@@ -1197,6 +1197,7 @@ export default function App() {
             <span className="energy-bar"><i style={{ width: `${Math.max(0, Math.min(100, snap.energy))}%` }} /></span>
           </span>
           {snap.flying || snap.carFlying ? <span className="flying-chip">FLYING</span> : null}
+          {snap.drivingTrain ? <span className="driving-chip">DRIVING THE LOOP TRAIN</span> : null}
           {snap.holder ? <span>HOLDER</span> : null}
           {snap.voiceProvider && snap.voiceProvider !== "off" ? (
             <span>
@@ -1251,6 +1252,12 @@ export default function App() {
             <button type="button" className={snap.flying || snap.carFlying ? "on" : undefined} aria-pressed={snap.flying || snap.carFlying} onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.toggleFly(); }}>{snap.flyingCar ? (snap.carFlying ? "Land" : "Take off") : "Fly"}</button>
             <Hold label={snap.flyingCar ? "Descend" : "Down"} onDown={() => gameRef.current?.runtime.hold("down", true)} onUp={() => gameRef.current?.runtime.hold("down", false)} />
             <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.interact(); }}>Use</button>
+            {/* Drive the loop train: shows on the platform while a train
+                dwells at the Loop Station stop — E rides as a passenger,
+                this takes the driver's seat instead. */}
+            {snap.canDriveLoopTrain ? (
+              <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.driveLoopTrain(); }}>Drive</button>
+            ) : null}
             <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.cycleCamera(); }}>Camera</button>
             <button type="button" onClick={() => { triggerHaptic("tap"); open("chat"); }}>Chat</button>
             <button type="button" onClick={() => { triggerHaptic("tap"); open("shop"); }}>Shop</button>
@@ -1281,8 +1288,10 @@ export default function App() {
               as big hold buttons above the pad grid, so the right thumb
               holds the throttle while the left thumb steers with the
               stick — the stick alone had to do gas AND steer, and its
-              circular clamp capped a diagonal push at 0.707 on each. */}
-          {snap.driving ? (
+              circular clamp capped a diagonal push at 0.707 on each.
+              The loop train uses the same Gas / Brake while the player
+              is in the driver's seat (a train has no steering). */}
+          {snap.driving || snap.drivingTrain ? (
             <div className="drive-buttons">
               <Hold label="Brake" onDown={() => gameRef.current?.runtime.hold("brake", true)} onUp={() => gameRef.current?.runtime.hold("brake", false)} />
               <Hold label={snap.ridingBoard ? "Push" : "Gas"} onDown={() => { triggerHaptic("tap"); gameRef.current?.runtime.hold("gas", true); }} onUp={() => gameRef.current?.runtime.hold("gas", false)} />
