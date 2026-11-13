@@ -534,6 +534,8 @@ export interface Snap {
   // kind "party" + the party id. The Players panel tells them apart.
   requests: { id: string; name: string; kind?: string; party?: string }[];
   party: { id: string; name: string }[];
+  /** The party id (for the private party voice channel), or "" when not in a party. */
+  partyId: string;
   lobbies: { id: string; name: string; members: { id: string; name: string; speaking: boolean }[] }[];
   lobby: string;
   muted: boolean;
@@ -2889,6 +2891,7 @@ export function createRuntime(scene: Scene) {
       friends: world.me?.friends ?? [],
       requests: world.me?.inbox ?? [],
       party: world.party?.members ?? [],
+      partyId: world.party?.id ?? "",
       lobbies: world.lobbies,
       lobby: world.lobby,
       muted: world.muted,

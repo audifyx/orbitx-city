@@ -167,7 +167,6 @@ class CityWorld {
   private latest: Record<string, unknown> | null = null;
   private digestTimer = 0;
   private timer = 0;
-  private signals: { from: string; to: string; room: string; data: unknown }[] = [];
 
   async start(name: string) {
     const account = readAccount();
@@ -291,19 +290,11 @@ class CityWorld {
       this.lobbies = (data.lobbies as VoiceRoom[]) || [];
       this.party = (data.party as CityWorld["party"]) || null;
       this.server = String(data.server || this.server);
-      const incoming = (data.signals as CityWorld["signals"]) || [];
-      if (incoming.length) this.signals.push(...incoming);
     } catch {
       // One missed heartbeat should not drop the session or the player list.
     } finally {
       this.busy = false;
     }
-  }
-
-  takeSignals() {
-    const list = this.signals;
-    this.signals = [];
-    return list;
   }
 
   async spend(item: string) {
@@ -535,10 +526,6 @@ class CityWorld {
 
   async voiceToken(room: string) {
     return this.call("voice-token", { room });
-  }
-
-  async voiceSignal(to: string, room: string, data: unknown) {
-    return this.call("voice-signal", { to, room, data });
   }
 
   async loadBoard() {

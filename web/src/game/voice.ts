@@ -1,28 +1,37 @@
+// Voice chat on LiveKit (SFU) — one LiveKit room per voice channel.
+// Channels: proximity ("nearby", one room per universe), named public
+// channels (Plaza, HQ, Club Orbit, Casino — one room each, city-wide),
+// and one private room per party. The server (voice-token op) mints the
+// token and validates the player may join that room; this file only ever
+// connects with a token the server issued.
+//
+// Proximity stays proximity: everyone in the universe room is connected
+// and each remote voice fades with distance (full up close, silent past
+// 36 units). Named channels and party rooms play at full volume —
+// distance means nothing there. No dialing, no per-player hangups, no
+// mesh: the SFU routes everything.
+import { Room, RoomEvent, Track } from "livekit-client";
+import type { RemoteParticipant, RemoteTrack } from "livekit-client";
 import { world } from "./world";
 
-type PeerLink = {
-  pc: RTCPeerConnection;
-  audio: HTMLAudioElement;
-};
-
-const peers = new Map<string, PeerLink>();
-let localStream: MediaStream | null = null;
+let liveRoom: Room | null = null;
+/** Attached remote audio, by participant identity (= player id). */
+const remoteAudio = new Map<string, HTMLAudioElement>();
 let room = "";
-let meshTimer = 0;
-let provider: "livekit" | "mesh" | "" = "";
-let liveRoom: { disconnect: () => void; localParticipant: { setMicrophoneEnabled: (on: boolean) => Promise<unknown> } } | null = null;
+let livekitRoomName = "";
 let analyser: AnalyserNode | null = null;
 let context: AudioContext | null = null;
+let localStream: MediaStream | null = null;
 
 /** Proximity voice: the synthetic room everyone in proximity mode joins,
  * and the range (world units) inside which you can hear each other. */
 export const PROXIMITY_ROOM = "nearby";
 export const PROXIMITY_RANGE = 30;
-/** Hang up beyond this — the extra 6 units over the range is hysteresis
- * so walking along the edge does not flap the call on and off. */
+/** Fade-out edge: past this, a proximity voice is silent (the player is
+ * still connected — they just can't be heard until they walk back). */
 export const PROXIMITY_FALLOFF = 36;
-/** When true, only players within PROXIMITY_RANGE are dialled (see
- * meshStep); when false the lobby rules apply (same named room). */
+/** When true, only players within PROXIMITY_RANGE are audible (see
+ * voiceTick); when false the lobby rules apply (same named room). */
 let proximity = false;
 
 /** Distance from me to a player, from the last sync's presence (up to
@@ -35,38 +44,43 @@ function distanceTo(id: string): number {
   return Math.hypot(other.x - me.x, other.z - me.z);
 }
 
-/** 1.0 up close, fading to 0.3 at the edge of range — a player walking
- * away sounds quieter before they drop out. Unknown distance = full. */
+/** 1.0 up close, fading to 0 at the falloff — a player walking away
+ * sounds quieter, then silent, before they are out of range. Unknown
+ * distance = full. */
 function distanceVolume(distance: number): number {
   if (!Number.isFinite(distance)) return 1;
   if (distance <= 10) return 1;
-  if (distance >= PROXIMITY_RANGE) return 0.3;
-  return 1 - (0.7 * (distance - 10)) / (PROXIMITY_RANGE - 10);
+  if (distance >= PROXIMITY_FALLOFF) return 0;
+  return 1 - (distance - 10) / (PROXIMITY_FALLOFF - 10);
 }
 
-/** The audio volume for a peer: the player's manual per-person volume
- * times the distance fade. */
+/** The audio volume for a remote voice: the player's manual per-person
+ * volume times the distance fade (proximity only — named channels and
+ * party rooms play at full volume regardless of distance). */
 function peerVolume(id: string): number {
-  return (world.volumes[id] ?? 1) * distanceVolume(distanceTo(id));
+  const manual = world.volumes[id] ?? 1;
+  return proximity ? manual * distanceVolume(distanceTo(id)) : manual;
 }
 
-// Debug hook for the two-client test and future debugging — the peer
-// connection states, the peer count, and whether proximity is on. No
-// audio, no names, no PII.
+// Debug hook for the two-client test and future debugging — the room,
+// the participant count, and whether remote audio is live. No names,
+// no PII.
 if (typeof window !== "undefined") {
   (window as unknown as { __orbitxVoice?: unknown }).__orbitxVoice = {
-    peerCount: () => peers.size,
-    connectionStates: () => [...peers.values()].map((link) => link.pc.connectionState),
-    // Per peer: does the remote audio element have a live audio track?
-    // (proves media actually arrived, not just that the handshake worked).
+    peerCount: () => remoteAudio.size,
+    connectionStates: () => [liveRoom?.state ?? "disconnected"],
+    // Per remote voice: does the attached audio element have a live
+    // audio track? (proves media actually arrived, not just that the
+    // join worked).
     remoteAudio: () =>
-      [...peers.values()].map((link) => {
-        const stream = link.audio.srcObject as MediaStream | null;
+      [...remoteAudio.values()].map((audio) => {
+        const stream = audio.srcObject as MediaStream | null;
         const track = stream?.getAudioTracks()[0];
-        return { hasStream: !!stream, live: !!track && track.readyState === "live", paused: link.audio.paused };
+        return { hasStream: !!stream, live: !!track && track.readyState === "live", paused: audio.paused };
       }),
     proximity: () => proximity,
     room: () => room,
+    livekitRoom: () => livekitRoomName,
   };
 }
 
@@ -82,9 +96,11 @@ export function voiceState() {
 }
 
 export async function joinVoice(nextRoom: string): Promise<boolean> {
+  // Switching channels leaves the old room first.
+  if (liveRoom) leaveVoice();
   room = nextRoom;
-  // Proximity mode is the "nearby" room: the mesh only dials players
-  // within range (see meshStep). Any named room is lobby mode.
+  // Proximity mode is the "nearby" room: voices fade with distance (see
+  // voiceTick). Any named room is a channel — full volume.
   proximity = nextRoom === PROXIMITY_ROOM;
   world.proximity = proximity;
   world.lobby = nextRoom;
@@ -92,17 +108,15 @@ export async function joinVoice(nextRoom: string): Promise<boolean> {
   world.pushLobby();
   world.voiceError = "";
   try {
+    // world.call throws on a non-OK token answer, carrying the server's
+    // message (not set up yet / not in that party / no such channel).
     const ticket = await world.voiceToken(nextRoom);
-    world.provider = String(ticket.provider || "mesh");
-    provider = world.provider === "livekit" ? "livekit" : "mesh";
-    await ensureMic();
-    if (provider === "livekit") await joinLiveKit(String(ticket.url || ""), String(ticket.token || ""));
-    // meshStep must not wait on animation frames: on a slow or backgrounded
-    // tab frames can stall for seconds, and a call would never start.
-    // The 1s timer only reads world state, so it is safe to run on its own.
-    if (provider === "mesh" && !meshTimer) {
-      meshTimer = window.setInterval(() => voiceTick(), 1000);
+    if (ticket.provider !== "livekit" || !ticket.url || !ticket.token) {
+      throw new Error("Voice isn't set up yet — the city needs its LiveKit keys.");
     }
+    world.provider = "livekit";
+    await ensureMic();
+    await joinLiveKit(String(ticket.url), String(ticket.token), String(ticket.room || nextRoom));
     return true;
   } catch (err) {
     // A failed join must NOT leave the player "in" the room: the old
@@ -110,11 +124,11 @@ export async function joinVoice(nextRoom: string): Promise<boolean> {
     // when either failed — the panel read "In room" while the player
     // had no mic, no provider and no peers, so they never actually
     // joined the other person. Reset and say why, so a retry works.
+    leaveLiveKit();
     world.voiceError = err instanceof Error ? err.message : "Voice needs a microphone.";
     world.provider = "off";
-    provider = "";
-    disarmMeshTimer();
     room = "";
+    livekitRoomName = "";
     proximity = false;
     world.proximity = false;
     world.lobby = "";
@@ -123,59 +137,64 @@ export async function joinVoice(nextRoom: string): Promise<boolean> {
   }
 }
 
-function disarmMeshTimer() {
-  if (meshTimer) window.clearInterval(meshTimer);
-  meshTimer = 0;
-}
-
 export function leaveVoice() {
+  leaveLiveKit();
   world.lobby = "";
   world.proximity = false;
   proximity = false;
   world.pushLobby();
   room = "";
-  disarmMeshTimer();
+  livekitRoomName = "";
+}
+
+/** Disconnect the LiveKit room and drop every attached remote voice. */
+function leaveLiveKit() {
   liveRoom?.disconnect();
   liveRoom = null;
-  for (const link of peers.values()) hangup(link);
-  peers.clear();
+  for (const audio of remoteAudio.values()) audio.remove();
+  remoteAudio.clear();
 }
 
 export function joinProximity() {
   return joinVoice(PROXIMITY_ROOM);
 }
 
+/** Mic on/off for mute + push-to-talk: publish only while the player
+ * should actually be heard (not muted, and either open-mic or holding
+ * talk). The local stream's tracks feed the speaking analyser. */
+function applyMicState() {
+  const on = !world.muted && (!world.pushToTalk || world.talking);
+  localStream?.getAudioTracks().forEach((track) => {
+    track.enabled = on;
+  });
+  void liveRoom?.localParticipant.setMicrophoneEnabled(on);
+}
+
 export function setMuted(on: boolean) {
   world.muted = on;
-  localStream?.getAudioTracks().forEach((track) => {
-    track.enabled = !on && (!world.pushToTalk || world.talking);
-  });
-  void liveRoom?.localParticipant.setMicrophoneEnabled(!on);
+  applyMicState();
 }
 
 export function setDeafened(on: boolean) {
   world.deafened = on;
-  for (const link of peers.values()) link.audio.muted = on;
+  for (const audio of remoteAudio.values()) audio.muted = on;
 }
 
 export function setPushToTalk(on: boolean) {
   world.pushToTalk = on;
   if (on) setTalking(false);
-  else setMuted(world.muted);
+  else applyMicState();
 }
 
 export function setTalking(on: boolean) {
   world.talking = on;
-  const enabled = on && !world.muted;
-  localStream?.getAudioTracks().forEach((track) => {
-    track.enabled = enabled;
-  });
+  applyMicState();
 }
 
 export function setVolume(id: string, value: number) {
   world.volumes[id] = value;
-  const link = peers.get(id);
-  if (link) link.audio.volume = value;
+  const audio = remoteAudio.get(id);
+  if (audio) audio.volume = peerVolume(id);
 }
 
 export function voiceTick() {
@@ -191,7 +210,12 @@ export function voiceTick() {
   } else if (new URLSearchParams(location.search).has("voiceDemo")) {
     world.speaking = Math.floor(Date.now() / 700) % 2 === 0;
   } else world.speaking = false;
-  if (provider === "mesh" && room) void meshStep();
+  // Proximity fade: re-read every tick so a player walking away gets
+  // quieter, then silent, without any dial/hangup. Named channels skip
+  // this (peerVolume is the manual volume there).
+  if (proximity) {
+    for (const [id, audio] of remoteAudio) audio.volume = peerVolume(id);
+  }
 }
 
 async function ensureMic() {
@@ -205,151 +229,37 @@ async function ensureMic() {
   if (world.muted || world.pushToTalk) localStream.getAudioTracks().forEach((track) => (track.enabled = false));
 }
 
-async function joinLiveKit(url: string, token: string) {
-  const load = new Function("url", "return import(url)") as (url: string) => Promise<{
-    Room: new () => {
-      connect: (url: string, token: string) => Promise<void>;
-      localParticipant: { setMicrophoneEnabled: (on: boolean) => Promise<unknown> };
-      on: (event: string, cb: (track: { kind: string; attach: () => HTMLMediaElement }) => void) => void;
-      disconnect: () => void;
-    };
-    RoomEvent: { TrackSubscribed: string };
-  }>;
-  const mod = await load("https://esm.sh/livekit-client@2.9.8");
-  const live = new mod.Room();
-  await live.connect(url, token);
-  await live.localParticipant.setMicrophoneEnabled(!world.muted);
-  live.on(mod.RoomEvent.TrackSubscribed, (track: { kind: string; attach: () => HTMLMediaElement }) => {
-    if (track.kind !== "audio") return;
-    const audio = track.attach();
+async function joinLiveKit(url: string, token: string, livekitRoom: string) {
+  const live = new Room();
+  // Handlers first, so no track is missed between connect and subscribe.
+  live.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _publication, participant: RemoteParticipant) => {
+    if (track.kind !== Track.Kind.Audio) return;
+    const old = remoteAudio.get(participant.identity);
+    if (old) old.remove();
+    const audio = track.attach() as HTMLAudioElement;
     audio.autoplay = true;
+    audio.volume = peerVolume(participant.identity);
+    audio.muted = world.deafened;
     document.body.appendChild(audio);
+    remoteAudio.set(participant.identity, audio);
   });
+  live.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _publication, participant: RemoteParticipant) => {
+    track.detach();
+    const audio = remoteAudio.get(participant.identity);
+    if (audio) {
+      audio.remove();
+      remoteAudio.delete(participant.identity);
+    }
+  });
+  live.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
+    const audio = remoteAudio.get(participant.identity);
+    if (audio) {
+      audio.remove();
+      remoteAudio.delete(participant.identity);
+    }
+  });
+  await live.connect(url, token);
   liveRoom = live;
-}
-
-const pending = new Set<string>();
-const pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
-
-function flushCandidates(id: string) {
-  const link = peers.get(id);
-  const queued = pendingCandidates.get(id) ?? [];
-  pendingCandidates.delete(id);
-  if (!link) return;
-  for (const candidate of queued) {
-    // A stale candidate must never break the peer.
-    link.pc.addIceCandidate(candidate).catch(() => {});
-  }
-}
-
-async function meshStep() {
-  const members = world.people.filter((person) => person.lobby === room && person.id !== world.id);
-  if (proximity) {
-    // Proximity mode: only dial players within voice range, and hang up
-    // anyone who walks away (beyond the falloff, so the edge does not
-    // flap). A player who leaves entirely (no presence row) is hung up
-    // too — their row expires, so absence is real, not a missed beat.
-    const nearby = members.filter((member) => distanceTo(member.id) <= PROXIMITY_RANGE);
-    for (const member of nearby) {
-      if (peers.has(member.id) || pending.has(member.id)) continue;
-      if (world.id > member.id) void callPeer(member.id);
-    }
-    for (const [id, link] of peers) {
-      const person = world.people.find((item) => item.id === id);
-      const distance = person ? distanceTo(id) : Infinity;
-      if (!person || distance > PROXIMITY_FALLOFF) {
-        hangup(link);
-        peers.delete(id);
-        continue;
-      }
-      // A player walking away sounds quieter before they drop out.
-      link.audio.volume = peerVolume(id);
-    }
-  } else {
-    for (const member of members) {
-      if (peers.has(member.id) || pending.has(member.id)) continue;
-      if (world.id > member.id) void callPeer(member.id);
-    }
-  }
-  for (const signal of world.takeSignals()) {
-    if (signal.room !== room) continue;
-    await onSignal(signal.from, signal.data as { kind: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit });
-  }
-}
-
-async function callPeer(id: string) {
-  pending.add(id);
-  try {
-    const pc = makePeer(id);
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await world.voiceSignal(id, room, { kind: "offer", sdp: pc.localDescription });
-  } catch {
-    // The next meshStep retries the call.
-    peers.delete(id);
-  } finally {
-    pending.delete(id);
-  }
-}
-
-function makePeer(id: string) {
-  const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-  localStream?.getTracks().forEach((track) => pc.addTrack(track, localStream as MediaStream));
-  const audio = document.createElement("audio");
-  audio.autoplay = true;
-  audio.volume = peerVolume(id);
-  audio.muted = world.deafened;
-  pc.ontrack = (event) => {
-    audio.srcObject = event.streams[0];
-  };
-  pc.onicecandidate = (event) => {
-    if (event.candidate) void world.voiceSignal(id, room, { kind: "ice", candidate: event.candidate.toJSON() });
-  };
-  peers.set(id, { pc, audio });
-  return pc;
-}
-
-async function onSignal(from: string, data: { kind: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit }) {
-  let link = peers.get(from);
-  if (!link && data.kind === "offer") {
-    let pc: RTCPeerConnection | null = null;
-    try {
-      pc = makePeer(from);
-      await pc.setRemoteDescription(data.sdp as RTCSessionDescriptionInit);
-      flushCandidates(from);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      await world.voiceSignal(from, room, { kind: "answer", sdp: pc.localDescription });
-    } catch {
-      // A bad offer must not kill the mesh loop; the caller retries.
-      pc?.close();
-      peers.delete(from);
-      pendingCandidates.delete(from);
-    }
-    return;
-  }
-  if (!link) return;
-  try {
-    if (data.kind === "answer" && data.sdp) {
-      await link.pc.setRemoteDescription(data.sdp);
-      flushCandidates(from);
-    }
-    if (data.kind === "ice" && data.candidate) {
-      if (link.pc.remoteDescription) {
-        await link.pc.addIceCandidate(data.candidate);
-      } else {
-        // ICE usually arrives before the SDP on a slow link; hold it.
-        const queued = pendingCandidates.get(from) ?? [];
-        queued.push(data.candidate);
-        pendingCandidates.set(from, queued);
-      }
-    }
-  } catch {
-    // One bad signal must not break the peer.
-  }
-}
-
-function hangup(link: PeerLink) {
-  link.pc.close();
-  link.audio.remove();
+  livekitRoomName = livekitRoom;
+  applyMicState();
 }

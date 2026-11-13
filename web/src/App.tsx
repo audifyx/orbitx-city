@@ -4872,6 +4872,23 @@ function VoicePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
       {snap.pushToTalk ? (
         <Hold label="Hold to talk" onDown={() => rt?.setTalking(true)} onUp={() => rt?.setTalking(false)} />
       ) : null}
+      <h3>Channels</h3>
+      {snap.lobbies.length === 0 ? <span>No channels right now — join proximity voice to talk.</span> : null}
+      {snap.lobbies.map((room) => (
+        <article key={room.id}>
+          <div>
+            <b>{room.name}{snap.lobby === room.id ? " · you are here" : ""}</b>
+            <span>
+              {room.members.length ? room.members.map((member) => `${member.name}${member.speaking ? " ●" : ""}`).join(", ") : "empty"}
+            </span>
+          </div>
+          {snap.lobby === room.id ? (
+            <button type="button" onClick={() => rt?.leaveLobby()}>Leave</button>
+          ) : (
+            <button type="button" onClick={() => rt?.joinLobby(room.id)}>Join</button>
+          )}
+        </article>
+      ))}
       <h3>Near you now</h3>
       {nearby.length === 0 ? <span>No one in voice range right now. Walk up to a player and they will show up here.</span> : null}
       {nearby.map((person) => (
@@ -4893,7 +4910,7 @@ function VoicePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           </label>
         </article>
       ))}
-      <p>Free — voice is a core social feature, not a purchase. Audio is peer-to-peer; nothing is recorded or stored.</p>
+      <p>Free — voice is a core social feature, not a purchase. Audio runs through LiveKit&apos;s servers; nothing is recorded or stored.</p>
     </div>
   );
 }
@@ -4902,11 +4919,11 @@ function Phone({ snap, rt, onLogout }: { snap: Snap; rt: Runtime | null; onLogou
   const rooms = snap.lobbies.length
     ? snap.lobbies
     : [
+        { id: "nearby", name: "Nearby (proximity)", members: [] },
         { id: "plaza", name: "Plaza", members: [] },
-        { id: "district", name: "Project District", members: [] },
-        { id: "hall", name: "Community Hall", members: [] },
-        { id: "cafe", name: "Cafe Nova", members: [] },
-        { id: "shop", name: "OrbitX Shop", members: [] },
+        { id: "hq", name: "OrbitX HQ", members: [] },
+        { id: "club", name: "Club Orbit", members: [] },
+        { id: "casino", name: "Casino", members: [] },
       ];
   return (
     <div className="list phone">
