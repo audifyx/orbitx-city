@@ -3025,10 +3025,11 @@ function livekitRoomFor(channel, player, body) {
   if (VOICE_CHANNELS.some((c) => c.id === channel)) {
     return { room: `orbitx-city-${channel}` };
   }
-  const partyMatch = /^party-([A-Za-z0-9_-]+)$/.exec(channel);
-  if (partyMatch) {
-    if (player.party && player.party === partyMatch[1]) {
-      return { room: `orbitx-city-party-${partyMatch[1]}` };
+  // A party channel's id IS its party id (e.g. "party-a1b2c3") — no extra
+  // prefix, so the room name stays readable.
+  if (channel.startsWith("party-")) {
+    if (player.party && player.party === channel) {
+      return { room: `orbitx-city-${channel}` };
     }
     return { error: "You're not in that party.", status: 403 };
   }
@@ -3041,7 +3042,7 @@ function lobbiesFor(people, player) {
   // Your party channel is listed even when nobody is in it yet, so you
   // can always see and join it; other players never see it.
   if (player?.party) {
-    const id = `party-${player.party}`;
+    const id = player.party;
     if (!known.has(id)) {
       const room = { id, name: "Party", members: [] };
       known.set(id, room);
@@ -3052,7 +3053,7 @@ function lobbiesFor(people, player) {
     if (!person.lobby) continue;
     // A party channel only ever shows to its own members — never leak
     // another party's room (or its Join button) into someone's list.
-    if (person.lobby.startsWith("party-") && person.lobby !== `party-${player?.party}`) continue;
+    if (person.lobby.startsWith("party-") && person.lobby !== player?.party) continue;
     let room = known.get(person.lobby);
     if (!room) {
       room = { id: person.lobby, name: person.lobby, members: [] };
