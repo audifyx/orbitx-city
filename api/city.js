@@ -1820,32 +1820,42 @@ function publicPlayer(player) {
   };
 }
 
+// PostgREST PGRST204: "Could not find the 'missions' column of
+// 'player_saves' in the schema cache". Returns the named column, or null
+// when the error is anything else.
+function missingColumnFromPostgrest(error) {
+  const message = String(error?.message || error || "");
+  const match = /Could not find the '([^']+)' column of/.exec(message);
+  return match ? match[1] : null;
+}
+
+// Upsert with a missing-column retry that strips ONLY the column
+// PostgREST names. The old retry stripped a hardcoded list — including
+// `vehicles`, `homes`, `rental` and `last_seen` on saves and `home_server`
+// on players — so when the live schema lagged behind the code (trail /
+// missions added Nov 2026, columns never migrated), every save silently
+// dropped real data: a bought vehicle was charged but never stored, and
+// home_server stayed NULL forever. A retry must never touch a field the
+// error did not name. Loops so two missing columns are both stripped,
+// one at a time. Returns the last error, or null on success.
+async function upsertToleratingMissingColumns(client, table, row) {
+  let current = row;
+  let error = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    ({ error } = await client.from(table).upsert(current));
+    if (!error) return null;
+    const missing = missingColumnFromPostgrest(error);
+    if (!missing || !Object.prototype.hasOwnProperty.call(current, missing)) return error;
+    current = { ...current };
+    delete current[missing];
+  }
+  return error;
+}
+
 async function savePlayer(player) {
   const client = sb();
   if (client) {
-    let { error } = await client.from("players").upsert(rowFromPlayer(player));
-    if (error && /look|earned|best_race|best_hover|daily|wallet|holder|email|avatar|provider|auth_user|address|job_streak|business|rent|home_server|trail/i.test(error.message || "")) {
-      const row = rowFromPlayer(player);
-      delete row.look;
-      delete row.trail;
-      delete row.earned;
-      delete row.best_race;
-      delete row.best_hover;
-      delete row.daily;
-      delete row.wallet;
-      delete row.holder;
-      delete row.email;
-      delete row.avatar;
-      delete row.provider;
-      delete row.auth_user;
-      delete row.address;
-      delete row.job_streak;
-      delete row.business;
-      delete row.rent;
-      delete row.home_server;
-      const retry = await client.from("players").upsert(row);
-      error = retry.error;
-    }
+    const error = await upsertToleratingMissingColumns(client, "players", rowFromPlayer(player));
     if (!error) return;
     noteSupabase(error.message);
   }
@@ -2019,21 +2029,7 @@ async function saveKey(playerId, serverId) {
 async function saveSave(save) {
   const client = sb();
   if (client) {
-    let { error } = await client.from("player_saves").upsert(rowFromSave(save));
-    if (error && /homes|vehicles|active_vehicle|rental|last_seen|missions|trail/i.test(error.message || "")) {
-      // Same strip-unknown-columns retry as savePlayer: a missing column
-      // surfaces as an error instead of silently dropping the field.
-      const row = rowFromSave(save);
-      delete row.homes;
-      delete row.vehicles;
-      delete row.active_vehicle;
-      delete row.rental;
-      delete row.last_seen;
-      delete row.missions;
-      delete row.trail;
-      const retry = await client.from("player_saves").upsert(row);
-      error = retry.error;
-    }
+    const error = await upsertToleratingMissingColumns(client, "player_saves", rowFromSave(save));
     if (!error) return;
     noteSupabase(error.message);
   }
