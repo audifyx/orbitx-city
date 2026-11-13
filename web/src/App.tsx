@@ -3829,7 +3829,12 @@ export default function App() {
           ) : null}
           {menuPage !== "home" ? (
             <>
-              <MenuHeader who={who} onNavigate={setMenuPage} onPlay={() => { setMenuPage("home"); setMenuStep("roster"); }} />
+              <MenuHeader
+                who={who}
+                onNavigate={setMenuPage}
+                onHome={() => { setMenuPage("home"); setMenuStep("home"); }}
+                onPlay={() => { setMenuPage("home"); setMenuStep("roster"); }}
+              />
               {menuPage === "about" ? <AboutPage /> : null}
               {menuPage === "settings" ? (
                 <SettingsPage
@@ -3869,7 +3874,12 @@ export default function App() {
             />
           ) : (
             <>
-              <MenuHeader who={who} onNavigate={setMenuPage} onPlay={() => setMenuStep("roster")} />
+              <MenuHeader
+                who={who}
+                onNavigate={setMenuPage}
+                onHome={() => { setMenuPage("home"); setMenuStep("home"); }}
+                onPlay={() => setMenuStep("roster")}
+              />
               <div className="card menu-wide">
                 <h2>Pick your universe</h2>
                 <p className="muted">Your cars, homes, and offices live per universe. Travel between them is free — nothing follows you unless you carry it. Pick one before you play; you can travel in-world later.</p>

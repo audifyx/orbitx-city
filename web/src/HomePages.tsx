@@ -17,15 +17,17 @@ export const CITY_URL = "https://orbitx-city.vercel.app";
 export function MenuHeader({
   who,
   onNavigate,
+  onHome,
   onPlay,
 }: {
   who: Account | null;
   onNavigate: (page: HomePage) => void;
+  onHome: () => void;
   onPlay: () => void;
 }) {
   return (
     <header className="menu-header">
-      <button type="button" className="menu-word" onClick={onPlay} aria-label="OrbitX City — home">
+      <button type="button" className="menu-word" onClick={onHome} aria-label="OrbitX City — home">
         ORBITX <span>CITY</span>
       </button>
       <nav className="menu-nav" aria-label="Home navigation">

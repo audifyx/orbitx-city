@@ -59,7 +59,12 @@ export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogi
 
   return (
     <div className="menu-home">
-      <MenuHeader who={who} onNavigate={onOpenPage} onPlay={onChoose} />
+      <MenuHeader
+        who={who}
+        onNavigate={onOpenPage}
+        onHome={() => document.querySelector(".menu-home")?.scrollTo({ top: 0 })}
+        onPlay={onChoose}
+      />
       <div className="menu-hero">
         <p className="menu-kicker">ORBITX · LAUNCHES DEC 5, 2026</p>
         <h1 className="menu-title">ORBITX CITY</h1>
