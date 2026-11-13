@@ -691,13 +691,16 @@ function deptExtraProp(parts: CityParts, district: District, x0: number, z0: num
     box(parts, px, 0.08, pz, 8, 0.12, 8, "stone");
     signArt(parts, `dept-${district.id}-helipad`, px, 1.2, pz, 0, 3, 3, ["H"], "Helipad");
   } else {
-    // West: a training yard — cones + hurdle outside the door.
+    // West: a training yard — cones + hurdle outside the door. The hurdle
+    // sits 3 off the door centre line, never dead in front of the door.
     const ox = door === "e" ? x0 + DEPT_W + 3 : door === "w" ? x0 - 3 : cx;
     const oz = door === "s" ? z0 + DEPT_D + 3 : door === "n" ? z0 - 3 : cz;
     for (const [coneX, coneZ] of [[ox - 2, oz - 2], [ox + 2, oz - 2], [ox - 2, oz + 2], [ox + 2, oz + 2]] as Array<[number, number]>) {
       box(parts, coneX, 0.35, coneZ, 0.5, 0.7, 0.5, "red");
     }
-    solidBox(parts, ox, 0.5, oz, 2.4, 0.5, 0.3, "wood");
+    const hx = door === "n" || door === "s" ? ox + 3 : ox;
+    const hz = door === "n" || door === "s" ? oz : oz + 3;
+    solidBox(parts, hx, 0.5, hz, 2.4, 0.5, 0.3, "wood");
   }
 }
 
@@ -1045,7 +1048,10 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
   signArt(parts, `dir3-${towerId}`, boardPos.x + (boardFace === "w" ? 0.3 : boardFace === "e" ? -0.3 : 0), 1.55, boardPos.z + (boardFace === "n" ? 0.3 : boardFace === "s" ? -0.3 : 0), boardPos.rotY, 4.6, 0.85, ["Floor 3", "Suites 3A – 3H"], "Standard offices");
   signArt(parts, `dir4-${towerId}`, boardPos.x + (boardFace === "w" ? 0.3 : boardFace === "e" ? -0.3 : 0), 0.65, boardPos.z + (boardFace === "n" ? 0.3 : boardFace === "s" ? -0.3 : 0), boardPos.rotY, 4.6, 0.85, ["Floor 4", "Founder's Office · 4A – 4H"], "Premium suites");
   box(parts, cx, 0.12, cz + 2, 8, 0.06, 6, style.accent);
-  for (const [sx, sz] of [[x0 + 6, z0 + 22], [x0 + 22, z0 + 22]] as Array<[number, number]>) {
+  // Lobby sofas + plants — at z0+18: the z0+22 row grazed the directory
+  // corridor for south-board towers, and z0+20 sits on the directory row
+  // for east/west-board towers. z0+18 clears all four board faces.
+  for (const [sx, sz] of [[x0 + 6, z0 + 18], [x0 + 22, z0 + 18]] as Array<[number, number]>) {
     solidBox(parts, sx, 0.38, sz, 3.4, 0.45, 1.1, "red");
     solidBox(parts, sx + 4.5, 0.5, sz, 0.8, 0.9, 0.8, "leavesDark");
   }
@@ -1157,9 +1163,21 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
     zoneFor(`${towerId}-4`, `${district.towerName} — Floor 4`, "office", x0, z0, TOWER_W, TOWER_D, 15.9, 19.9, x0 + 7, cz, cx, 18.6, z0 + 0.4, 0, 3),
     zoneFor(`${towerId}-roof`, `${district.towerName} — Roof Terrace`, "office", x0, z0, TOWER_W, TOWER_D, 19.9, 24, cx, cz, cx, 22.2, z0 + TOWER_D - 0.4, Math.PI, 4),
   ];
+  // The directory anchor's yaw faces the lobby (the walk-up),
+  // doorAnchor-style — NOT the board's rotY, which would point the audit
+  // corridor at the wall behind the board.
+  const lobbyYaw = boardFace === "w" ? -Math.PI / 2 : boardFace === "e" ? Math.PI / 2 : boardFace === "n" ? 0 : Math.PI;
   const anchors: Anchor[] = [
     doorAnchorFor(towerId, district.towerName, "office", x0, z0, TOWER_W, TOWER_D, door),
-    { id: `${towerId}-directory`, name: "Office directory", kind: "offices", x: boardPos.x, y: 0, z: boardPos.z, yaw: boardPos.rotY, slot: 0 },
+    // The directory anchor stands 1.4 in front of the board (in the lobby),
+    // never inside the board itself.
+    {
+      id: `${towerId}-directory`, name: "Office directory", kind: "offices",
+      x: boardPos.x + (boardFace === "w" ? 1.4 : boardFace === "e" ? -1.4 : 0),
+      y: 0,
+      z: boardPos.z + (boardFace === "n" ? 1.4 : boardFace === "s" ? -1.4 : 0),
+      yaw: lobbyYaw, slot: 0,
+    },
   ];
   for (let i = 0; i < TOWER_FLOORS_Y.length; i++) {
     anchors.push({

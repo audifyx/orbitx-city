@@ -1,0 +1,6 @@
+boxes=74932 colliders=9337 anchors=416
+
+BLOCKED DOORS: 0 of 416 anchors
+
+DOOR_BLOCKERS=0 HARD=0 CANOPY=0 LAMP=0 TOTAL_HITS=0
+PASS: every door approach is clear.

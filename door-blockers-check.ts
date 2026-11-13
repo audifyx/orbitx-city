@@ -22,8 +22,9 @@ import { buildCity, type Anchor } from "./web/src/game/city";
 const city = buildCity(1);
 console.log(`boxes=${city.boxes.length} colliders=${city.colliders.length} anchors=${city.anchors.length}`);
 
-// yaw -> outward normal (doorAnchor convention: n=pi, s=0, w=pi/2, e=-pi/2)
-function normal(yaw: number): { nx: number; nz: number } {
+// yaw -> outward normal (doorAnchor convention: n=pi, s=0, w=pi/2, e=-pi/2).
+function normal(a: Anchor): { nx: number; nz: number } {
+  const yaw = a.yaw;
   const q = ((yaw % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
   if (Math.abs(q) < 0.01) return { nx: 0, nz: 1 }; // s
   if (Math.abs(q - Math.PI) < 0.01) return { nx: 0, nz: -1 }; // n
@@ -50,7 +51,7 @@ const BOARD_KINDS = new Set(["jobs", "events", "ads"]);
 // the doorway — the farthest real blocker, a patio palm / monorail
 // pillar, sits 3.6 out.) Boards: 0.2..6.0 out from the anchor.
 function corridorRect(a: Anchor): Rect {
-  const { nx, nz } = normal(a.yaw);
+  const { nx, nz } = normal(a);
   const board = BOARD_KINDS.has(a.kind);
   const dNear = board ? 0.2 : -1.1;
   const dFar = board ? 6.0 : 4.0;
@@ -74,7 +75,7 @@ function corridorRect(a: Anchor): Rect {
 // face out to 4.5. Boards have no door/sign, so they skip this.
 function canopyRect(a: Anchor): Rect | null {
   if (BOARD_KINDS.has(a.kind)) return null;
-  const { nx, nz } = normal(a.yaw);
+  const { nx, nz } = normal(a);
   const half = 1.0;
   const dNear = -1.4; // the face itself
   const dFar = 3.1; // 4.5 out from the face
@@ -129,9 +130,12 @@ function boxMatsAt(cx0: number, cz0: number, cx1: number, cz1: number): string {
 }
 
 // --- HARD: colliders at walk height ---------------------------------------
+// A tagged lift-door is the lift's own cab door (it opens on call), like a
+// building's door panel — never a foreign blocker.
 for (const a of city.anchors) {
   const zr = corridorRect(a);
   for (const c of city.colliders) {
+    if (c.tag && c.tag.startsWith("lift-door:")) continue;
     if (c.maxY <= 0.5 || c.minY >= 2.5) continue;
     const ov = overlap(zr, { x0: c.minX, z0: c.minZ, x1: c.maxX, z1: c.maxZ });
     if (!ov) continue;

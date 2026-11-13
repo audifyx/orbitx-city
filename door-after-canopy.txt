@@ -1,0 +1,81 @@
+boxes=74933 colliders=9336 anchors=416
+
+BLOCKED DOORS: 23 of 416 anchors
+
+  dept-west-emergency (Project District Emergency Center) kind=emergency at (-210.0,32.6) yaw=3.14
+    [HARD] collider x-211.2..-208.8 z30.9..31.1 y0.3..0.8 overlap 0.90x0.30 [grassx1 asphaltx1 woodx1]
+
+  dept-west-fire (Project District Fire Department) kind=fire at (-242.6,-40.0) yaw=-1.57
+    [HARD] collider x-242.2..-239.8 z-40.1..-39.9 y0.3..0.8 overlap 2.40x0.30 [grassx1 asphaltx1 woodx1]
+
+  dept-west-hospital (Project District General Hospital) kind=hospital at (-210.0,-32.6) yaw=0.00
+    [HARD] collider x-211.2..-208.8 z-31.1..-30.9 y0.3..0.8 overlap 0.90x0.30 [grassx1 asphaltx1 woodx1]
+
+  dept-west-police (Project District Police Station) kind=police at (-242.6,24.0) yaw=-1.57
+    [HARD] collider x-242.2..-239.8 z23.9..24.1 y0.3..0.8 overlap 2.40x0.30 [grassx1 asphaltx1 woodx1]
+
+  diner (Sunset Diner) kind=restaurant at (113.6,53.0) yaw=1.57
+    [HARD] collider x109.3..110.8 z51.3..52.8 y0.0..30.0 overlap 1.15x0.20 [grassx1 sidewalkx1 asphaltx1]
+
+  events (Events board) kind=events at (-10.0,17.6) yaw=0.00
+    [HARD] collider x-24.0..-9.0 z18.0..18.7 y0.2..1.4 overlap 0.90x0.70 [hedgex3 grassx2 sidewalkx1]
+    [HARD] collider x-9.7..-9.0 z18.0..27.0 y0.2..1.4 overlap 0.15x5.60 [hedgex3 grassx2 stonex2]
+
+  jobs (Jobs board) kind=jobs at (10.0,17.6) yaw=0.00
+    [HARD] collider x9.0..24.0 z18.0..18.7 y0.2..1.4 overlap 0.90x0.70 [hedgex3 grassx2 sidewalkx1]
+    [HARD] collider x9.0..9.7 z18.0..27.0 y0.2..1.4 overlap 0.15x5.60 [hedgex3 grassx2 stonex2]
+
+  lift-east-0 (East Tower Lift) kind=lift at (202.5,-11.0) yaw=-1.57
+    [HARD] collider x190.0..250.0 z-11.6..-11.2 y0.1..1.3 overlap 5.10x0.25 [goldx7 sidewalkx4 asphaltx4]
+
+  lift-east-1 (East Tower Lift) kind=lift at (202.5,-11.0) yaw=-1.57
+    [HARD] collider x190.0..250.0 z-11.6..-11.2 y0.1..1.3 overlap 5.10x0.25 [goldx7 sidewalkx4 asphaltx4]
+
+  lift-east-2 (East Tower Lift) kind=lift at (202.5,-11.0) yaw=-1.57
+    [HARD] collider x190.0..250.0 z-11.6..-11.2 y0.1..1.3 overlap 5.10x0.25 [goldx7 sidewalkx4 asphaltx4]
+
+  lift-east-3 (East Tower Lift) kind=lift at (202.5,-11.0) yaw=-1.57
+    [HARD] collider x190.0..250.0 z-11.6..-11.2 y0.1..1.3 overlap 5.10x0.25 [goldx7 sidewalkx4 asphaltx4]
+
+  lift-east-4 (East Tower Lift) kind=lift at (202.5,-11.0) yaw=-1.57
+    [HARD] collider x190.0..250.0 z-11.6..-11.2 y0.1..1.3 overlap 5.10x0.25 [goldx7 sidewalkx4 asphaltx4]
+
+  lift-west-0 (Project Tower Lift) kind=lift at (-217.5,-11.0) yaw=-1.57
+    [HARD] collider x-250.0..-190.0 z-11.6..-11.2 y0.1..1.3 overlap 5.10x0.25 [sidewalkx4 redx4 asphaltx4]
+
+  lift-west-1 (Project Tower Lift) kind=lift at (-217.5,-11.0) yaw=-1.57
+    [HARD] collider x-250.0..-190.0 z-11.6..-11.2 y0.1..1.3 overlap 5.10x0.25 [sidewalkx4 redx4 asphaltx4]
+
+  lift-west-2 (Project Tower Lift) kind=lift at (-217.5,-11.0) yaw=-1.57
+    [HARD] collider x-250.0..-190.0 z-11.6..-11.2 y0.1..1.3 overlap 5.10x0.25 [sidewalkx4 redx4 asphaltx4]
+
+  lift-west-3 (Project Tower Lift) kind=lift at (-217.5,-11.0) yaw=-1.57
+    [HARD] collider x-250.0..-190.0 z-11.6..-11.2 y0.1..1.3 overlap 5.10x0.25 [sidewalkx4 redx4 asphaltx4]
+
+  lift-west-4 (Project Tower Lift) kind=lift at (-217.5,-11.0) yaw=-1.57
+    [HARD] collider x-250.0..-190.0 z-11.6..-11.2 y0.1..1.3 overlap 5.10x0.25 [sidewalkx4 redx4 asphaltx4]
+
+  loop-lift-0 (Loop Train Lift) kind=lift at (0.0,117.6) yaw=3.14
+    [HARD] collider x-1.2..1.2 z115.9..116.1 y0.0..3.0 tag=lift-door:loop-lift:0 overlap 0.90x0.15 [lanex2 whitex2 grassx1]
+
+  loop-lift-1 (Loop Train Lift) kind=lift at (0.0,117.2) yaw=3.14
+    [HARD] collider x-1.2..1.2 z115.9..116.1 y0.0..3.0 tag=lift-door:loop-lift:0 overlap 0.90x0.15 [lanex2 whitex2 grassx1]
+
+  tower-east-directory (Office directory) kind=offices at (223.1,6.0) yaw=-1.57
+    [HARD] collider x223.7..224.3 z2.0..14.0 y0.0..20.0 overlap 0.60x0.90 [goldx6 whitex4 creamx2]
+    [HARD] collider x222.9..223.3 z3.5..8.5 y0.1..4.0 overlap 0.30x0.90 [goldx4 whitex3 blackx2]
+
+  tower-harbor-directory (Office directory) kind=offices at (-118.0,233.1) yaw=3.14
+    [HARD] collider x-126.0..-98.0 z233.7..234.3 y0.0..20.0 overlap 0.90x0.50 [whitex11 cyanx9 blackx2]
+    [HARD] collider x-120.5..-115.5 z232.9..233.3 y0.1..4.0 overlap 0.90x0.30 [cyanx4 whitex3 blackx2]
+
+  tower-north-directory (Office directory) kind=offices at (-6.0,-229.1) yaw=0.00
+    [HARD] collider x-14.0..14.0 z-230.3..-229.7 y0.0..20.0 overlap 0.90x0.50 [goldx9 whitex8 grayx3]
+    [HARD] collider x-8.5..-3.5 z-229.3..-228.9 y0.1..4.0 overlap 0.90x0.30 [goldx3 blackx2 whitex2]
+
+  tower-west-directory (Office directory) kind=offices at (-223.1,6.0) yaw=1.57
+    [HARD] collider x-224.3..-223.7 z2.0..14.0 y0.0..20.0 overlap 0.60x0.90 [redx5 whitex4 warmx2]
+    [HARD] collider x-223.3..-222.9 z3.5..8.5 y0.1..4.0 overlap 0.30x0.90 [redx4 whitex3 blackx2]
+
+DOOR_BLOCKERS=23 HARD=29 CANOPY=0 LAMP=0 TOTAL_HITS=29
+FAIL: doors blocked — move the object, never the door.

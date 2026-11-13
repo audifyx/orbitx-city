@@ -1673,6 +1673,20 @@ export function buildBridge(city: City, bridge: BridgeDef): void {
       const isSpan = deck === bridge.span;
       if (isSpan && alongX && bridge.id === "bridge-east" && s === 1) segs = [[250, 253], [263, 550]];
       if (isSpan && alongX && bridge.id === "bridge-west" && s === -1) segs = [[-550, -271], [-261, -250]];
+      // Lift-door gap (door-blockers fix): the district tower lift opens
+      // onto the home-side deck, and the deck's north rail (z=-11.4) ran
+      // 0.4 from the lift door, across the doorway. Split the rail with a
+      // 5-wide gap at the lift door.
+      if (!isSpan && deck === bridge.decks[0] && alongX && s === -1) {
+        const liftX = bridge.id === "bridge-east" ? 202.5 : bridge.id === "bridge-west" ? -217.5 : null;
+        const a0 = deck.x0;
+        const a1 = deck.x1;
+        // The lift walk-up corridor runs 1.1 west + 4.0 east of the door,
+        // so the gap is asymmetric: it must cover the whole corridor.
+        if (liftX !== null && liftX - 1.5 > a0 && liftX + 4.5 < a1) {
+          segs = [[a0, liftX - 1.5], [liftX + 4.5, a1]].filter(([a, b]) => b - a >= 2);
+        }
+      }
       for (const [a, b] of segs) {
         const mid = (a + b) / 2;
         const len = b - a;

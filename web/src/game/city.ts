@@ -819,8 +819,10 @@ function addPlaza(boxes: Box[], cols: Collider[]) {
   const lawns: Array<[number, number, number, number]> = [
     [-24, 1, -9, 7],
     [9, 1, 24, 7],
-    [-24, 18, -9, 27],
-    [9, 18, 24, 27],
+    // The z=18 lawns flank the Jobs / Events boards — shifted 6 out so
+    // their hedge no longer stands 0.4 behind a board anchor.
+    [-30, 18, -15, 27],
+    [15, 18, 30, 27],
     [-26, -26, -16, -8],
     [16, -26, 26, -8],
   ];
@@ -1547,6 +1549,17 @@ function lampBlockedByDoor(x: number, z: number, zones: DoorZone[]): boolean {
   return false;
 }
 
+// A monorail support pillar (1.5 x 1.5 post) in a door walk-up corridor.
+function pillarBlockedByDoor(x: number, z: number, zones: DoorZone[]): boolean {
+  for (const zn of zones) {
+    if (zn.board) continue; // boards have no door swing to clear
+    const along = (x - zn.x) * zn.nx + (z - zn.z) * zn.nz;
+    const across = (x - zn.x) * zn.nz - (z - zn.z) * zn.nx;
+    if (Math.abs(across) < 1.2 && along > -1.85 && along < 4.75) return true;
+  }
+  return false;
+}
+
 function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng, zones: DoorZone[]) {
   let lampI = 0;
   for (const cx of CENTERS) {
@@ -1614,7 +1627,7 @@ function insideBuilding(cols: Collider[], x: number, z: number) {
   return cols.some((c) => x > c.minX + 0.4 && x < c.maxX - 0.4 && z > c.minZ + 0.4 && z < c.maxZ - 0.4 && c.maxY > 8);
 }
 
-function addMonorail(boxes: Box[], cols: Collider[], rail: RailPoint[]) {
+function addMonorail(boxes: Box[], cols: Collider[], rail: RailPoint[], zones: DoorZone[]) {
   for (let i = 0; i < rail.length; i++) {
     const a = rail[i];
     const b = rail[(i + 1) % rail.length];
@@ -1628,7 +1641,10 @@ function addMonorail(boxes: Box[], cols: Collider[], rail: RailPoint[]) {
     put(boxes, mx, TRACK_Y, mz, len + 0.2, 0.55, 3.3, "track", ry);
     put(boxes, mx, TRACK_Y + 0.4, mz, len + 0.2, 0.16, 0.42, "cyan", ry);
     const straight = Math.abs(dx) < 0.4 || Math.abs(dz) < 0.4;
-    if (straight && i % 4 === 0 && !insideBuilding(cols, a.x, a.z)) {
+    // A pillar never lands in a door walk-up corridor (one stood 3.6 in
+    // front of the Sunset Diner door). The track is a continuous beam, so
+    // skipping one support just lengthens the span — it never floats.
+    if (straight && i % 4 === 0 && !insideBuilding(cols, a.x, a.z) && !pillarBlockedByDoor(a.x, a.z, zones)) {
       put(boxes, a.x, TRACK_Y / 2, a.z, 1.5, TRACK_Y, 1.5, "gray");
       put(boxes, a.x, TRACK_Y - 0.35, a.z, 2.6, 0.55, 2.6, "black");
       put(boxes, a.x, TRACK_Y + 0.15, a.z, 0.7, 0.28, 0.7, "cyanhot");
@@ -5648,7 +5664,7 @@ export function buildCity(seed: number): City {
   // 8 units north, clear of every door.
   addTree(boxes, colliders, 6.15, 62, 0);
   const rail = loopPoints();
-  addMonorail(boxes, colliders, rail);
+  addMonorail(boxes, colliders, rail, doorZones);
   const trainLine = addTrainLine(boxes, colliders);
   const station = addLoopStation(boxes, colliders);
   addHills(boxes, colliders, rng);
