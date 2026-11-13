@@ -1659,7 +1659,6 @@ export function buildBridge(city: City, bridge: BridgeDef): void {
     // road junction, like an on-ramp. East: north rail, x 253..263 (the
     // span, x 250..550). West: south rail, x -271..-261 (span -550..-250,
     // gap centred on the west mouth at x=-266).
-    const railLen = alongX ? w : d;
     const railOff = 11.4;
     for (const s of [-1, 1]) {
       const rx = alongX ? cx : cx + s * railOff;
