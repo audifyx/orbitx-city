@@ -458,6 +458,16 @@ const SERVERS = [1, 2, 3, 4, 5];
 const MULTIVERSE_CAP = 150;
 const MULTIVERSE_HEARTBEAT_MS = 5 * 60 * 1000;
 
+// --- City stats (admin-only) -------------------------------------------
+// The FULL stats page is visible only to this email. The gate lives in
+// the city-stats op (404 when not signed in, 403 when signed in as
+// anyone else) — this constant is the single source of truth for it.
+const STATS_ADMIN_EMAIL = "audifyx@gmail.com";
+const STATS_LAUNCH_DATE = "2026-12-05";
+const STATS_HOMES_TOTAL = 150;
+const STATS_OFFICE_SUITES_TOTAL = 125; // 100 district suites + 25 HQ offices
+const STATS_UNIVERSE_NAMES = { 1: "Aurora", 2: "Nova", 3: "Zenith", 4: "Halo", 5: "Orbit" };
+
 function isServerId(n) {
   return Number.isInteger(n) && n >= 1 && n <= 5;
 }
@@ -5379,6 +5389,22 @@ export async function POST(request) {
     return json({ ok: true, token: player.token, me: publicPlayer(player), storage: storageName(), auth: authMode() });
   }
 
+  // City stats — the FULL stats page, admin-only. ONLY audifyx@gmail.com.
+  // Not signed in (no account token, or an invalid/expired one) -> 404:
+  // the page does not exist to them. Signed in as anyone else -> 403.
+  // The gate is on the verified Supabase Auth email (or the mock token
+  // payload in dev/tests) — never on a client-sent value, and never on
+  // the player row. Runs before player resolution: the stats op needs
+  // no player, only the account.
+  if (op === "city-stats") {
+    if (!account) return json({ ok: false, message: "Not found." }, 404);
+    if (String(account.email || "").toLowerCase() !== STATS_ADMIN_EMAIL) {
+      return json({ ok: false, message: "Forbidden." }, 403);
+    }
+    const stats = await cityStats();
+    return json({ ok: true, stats });
+  }
+
   let player = null;
   if (looksLikeAccountToken(token)) {
     if (!account) return json({ ok: false, message: "That login expired. Sign in again." }, 401);
@@ -6275,6 +6301,344 @@ async function leaderboard() {
     .sort((a, b) => b.burned - a.burned)
     .slice(0, 8)
     .map((player) => ({ name: player.name, burned: player.burned }));
+}
+
+// City stats — the FULL stats page, real data only (Supabase blue-chair
+// when connected, the in-memory store in mock/dev mode). Every number is
+// computed live at request time; anything that cannot be computed is
+// returned as null with a reason in `unavailable` — never faked.
+// Public aggregates only: names and counts, no emails, no wallet keys,
+// no PINs, no other player's private data. Cheap and on-demand: the
+// admin opens the page and it fetches once; nothing here polls.
+async function cityStats() {
+  const started = Date.now();
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+  const dayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  const unavailable = {};
+  const client = sb();
+
+  // Safe runner: a failed table query marks its field unavailable
+  // instead of taking the whole page down.
+  async function run(promise, field, reason) {
+    try {
+      const r = await promise;
+      if (r && r.error) { noteSupabase(r.error.message); unavailable[field] = reason; return null; }
+      return r;
+    } catch {
+      unavailable[field] = reason;
+      return null;
+    }
+  }
+  const countOf = (r) => (r && typeof r.count === "number" ? r.count : null);
+  const parseJson = (raw, fallback) => {
+    try { return JSON.parse(raw || ""); } catch { return fallback; }
+  };
+  // Vehicle id -> kind, by catalog prefix (see VEHICLE_PRICES).
+  const vehicleKind = (id) => {
+    const s = String(id || "");
+    if (s.startsWith("fly-")) return "flying";
+    if (s.startsWith("bike-")) return "bike";
+    if (s.startsWith("atv-")) return "atv";
+    if (s.startsWith("board-")) return "board";
+    if (s.startsWith("boat-")) return "boat";
+    if (s.startsWith("city-") || s.startsWith("tesla-")) return "car";
+    return "other";
+  };
+  // Home id -> state, by the district prefix (ny- / la- / fl-).
+  const homeState = (id) => {
+    const s = String(id || "");
+    if (s.startsWith("ny-")) return "ny";
+    if (s.startsWith("la-")) return "la";
+    if (s.startsWith("fl-")) return "fl";
+    return "other";
+  };
+
+  const dailyActive14 = [];
+  for (let i = 13; i >= 0; i--) dailyActive14.push({ day: dayKey(now - i * DAY), players: 0 });
+  const dayIndex = {};
+  dailyActive14.forEach((d, i) => { dayIndex[d.day] = i; });
+
+  const out = {
+    asOf: new Date(now).toISOString(),
+    generatedMs: 0,
+    launch: {
+      date: STATS_LAUNCH_DATE,
+      daysUntil: Math.max(0, Math.ceil((new Date(STATS_LAUNCH_DATE + "T00:00:00Z").getTime() - now) / DAY)),
+    },
+    players: { total: 0, onlineNow: 0, active24h: 0, active7d: 0, newToday: null, new7d: null, new30d: null, dailyActive14, richest: [], topEarners: [] },
+    economy: { inCirculation: 0, totalEarned: 0, totalBurned: 0, jobsWorking: [] },
+    world: {
+      homes: { owned: 0, total: STATS_HOMES_TOTAL, byState: { ny: 0, la: 0, fl: 0, other: 0 }, byServer: {} },
+      vehicles: { owned: 0, byKind: { car: 0, flying: 0, bike: 0, atv: 0, board: 0, boat: 0, other: 0 }, top: [] },
+      offices: { claimed: 0, total: STATS_OFFICE_SUITES_TOTAL, value: 0 },
+      radio: { tracks: 0, today: 0, topUploaders: [] },
+      chat: { total: 0, last24h: 0 },
+      friendships: { total: 0, today: 0 },
+      parties: { active: 0 },
+      events: { total: 0, upcoming: 0 },
+    },
+    universes: SERVERS.map((id) => ({ id, name: STATS_UNIVERSE_NAMES[id], onlineNow: 0, saves: 0 })),
+    ads: {
+      orders: { total: 0, byStatus: {}, totalOrbitx: 0, today: 0 },
+      bookings: { total: 0, burned: 0, totalOrbitx: 0 },
+    },
+    wallet: { ledgerRows: 0, byStatus: {}, today: 0 },
+    unavailable,
+  };
+
+  if (client) {
+    // One parallel batch — every query is small (counts + narrow
+    // columns), and the page is fetched on demand, never polled.
+    const [
+      playersCount, playersMoney, richest, topEarners,
+      savesRecent, savesState, savesServers,
+      properties, officeClaims, radioTracks,
+      chatCount, chat24h, friendshipsCount, friendshipsToday,
+      partiesCount, events, adOrders, bookings, walletLedger,
+    ] = await Promise.all([
+      run(client.from("players").select("id", { count: "exact", head: true }), "players.total", "players table unreadable"),
+      run(client.from("players").select("name,balance,earned,burned"), "players.money", "players table unreadable"),
+      run(client.from("players").select("name,balance").order("balance", { ascending: false }).limit(10), "players.richest", "players table unreadable"),
+      run(client.from("players").select("name,earned").order("earned", { ascending: false }).limit(10), "players.topEarners", "players table unreadable"),
+      run(client.from("player_saves").select("player_id,server_id,last_seen").gt("last_seen", now - 14 * DAY), "players.activity", "player_saves table unreadable"),
+      run(client.from("player_saves").select("job,vehicles"), "world.vehicles", "player_saves table unreadable"),
+      run(client.from("player_saves").select("server_id"), "universes.saves", "player_saves table unreadable"),
+      run(client.from("properties").select("id,server_id"), "world.homes", "properties table unreadable"),
+      run(client.from("office_claims").select("suite,server_id,price"), "world.offices", "office_claims table unreadable"),
+      run(client.from("radio_tracks").select("id,created_at,uploader_name"), "world.radio", "radio_tracks table unreadable"),
+      run(client.from("chat").select("id", { count: "exact", head: true }), "world.chat", "chat table unreadable"),
+      run(client.from("chat").select("id", { count: "exact", head: true }).gte("created_at", new Date(now - DAY).toISOString()), "world.chat", "chat table unreadable"),
+      run(client.from("friendships").select("id", { count: "exact", head: true }), "world.friendships", "friendships table unreadable"),
+      run(client.from("friendships").select("id", { count: "exact", head: true }).gte("created_at", new Date(now - DAY).toISOString()), "world.friendships", "friendships table unreadable"),
+      run(client.from("parties").select("id", { count: "exact", head: true }), "world.parties", "parties table unreadable"),
+      run(client.from("events").select("id,when_at"), "world.events", "events table unreadable"),
+      run(client.from("ad_orders").select("status,orbitx_amount,created_at"), "ads.orders", "ad_orders table unreadable"),
+      run(client.from("bookings").select("status,burned,orbitx_amount"), "ads.bookings", "bookings table unreadable"),
+      run(client.from("wallet_ledger").select("status,created_at"), "wallet.ledger", "wallet_ledger table unreadable"),
+    ]);
+
+    // Players + economy.
+    const total = countOf(playersCount);
+    if (total !== null) out.players.total = total;
+    const money = (playersMoney && playersMoney.data) || [];
+    for (const p of money) {
+      out.economy.inCirculation += num(p.balance);
+      out.economy.totalEarned += num(p.earned);
+      out.economy.totalBurned += num(p.burned);
+    }
+    if (richest && richest.data) out.players.richest = richest.data.map((p) => ({ name: String(p.name || "Player"), balance: num(p.balance) }));
+    if (topEarners && topEarners.data) out.players.topEarners = topEarners.data.map((p) => ({ name: String(p.name || "Player"), earned: num(p.earned) }));
+
+    // Activity: distinct players per day over the last 14 days, DAU,
+    // 7-day actives, and online now (5-minute heartbeat, per universe).
+    const recent = (savesRecent && savesRecent.data) || [];
+    const seenByDay = {};
+    const active24 = new Set();
+    const active7 = new Set();
+    for (const s of recent) {
+      const last = num(s.last_seen);
+      if (!last) continue;
+      const d = dayKey(last);
+      if (!seenByDay[d]) seenByDay[d] = new Set();
+      seenByDay[d].add(String(s.player_id));
+      if (last > now - DAY) active24.add(String(s.player_id));
+      if (last > now - 7 * DAY) active7.add(String(s.player_id));
+    }
+    for (const d of dailyActive14) d.players = seenByDay[d.day] ? seenByDay[d.day].size : 0;
+    out.players.active24h = active24.size;
+    out.players.active7d = active7.size;
+    const online = await Promise.all(SERVERS.map((id) => activeCount(id)));
+    out.universes.forEach((u, i) => { u.onlineNow = num(online[i]); });
+    out.players.onlineNow = online.reduce((a, b) => a + num(b), 0);
+
+    // Universes: saves per universe.
+    const servers = (savesServers && savesServers.data) || [];
+    for (const s of servers) {
+      const u = out.universes.find((x) => x.id === num(s.server_id));
+      if (u) u.saves += 1;
+    }
+
+    // Jobs currently being worked + vehicles owned, from live saves.
+    const states = (savesState && savesState.data) || [];
+    const jobWorkers = {};
+    const vehicleCounts = {};
+    for (const s of states) {
+      const job = parseJson(s.job, null);
+      if (job && job.id) jobWorkers[String(job.id)] = (jobWorkers[String(job.id)] || 0) + 1;
+      const vehicles = parseJson(s.vehicles, []);
+      if (Array.isArray(vehicles)) {
+        for (const v of vehicles) {
+          const id = String(v);
+          out.world.vehicles.owned += 1;
+          out.world.vehicles.byKind[vehicleKind(id)] += 1;
+          vehicleCounts[id] = (vehicleCounts[id] || 0) + 1;
+        }
+      }
+    }
+    out.economy.jobsWorking = Object.entries(jobWorkers)
+      .map(([id, players]) => ({ id, players }))
+      .sort((a, b) => b.players - a.players);
+    out.world.vehicles.top = Object.entries(vehicleCounts)
+      .map(([id, count]) => ({ id, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    // Homes + offices.
+    const props = (properties && properties.data) || [];
+    out.world.homes.owned = props.length;
+    for (const p of props) {
+      out.world.homes.byState[homeState(p.id)] += 1;
+      const sid = num(p.server_id);
+      if (sid) out.world.homes.byServer[sid] = (out.world.homes.byServer[sid] || 0) + 1;
+    }
+    const claims = (officeClaims && officeClaims.data) || [];
+    out.world.offices.claimed = claims.length;
+    for (const c of claims) out.world.offices.value += num(c.price);
+
+    // Radio, chat, friendships, parties, events.
+    const tracks = (radioTracks && radioTracks.data) || [];
+    out.world.radio.tracks = tracks.length;
+    const todayStart = new Date(dayKey(now) + "T00:00:00Z").getTime();
+    const uploaderCounts = {};
+    for (const t of tracks) {
+      if (new Date(t.created_at).getTime() >= todayStart) out.world.radio.today += 1;
+      const name = String(t.uploader_name || "Unknown");
+      uploaderCounts[name] = (uploaderCounts[name] || 0) + 1;
+    }
+    out.world.radio.topUploaders = Object.entries(uploaderCounts)
+      .map(([name, tracks]) => ({ name, tracks }))
+      .sort((a, b) => b.tracks - a.tracks)
+      .slice(0, 5);
+    const cc = countOf(chatCount);
+    if (cc !== null) out.world.chat.total = cc;
+    const c24 = countOf(chat24h);
+    if (c24 !== null) out.world.chat.last24h = c24;
+    const fc = countOf(friendshipsCount);
+    if (fc !== null) out.world.friendships.total = fc;
+    const ft = countOf(friendshipsToday);
+    if (ft !== null) out.world.friendships.today = ft;
+    const pc = countOf(partiesCount);
+    if (pc !== null) out.world.parties.active = pc;
+    const evs = (events && events.data) || [];
+    out.world.events.total = evs.length;
+    for (const e of evs) {
+      const when = new Date(String(e.when_at || "")).getTime();
+      if (Number.isFinite(when) && when >= now) out.world.events.upcoming += 1;
+    }
+
+    // Ads + bookings + wallet ledger (admin-only aggregates).
+    const orders = (adOrders && adOrders.data) || [];
+    out.ads.orders.total = orders.length;
+    for (const o of orders) {
+      const st = String(o.status || "unknown");
+      out.ads.orders.byStatus[st] = (out.ads.orders.byStatus[st] || 0) + 1;
+      out.ads.orders.totalOrbitx += num(o.orbitx_amount);
+      if (new Date(o.created_at).getTime() >= todayStart) out.ads.orders.today += 1;
+    }
+    const bks = (bookings && bookings.data) || [];
+    out.ads.bookings.total = bks.length;
+    for (const b of bks) {
+      out.ads.bookings.burned += num(b.burned);
+      out.ads.bookings.totalOrbitx += num(b.orbitx_amount);
+    }
+    const ledger = (walletLedger && walletLedger.data) || [];
+    out.wallet.ledgerRows = ledger.length;
+    for (const l of ledger) {
+      const st = String(l.status || "unknown");
+      out.wallet.byStatus[st] = (out.wallet.byStatus[st] || 0) + 1;
+      if (new Date(l.created_at).getTime() >= todayStart) out.wallet.today += 1;
+    }
+
+    // New accounts — the players table has no created_at, so signups
+    // come from Supabase Auth (aggregate counts only; no emails are
+    // ever read out of the user objects).
+    try {
+      const { data, error } = await client.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      if (error) throw error;
+      const users = (data && data.users) || [];
+      let today = 0;
+      let seven = 0;
+      let thirty = 0;
+      for (const u of users) {
+        const created = new Date(u.created_at || 0).getTime();
+        if (!Number.isFinite(created)) continue;
+        if (created >= todayStart) today += 1;
+        if (created >= now - 7 * DAY) seven += 1;
+        if (created >= now - 30 * DAY) thirty += 1;
+      }
+      out.players.newToday = today;
+      out.players.new7d = seven;
+      out.players.new30d = thirty;
+    } catch {
+      unavailable["players.new"] = "signup dates unavailable (no creation timestamp on players; auth list unreadable)";
+    }
+  } else {
+    // No Supabase connection (mock/dev mode): compute the same
+    // aggregates from the in-memory store. Empty store -> zeros.
+    const players = [...memory().players.values()];
+    const saves = [...memory().saves.values()];
+    out.players.total = players.length;
+    for (const p of players) {
+      out.economy.inCirculation += num(p.balance);
+      out.economy.totalEarned += num(p.earned);
+      out.economy.totalBurned += num(p.burned);
+    }
+    out.players.richest = players
+      .map((p) => ({ name: String(p.name || "Player"), balance: num(p.balance) }))
+      .sort((a, b) => b.balance - a.balance)
+      .slice(0, 10);
+    out.players.topEarners = players
+      .map((p) => ({ name: String(p.name || "Player"), earned: num(p.earned) }))
+      .sort((a, b) => b.earned - a.earned)
+      .slice(0, 10);
+    const seenByDay = {};
+    const active24 = new Set();
+    const active7 = new Set();
+    const jobWorkers = {};
+    const vehicleCounts = {};
+    for (const s of saves) {
+      const last = num(s.lastSeen);
+      if (last) {
+        const d = dayKey(last);
+        if (!seenByDay[d]) seenByDay[d] = new Set();
+        seenByDay[d].add(String(s.playerId));
+        if (last > now - DAY) active24.add(String(s.playerId));
+        if (last > now - 7 * DAY) active7.add(String(s.playerId));
+      }
+      if (s.serverId) {
+        const u = out.universes.find((x) => x.id === num(s.serverId));
+        if (u) u.saves += 1;
+      }
+      if (s.job && s.job.id) jobWorkers[String(s.job.id)] = (jobWorkers[String(s.job.id)] || 0) + 1;
+      const vehicles = Array.isArray(s.vehicles) ? s.vehicles : [];
+      for (const v of vehicles) {
+        const id = String(v);
+        out.world.vehicles.owned += 1;
+        out.world.vehicles.byKind[vehicleKind(id)] += 1;
+        vehicleCounts[id] = (vehicleCounts[id] || 0) + 1;
+      }
+    }
+    for (const d of dailyActive14) d.players = seenByDay[d.day] ? seenByDay[d.day].size : 0;
+    out.players.active24h = active24.size;
+    out.players.active7d = active7.size;
+    out.players.onlineNow = saves.filter((s) => num(s.lastSeen) > now - MULTIVERSE_HEARTBEAT_MS).length;
+    out.universes.forEach((u) => {
+      u.onlineNow = saves.filter((s) => num(s.serverId) === u.id && num(s.lastSeen) > now - MULTIVERSE_HEARTBEAT_MS).length;
+    });
+    out.economy.jobsWorking = Object.entries(jobWorkers)
+      .map(([id, players]) => ({ id, players }))
+      .sort((a, b) => b.players - a.players);
+    out.world.vehicles.top = Object.entries(vehicleCounts)
+      .map(([id, count]) => ({ id, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+    unavailable["players.new"] = "signup dates unavailable (no Supabase connection in this mode)";
+  }
+
+  out.generatedMs = Date.now() - started;
+  return out;
 }
 
 function storageName() {
