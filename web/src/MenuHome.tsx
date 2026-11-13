@@ -37,13 +37,15 @@ interface MenuHomeProps {
   onBackToLogin: () => void;
   // Social (home rebrand): live counts from the menu's universe list.
   // `online` is null while the server has not answered — the section says
-  // so instead of inventing a number.
+  // so instead of inventing a number. `socialLive` is false when the
+  // counts come from the offline fallback roster (whose 0s are not real).
   online: number | null;
   friendsOnline: Array<{ id: string; name: string; server: number | null }>;
+  socialLive: boolean;
   onOpenPage: (page: HomePage) => void;
 }
 
-export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogin, online, friendsOnline, onOpenPage }: MenuHomeProps) {
+export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogin, online, friendsOnline, socialLive, onOpenPage }: MenuHomeProps) {
   const [showHow, setShowHow] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -122,7 +124,9 @@ export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogi
                 ? "1 player online right now"
                 : `${online.toLocaleString()} players online right now`}
           </p>
-          {friendsOnline.length > 0 ? (
+          {!socialLive ? (
+            <p className="menu-friends">Friend activity loads when the server answers.</p>
+          ) : friendsOnline.length > 0 ? (
             <p className="menu-friends">
               Friends online:{" "}
               {friendsOnline.map((f) => `${f.name}${f.server ? ` · ${universeDisplayName(f.server as 1 | 2 | 3 | 4 | 5)}` : ""}`).join(" · ")}

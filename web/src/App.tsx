@@ -511,6 +511,10 @@ export default function App() {
   // Multiverse picker (menu + panel): live list when the server answers,
   // static roster when offline — the picker still records the choice.
   const [universes, setUniverses] = useState<Universe[] | null>(null);
+  // True only when the counts above came from a live server answer (not
+  // the offline fallback roster, whose 0s are not real player counts).
+  // The home social section shows "checking" while this is false.
+  const [universesLive, setUniversesLive] = useState(false);
   // Where the player's friends are right now (from universe-list) —
   // the picker tags the universe a friend is on so the player joins
   // the same room instead of their own saved universe.
@@ -819,12 +823,14 @@ export default function App() {
       .then((list) => {
         if (!live) return;
         setUniverses(list.universes);
+        setUniversesLive(true);
         setFriendsHere(list.friendsHere);
         if (!localStorage.getItem("orbitx-universe") && list.homeServerId) setUniverseSel(list.homeServerId);
       })
       .catch(() => {
         if (!live) return;
         setUniverses(fallbackUniverses());
+        setUniversesLive(false);
       });
     return () => {
       live = false;
@@ -838,6 +844,7 @@ export default function App() {
     void listUniverses()
       .then((list) => {
         setUniverses(list.universes);
+        setUniversesLive(true);
         setFriendsHere(list.friendsHere);
       })
       .catch((err) => setUniverseMsg(err instanceof Error ? err.message : "Could not load universes."));
@@ -3868,8 +3875,9 @@ export default function App() {
                 setGate("login");
                 setWho(null);
               }}
-              online={universes ? universes.reduce((n, u) => n + u.playerCount, 0) : null}
+              online={universesLive && universes ? universes.reduce((n, u) => n + u.playerCount, 0) : null}
               friendsOnline={friendsHere.filter((f) => f.server !== null)}
+              socialLive={universesLive}
               onOpenPage={setMenuPage}
             />
           ) : (
