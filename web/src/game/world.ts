@@ -653,6 +653,12 @@ class CityWorld {
     return this.call("my-properties", { server });
   }
 
+  // Player profile — public view of another player (name, look, homes,
+  // cars, friend count). Never returns balance, inbox, email, or wallet.
+  async profileView(id: string) {
+    return this.call("profile-view", { id });
+  }
+
   // GTA district offices — mirror the HQ office-claim call pattern, with
   // the server id on every call so a Server 1 claim never leaks to Server 2.
   async districtOfficeClaim(suite: string, server: number, term_days: number, project: string, logo: string, site: string) {

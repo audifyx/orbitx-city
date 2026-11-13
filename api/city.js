@@ -5859,6 +5859,41 @@ export async function POST(request) {
     return json({ ok: true, me: publicPlayer(player) });
   }
 
+  // Public profile — what anyone in the city can see about a player:
+  // name, look, home universe, homes, cars, friend count, tour
+  // progress, total earned. Balance, inbox, email, wallet, and address
+  // NEVER leave the server here. Homes + cars come from the target's
+  // home-universe save (same source as my-properties), so the profile
+  // shows real ownership, not a guess.
+  if (op === "profile-view") {
+    const other = await playerById(String(body.id || ""));
+    if (!other) return json({ ok: false, message: "No player with that id." }, 404);
+    const pub = publicPlayer(other);
+    const homeServer = Number(pub.homeServer || 0) || null;
+    const save = homeServer ? await saveKey(other.id, homeServer) : null;
+    const homes = save?.homes && Array.isArray(save.homes.homes) ? save.homes.homes : [];
+    return json({
+      ok: true,
+      profile: {
+        id: pub.id,
+        name: pub.name,
+        look: pub.look || "tjr",
+        color: pub.color || "",
+        hat: pub.hat || "",
+        clothes: pub.clothes || null,
+        homeServer,
+        homes: homes
+          .filter((h) => !homeServer || Number(h.server || 0) === homeServer)
+          .map((h) => ({ homeId: String(h.homeId || ""), server: Number(h.server || 0), tier: typeof h.tier === "string" ? h.tier : "" })),
+        vehicles: sanitizeVehicles(save?.vehicles ?? pub.vehicles ?? []),
+        friendsCount: (pub.friends || []).length,
+        inParty: !!pub.party,
+        mission: pub.mission || 0,
+        earned: pub.earned || 0,
+      },
+    });
+  }
+
   if (op === "friend-ask") {
     const other = await playerById(String(body.id || ""));
     if (!other) return json({ ok: false, message: "No player with that id." }, 404);

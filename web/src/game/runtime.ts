@@ -188,7 +188,7 @@ export interface TrainPose {
   dwelling: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile";
 
 // --- NOTIFICATIONS: in-game pop-ups (toasts) + the Alerts history.
 // A toast is a short card that slides in, shows for ~5s, and can be
@@ -225,6 +225,31 @@ export interface PersonCard {
   // row). Null when unknown — the panel never claims "here" for an
   // unknown room.
   server: number | null;
+}
+
+// A player's profile, as the Profile panel shows it. `balance` is only
+// filled in for your own profile — another player's money is private.
+// `loading` is true while the server fetch is in flight; the panel shows
+// the seeded card (name + look from presence, when known) meanwhile.
+export interface ProfileView {
+  id: string;
+  name: string;
+  look: string;
+  color: string;
+  hat: string;
+  clothes: Clothes | null;
+  homeServer: number | null;
+  homes: { homeId: string; server: number; tier: string }[];
+  vehicles: { id: string; color: string }[];
+  friendsCount: number;
+  inParty: boolean;
+  mission: number;
+  earned: number;
+  self: boolean;
+  balance: number | null;
+  inCity: boolean;
+  distance: number | null;
+  loading: boolean;
 }
 
 // One office lease as the server returns it for "my-properties" (the
@@ -476,6 +501,8 @@ export interface Snap {
   time: string;
   me: { x: number; z: number; yaw: number };
   profile: PersonCard | null;
+  /** The profile the Profile panel is showing (own or another player's), or null when no profile is open. */
+  profileView: ProfileView | null;
   server: string;
   chatScope: "global" | "near";
   lookId: string;
@@ -1504,6 +1531,7 @@ export function createRuntime(scene: Scene) {
   let chatScope: "global" | "near" = "global";
   let timeName: "sunset" | "night" | "day" = "sunset";
   let profileId = "";
+  let profileView: ProfileView | null = null;
   const quality = () => localStorage.getItem("orbitx-quality") || (touch ? "low" : "high");
   let bookStamp = "";
   let clock = 0;
@@ -2818,6 +2846,7 @@ export function createRuntime(scene: Scene) {
       time: timeName,
       me: { x: lastBody?.x ?? 0, z: lastBody?.z ?? 0, yaw: lastBody?.yaw ?? 0 },
       profile: profileCard(),
+      profileView,
       server: world.server,
       chatScope,
       lookId,
@@ -2915,6 +2944,116 @@ export function createRuntime(scene: Scene) {
       z: remote.state.z,
       server: typeof remote.state.server === "number" ? remote.state.server : null,
     };
+  }
+
+  // PROFILES: the Profile panel shows a real profile for any player —
+  // your own (balance, homes, cars, friends, universe) or another
+  // player's (public only: name, look, homes, cars, friend count).
+  // The old Phone card depended on the presence map, which prunes a
+  // remote after 8s without a pose — so tapping Profile usually showed
+  // nothing at all (and even when it worked, the card sat at the top of
+  // the long Phone panel, out of view). The profile now comes from the
+  // server by id (profile-view op), so it works whether or not the
+  // player is in the presence map; the presence data only seeds the
+  // card (name + look + "in the city") while the fetch is in flight.
+  async function viewProfile(id: string) {
+    const me = world.me;
+    if ((me?.id && me.id === id) || world.id === id) {
+      viewOwnProfile();
+      return;
+    }
+    const remote = remotes.get(id);
+    const here = remote
+      ? Math.hypot(remote.state.x - (lastBody?.x ?? 0), remote.state.z - (lastBody?.z ?? 0))
+      : null;
+    profileView = {
+      id,
+      name: remote?.state.name || "Player",
+      look: remote?.state.look || "tjr",
+      color: remote?.state.color || "",
+      hat: remote?.state.hat || "",
+      clothes: null,
+      homeServer: null,
+      homes: [],
+      vehicles: [],
+      friendsCount: 0,
+      inParty: false,
+      mission: 0,
+      earned: 0,
+      self: false,
+      balance: null,
+      inCity: !!remote,
+      distance: here,
+      loading: true,
+    };
+    profileId = id;
+    panel = "profile";
+    publish();
+    if (!world.online) {
+      if (profileView?.id === id) profileView.loading = false;
+      publish();
+      return;
+    }
+    try {
+      const data = (await world.profileView(id)) as { profile?: Record<string, unknown> };
+      const p = data.profile;
+      if (!p || typeof p !== "object") throw new Error("No profile returned.");
+      const still = remotes.get(id);
+      const base = profileView?.id === id ? profileView : null;
+      profileView = {
+        id: String(p.id || id),
+        name: String(p.name || base?.name || "Player"),
+        look: String(p.look || base?.look || "tjr"),
+        color: String(p.color || ""),
+        hat: String(p.hat || ""),
+        clothes: (p.clothes as Clothes | null) ?? null,
+        homeServer: typeof p.homeServer === "number" ? p.homeServer : null,
+        homes: Array.isArray(p.homes) ? (p.homes as ProfileView["homes"]) : [],
+        vehicles: Array.isArray(p.vehicles) ? (p.vehicles as ProfileView["vehicles"]) : [],
+        friendsCount: Number(p.friendsCount || 0),
+        inParty: !!p.inParty,
+        mission: Number(p.mission || 0),
+        earned: Number(p.earned || 0),
+        self: false,
+        balance: null,
+        inCity: !!still,
+        distance: still
+          ? Math.hypot(still.state.x - (lastBody?.x ?? 0), still.state.z - (lastBody?.z ?? 0))
+          : null,
+        loading: false,
+      };
+    } catch (err) {
+      if (profileView?.id === id) profileView.loading = false;
+      say(err instanceof Error ? err.message : "Could not load that profile.");
+    }
+    publish();
+  }
+
+  function viewOwnProfile() {
+    const me = world.me;
+    profileView = {
+      id: me?.id || world.id,
+      name: wallet.name || me?.name || "Guest",
+      look: lookId,
+      color: me?.color || "",
+      hat: me?.hat || "",
+      clothes: (me?.clothes as Clothes | undefined) ?? null,
+      homeServer: me?.homes?.homeServer ?? currentUniverse ?? null,
+      homes: (me?.homes?.homes || []).map((h) => ({ homeId: h.homeId, server: h.server, tier: h.tier || "" })),
+      vehicles: (me?.vehicles || []).map((v) => ({ id: v.id, color: v.color })),
+      friendsCount: me?.friends?.length ?? 0,
+      inParty: !!me?.party,
+      mission: world.mission,
+      earned: me?.earned || 0,
+      self: true,
+      balance: wallet.balance,
+      inCity: true,
+      distance: 0,
+      loading: false,
+    };
+    profileId = "";
+    panel = "profile";
+    publish();
   }
 
   function jobTitle(id: string) {
@@ -9605,9 +9744,17 @@ export function createRuntime(scene: Scene) {
       publish();
     },
     inspect(id: string) {
-      profileId = id;
-      panel = "phone";
-      publish();
+      // The Phone panel's Profile button: open the real Profile panel.
+      // Kept as `inspect` so the old call site still works; the work is
+      // in viewProfile, which fetches the profile from the server instead
+      // of depending on the (8s-pruned) presence map.
+      void viewProfile(id);
+    },
+    viewProfile(id: string) {
+      return viewProfile(id);
+    },
+    viewOwnProfile() {
+      viewOwnProfile();
     },
     emote(name: string) {
       world.emote = name;

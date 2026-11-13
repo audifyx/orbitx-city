@@ -414,4 +414,28 @@ test("people: sync stamps the writer's universe on presence, universe-list shows
   const friendRow = (list.friends || []).find((f) => f.id === host.id);
   assert.ok(friendRow, "the friend shows in universe-list");
   assert.equal(friendRow.server, 2, "universe-list reports the friend's current universe");
+test("people: profile-view returns the public profile, never private fields", async () => {
+  const owner = await guest("ProfileOwner");
+  await buyTwoHomes(owner.token);
+  const viewer = await guest("ProfileViewer");
+
+  const res = await call("profile-view", { id: owner.id }, viewer.token);
+  assert.equal(res.ok, true, res.message);
+  assert.equal(res.profile.id, owner.id);
+  assert.equal(res.profile.name, "ProfileOwner");
+  assert.equal(res.profile.look, "tjr");
+  assert.equal(res.profile.homeServer, 1);
+  assert.equal(res.profile.homes.length, 2, "both bought homes show");
+  assert.equal(res.profile.homes[0].homeId, "home-ny-01");
+  assert.equal(res.profile.friendsCount, 0);
+  assert.equal(res.profile.inParty, false);
+  // Private fields never leave the server on a public profile.
+  assert.equal("balance" in res.profile, false, "balance stays private");
+  assert.equal("inbox" in res.profile, false, "inbox stays private");
+  assert.equal("email" in res.profile, false, "email stays private");
+  assert.equal("wallet" in res.profile, false, "wallet stays private");
+  assert.equal("address" in res.profile, false, "address stays private");
+
+  const missing = await call("profile-view", { id: "no-such-player" }, viewer.token);
+  assert.equal(missing.ok, false);
 });

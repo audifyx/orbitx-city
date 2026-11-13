@@ -3,7 +3,7 @@ import { createGame, type Game, type PlayMode } from "./game/engine";
 import type { AdOrder, MyPropertyClaim, PanelName, RadioTrack, Runtime, Snap } from "./game/runtime";
 import { EMPTY_CITY_PEOPLE, FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/runtime";
 import { PROXIMITY_RANGE, PROXIMITY_ROOM } from "./game/voice";
-import { loadLooks } from "./game/avatar";
+import { loadLooks, lookName } from "./game/avatar";
 import { GROCERY_FOOD_BY_ID, GYM_WORKOUTS, OFFICE_SUITES, RECIPES, RESTAURANT_BY_ID, RESTAURANT_MENUS, adUsdPrice, foodSpeedMult, hungerLabel } from "./game/content";
 import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
@@ -52,6 +52,7 @@ import {
   listUniverses,
   universeDisplayName,
   type Universe,
+  type UniverseId,
 } from "./game/multiverse";
 import {
   DISTRICTS,
@@ -320,6 +321,7 @@ const EMPTY: Snap = {
   time: "sunset",
   me: { x: 0, z: 0, yaw: 0 },
   profile: null,
+  profileView: null,
   server: "",
   chatScope: "global",
   lookId: "tjr",
@@ -1262,6 +1264,7 @@ export default function App() {
           <button type="button" onClick={() => open("radio")}>Radio</button>
           <button type="button" onClick={() => open("voice")}>Voice</button>
           <button type="button" onClick={() => open("players")}>Players</button>
+          <button type="button" onClick={() => gameRef.current?.runtime.viewOwnProfile()}>Profile</button>
           <button type="button" onClick={() => open("alerts")}>Alerts{snap.unreadAlerts > 0 ? ` (${snap.unreadAlerts})` : ""}</button>
           <button type="button" onClick={() => open("offices")}>Offices</button>
           <button type="button" onClick={() => open("myprops")}>My Props</button>
@@ -1356,6 +1359,7 @@ export default function App() {
                 {panel === "radio" && "Radio"}
                 {panel === "voice" && "Voice chat"}
                 {panel === "players" && "Players"}
+                {panel === "profile" && "Profile"}
                 {panel === "alerts" && "Notifications"}
                 {panel === "offices" && "OrbitX Tower offices"}
                 {panel === "myprops" && "My Properties"}
@@ -3114,6 +3118,7 @@ export default function App() {
             }} />}
             {panel === "voice" && <VoicePanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             {panel === "players" && <PlayersPanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
+            {panel === "profile" && <ProfilePanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             {panel === "alerts" && <AlertsPanel snap={snap} rt={gameRef.current?.runtime ?? null} onOpenChat={() => open("chat")} />}
             <FeaturePanel snap={{ ...snap, panel: panel as PanelName | "" }} rt={gameRef.current?.runtime ?? null} />
             {panel === "home" && (() => {
@@ -4277,6 +4282,109 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
 // is on another universe, the game travels there first and then lands
 // beside them, so joining a friend always puts you in their room.
 // Each row says which universe the player is on.
+// Player profile — the real profile view. Your own profile shows your
+// City Sol, homes, cars, friends and universe; another player's shows
+// the public half (name, look, homes, cars, friend count, tour
+// progress, total earned). Opens from the HUD Profile button, the
+// Players panel, or the Phone panel's Profile button. The old Phone
+// card only ever showed a name + suit colour + hat — and only when the
+// player happened to be in the (8s-pruned) presence map — which is why
+// the Profile button looked dead.
+function ProfilePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
+  const view = snap.profileView;
+  if (!view) {
+    return (
+      <div className="list">
+        <p>Loading profile…</p>
+      </div>
+    );
+  }
+  const isFriend = snap.friends.some((friend) => friend.id === view.id);
+  const universeName = view.homeServer
+    ? universeDisplayName(view.homeServer as UniverseId)
+    : "No home universe yet";
+  return (
+    <div className="list">
+      <div className="who">
+        <i>{(view.name || "G").slice(0, 1).toUpperCase()}</i>
+        <b>{view.name}</b>
+        <span>{lookName(view.look)}{view.self ? " · You" : ""}</span>
+      </div>
+      <p>
+        {view.inCity
+          ? view.distance != null
+            ? `${Math.round(view.distance)} units away`
+            : "In the city"
+          : "Not in the city"}
+        {view.inParty ? " · In a party" : ""}
+      </p>
+      {view.loading ? <p>Loading details…</p> : null}
+      {view.self && view.balance != null ? (
+        <article>
+          <div><b>City Sol</b><span>{view.balance.toLocaleString()} City Sol</span></div>
+        </article>
+      ) : null}
+      <article>
+        <div><b>Universe</b><span>{universeName}</span></div>
+      </article>
+      <article>
+        <div><b>City tour</b><span>Stop {Math.min(view.mission + 1, 6)} of 6{view.mission >= 6 ? " — complete" : ""}</span></div>
+      </article>
+      <article>
+        <div><b>Earned</b><span>{view.earned.toLocaleString()} City Sol total</span></div>
+      </article>
+      <h3>Homes ({view.homes.length})</h3>
+      {view.homes.length === 0 ? (
+        <p>No homes yet.</p>
+      ) : (
+        view.homes.map((h) => {
+          const def = homeById(h.homeId);
+          return (
+            <article key={`${h.homeId}:${h.server}`}>
+              <div><b>{def?.name ?? h.homeId}</b><span>{h.tier ? `${h.tier} · ` : ""}Universe {h.server}</span></div>
+            </article>
+          );
+        })
+      )}
+      <h3>Cars ({view.vehicles.length})</h3>
+      {view.vehicles.length === 0 ? (
+        <p>No cars yet.</p>
+      ) : (
+        view.vehicles.map((v) => {
+          const def = getVehicle(v.id);
+          return (
+            <article key={v.id}>
+              <div><b>{def?.name ?? v.id}</b><span>{v.color ? `${v.color} paint` : "Stock paint"}</span></div>
+            </article>
+          );
+        })
+      )}
+      <h3>Friends ({view.friendsCount})</h3>
+      {view.self ? (
+        snap.friends.length === 0 ? (
+          <p>No friends yet.</p>
+        ) : (
+          snap.friends.map((friend) => (
+            <article key={friend.id}>
+              <div><b>{friend.name}</b></div>
+              <button type="button" onClick={() => rt?.viewProfile(friend.id)}>Profile</button>
+            </article>
+          ))
+        )
+      ) : (
+        <p>{view.friendsCount === 0 ? "No friends yet." : `${view.friendsCount} friend${view.friendsCount === 1 ? "" : "s"}.`}</p>
+      )}
+      {!view.self ? (
+        <div className="days">
+          {view.inCity ? <button type="button" onClick={() => rt?.teleportToPlayer(view.id)}>Teleport</button> : null}
+          {isFriend ? null : <button type="button" onClick={() => rt?.friendAsk(view.id)}>Add friend</button>}
+          <button type="button" onClick={() => rt?.partyInvite(view.id)}>Party invite</button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function PlayersPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   const online = snap.server !== "This device";
   const inCity = snap.people
@@ -4296,6 +4404,7 @@ function PlayersPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           <article key={person.id}>
             <div><b>{person.name}</b><span>{person.distance < 15 ? "near you" : `${Math.round(person.distance)} units away`}{person.lobby ? " · in voice" : ""}{person.server && snap.universe && person.server !== snap.universe.id ? ` · Universe ${person.server}` : ""}</span></div>
             <button type="button" onClick={() => rt?.teleportToPlayer(person.id)}>Teleport</button>
+            <button type="button" onClick={() => rt?.viewProfile(person.id)}>Profile</button>
             {friendIds.has(person.id) ? null : <button type="button" onClick={() => rt?.friendAsk(person.id)}>Add friend</button>}
             <button type="button" onClick={() => rt?.partyInvite(person.id)}>Party invite</button>
           </article>
@@ -4311,6 +4420,7 @@ function PlayersPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
             <article key={friend.id}>
               <div><b>{friend.name}</b><span>{here ? `${Math.round(here.distance)} units away${here.server && snap.universe && here.server !== snap.universe.id ? ` · Universe ${here.server}` : ""}` : "not in the city"}</span></div>
               {here ? <button type="button" onClick={() => rt?.teleportToPlayer(friend.id)}>Teleport</button> : null}
+              <button type="button" onClick={() => rt?.viewProfile(friend.id)}>Profile</button>
               <button type="button" onClick={() => rt?.partyInvite(friend.id)}>Party invite</button>
             </article>
           );
@@ -4512,7 +4622,7 @@ function Phone({ snap, rt, onLogout }: { snap: Snap; rt: Runtime | null; onLogou
             <b>{person.name} {person.speaking ? "●" : ""}</b>
             <span>{person.look ? `${person.look} · ` : ""}{person.lobby || "in the street"}</span>
           </div>
-          <button type="button" onClick={() => rt?.inspect(person.id)}>Profile</button>
+          <button type="button" onClick={() => rt?.viewProfile(person.id)}>Profile</button>
         </article>
       ))}
       <h3>Voice lobbies</h3>
