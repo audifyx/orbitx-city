@@ -861,47 +861,53 @@ function intervalsOverlap(a0: number, a1: number, b0: number, b1: number) {
   return a0 < b1 && a1 > b0;
 }
 
-function addYard(boxes: Box[], cols: Collider[], x0: number, z0: number, x1: number, z1: number, face: Face, rng: Rng) {
-  // A real front yard in the strip the building was set back from: lawn,
-  // stone path to the door, hedge, and (usually) a tree + lamp.
+function addYard(boxes: Box[], cols: Collider[], x0: number, z0: number, x1: number, z1: number, face: Face, rng: Rng): { tree: boolean; lamp: boolean } {
+  // Phase 1 — the lawn only, plus the tree/lamp decisions, drawn here so
+  // the yard rng stream never moves. The path, hedges, tree and lamp are
+  // placed by addYardDoor once the door anchor is known: the door sits on
+  // the BUILDING centre, which is slid + winged off the LOT centre by up
+  // to ~8, so a lot-centred hedge / tree could land dead in front of the
+  // door. (A yard hedge on a block door was the same class of bug as the
+  // OrbitX Shop street tree.)
   const cx = (x0 + x1) / 2;
   const cz = (z0 + z1) / 2;
-  if (face === "n") {
-    put(boxes, cx, 0.12, z0 + 1.5, x1 - x0, 0.14, 3, "grass");
-    put(boxes, cx, 0.15, z0 + 1.5, 2, 0.08, 3, "stone");
-    put(boxes, cx - 2.2, 0.7, z0 + 1.5, 0.6, 0.9, 2.6, "hedge");
-    put(boxes, cx + 2.2, 0.7, z0 + 1.5, 0.6, 0.9, 2.6, "hedge");
-    cols.push(col(cx - 2.2, 0.7, z0 + 1.5, 0.6, 0.9, 2.6));
-    cols.push(col(cx + 2.2, 0.7, z0 + 1.5, 0.6, 0.9, 2.6));
-    if (rng() < 0.6) addTree(boxes, cols, x0 + 4, z0 + 1.5, 0.19);
-    if (rng() < 0.35) addLamp(boxes, x1 - 3.5, z0 + 1.5, 0.19);
-  } else if (face === "s") {
-    put(boxes, cx, 0.12, z1 - 1.5, x1 - x0, 0.14, 3, "grass");
-    put(boxes, cx, 0.15, z1 - 1.5, 2, 0.08, 3, "stone");
-    put(boxes, cx - 2.2, 0.7, z1 - 1.5, 0.6, 0.9, 2.6, "hedge");
-    put(boxes, cx + 2.2, 0.7, z1 - 1.5, 0.6, 0.9, 2.6, "hedge");
-    cols.push(col(cx - 2.2, 0.7, z1 - 1.5, 0.6, 0.9, 2.6));
-    cols.push(col(cx + 2.2, 0.7, z1 - 1.5, 0.6, 0.9, 2.6));
-    if (rng() < 0.6) addTree(boxes, cols, x1 - 4, z1 - 1.5, 0.19);
-    if (rng() < 0.35) addLamp(boxes, x0 + 3.5, z1 - 1.5, 0.19);
-  } else if (face === "w") {
-    put(boxes, x0 + 1.5, 0.12, cz, 3, 0.14, z1 - z0, "grass");
-    put(boxes, x0 + 1.5, 0.15, cz, 3, 0.08, 2, "stone");
-    put(boxes, x0 + 1.5, 0.7, cz - 2.2, 2.6, 0.9, 0.6, "hedge");
-    put(boxes, x0 + 1.5, 0.7, cz + 2.2, 2.6, 0.9, 0.6, "hedge");
-    cols.push(col(x0 + 1.5, 0.7, cz - 2.2, 2.6, 0.9, 0.6));
-    cols.push(col(x0 + 1.5, 0.7, cz + 2.2, 2.6, 0.9, 0.6));
-    if (rng() < 0.6) addTree(boxes, cols, x0 + 1.5, z0 + 4, 0.19);
-    if (rng() < 0.35) addLamp(boxes, x0 + 1.5, z1 - 3.5, 0.19);
+  if (face === "n") put(boxes, cx, 0.12, z0 + 1.5, x1 - x0, 0.14, 3, "grass");
+  else if (face === "s") put(boxes, cx, 0.12, z1 - 1.5, x1 - x0, 0.14, 3, "grass");
+  else if (face === "w") put(boxes, x0 + 1.5, 0.12, cz, 3, 0.14, z1 - z0, "grass");
+  else put(boxes, x1 - 1.5, 0.12, cz, 3, 0.14, z1 - z0, "grass");
+  // Draw the decisions in the original order (tree first, lamp second).
+  const tree = rng() < 0.6;
+  const lamp = rng() < 0.35;
+  return { tree, lamp };
+}
+
+// Phase 2 — front-yard path + hedges + tree + lamp, centred on the DOOR.
+// The stone path leads to the door; the hedges flank it 2.2 to the side;
+// the tree goes to the yard corner FARTHEST from the door (always >= 9.5
+// away on a 22-wide lot, so its r=2 canopy can never drape the door);
+// the lamp goes 3.5 to the other side of the door, clamped inside the lot.
+function addYardDoor(boxes: Box[], cols: Collider[], x0: number, z0: number, x1: number, z1: number, face: Face, doorCx: number, doorCz: number, wantTree: boolean, wantLamp: boolean) {
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  if (face === "n" || face === "s") {
+    const yz = face === "n" ? z0 + 1.5 : z1 - 1.5;
+    put(boxes, doorCx, 0.15, yz, 2, 0.08, 3, "stone");
+    for (const s of [-1, 1]) {
+      put(boxes, doorCx + s * 2.2, 0.7, yz, 0.6, 0.9, 2.6, "hedge");
+      cols.push(col(doorCx + s * 2.2, 0.7, yz, 0.6, 0.9, 2.6));
+    }
+    const treeWest = Math.abs(x0 + 1.5 - doorCx) > Math.abs(x1 - 1.5 - doorCx);
+    if (wantTree) addTree(boxes, cols, treeWest ? x0 + 1.5 : x1 - 1.5, yz, 0.19);
+    if (wantLamp) addLamp(boxes, clamp(doorCx + (treeWest ? 3.5 : -3.5), x0 + 1, x1 - 1), yz, 0.19);
   } else {
-    put(boxes, x1 - 1.5, 0.12, cz, 3, 0.14, z1 - z0, "grass");
-    put(boxes, x1 - 1.5, 0.15, cz, 3, 0.08, 2, "stone");
-    put(boxes, x1 - 1.5, 0.7, cz - 2.2, 2.6, 0.9, 0.6, "hedge");
-    put(boxes, x1 - 1.5, 0.7, cz + 2.2, 2.6, 0.9, 0.6, "hedge");
-    cols.push(col(x1 - 1.5, 0.7, cz - 2.2, 2.6, 0.9, 0.6));
-    cols.push(col(x1 - 1.5, 0.7, cz + 2.2, 2.6, 0.9, 0.6));
-    if (rng() < 0.6) addTree(boxes, cols, x1 - 1.5, z1 - 4, 0.19);
-    if (rng() < 0.35) addLamp(boxes, x1 - 1.5, z0 + 3.5, 0.19);
+    const xz = face === "w" ? x0 + 1.5 : x1 - 1.5;
+    put(boxes, xz, 0.15, doorCz, 3, 0.08, 2, "stone");
+    for (const s of [-1, 1]) {
+      put(boxes, xz, 0.7, doorCz + s * 2.2, 2.6, 0.9, 0.6, "hedge");
+      cols.push(col(xz, 0.7, doorCz + s * 2.2, 2.6, 0.9, 0.6));
+    }
+    const treeNorth = Math.abs(z0 + 1.5 - doorCz) > Math.abs(z1 - 1.5 - doorCz);
+    if (wantTree) addTree(boxes, cols, xz, treeNorth ? z0 + 1.5 : z1 - 1.5, 0.19);
+    if (wantLamp) addLamp(boxes, xz, clamp(doorCz + (treeNorth ? 3.5 : -3.5), z0 + 1, z1 - 1), 0.19);
   }
 }
 
@@ -1061,7 +1067,7 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
       } else {
         bw -= set;
       }
-      addYard(boxes, cols, x0, z0, x1, z1, face, yardRng);
+      const yardPlan = addYard(boxes, cols, x0, z0, x1, z1, face, yardRng);
       // A few outer residential blocks are real homes: walk in through the
       // front door to a furnished living room + kitchen, not a solid slab.
       const isHome = dist > 100 && (style === 1 || style === 3) && homesBuilt < 8 && yardRng() < 0.3;
@@ -1077,6 +1083,7 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
         const home = addHome(boxes, cols, hx, hz, hw, hd, homeH, face, homesBuilt, homeRng);
         zones.push(home.zone);
         anchors.push(home.anchor);
+        addYardDoor(boxes, cols, x0, z0, x1, z1, face, home.anchor.x, home.anchor.z, yardPlan.tree, yardPlan.lamp);
         homesBuilt++;
         continue;
       }
@@ -1224,7 +1231,10 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
           // Closed door (2026-11-12): a block interior is only reachable
           // through its door anchor now — E at the door spawns inside, E
           // inside by the door steps back out. Anchor id = zone id.
-          anchors.push(doorAnchor(`block-${x0}-${z0}`, def.name, def.kind, fbx, fbz, fbw, fbd, face));
+          const blockAnchor = doorAnchor(`block-${x0}-${z0}`, def.name, def.kind, fbx, fbz, fbw, fbd, face);
+          anchors.push(blockAnchor);
+          // Yard path / hedges / tree / lamp, centred on the door (phase 2).
+          addYardDoor(boxes, cols, x0, z0, x1, z1, face, blockAnchor.x, blockAnchor.z, yardPlan.tree, yardPlan.lamp);
           y = slice + 1;
         } else {
           y = shell(

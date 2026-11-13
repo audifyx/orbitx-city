@@ -510,17 +510,22 @@ function furnishStateHome(city: City, home: HomeDef, arch: HomeArchetype): void 
     pushBox(city, fx, 2.1, fz, alongX ? 1.4 : 4.2, 0.25, alongX ? 4.2 : 1.4, "gold");
   } else if (arch.extra === "patio" || arch.extra === "deck") {
     // Outdoor slab past the door + one palm (LA) or umbrella (FL).
+    // The palm / umbrella sits at the slab's far corner, 2.8 off the door
+    // centre line — never dead in front of the door. (A palm on the
+    // centre line draped its 3.4-wide canopy over the door + sign.)
     const dx = door === "e" ? 1 : door === "w" ? -1 : 0;
     const dz = door === "s" ? 1 : door === "n" ? -1 : 0;
     const px = cx + dx * (w / 2 + 3);
     const pz = cz + dz * (d / 2 + 3);
     pushBox(city, px, 0.06, pz, 6, 0.1, 6, arch.extra === "deck" ? "wood" : "stone");
+    const ox = px + dx * 2 - dz * 2.8;
+    const oz = pz + dz * 2 + dx * 2.8;
     if (arch.extra === "patio") {
-      pushBox(city, px + 2, 2, pz, 0.6, 4, 0.6, "trunk");
-      pushBox(city, px + 2, 4.6, pz, 3.4, 1.1, 3.4, "leaves");
+      pushBox(city, ox, 2, oz, 0.6, 4, 0.6, "trunk");
+      pushBox(city, ox, 4.6, oz, 3.4, 1.1, 3.4, "leaves");
     } else {
-      pushBox(city, px - 2, 1.2, pz, 0.3, 2.4, 0.3, "trunk");
-      pushBox(city, px - 2, 2.6, pz, 3.2, 0.25, 3.2, "white");
+      pushBox(city, ox, 1.2, oz, 0.3, 2.4, 0.3, "trunk");
+      pushBox(city, ox, 2.6, oz, 3.2, 0.25, 3.2, "white");
     }
   }
 }

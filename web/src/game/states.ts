@@ -1491,11 +1491,16 @@ export function buildDistrictBridge(city: City, def: DistrictBridgeDef): void {
     pushBox(city, cx + width / 2 - 1, 0.115, cz, 2, 0.12, len, "sidewalk");
   }
   // Gold rails along both long edges (real colliders — no falling off).
+  // The rails stop 2 short of each deck end: a home / service door sits
+  // at the deck end, and a rail run to the very end put its end post
+  // across the doorway. The deck is at grade, so the gap is just open
+  // ground, not a fall.
+  const railLen = Math.max(2, len - 4);
   for (const s of [-1, 1]) {
     const rx = alongX ? cx : cx + s * railOff;
     const rz = alongX ? cz + s * railOff : cz;
-    pushBox(city, rx, 0.7, rz, alongX ? len : 0.4, 0.5, alongX ? 0.4 : len, "gold");
-    pushCol(city, rx, 0.7, rz, alongX ? len : 0.4, 1.2, alongX ? 0.4 : len);
+    pushBox(city, rx, 0.7, rz, alongX ? railLen : 0.4, 0.5, alongX ? 0.4 : railLen, "gold");
+    pushCol(city, rx, 0.7, rz, alongX ? railLen : 0.4, 1.2, alongX ? 0.4 : railLen);
   }
   // Lamps down the middle, every 12 units.
   const steps = Math.max(1, Math.floor(len / 12));
