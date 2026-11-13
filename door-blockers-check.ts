@@ -45,13 +45,15 @@ const BOARD_KINDS = new Set(["jobs", "events", "ads"]);
 // player is ~0.8 wide, so only an object that actually intrudes into the
 // player's body counts — a hedge flanking the doorway 0.7 off-centre does
 // not), from 1.1 behind the anchor (just short of the door face, so the
-// door panel itself is never flagged) out to 4.6 in front of it, toward
-// the street. Boards: 0.2..6.0 out from the anchor.
+// door panel itself is never flagged) out to 4.0 in front of it, toward
+// the street. (A neighbouring building wall 4.5 out is the street, not
+// the doorway — the farthest real blocker, a patio palm / monorail
+// pillar, sits 3.6 out.) Boards: 0.2..6.0 out from the anchor.
 function corridorRect(a: Anchor): Rect {
   const { nx, nz } = normal(a.yaw);
   const board = BOARD_KINDS.has(a.kind);
   const dNear = board ? 0.2 : -1.1;
-  const dFar = board ? 6.0 : 4.6;
+  const dFar = board ? 6.0 : 4.0;
   const half = 0.45;
   let x0: number, x1: number, z0: number, z1: number;
   if (nz !== 0) {

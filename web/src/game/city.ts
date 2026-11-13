@@ -1510,12 +1510,14 @@ function treeOverhangsTrain(x: number, z: number): boolean {
 // Door approach zones, for the street-life guard below. A door anchor's
 // yaw faces the street (doorAnchor convention: n=pi, s=0, w=pi/2, e=-pi/2);
 // the walk-up corridor runs from 1.1 behind the anchor (just short of the
-// door face) to 4.6 in front of it, 0.9 wide. A street tree's canopy is
-// r=2, so a trunk within 3.0 of the corridor centre line (across) and
-// within the canopy strip (along -3.4..5.1) would drape the door + sign.
-// Lamps are thin posts with no canopy, so they only need the walk-up
-// corridor clear. Board anchors (jobs / events / ads kiosks) have no
-// door/sign, so only the trunk / post in the walk-up corridor counts.
+// door face) to 4.6 in front of it, 0.9 wide. A street tree's canopy is a
+// voxel blob reaching 2.0 from the trunk (voxels 0.94 wide, so its edge
+// reaches 2.47) — a trunk within 3.5 of the corridor centre line, inside
+// the canopy strip (along -3.9..5.6, the strip expanded by the blob),
+// would drape the door + sign. Lamps are thin posts with no canopy, so
+// they only need the walk-up corridor clear. Board anchors (jobs /
+// events / ads kiosks) have no door/sign, so only the trunk / post in the
+// walk-up corridor counts.
 export interface DoorZone { x: number; z: number; nx: number; nz: number; board: boolean }
 export function doorZonesFor(anchors: Anchor[]): DoorZone[] {
   return anchors.map((a) => ({
@@ -1530,7 +1532,7 @@ function treeBlockedByDoor(x: number, z: number, zones: DoorZone[]): boolean {
     const across = (x - zn.x) * zn.nz - (z - zn.z) * zn.nx;
     if (zn.board) {
       if (Math.abs(across) < 0.9 && along > -0.25 && along < 6.45) return true;
-    } else if (Math.abs(across) < 3.0 && along > -3.4 && along < 5.1) return true;
+    } else if (Math.abs(across) < 3.5 && along > -3.9 && along < 5.6) return true;
   }
   return false;
 }
