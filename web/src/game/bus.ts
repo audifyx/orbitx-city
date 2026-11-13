@@ -81,105 +81,137 @@ export const BUS_WAYPOINTS: BusWaypoint[] = [
   { x: 72, z: 72 }, // 4
   { x: 144, z: 72 }, // 5
   { x: 144, z: 0 }, // 6  Eastgate
-  // Eastgate block loop (arrive north, depart south): south on x=144,
-  // east on z=-36, north on x=180, west on z=72, south on x=144.
+  // Eastgate block loop (arrive north, depart north): north on x=144,
+  // east on z=-36, south on x=180, west on z=72, south on x=144.
   { x: 144, z: -36 }, // 7
   { x: 180, z: -36 }, // 8
   { x: 180, z: 72 }, // 9
   { x: 144, z: 72 }, // 10
   { x: 144, z: 28 }, // 11
-  { x: 258, z: 28 }, // 12  east detour road
-  { x: 258, z: 6 }, // 13  mouth (through the deck-rail gap)
-  { x: 610, z: 6 }, // 14  Sunset Span, north lane
-  { x: 620, z: 0 }, // 15  merge to the LA road (past the last deck lamp)
-  { x: 654, z: 0 }, // 16
-  { x: 654, z: 144 }, // 17
-  { x: 800, z: 144 }, // 18 Sunset, LA
+  // Pull 1u north past the house wall (x 156..172, z 25..26): the turn
+  // out of Eastgate dips the bus to z~27, which skids the wall. At z=29
+  // the bus clears it by 1.7u and still clears the emergency mast at
+  // (217,30) by 0.5u on the way back down to z=28.
+  { x: 160, z: 29 }, // 12
+  { x: 258, z: 28 }, // 13  east detour road
+  { x: 258, z: 6 }, // 14  mouth (through the deck-rail gap)
+  { x: 610, z: 6 }, // 15  Sunset Span, north lane
+  { x: 620, z: 0 }, // 16  merge to the LA road (past the last deck lamp)
+  { x: 654, z: 0 }, // 17
+  { x: 654, z: 144 }, // 18
+  { x: 800, z: 144 }, // 19 Sunset, LA
   // Sunset block loop south (arrive east, depart west): east on z=144,
   // south on x=836, west on z=180, north on x=764, west on z=144.
-  { x: 836, z: 144 }, // 19
-  { x: 836, z: 180 }, // 20
-  { x: 764, z: 180 }, // 21
-  { x: 764, z: 144 }, // 22
-  { x: 654, z: 144 }, // 23
-  { x: 654, z: 0 }, // 24
-  { x: 620, z: 0 }, // 25
-  { x: 610, z: -6 }, // 26  merge to the south lane
-  { x: 258, z: -6 }, // 27  Sunset Span, south lane
-  { x: 258, z: 28 }, // 28  mouth (through the deck-rail gap)
-  { x: 144, z: 28 }, // 29
-  { x: 144, z: 0 }, // 30 Eastgate
+  { x: 836, z: 144 }, // 20
+  { x: 836, z: 180 }, // 21
+  { x: 764, z: 180 }, // 22
+  { x: 764, z: 144 }, // 23
+  // Turn 2u east of the corner (656, not 654): the westbound->southbound
+  // turn swings the bus's front corner to x~650.6, off the road's west
+  // edge; from 656 the swing lands at x~652.6, on the road. (x=655 for
+  // the whole leg was worse — the eastbound turn at (655,0) overshoots
+  // into the roadside hedges at x~657.)
+  { x: 656, z: 144 }, // 24
+  { x: 654, z: 0 }, // 25
+  { x: 620, z: 0 }, // 26
+  { x: 610, z: -6 }, // 27  merge to the south lane
+  { x: 258, z: -6 }, // 28  Sunset Span, south lane
+  { x: 258, z: 28 }, // 29  mouth (through the deck-rail gap)
+  { x: 144, z: 28 }, // 30
+  { x: 144, z: 0 }, // 31 Eastgate
+  // Eastgate block loop #2 (arrive north from LA, depart north, loop,
+  // exit south to FL): the same loop as #1 — a U-turn here swings the
+  // bus 6u off the road.
+  { x: 144, z: -36 }, // 32
+  { x: 180, z: -36 }, // 33
+  { x: 180, z: 72 }, // 34
+  { x: 144, z: 72 }, // 35
   // -- Eastgate -> Palms, FL ----------------------------------------------
-  { x: 144, z: 72 }, // 31
-  { x: 144, z: 180 }, // 32
-  { x: 55, z: 180 }, // 33
-  { x: 55, z: 251 }, // 34  south approach road
-  { x: -6.5, z: 251 }, // 35  link to the Palms Span apron
-  { x: -6.5, z: 710 }, // 36  Palms Span (west lane — east half is a hill)
-  { x: 0, z: 720 }, // 37  merge to the FL road (past the last deck lamp)
-  { x: 0, z: 756 }, // 38
-  { x: 38, z: 756 }, // 39
-  { x: 36, z: 840 }, // 40
-  { x: 36, z: 900 }, // 41
-  { x: 38, z: 930 }, // 42
-  { x: 38, z: 1044 }, // 43 Palms, FL
+  // Turn 4u north of the corner (176, not 180): the southbound->westbound
+  // turn swings the bus's rear south-east off both roads; from 176 the
+  // rear lands on the z=180 road, and the leg runs diagonally up to it.
+  { x: 144, z: 176 }, // 36
+  { x: 55, z: 180 }, // 37
+  { x: 55, z: 251 }, // 38  south approach road
+  { x: -6.5, z: 251 }, // 39  link to the Palms Span apron
+  { x: -6.5, z: 710 }, // 40  Palms Span (west lane — east half is a hill)
+  { x: 0, z: 720 }, // 41  merge to the FL road (past the last deck lamp)
+  { x: 0, z: 756 }, // 42
+  // FL legs on x=37 (the road centreline is 36; 38 put the turn's
+  // overshoot 0.3u past the road's east edge, and the stop must stay at
+  // 38 so its door is inside the 7u boarding radius). The two turns
+  // onto/off the FL legs sit on the centreline (36 / 37) so their
+  // overshoot lands inside the road.
+  { x: 36, z: 756 }, // 43
+  { x: 37, z: 840 }, // 44
+  { x: 37, z: 900 }, // 45
+  { x: 37, z: 930 }, // 46
+  { x: 38, z: 1044 }, // 47 Palms, FL
   // Palms block loop west (arrive south, depart north): south on x=38,
   // west on z=1080, north on x=0, east on z=1044, north on x=38.
   // (The east loop is blocked by the Palms shelter, which sits on z=1044.)
-  { x: 38, z: 1080 }, // 44
-  { x: 0, z: 1080 }, // 45
-  { x: 0, z: 1044 }, // 46
-  { x: 38, z: 1044 }, // 47
-  { x: 38, z: 930 }, // 48
-  { x: 36, z: 900 }, // 49
-  { x: 36, z: 840 }, // 50
-  { x: 38, z: 756 }, // 51
-  { x: 0, z: 756 }, // 52
-  { x: 0, z: 720 }, // 53
-  { x: -6.5, z: 710 }, // 54  merge to the west lane
-  { x: -6.5, z: 251 }, // 55  Palms Span
-  { x: 55, z: 251 }, // 56
-  { x: 55, z: 180 }, // 57
-  { x: 144, z: 180 }, // 58
-  { x: 144, z: 72 }, // 59
-  { x: 0, z: 72 }, // 60 Central Station
+  { x: 38, z: 1080 }, // 48
+  { x: 0, z: 1080 }, // 49
+  { x: 0, z: 1044 }, // 50
+  { x: 36, z: 1044 }, // 51  turn on the centreline (see 43)
+  { x: 37, z: 930 }, // 52
+  { x: 37, z: 900 }, // 53
+  { x: 37, z: 840 }, // 54
+  { x: 37, z: 756 }, // 55
+  { x: 0, z: 756 }, // 56
+  { x: 0, z: 720 }, // 57
+  { x: -6.5, z: 710 }, // 58  merge to the west lane
+  { x: -6.5, z: 251 }, // 59  Palms Span
+  { x: 55, z: 251 }, // 60
+  { x: 55, z: 180 }, // 61
+  { x: 144, z: 180 }, // 62
+  { x: 144, z: 72 }, // 63
+  { x: 0, z: 72 }, // 64 Central Station
   // -- Central -> Westgate -> Brooklyn, NY --------------------------------
-  { x: -72, z: 72 }, // 61
-  { x: -144, z: 72 }, // 62
-  { x: -144, z: 0 }, // 63 Westgate
-  // Westgate block loop (mirror of Eastgate): south on x=-144, west on
-  // z=-36, north on x=-180, east on z=72, south on x=-144.
-  { x: -144, z: -36 }, // 64
-  { x: -180, z: -36 }, // 65
-  { x: -180, z: 72 }, // 66
-  { x: -144, z: 72 }, // 67
-  { x: -144, z: -68 }, // 68
-  { x: -266, z: -68 }, // 69  west detour road
-  { x: -266, z: -6 }, // 70  mouth (through the deck-rail gap)
-  { x: -610, z: -6 }, // 71  Empire Span, south lane
-  { x: -620, z: 0 }, // 72  merge to the NY road (past the last deck lamp)
-  { x: -654, z: 0 }, // 73
-  { x: -654, z: 144 }, // 74
-  { x: -800, z: 144 }, // 75 Brooklyn, NY
+  { x: -72, z: 72 }, // 65
+  { x: -144, z: 72 }, // 66
+  { x: -144, z: 0 }, // 67 Westgate
+  // Westgate block loop (mirror of Eastgate): north on x=-144, west on
+  // z=-36, south on x=-180, east on z=72, south on x=-144.
+  { x: -144, z: -36 }, // 68
+  { x: -180, z: -36 }, // 69
+  { x: -180, z: 72 }, // 70
+  { x: -144, z: 72 }, // 71
+  { x: -144, z: -68 }, // 72
+  { x: -266, z: -68 }, // 73  west detour road
+  { x: -266, z: -6 }, // 74  mouth (through the deck-rail gap)
+  { x: -610, z: -6 }, // 75  Empire Span, south lane
+  { x: -620, z: 0 }, // 76  merge to the NY road (past the last deck lamp)
+  { x: -654, z: 0 }, // 77
+  { x: -654, z: 144 }, // 78
+  { x: -800, z: 144 }, // 79 Brooklyn, NY
   // Brooklyn block loop south (mirror of Sunset): west on z=144, south
   // on x=-836, east on z=180, north on x=-764, east on z=144.
-  { x: -836, z: 144 }, // 76
-  { x: -836, z: 180 }, // 77
-  { x: -764, z: 180 }, // 78
-  { x: -764, z: 144 }, // 79
-  { x: -654, z: 144 }, // 80
-  { x: -654, z: 0 }, // 81
-  { x: -620, z: 0 }, // 82
-  { x: -610, z: 6 }, // 83  merge to the north lane
-  { x: -266, z: 6 }, // 84  Empire Span, north lane
-  { x: -266, z: -68 }, // 85  mouth (through the deck-rail gap)
-  { x: -144, z: -68 }, // 86
-  { x: -144, z: 0 }, // 87 Westgate
+  { x: -836, z: 144 }, // 80
+  { x: -836, z: 180 }, // 81
+  { x: -764, z: 180 }, // 82
+  { x: -764, z: 144 }, // 83
+  { x: -656, z: 144 }, // 84  turn 2u east of the corner (mirror of 24)
+  { x: -654, z: 0 }, // 85
+  { x: -620, z: 0 }, // 86
+  { x: -610, z: 6 }, // 87  merge to the north lane
+  { x: -266, z: 6 }, // 88  Empire Span, north lane
+  { x: -266, z: -68 }, // 89  mouth (through the deck-rail gap)
+  { x: -144, z: -68 }, // 90
+  { x: -144, z: 0 }, // 91 Westgate
+  // Westgate block loop #2 (arrive SOUTH from NY, depart SOUTH, loop,
+  // exit north to the south road): south on x=-144, west on z=72, north
+  // on x=-180, east on z=-36, north on x=-144. A U-turn at the stop
+  // swings the bus 6u off the road and into the street tree at (-150,-10).
+  { x: -144, z: 72 }, // 92
+  { x: -180, z: 72 }, // 93
+  { x: -180, z: -36 }, // 94
+  { x: -144, z: -36 }, // 95
   // -- Westgate -> Eastgate -> Central (south road home) ------------------
-  { x: -144, z: -144 }, // 88
-  { x: 144, z: -144 }, // 89
-  { x: 144, z: 0 }, // 90 Eastgate
-  { x: 144, z: 72 }, // 91
+  { x: -144, z: -144 }, // 96
+  { x: 144, z: -144 }, // 97
+  { x: 144, z: 0 }, // 98 Eastgate
+  { x: 144, z: 72 }, // 99
   // -> 0 Central Station
 ];
 
@@ -202,14 +234,14 @@ export interface BusStopInfo {
 export const BUS_STOP_AT: Record<number, BusStopInfo> = {
   0: { id: "central", name: "Central Station", region: "home", doorX: 0, doorZ: 66 },
   6: { id: "eastgate", name: "Eastgate", region: "home", doorX: 150, doorZ: 0 },
-  18: { id: "sunset", name: "Sunset, LA", region: "la", doorX: 800, doorZ: 150 },
-  30: { id: "eastgate", name: "Eastgate", region: "home", doorX: 150, doorZ: 0 },
-  43: { id: "palms", name: "Palms, Florida", region: "fl", doorX: 44, doorZ: 1044 },
-  60: { id: "central", name: "Central Station", region: "home", doorX: 0, doorZ: 66 },
-  63: { id: "westgate", name: "Westgate", region: "home", doorX: -150, doorZ: 0 },
-  75: { id: "brooklyn", name: "Brooklyn, NY", region: "ny", doorX: -800, doorZ: 150 },
-  87: { id: "westgate", name: "Westgate", region: "home", doorX: -150, doorZ: 0 },
-  90: { id: "eastgate", name: "Eastgate", region: "home", doorX: 150, doorZ: 0 },
+  19: { id: "sunset", name: "Sunset, LA", region: "la", doorX: 800, doorZ: 150 },
+  31: { id: "eastgate", name: "Eastgate", region: "home", doorX: 150, doorZ: 0 },
+  47: { id: "palms", name: "Palms, Florida", region: "fl", doorX: 44, doorZ: 1044 },
+  64: { id: "central", name: "Central Station", region: "home", doorX: 0, doorZ: 66 },
+  67: { id: "westgate", name: "Westgate", region: "home", doorX: -150, doorZ: 0 },
+  79: { id: "brooklyn", name: "Brooklyn, NY", region: "ny", doorX: -800, doorZ: 150 },
+  91: { id: "westgate", name: "Westgate", region: "home", doorX: -150, doorZ: 0 },
+  98: { id: "eastgate", name: "Eastgate", region: "home", doorX: 150, doorZ: 0 },
 };
 
 export const BUS_SPEED = 18;

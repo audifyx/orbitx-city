@@ -1657,7 +1657,8 @@ export function buildBridge(city: City, bridge: BridgeDef): void {
     // One exception per crossing (bus-route fix): the bus detour joins
     // the deck through a 10-wide gap in the rail at the mouth — a proper
     // road junction, like an on-ramp. East: north rail, x 253..263 (the
-    // span, x 250..550). West: south rail, x -263..-253 (span -550..-250).
+    // span, x 250..550). West: south rail, x -271..-261 (span -550..-250,
+    // gap centred on the west mouth at x=-266).
     const railLen = alongX ? w : d;
     const railOff = 11.4;
     for (const s of [-1, 1]) {
@@ -1667,7 +1668,7 @@ export function buildBridge(city: City, bridge: BridgeDef): void {
       let segs: Array<[number, number]> = [[alongX ? deck.x0 : deck.z0, alongX ? deck.x1 : deck.z1]];
       const isSpan = deck === bridge.span;
       if (isSpan && alongX && bridge.id === "bridge-east" && s === 1) segs = [[250, 253], [263, 550]];
-      if (isSpan && alongX && bridge.id === "bridge-west" && s === -1) segs = [[-550, -263], [-253, -250]];
+      if (isSpan && alongX && bridge.id === "bridge-west" && s === -1) segs = [[-550, -271], [-261, -250]];
       for (const [a, b] of segs) {
         const mid = (a + b) / 2;
         const len = b - a;
