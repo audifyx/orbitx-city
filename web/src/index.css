@@ -717,10 +717,14 @@ body {
 /* Draggable minimap shell — positioned by the component (left/top), the
    spot persists in localStorage. Only the grip is the drag handle — a
    touch on the map body does nothing, so a thumb brushing the map while
-   steering can no longer drag it around. */
+   steering can no longer drag it around. z-index 8 sits above the panel
+   overlay (6) so the map stays visible and draggable while a panel is
+   open — it used to sit under the overlay and vanish behind the dim
+   every time a panel opened, which read as the map glitching. It stays
+   below the menu overlay (60). */
 .minimap-wrap {
   position: fixed;
-  z-index: 5;
+  z-index: 8;
   display: block;
   line-height: 0;
   touch-action: none;

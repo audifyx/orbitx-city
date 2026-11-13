@@ -3998,18 +3998,23 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
   const [dragging, setDragging] = useState(false);
   const model = useMemo(() => cityMapModel(seed), [seed]);
 
+  // The SAVED spot never moves on resize. The DISPLAYED spot is the
+  // saved spot clamped to the CURRENT viewport, computed at render time.
+  // The old code clamped the state on every window resize — on Android
+  // the keyboard / URL bar shrink the viewport temporarily, so the clamp
+  // yanked the map up and never put it back (a one-way ratchet), and if
+  // the clamp ran late the map sat off-screen below the fold. Now a
+  // temporary shrink only clamps what is drawn, and the map springs back
+  // to its saved spot when the viewport grows again. No resize listener
+  // at all — the render-time clamp is the whole mechanism.
+  const disp = clampMinimapPos(pos);
+
   // Keep the latest position in a ref so the drag-end save always has the
   // final spot, even if the pointer-up lands between renders.
   useEffect(() => {
     posRef.current = pos;
   }, [pos]);
 
-  // Keep a saved spot on screen after a resize / rotation.
-  useEffect(() => {
-    const onResize = () => setPos((p) => clampMinimapPos(p));
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
   // Static map layer: background, harbor, blocks, plaza, roads, venue
   // dots + labels, north marker. Drawn once per model into the offscreen
   // canvas. Labels only avoid each other here (not the live player dot —
@@ -4193,7 +4198,10 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
       // Capture can throw for synthetic pointers — the move handler still
       // tracks while the pointer stays over the grip.
     }
-    dragRef.current = { px: event.clientX, py: event.clientY, ox: pos.x, oy: pos.y };
+    // Drag from the DISPLAYED spot (which may be clamped on a small
+    // viewport), not the saved spot — otherwise the first move after a
+    // keyboard shrink would jump the map back to the saved spot.
+    dragRef.current = { px: event.clientX, py: event.clientY, ox: disp.x, oy: disp.y };
     setDragging(true);
   };
   const onPointerMove = (event: React.PointerEvent<HTMLSpanElement>) => {
@@ -4214,7 +4222,7 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
   return (
     <div
       className={`minimap-wrap${dragging ? " dragging" : ""}`}
-      style={{ left: pos.x, top: pos.y }}
+      style={{ left: disp.x, top: disp.y }}
       aria-label="Minimap — drag the grip to move it"
       title="Drag the grip to move the minimap"
     >
