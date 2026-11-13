@@ -1440,6 +1440,55 @@ function addRoads(boxes: Box[]) {
   }
 }
 
+/** Bus roads (2026-11-12, bus-route fix): the real roads the City Loop bus
+ * needs that the grid does not provide — the two tower detours, the two
+ * deck mouths, and the south approach to the Palms Span. Same build as
+ * addRoads (10-wide asphalt at y 0.055, centre dashes, stone curbs), and
+ * every rect abuts the asphalt it meets edge-to-edge (never overlaps it),
+ * so no coplanar z-fight. Segmented where a grid road crosses (the
+ * crossing square belongs to the grid road). */
+function addBusRoads(boxes: Box[]) {
+  // One axis-aligned road: asphalt + centre dashes + stone curbs.
+  // (x0,z0,x1,z1) is the asphalt rect; dashes/curbs are inset 6u from
+  // each end so they never reach a junction.
+  const road = (x0: number, z0: number, x1: number, z1: number) => {
+    const cx = (x0 + x1) / 2;
+    const cz = (z0 + z1) / 2;
+    const w = x1 - x0;
+    const d = z1 - z0;
+    put(boxes, cx, 0.055, cz, w, 0.05, d, "asphalt");
+    const alongX = w > d;
+    const len = alongX ? w : d;
+    const c0 = alongX ? x0 : z0;
+    for (let o = 6; o <= len - 6; o += 5) {
+      const p = c0 + o;
+      if (alongX) put(boxes, p, 0.1, cz, 2.1, 0.04, 0.26, "lane");
+      else put(boxes, cx, 0.1, p, 0.26, 0.04, 2.1, "lane");
+    }
+    for (const s of [-1, 1]) {
+      if (alongX) put(boxes, cx, 0.095, cz + s * 5.6, w - 12, 0.06, 0.3, "stone");
+      else put(boxes, cx + s * 5.6, 0.095, cz, 0.3, 0.06, d - 12, "stone");
+    }
+  };
+  // East detour (z=28): abuts the x=144 road at x=149, splits around the
+  // x=180 road (its square belongs to that road), meets the mouth at x=253.
+  road(149, 23, 175, 33);
+  road(185, 23, 253, 33);
+  // East mouth (x=258): covers the detour corner, abuts the deck at z=12.
+  road(253, 12, 263, 33);
+  // West detour (z=-68): mirror — splits around the x=-180 road.
+  road(-261, -73, -185, -63);
+  road(-175, -73, -149, -63);
+  // West mouth (x=-266): covers the detour corner, abuts the deck at z=-12.
+  road(-271, -73, -261, -12);
+  // South approach (x=55): abuts the z=180 road at z=185, runs through
+  // to z=256 so it covers the z=251 corner square.
+  road(50, 185, 60, 256);
+  // South link (z=251): abuts the Palms Span apron at x=12 and the x=55
+  // road at x=50.
+  road(12, 246, 50, 256);
+}
+
 /** The OrbitX Line ground train runs the z=33 road (x -144..144), 2.5 wide.
  * A street-tree canopy is r=2 (spans ~2.5 from the trunk) — a tree planted
  * beside the z=36 road overhangs the track, so the train runs under its
@@ -1628,7 +1677,11 @@ function addTrainLine(boxes: Box[], cols: Collider[]): { zones: Zone[] } {
   }
   // Buffer stops at the ends of the line — the train reverses at the end
   // stations and never runs past them, but the track ends here, visibly.
-  for (const bx of [-143, 143]) {
+  // They sit at x=+-137, NOT +-143: the track bed ends at +-144, but a
+  // stop at +-143 stands in the middle of the x=+-144 north-south road
+  // and every vehicle crossing the track there clips it (the City Loop
+  // bus crosses z=33 on x=+-144 three times a loop).
+  for (const bx of [-137, 137]) {
     put(boxes, bx, 0.6, Z, 0.5, 1.2, 3, "red");
     put(boxes, bx, 1.3, Z, 0.5, 0.2, 3, "gold");
     cols.push({ minX: bx - 0.25, maxX: bx + 0.25, minY: 0, maxY: 1.2, minZ: Z - 1.5, maxZ: Z + 1.5 });
@@ -5507,6 +5560,7 @@ export function buildCity(seed: number): City {
   const boxes: Box[] = [];
   const colliders: Collider[] = [];
   addRoads(boxes);
+  addBusRoads(boxes);
   addPlaza(boxes, colliders);
   const tower = addTower(boxes, colliders);
   const towerTop = tower.top;
