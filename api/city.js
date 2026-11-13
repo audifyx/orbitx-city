@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 import { createClient } from "@supabase/supabase-js";
 import { Redis } from "@upstash/redis";
@@ -6,6 +6,7 @@ import { ensureDaily, handleLive, noteEarn } from "./live.js";
 import { adBuy, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus } from "./ads.js";
 import { authMode, checkReauth, handleAuthOp, looksLikeAccountToken, supabasePublic, verifyAccessToken } from "./auth.js";
 import { chainShopEnabled, confirmSend, ensureWallet, exportWallet, networkName, quoteSend, walletView } from "./wallet.js";
+import { AccessToken } from "livekit-server-sdk";
 
 const START_BALANCE = 60000;
 const BURN_RATE = 0.25;
@@ -1308,19 +1309,9 @@ function missionPublic(mission, progress, unlocked) {
 const LOBBIES = [
   { id: "nearby", name: "Nearby (proximity)" },
   { id: "plaza", name: "Plaza" },
-  { id: "district", name: "Project District" },
-  { id: "hq-0", name: "OrbitX HQ" },
-  { id: "hq-1", name: "Your Project" },
-  { id: "hq-2", name: "North Star" },
-  { id: "hq-3", name: "Lumen Labs" },
-  { id: "hall", name: "Community Hall" },
-  { id: "cafe", name: "Cafe Nova" },
-    { id: "shop", name: "OrbitX Shop" },
-    { id: "bank", name: "OrbitX Bank" },
-    { id: "garage", name: "Hover Garage" },
-    { id: "arcade", name: "Neon Arcade" },
-    { id: "market", name: "Night Market" },
-    { id: "dock", name: "Harbor" },
+  { id: "hq", name: "OrbitX HQ" },
+  { id: "club", name: "Club Orbit" },
+  { id: "casino", name: "Casino" },
 ];
 
 function memory() {
@@ -1335,7 +1326,6 @@ function memory() {
       officeClaims: new Map(),
       saves: new Map(),
       events: [],
-      signals: [],
       parties: new Map(),
       ready: false,
     };
@@ -3002,31 +2992,67 @@ function json(body, status = 200) {
   });
 }
 
-function livekitToken(identity, room) {
+// LiveKit token, minted with the official server SDK. Returns null when
+// the LiveKit env vars are not set — voice then reports "not set up"
+// instead of silently falling back to the removed mesh.
+async function livekitToken(identity, room) {
   const key = process.env.LIVEKIT_API_KEY || "";
   const secret = process.env.LIVEKIT_API_SECRET || "";
   if (!key || !secret || !process.env.LIVEKIT_URL) return null;
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-  const now = Math.floor(Date.now() / 1000);
-  const payload = Buffer.from(
-    JSON.stringify({
-      iss: key,
-      sub: identity,
-      nbf: now - 5,
-      exp: now + 60 * 60,
-      name: identity,
-      video: { roomJoin: true, room, canPublish: true, canSubscribe: true },
-    }),
-  ).toString("base64url");
-  const sig = createHmac("sha256", secret).update(`${header}.${payload}`).digest("base64url");
-  return `${header}.${payload}.${sig}`;
+  const token = new AccessToken(key, secret, { identity, name: identity, ttl: "1h" });
+  token.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true });
+  return token.toJwt();
 }
 
-function lobbiesFor(people) {
+// Voice channels (LiveKit rooms). Proximity is one room per universe so
+// you only ever hear your own universe; the named channels are city-wide
+// (one room each, every universe); a party gets one private room.
+// Channel ids are what the client sends and what presence advertises;
+// LiveKit room names are what the token is minted for.
+const VOICE_CHANNELS = [
+  { id: "plaza", name: "Plaza" },
+  { id: "hq", name: "OrbitX HQ" },
+  { id: "club", name: "Club Orbit" },
+  { id: "casino", name: "Casino" },
+];
+
+/** Map a client channel id to its LiveKit room, validating the player
+ * may join it. Returns { room } or { error, status }. */
+function livekitRoomFor(channel, player, body) {
+  if (channel === "nearby") {
+    return { room: `orbitx-city-u${currentServerFor(body, player)}` };
+  }
+  if (VOICE_CHANNELS.some((c) => c.id === channel)) {
+    return { room: `orbitx-city-${channel}` };
+  }
+  const partyMatch = /^party-([A-Za-z0-9_-]+)$/.exec(channel);
+  if (partyMatch) {
+    if (player.party && player.party === partyMatch[1]) {
+      return { room: `orbitx-city-party-${partyMatch[1]}` };
+    }
+    return { error: "You're not in that party.", status: 403 };
+  }
+  return { error: "That voice channel doesn't exist.", status: 400 };
+}
+
+function lobbiesFor(people, player) {
   const rooms = LOBBIES.map((room) => ({ ...room, members: [] }));
   const known = new Map(rooms.map((room) => [room.id, room]));
+  // Your party channel is listed even when nobody is in it yet, so you
+  // can always see and join it; other players never see it.
+  if (player?.party) {
+    const id = `party-${player.party}`;
+    if (!known.has(id)) {
+      const room = { id, name: "Party", members: [] };
+      known.set(id, room);
+      rooms.push(room);
+    }
+  }
   for (const person of people) {
     if (!person.lobby) continue;
+    // A party channel only ever shows to its own members — never leak
+    // another party's room (or its Join button) into someone's list.
+    if (person.lobby.startsWith("party-") && person.lobby !== `party-${player?.party}`) continue;
     let room = known.get(person.lobby);
     if (!room) {
       room = { id: person.lobby, name: person.lobby, members: [] };
@@ -6123,25 +6149,14 @@ export async function POST(request) {
   }
 
   if (op === "voice-token") {
-    const room = String(body.room || "plaza").slice(0, 40);
-    const token = livekitToken(player.id, room);
-    if (token) {
-      return json({ ok: true, provider: "livekit", url: process.env.LIVEKIT_URL, token, room });
+    const channel = String(body.room || "nearby").slice(0, 64);
+    const resolved = livekitRoomFor(channel, player, body);
+    if (resolved.error) return json({ ok: false, message: resolved.error }, resolved.status || 400);
+    const token = await livekitToken(player.id, resolved.room);
+    if (!token) {
+      return json({ ok: false, message: "Voice isn't set up yet — the city needs its LiveKit keys." }, 503);
     }
-    return json({ ok: true, provider: "mesh", room, ice: [{ urls: "stun:stun.l.google.com:19302" }] });
-  }
-
-  if (op === "voice-signal") {
-    const signal = {
-      from: player.id,
-      to: String(body.to || ""),
-      room: String(body.room || ""),
-      data: body.data || null,
-      at: Date.now(),
-    };
-    await pushSignal(signal);
-    const mine = await takeSignals(player.id);
-    return json({ ok: true, signals: mine });
+    return json({ ok: true, provider: "livekit", url: process.env.LIVEKIT_URL, token, room: resolved.room, channel });
   }
 
   if (op === "sync") {
@@ -6161,7 +6176,6 @@ export async function POST(request) {
       if (line.scope !== "near" || !here) return true;
       return Math.hypot((line.x || 0) - here.x, (line.z || 0) - here.z) < 22 || line.id === player.id;
     });
-    const signals = await takeSignals(player.id);
     let party = player.party ? memory().parties.get(player.party) || null : null;
     if (player.party && sb()) {
       const { data, error } = await sb().from("parties").select("id, members").eq("id", player.party).maybeSingle();
@@ -6177,8 +6191,7 @@ export async function POST(request) {
       chat: chat.slice(-40),
       bookings: await readBookings(),
       events: await readEvents(),
-      lobbies: lobbiesFor(people),
-      signals,
+      lobbies: lobbiesFor(people, player),
       party,
       server: storageName(),
       realtime: publicRealtime(),
@@ -6695,76 +6708,3 @@ function ensureGhost() {
   });
 }
 
-async function pushSignal(signal) {
-  // Signals must survive across Vercel serverless instances, so Supabase
-  // is the store. Redis stays as the fallback when it is configured;
-  // per-instance memory is only the local-dev last resort.
-  const client = sb();
-  if (client) {
-    const { error } = await client.from("voice_signals").insert({
-      from_id: signal.from,
-      to_id: signal.to,
-      room: signal.room,
-      data: signal.data,
-    });
-    if (!error) {
-      await client
-        .from("voice_signals")
-        .delete()
-        .lt("created_at", new Date(Date.now() - 15000).toISOString());
-      return;
-    }
-    noteSupabase(error.message);
-  }
-  const cache = redis();
-  if (cache) {
-    await cache.lpush("orbitx:signals", JSON.stringify(signal));
-    return;
-  }
-  memory().signals.push(signal);
-}
-
-async function takeSignals(id) {
-  const client = sb();
-  if (client) {
-    const since = new Date(Date.now() - 15000).toISOString();
-    const { data, error } = await client
-      .from("voice_signals")
-      .select("id, from_id, to_id, room, data, created_at")
-      .eq("to_id", id)
-      .gt("created_at", since)
-      .order("created_at", { ascending: true });
-    if (!error && data) {
-      if (data.length) {
-        const ids = data.map((row) => row.id);
-        await client.from("voice_signals").delete().in("id", ids);
-      }
-      return data.map((row) => ({
-        from: row.from_id,
-        to: row.to_id,
-        room: row.room,
-        data: row.data,
-        at: new Date(row.created_at).getTime(),
-      }));
-    }
-    if (error) noteSupabase(error.message);
-  }
-  const cache = redis();
-  if (cache) {
-    const rows = (await cache.lrange("orbitx:signals", 0, 200)) || [];
-    const keep = [];
-    const mine = [];
-    for (const row of rows) {
-      const signal = typeof row === "string" ? JSON.parse(row) : row;
-      if (signal.to === id && Date.now() - signal.at < 15000) mine.push(signal);
-      else if (Date.now() - signal.at < 15000) keep.push(JSON.stringify(signal));
-    }
-    await cache.del("orbitx:signals");
-    if (keep.length) await cache.rpush("orbitx:signals", ...keep);
-    return mine;
-  }
-  const store = memory();
-  const mine = store.signals.filter((signal) => signal.to === id);
-  store.signals = store.signals.filter((signal) => signal.to !== id && Date.now() - signal.at < 15000);
-  return mine;
-}
