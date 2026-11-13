@@ -7,14 +7,41 @@
 // pulls up to real stops, dwells so the player can board / alight, then
 // carries on. Riding is FREE — no City Sol, no real SOL, no burn, no wallet.
 //
-// Route (verified against buildCity(1) — see bus-route-check.ts, kept in the
-// repo root as the clearance script): the home loop runs the +-144 roads
-// with a plaza dip to Central Station; the bridge mouths are blocked by the
-// district towers, so the bus detours around them on grass — west around
-// the West Tower's fire dept at z=-68, east around the East Tower at z=28 —
-// and crosses each deck on an offset lane (the deck lamps run down the
-// middle). The south deck's east half is buried under a hill, so the FL
-// lane is x=-6.5.
+// Route (verified against buildCity(1) — see bus-route-check.ts, kept in
+// the repo root as the clearance script): the ENTIRE loop stays on roads,
+// like the train stays on its track — but on the bus's own loop, not the
+// train's route. Every reversal is a rectangular block loop on real roads
+// (never a U-turn on one road); every leg runs a road centreline, and the
+// bus's full 9 x 2.6 footprint clears every building by its half-width.
+//   - Central moved to (0,72) on the z=72 road: the old stop (0,36) sat
+//     INSIDE the Plaza Central underground train station hall (x -42..42,
+//     z 27.5..42), over its stairwell hole, and the z=36 road is blocked
+//     both ways by the train station shelters (posts at x=+-47/+-61) — so
+//     the bus cannot use z=36 at all. The Central Station canopy stays in
+//     the plaza (a short walk south, through the hall's north door); the
+//     stop itself is on the z=72 road, clear of every building.
+//   - Eastgate / Westgate reversals loop the block east/west of the stop
+//     (x=180 / x=-180, z=-36..72): x=108 is unusable (monorail pillars
+//     stand at x=+-110, exactly on the bus's edge) and z=0 is blocked by
+//     the gate shelters themselves.
+//   - The bridge mouths are blocked by the district towers, so the bus
+//     detours around them on REAL roads — east around the East Tower at
+//     z=28, west around the West Tower's fire dept at z=-68 — and crosses
+//     each deck on an offset lane (the deck lamps run down the middle).
+//     Each detour joins its deck through a 10-wide gap cut in the deck
+//     rail at the mouth (a proper road junction, like an on-ramp); the
+//     south deck's east half is buried under a hill, so the FL lane is
+//     x=-6.5.
+//   - The south approach runs a REAL road at x=55 (z 180..251) + a z=251
+//     link to the Palms Span apron: x=0 is blocked by a building, x=+-36
+//     by the pond, x=72 by a building, x=144/145 by a yard + trees.
+//   - Deck lanes merge to the region road centreline (z=0 / x=0) only
+//     past the last deck lamp, on the state-side aprons.
+//   - The train buffer stops moved 6 units off the x=+-144 roads (to
+//     x=+-137, still on the track bed) — they sat in the middle of the
+//     north-south road and the bus clipped them on every crossing.
+//   - LA / NY use x=+-654, not the grid +-656: hedges front the road at
+//     x=+-657 and the bus clears them by 1.3u at 654.
 //
 // The bus itself is a waypoint follower with a capped turn rate: it slows
 // for sharp turns and on tight merges past the deck lamps.
@@ -44,77 +71,115 @@ export interface BusWaypoint {
 }
 
 export const BUS_WAYPOINTS: BusWaypoint[] = [
-  { x: 0, z: 36 }, // 0  Central Station
-  { x: 36, z: 36 }, // 1
-  { x: 36, z: 72 }, // 2
-  { x: 144, z: 72 }, // 3
-  { x: 144, z: 0 }, // 4  Eastgate
-  { x: 144, z: 28 }, // 5
-  { x: 258, z: 28 }, // 6
-  { x: 258, z: 6 }, // 7
-  { x: 250, z: 6 }, // 8  -> hop LA
-  { x: 562, z: 6 }, // 9  landing (556,0)
-  { x: 654, z: 6 }, // 10
-  { x: 654, z: 144 }, // 11
-  { x: 800, z: 144 }, // 12 Sunset, LA
-  { x: 654, z: 144 }, // 13
-  { x: 654, z: -6 }, // 14
-  { x: 554, z: -6 }, // 15 -> hop home
-  { x: 258, z: 6 }, // 16 landing (244,0)
-  { x: 258, z: 28 }, // 17
-  { x: 144, z: 28 }, // 18
-  { x: 144, z: 0 }, // 19 Eastgate
-  { x: 144, z: 72 }, // 20
-  { x: 145, z: 180 }, // 21
-  { x: 145, z: 251 }, // 22
-  { x: -6.5, z: 251 }, // 23
-  { x: -6.5, z: 314 }, // 24 -> hop FL
-  { x: -6.5, z: 664 }, // 25 landing (0,656)
-  { x: -6.5, z: 756 }, // 26
-  { x: 38, z: 756 }, // 27
-  { x: 36, z: 840 }, // 28
-  { x: 36, z: 900 }, // 29
-  { x: 38, z: 930 }, // 30
-  { x: 38, z: 1044 }, // 31 Palms, FL
-  { x: 38, z: 930 }, // 32
-  { x: 36, z: 900 }, // 33
-  { x: 36, z: 840 }, // 34
-  { x: 38, z: 756 }, // 35
-  { x: -6.5, z: 756 }, // 36
-  { x: -6.5, z: 654 }, // 37 -> hop home
-  { x: -6.5, z: 312 }, // 38 landing (0,312)
-  { x: -6.5, z: 251 }, // 39
-  { x: 145, z: 251 }, // 40
-  { x: 145, z: 72 }, // 41
-  { x: 36, z: 72 }, // 42
-  { x: 36, z: 36 }, // 43
-  { x: 0, z: 36 }, // 44 Central Station
-  { x: -36, z: 36 }, // 45
-  { x: -36, z: 72 }, // 46
-  { x: -144, z: 72 }, // 47
-  { x: -144, z: 0 }, // 48 Westgate
-  { x: -144, z: -68 }, // 49
-  { x: -266, z: -68 }, // 50
-  { x: -266, z: -6 }, // 51
-  { x: -250, z: -6 }, // 52 -> hop NY
-  { x: -562, z: -6 }, // 53 landing (-556,0)
-  { x: -654, z: -6 }, // 54
-  { x: -654, z: 144 }, // 55
-  { x: -800, z: 144 }, // 56 Brooklyn, NY
-  { x: -654, z: 144 }, // 57
-  { x: -654, z: 6 }, // 58
-  { x: -554, z: 6 }, // 59 -> hop home
-  { x: -258, z: -6 }, // 60 landing (-244,0)
-  { x: -266, z: -6 }, // 61
-  { x: -266, z: -68 }, // 62
-  { x: -144, z: -68 }, // 63
-  { x: -144, z: 0 }, // 64 Westgate
-  { x: -144, z: -144 }, // 65
-  { x: 144, z: -144 }, // 66
-  { x: 144, z: 0 }, // 67 Eastgate
-  { x: 144, z: 72 }, // 68
-  { x: 36, z: 72 }, // 69
-  { x: 36, z: 36 }, // 70
+  // -- Central #2 (after Eastgate) -> Eastgate -> Sunset, LA ---------------
+  // Block loop north of Central to turn around (arrive west, depart east):
+  // west on z=72, north on x=-36, east on z=144, south on x=72, east.
+  { x: 0, z: 72 }, // 0  Central Station
+  { x: -36, z: 72 }, // 1
+  { x: -36, z: 144 }, // 2
+  { x: 72, z: 144 }, // 3
+  { x: 72, z: 72 }, // 4
+  { x: 144, z: 72 }, // 5
+  { x: 144, z: 0 }, // 6  Eastgate
+  // Eastgate block loop (arrive north, depart south): south on x=144,
+  // east on z=-36, north on x=180, west on z=72, south on x=144.
+  { x: 144, z: -36 }, // 7
+  { x: 180, z: -36 }, // 8
+  { x: 180, z: 72 }, // 9
+  { x: 144, z: 72 }, // 10
+  { x: 144, z: 28 }, // 11
+  { x: 258, z: 28 }, // 12  east detour road
+  { x: 258, z: 6 }, // 13  mouth (through the deck-rail gap)
+  { x: 610, z: 6 }, // 14  Sunset Span, north lane
+  { x: 620, z: 0 }, // 15  merge to the LA road (past the last deck lamp)
+  { x: 654, z: 0 }, // 16
+  { x: 654, z: 144 }, // 17
+  { x: 800, z: 144 }, // 18 Sunset, LA
+  // Sunset block loop south (arrive east, depart west): east on z=144,
+  // south on x=836, west on z=180, north on x=764, west on z=144.
+  { x: 836, z: 144 }, // 19
+  { x: 836, z: 180 }, // 20
+  { x: 764, z: 180 }, // 21
+  { x: 764, z: 144 }, // 22
+  { x: 654, z: 144 }, // 23
+  { x: 654, z: 0 }, // 24
+  { x: 620, z: 0 }, // 25
+  { x: 610, z: -6 }, // 26  merge to the south lane
+  { x: 258, z: -6 }, // 27  Sunset Span, south lane
+  { x: 258, z: 28 }, // 28  mouth (through the deck-rail gap)
+  { x: 144, z: 28 }, // 29
+  { x: 144, z: 0 }, // 30 Eastgate
+  // -- Eastgate -> Palms, FL ----------------------------------------------
+  { x: 144, z: 72 }, // 31
+  { x: 144, z: 180 }, // 32
+  { x: 55, z: 180 }, // 33
+  { x: 55, z: 251 }, // 34  south approach road
+  { x: -6.5, z: 251 }, // 35  link to the Palms Span apron
+  { x: -6.5, z: 710 }, // 36  Palms Span (west lane — east half is a hill)
+  { x: 0, z: 720 }, // 37  merge to the FL road (past the last deck lamp)
+  { x: 0, z: 756 }, // 38
+  { x: 38, z: 756 }, // 39
+  { x: 36, z: 840 }, // 40
+  { x: 36, z: 900 }, // 41
+  { x: 38, z: 930 }, // 42
+  { x: 38, z: 1044 }, // 43 Palms, FL
+  // Palms block loop west (arrive south, depart north): south on x=38,
+  // west on z=1080, north on x=0, east on z=1044, north on x=38.
+  // (The east loop is blocked by the Palms shelter, which sits on z=1044.)
+  { x: 38, z: 1080 }, // 44
+  { x: 0, z: 1080 }, // 45
+  { x: 0, z: 1044 }, // 46
+  { x: 38, z: 1044 }, // 47
+  { x: 38, z: 930 }, // 48
+  { x: 36, z: 900 }, // 49
+  { x: 36, z: 840 }, // 50
+  { x: 38, z: 756 }, // 51
+  { x: 0, z: 756 }, // 52
+  { x: 0, z: 720 }, // 53
+  { x: -6.5, z: 710 }, // 54  merge to the west lane
+  { x: -6.5, z: 251 }, // 55  Palms Span
+  { x: 55, z: 251 }, // 56
+  { x: 55, z: 180 }, // 57
+  { x: 144, z: 180 }, // 58
+  { x: 144, z: 72 }, // 59
+  { x: 0, z: 72 }, // 60 Central Station
+  // -- Central -> Westgate -> Brooklyn, NY --------------------------------
+  { x: -72, z: 72 }, // 61
+  { x: -144, z: 72 }, // 62
+  { x: -144, z: 0 }, // 63 Westgate
+  // Westgate block loop (mirror of Eastgate): south on x=-144, west on
+  // z=-36, north on x=-180, east on z=72, south on x=-144.
+  { x: -144, z: -36 }, // 64
+  { x: -180, z: -36 }, // 65
+  { x: -180, z: 72 }, // 66
+  { x: -144, z: 72 }, // 67
+  { x: -144, z: -68 }, // 68
+  { x: -266, z: -68 }, // 69  west detour road
+  { x: -266, z: -6 }, // 70  mouth (through the deck-rail gap)
+  { x: -610, z: -6 }, // 71  Empire Span, south lane
+  { x: -620, z: 0 }, // 72  merge to the NY road (past the last deck lamp)
+  { x: -654, z: 0 }, // 73
+  { x: -654, z: 144 }, // 74
+  { x: -800, z: 144 }, // 75 Brooklyn, NY
+  // Brooklyn block loop south (mirror of Sunset): west on z=144, south
+  // on x=-836, east on z=180, north on x=-764, east on z=144.
+  { x: -836, z: 144 }, // 76
+  { x: -836, z: 180 }, // 77
+  { x: -764, z: 180 }, // 78
+  { x: -764, z: 144 }, // 79
+  { x: -654, z: 144 }, // 80
+  { x: -654, z: 0 }, // 81
+  { x: -620, z: 0 }, // 82
+  { x: -610, z: 6 }, // 83  merge to the north lane
+  { x: -266, z: 6 }, // 84  Empire Span, north lane
+  { x: -266, z: -68 }, // 85  mouth (through the deck-rail gap)
+  { x: -144, z: -68 }, // 86
+  { x: -144, z: 0 }, // 87 Westgate
+  // -- Westgate -> Eastgate -> Central (south road home) ------------------
+  { x: -144, z: -144 }, // 88
+  { x: 144, z: -144 }, // 89
+  { x: 144, z: 0 }, // 90 Eastgate
+  { x: 144, z: 72 }, // 91
   // -> 0 Central Station
 ];
 
@@ -130,18 +195,21 @@ export interface BusStopInfo {
 }
 
 /** Waypoint index -> stop. Central / Eastgate / Westgate appear twice per
- * loop (the bus passes them on both legs). */
+ * loop (the bus passes them on both legs). Central is at (0,72) on the
+ * z=72 road — the old (0,36) stop sat inside the train station hall, so
+ * the stop moved; its door is on the north side of the road, toward the
+ * plaza station (a short walk south, through the hall's north door). */
 export const BUS_STOP_AT: Record<number, BusStopInfo> = {
-  0: { id: "central", name: "Central Station", region: "home", doorX: 0, doorZ: 30 },
-  4: { id: "eastgate", name: "Eastgate", region: "home", doorX: 150, doorZ: 0 },
-  12: { id: "sunset", name: "Sunset, LA", region: "la", doorX: 800, doorZ: 150 },
-  19: { id: "eastgate", name: "Eastgate", region: "home", doorX: 150, doorZ: 0 },
-  31: { id: "palms", name: "Palms, Florida", region: "fl", doorX: 44, doorZ: 1044 },
-  44: { id: "central", name: "Central Station", region: "home", doorX: 0, doorZ: 30 },
-  48: { id: "westgate", name: "Westgate", region: "home", doorX: -150, doorZ: 0 },
-  56: { id: "brooklyn", name: "Brooklyn, NY", region: "ny", doorX: -800, doorZ: 150 },
-  64: { id: "westgate", name: "Westgate", region: "home", doorX: -150, doorZ: 0 },
-  67: { id: "eastgate", name: "Eastgate", region: "home", doorX: 150, doorZ: 0 },
+  0: { id: "central", name: "Central Station", region: "home", doorX: 0, doorZ: 66 },
+  6: { id: "eastgate", name: "Eastgate", region: "home", doorX: 150, doorZ: 0 },
+  18: { id: "sunset", name: "Sunset, LA", region: "la", doorX: 800, doorZ: 150 },
+  30: { id: "eastgate", name: "Eastgate", region: "home", doorX: 150, doorZ: 0 },
+  43: { id: "palms", name: "Palms, Florida", region: "fl", doorX: 44, doorZ: 1044 },
+  60: { id: "central", name: "Central Station", region: "home", doorX: 0, doorZ: 66 },
+  63: { id: "westgate", name: "Westgate", region: "home", doorX: -150, doorZ: 0 },
+  75: { id: "brooklyn", name: "Brooklyn, NY", region: "ny", doorX: -800, doorZ: 150 },
+  87: { id: "westgate", name: "Westgate", region: "home", doorX: -150, doorZ: 0 },
+  90: { id: "eastgate", name: "Eastgate", region: "home", doorX: 150, doorZ: 0 },
 };
 
 export const BUS_SPEED = 18;
@@ -173,8 +241,10 @@ export class BusSim {
     const start = BUS_WAYPOINTS[0];
     this.x = start.x;
     this.z = start.z;
-    // Heading east toward waypoint 1.
-    this.yaw = Math.PI / 2;
+    // Heading west toward waypoint 1 (the Central block loop turns the
+    // bus around the block north of the stop — it must start facing its
+    // first target, or it U-turns on the road at spawn).
+    this.yaw = -Math.PI / 2;
     // Start parked at Central Station so the loop is visible from spawn —
     // the first dwell is longer so a player walking in from spawn (32 units)
     // can catch it.
@@ -187,7 +257,7 @@ export class BusSim {
     const start = BUS_WAYPOINTS[0];
     this.x = start.x;
     this.z = start.z;
-    this.yaw = Math.PI / 2;
+    this.yaw = -Math.PI / 2;
     this.target = 1;
     this.dwelling = true;
     this.speed = 0;
@@ -486,6 +556,12 @@ function buildShelter(city: City, spec: ShelterSpec): void {
 export function buildBusStation(city: City): void {
   // Central Station — in the plaza at (0, 26.5), between the fountain (0,12)
   // and the z=36 road. Footprint x -4..4, z 25..28 was clearance-checked.
+  // NOTE (bus-route fix): the bus itself no longer stops here — the stop
+  // moved to (0,72) on the z=72 road, because (0,36) sat inside the train
+  // station hall and the z=36 road is blocked by its shelters. The canopy
+  // stays in the plaza as the station building (a short walk south from
+  // the stop, through the hall's north door); no shelter fits beside the
+  // z=72 road there — the buildings front it with only a 2u sidewalk.
   const cx = 0;
   const cz = 26.5;
   pushBox(city, cx, 0.075, cz, 8.6, 0.15, 3.6, "plaza");
