@@ -5870,6 +5870,14 @@ export async function POST(request) {
   if (op === "friend-accept") {
     const other = await playerById(String(body.id || ""));
     if (!other) return json({ ok: false, message: "That request is gone." }, 404);
+    // Accepting needs a pending friend request from this player — the
+    // old code added the friendship unconditionally, so a stale
+    // double-tap (or a call with no request) created friends out of thin
+    // air and the client got no honest "gone" signal. party-accept and
+    // decline-request already validate the same way.
+    if (!player.inbox.some((item) => item.id === other.id && !item.kind)) {
+      return json({ ok: false, message: "That request is gone." }, 404);
+    }
     // Only drop the FRIEND request from this player — a party invite
     // from the same person (kind "party") stays until it is answered.
     player.inbox = player.inbox.filter((item) => item.id !== other.id || item.kind === "party");

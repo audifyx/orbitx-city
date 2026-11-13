@@ -301,6 +301,36 @@ test("people: friend-ask lands in the inbox, accept makes both friends", async (
   assert.equal(askerMe.me.friends.some((f) => f.id === asked.id), true, "both sides list the friend");
 });
 
+test("people: friend-accept needs a pending request — a gone request fails and adds no friend", async () => {
+  const asker = await guest("Asker2");
+  const asked = await guest("Asked2");
+
+  // No request at all: accepting must fail, not invent a friendship.
+  const noRequest = await call("friend-accept", { id: asker.id }, asked.token);
+  assert.equal(noRequest.ok, false, "accept with no pending request fails");
+  assert.match(noRequest.message || "", /gone/);
+  const askedMe = await call("me", {}, asked.token);
+  assert.equal(askedMe.me.friends.some((f) => f.id === asker.id), false, "no friendship without a request");
+
+  // Ask, decline, then accept the declined request: still fails.
+  await call("friend-ask", { id: asked.id }, asker.token);
+  await call("decline-request", { id: asker.id, kind: "friend" }, asked.token);
+  const afterDecline = await call("friend-accept", { id: asker.id }, asked.token);
+  assert.equal(afterDecline.ok, false, "accept after decline fails");
+  const askedMe2 = await call("me", {}, asked.token);
+  assert.equal(askedMe2.me.friends.some((f) => f.id === asker.id), false, "declined request stays declined");
+
+  // Ask again and accept twice: the first accept works, the second
+  // (stale double-tap) fails instead of silently re-adding.
+  await call("friend-ask", { id: asked.id }, asker.token);
+  const first = await call("friend-accept", { id: asker.id }, asked.token);
+  assert.equal(first.ok, true, first.message);
+  const second = await call("friend-accept", { id: asker.id }, asked.token);
+  assert.equal(second.ok, false, "second accept of the same request fails");
+  const askedMe3 = await call("me", {}, asked.token);
+  assert.equal(askedMe3.me.friends.filter((f) => f.id === asker.id).length, 1, "exactly one friend entry");
+});
+
 test("people: the old party op with an invite SENDS an invite, never force-adds", async () => {
   const host = await guest("OldHost");
   const guestPlayer = await guest("OldGuest");
