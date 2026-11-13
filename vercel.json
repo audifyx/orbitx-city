@@ -1,6 +1,1 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build",
-  "outputDirectory": "web/dist",
-  "framework": null
-}
+{"$schema":"https://openapi.vercel.sh/vercel.json","buildCommand":"npm run build","framework":null,"outputDirectory":"web/dist","redirects":[{"destination":"/stats","permanent":true,"source":"/stats/"}],"rewrites":[{"destination":"/index.html","source":"/stats"}]}

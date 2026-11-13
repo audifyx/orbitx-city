@@ -1792,3 +1792,62 @@ body.touch .touch-ui {
     padding: 14px 14px 18px;
   }
 }
+
+/* Standalone /stats page — a plain linkable page, no game. Body is
+ * overflow:hidden for the game, so this page scrolls on its own.
+ * Black background, white text, gold accents — same as the panels. */
+.stats-page {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: #000000;
+  color: #ffffff;
+  padding: 20px 16px 48px;
+  box-sizing: border-box;
+  touch-action: pan-y;
+}
+
+.stats-page-inner {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.stats-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-bottom: 2px solid #e0b33a;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.stats-page-head h1 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: 0.04em;
+  color: #e0b33a;
+}
+
+.stats-page-head p {
+  margin: 6px 0 0;
+  color: #dedede;
+}
+
+.stats-page-head a {
+  color: #e0b33a;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.stats-page-status {
+  color: #e0b33a;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.stats-page h3 {
+  color: #ffffff;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
 import type { AdOrder, CityStats, MyPropertyClaim, PanelName, RadioTrack, Runtime, Snap } from "./game/runtime";
 import { EMPTY_CITY_PEOPLE, FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/runtime";
@@ -3182,7 +3182,7 @@ export default function App() {
             {panel === "voice" && <VoicePanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             {panel === "players" && <PlayersPanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             {panel === "profile" && <ProfilePanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
-            {panel === "stats" && <CityStatsPanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
+            {panel === "stats" && <CityStatsPanel stats={snap.cityStats} loading={snap.cityStatsLoading} error={snap.cityStatsError} onRefresh={() => void gameRef.current?.runtime.loadCityStats()} />}
             {panel === "alerts" && <AlertsPanel snap={snap} rt={gameRef.current?.runtime ?? null} onOpenChat={() => open("chat")} />}
             <FeaturePanel snap={{ ...snap, panel: panel as PanelName | "" }} rt={gameRef.current?.runtime ?? null} />
             {panel === "home" && (() => {
@@ -4568,8 +4568,10 @@ function PlayersPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
 // button is gated too), and a 403/404 from the server shows the message
 // instead of any data. Real numbers only: anything the server could not
 // compute shows as unavailable with its reason, never a fake number.
-function CityStatsPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
-  const stats: CityStats | null = snap.cityStats;
+// The FULL stats page body — shared by the in-game Stats panel and the
+// standalone /stats page. Props are plain data (not the game snap) so the
+// standalone page can render it without booting the game.
+function CityStatsPanel({ stats, loading, error, onRefresh }: { stats: CityStats | null; loading: boolean; error: string; onRefresh: () => void }) {
   const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
   const fmtOrbitx = (n: number) => (Number.isFinite(n) ? n.toLocaleString("en-US", { maximumFractionDigits: 4 }) : "0");
   const unavailable = (key: string) => stats?.unavailable?.[key];
@@ -4579,11 +4581,11 @@ function CityStatsPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
       <strong style={{ fontSize: 20, color: "#e0b33a" }}>{value}</strong>
     </article>
   );
-  if (snap.cityStatsLoading && !stats) return <div className="list"><p>Loading stats…</p></div>;
-  if (snap.cityStatsError && !stats) {
+  if (loading && !stats) return <div className="list"><p>Loading stats…</p></div>;
+  if (error && !stats) {
     return (
       <div className="list">
-        <p>{snap.cityStatsError}</p>
+        <p>{error}</p>
         <p className="muted">The stats page is only available to audifyx@gmail.com.</p>
       </div>
     );
@@ -4601,11 +4603,11 @@ function CityStatsPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
         {stats.launch.daysUntil > 0 ? ` · launches in ${stats.launch.daysUntil} days (${stats.launch.date})` : " · launched"}
       </p>
       <div className="days">
-        <button type="button" disabled={snap.cityStatsLoading} onClick={() => rt?.loadCityStats()}>
-          {snap.cityStatsLoading ? "Refreshing…" : "Refresh"}
+        <button type="button" disabled={loading} onClick={onRefresh}>
+          {loading ? "Refreshing…" : "Refresh"}
         </button>
       </div>
-      {snap.cityStatsError ? <p>{snap.cityStatsError}</p> : null}
+      {error ? <p>{error}</p> : null}
 
       <h3>Players</h3>
       {statCard("Total players", fmt(stats.players.total))}
@@ -4736,6 +4738,66 @@ function CityStatsPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           <div><b>Ledger — {status}</b><span>{fmt(count)}</span></div>
         </article>
       ))}
+    </div>
+  );
+}
+
+// Standalone /stats page: the FULL stats page as a linkable page — same
+// data, same sections, same server gate as the in-game panel. main.tsx
+// renders this instead of App when the path is /stats, so the game
+// (WebGL, engine, intro) never boots here. The gate is the city-stats
+// op itself: admin gets 200 + stats, any other signed-in email gets
+// 403, logged out gets 404 — the op's message is shown, never data.
+export function StatsPage() {
+  const [stats, setStats] = useState<CityStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState(0);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const token = accountToken();
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (token) headers.authorization = `Bearer ${token}`;
+      const response = await fetch("/api/city", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ op: "city-stats" }),
+      });
+      const data = (await response.json()) as { ok?: boolean; message?: string; stats?: CityStats };
+      if (!response.ok || data.ok === false) {
+        setStatus(response.status);
+        throw new Error(String(data.message || "Stats did not load."));
+      }
+      setStatus(0);
+      setStats((data.stats as CityStats) || null);
+      if (!data.stats) setError("No stats came back.");
+    } catch (err) {
+      setStats(null);
+      setError(err instanceof Error ? err.message : "Stats did not load.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    document.title = "City Stats — OrbitX City";
+    void load();
+  }, [load]);
+  return (
+    <div className="stats-page">
+      <div className="stats-page-inner">
+        <header className="stats-page-head">
+          <div>
+            <h1>City Stats</h1>
+            <p>OrbitX City — live from the city database. Only audifyx@gmail.com can see this page.</p>
+          </div>
+          <a href="/">Back to the city</a>
+        </header>
+        {status === 404 && !stats ? <p className="stats-page-status">404 — Not found.</p> : null}
+        {status === 403 && !stats ? <p className="stats-page-status">403 — Forbidden.</p> : null}
+        <CityStatsPanel stats={stats} loading={loading} error={error} onRefresh={load} />
+      </div>
     </div>
   );
 }
