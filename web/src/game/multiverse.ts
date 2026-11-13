@@ -105,6 +105,12 @@ export interface UniverseList {
   homeServerId: UniverseId | null;
   /** The universe the player is in right now, or null if not joined. */
   currentServerId: UniverseId | null;
+  /** Where the player's friends are right now — server is null when a
+   * friend has no recent heartbeat (offline / never joined). The menu
+   * picker tags the matching universe ("TJR is here") so the player
+   * joins the same room as their friend instead of their own saved
+   * universe. */
+  friendsHere: { id: string; name: string; server: UniverseId | null }[];
   totalCapacity: number;
 }
 
@@ -212,6 +218,9 @@ export function shapeUniverseList(
     universes,
     homeServerId: isUniverseId(Number(homeServerId)) ? (homeServerId as UniverseId) : null,
     currentServerId: isUniverseId(Number(currentServerId)) ? (currentServerId as UniverseId) : null,
+    // The pure shaper knows no friends — parseUniverseList overlays the
+    // real list from the server response.
+    friendsHere: [],
     totalCapacity: MULTIVERSE_TOTAL_CAPACITY,
   };
 }
@@ -275,7 +284,18 @@ async function callUniverseOp(
 
 function parseUniverseList(data: Record<string, unknown>): UniverseList {
   const rows = (Array.isArray(data.universes) ? data.universes : []) as UniverseListRow[];
-  return shapeUniverseList(rows, Number(data.homeServerId) || null, Number(data.currentServerId) || null);
+  const friendsHere = (Array.isArray(data.friends) ? data.friends : [])
+    .map((friend) => {
+      const row = friend as { id?: unknown; name?: unknown; server?: unknown };
+      const server = Number(row.server);
+      return {
+        id: String(row.id || ""),
+        name: String(row.name || "Friend"),
+        server: isUniverseId(server) ? (server as UniverseId) : null,
+      };
+    })
+    .filter((friend) => friend.id !== "");
+  return { ...shapeUniverseList(rows, Number(data.homeServerId) || null, Number(data.currentServerId) || null), friendsHere };
 }
 
 function applyEnterResult(data: Record<string, unknown>): UniverseEnterResult {

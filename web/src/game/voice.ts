@@ -81,7 +81,7 @@ export function voiceState() {
   };
 }
 
-export async function joinVoice(nextRoom: string) {
+export async function joinVoice(nextRoom: string): Promise<boolean> {
   room = nextRoom;
   // Proximity mode is the "nearby" room: the mesh only dials players
   // within range (see meshStep). Any named room is lobby mode.
@@ -103,11 +103,23 @@ export async function joinVoice(nextRoom: string) {
     if (provider === "mesh" && !meshTimer) {
       meshTimer = window.setInterval(() => voiceTick(), 1000);
     }
+    return true;
   } catch (err) {
+    // A failed join must NOT leave the player "in" the room: the old
+    // code set room/lobby before the token + mic, then left them set
+    // when either failed — the panel read "In room" while the player
+    // had no mic, no provider and no peers, so they never actually
+    // joined the other person. Reset and say why, so a retry works.
     world.voiceError = err instanceof Error ? err.message : "Voice needs a microphone.";
     world.provider = "off";
     provider = "";
     disarmMeshTimer();
+    room = "";
+    proximity = false;
+    world.proximity = false;
+    world.lobby = "";
+    world.pushLobby();
+    return false;
   }
 }
 

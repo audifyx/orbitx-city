@@ -30,6 +30,10 @@ export interface CityPerson {
   emote: string;
   lobby: string;
   look?: string;
+  // Which universe this player is on right now, stamped by the server
+  // on their presence row (sync op). Absent for old rows / offline
+  // peers — the client treats that as "unknown", never as "here".
+  server?: number;
   // Clothes worn right now, per slot (shirt / pants / shoes / outfit /
   // glasses) — derived server-side from the `worn:` markers in owned.
   clothes?: Record<string, string>;

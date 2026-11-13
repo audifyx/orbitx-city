@@ -500,6 +500,10 @@ export default function App() {
   // Multiverse picker (menu + panel): live list when the server answers,
   // static roster when offline — the picker still records the choice.
   const [universes, setUniverses] = useState<Universe[] | null>(null);
+  // Where the player's friends are right now (from universe-list) —
+  // the picker tags the universe a friend is on so the player joins
+  // the same room instead of their own saved universe.
+  const [friendsHere, setFriendsHere] = useState<{ id: string; name: string; server: number | null }[]>([]);
   const [universeSel, setUniverseSel] = useState<number>(() => {
     const saved = Number(localStorage.getItem("orbitx-universe") || "");
     return saved >= 1 && saved <= 5 ? saved : 1;
@@ -804,6 +808,7 @@ export default function App() {
       .then((list) => {
         if (!live) return;
         setUniverses(list.universes);
+        setFriendsHere(list.friendsHere);
         if (!localStorage.getItem("orbitx-universe") && list.homeServerId) setUniverseSel(list.homeServerId);
       })
       .catch(() => {
@@ -820,7 +825,10 @@ export default function App() {
     if (panel !== "multiverse") return;
     setUniverseMsg("");
     void listUniverses()
-      .then((list) => setUniverses(list.universes))
+      .then((list) => {
+        setUniverses(list.universes);
+        setFriendsHere(list.friendsHere);
+      })
       .catch((err) => setUniverseMsg(err instanceof Error ? err.message : "Could not load universes."));
   }, [panel]);
 
@@ -2849,11 +2857,12 @@ export default function App() {
                 {(universes ?? fallbackUniverses()).map((u) => {
                   const full = isFull(u);
                   const current = snap.universe?.id === u.id;
+                  const friendsOn = friendsHere.filter((f) => f.server === u.id);
                   return (
                     <article key={u.id}>
                       <div>
                         <b>{u.displayName}</b>
-                        <span>{u.tagline} · {u.playerCount}/{u.cap} players{u.isHome ? " · Home universe" : ""}{current ? " · You are here" : ""}{current && snap.universe && !snap.universe.isHome ? " · Visitor" : ""}</span>
+                        <span>{u.tagline} · {u.playerCount}/{u.cap} players{u.isHome ? " · Home universe" : ""}{current ? " · You are here" : ""}{current && snap.universe && !snap.universe.isHome ? " · Visitor" : ""}{friendsOn.length ? ` · ${friendsOn.map((f) => f.name).join(", ")} ${friendsOn.length === 1 ? "is" : "are"} here` : ""}</span>
                       </div>
                       <button
                         type="button"
@@ -3789,23 +3798,27 @@ export default function App() {
                 <h2>Pick your universe</h2>
                 <p className="muted">Your cars, homes, and offices live per universe. Travel between them is free — nothing follows you unless you carry it. Pick one before you play; you can travel in-world later.</p>
                 <div className="days">
-                  {(universes ?? fallbackUniverses()).map((u) => (
-                    <button
-                      key={u.id}
-                      type="button"
-                      className={universeSel === u.id ? "on" : ""}
-                      disabled={isFull(u)}
-                      onClick={() => {
-                        triggerHaptic("tap");
-                        setUniverseSel(u.id);
-                        gameRef.current?.runtime.setUniverse(u.id);
-                      }}
-                    >
-                      {u.displayName} · {u.playerCount}/{u.cap}
-                      {u.isHome ? " · Home" : ""}
-                      {isFull(u) ? " · Full" : ""}
-                    </button>
-                  ))}
+                  {(universes ?? fallbackUniverses()).map((u) => {
+                    const friendsOn = friendsHere.filter((f) => f.server === u.id);
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        className={universeSel === u.id ? "on" : ""}
+                        disabled={isFull(u)}
+                        onClick={() => {
+                          triggerHaptic("tap");
+                          setUniverseSel(u.id);
+                          gameRef.current?.runtime.setUniverse(u.id);
+                        }}
+                      >
+                        {u.displayName} · {u.playerCount}/{u.cap}
+                        {u.isHome ? " · Home" : ""}
+                        {isFull(u) ? " · Full" : ""}
+                        {friendsOn.length ? ` · ${friendsOn.map((f) => f.name).join(", ")} ${friendsOn.length === 1 ? "is" : "are"} here` : ""}
+                      </button>
+                    );
+                  })}
                 </div>
                 <p className="muted">
                   Selected: {universeDisplayName(universeSel as 1 | 2 | 3 | 4 | 5)}
@@ -4250,9 +4263,10 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
 }
 
 // Players: teleport to anyone in the city, add friends, invite to a
-// party, answer requests. Teleport is FREE and same-universe only — the
-// list only shows players the game can actually see, so if nobody is
-// here it says so instead of teleporting you nowhere.
+// party, answer requests. Teleport is FREE — when the player you tap
+// is on another universe, the game travels there first and then lands
+// beside them, so joining a friend always puts you in their room.
+// Each row says which universe the player is on.
 function PlayersPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   const online = snap.server !== "This device";
   const inCity = snap.people
@@ -4270,7 +4284,7 @@ function PlayersPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
       ) : (
         inCity.map((person) => (
           <article key={person.id}>
-            <div><b>{person.name}</b><span>{person.distance < 15 ? "near you" : `${Math.round(person.distance)} units away`}{person.lobby ? " · in voice" : ""}</span></div>
+            <div><b>{person.name}</b><span>{person.distance < 15 ? "near you" : `${Math.round(person.distance)} units away`}{person.lobby ? " · in voice" : ""}{person.server && snap.universe && person.server !== snap.universe.id ? ` · Universe ${person.server}` : ""}</span></div>
             <button type="button" onClick={() => rt?.teleportToPlayer(person.id)}>Teleport</button>
             {friendIds.has(person.id) ? null : <button type="button" onClick={() => rt?.friendAsk(person.id)}>Add friend</button>}
             <button type="button" onClick={() => rt?.partyInvite(person.id)}>Party invite</button>
@@ -4285,7 +4299,7 @@ function PlayersPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           const here = inCity.find((person) => person.id === friend.id);
           return (
             <article key={friend.id}>
-              <div><b>{friend.name}</b><span>{here ? `${Math.round(here.distance)} units away` : "not in the city"}</span></div>
+              <div><b>{friend.name}</b><span>{here ? `${Math.round(here.distance)} units away${here.server && snap.universe && here.server !== snap.universe.id ? ` · Universe ${here.server}` : ""}` : "not in the city"}</span></div>
               {here ? <button type="button" onClick={() => rt?.teleportToPlayer(friend.id)}>Teleport</button> : null}
               <button type="button" onClick={() => rt?.partyInvite(friend.id)}>Party invite</button>
             </article>

@@ -14,6 +14,9 @@ export interface NetState {
   lobby?: string;
   look?: string;
   holder?: boolean;
+  // Which universe this player is on right now (stamped by the server
+  // on the presence row). Absent for old rows / offline peers.
+  server?: number;
   clothes?: Record<string, string>;
 }
 

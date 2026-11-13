@@ -214,6 +214,10 @@ export interface PersonCard {
   lobby: string;
   x: number;
   z: number;
+  // Which universe this player is on right now (from their presence
+  // row). Null when unknown — the panel never claims "here" for an
+  // unknown room.
+  server: number | null;
 }
 
 // One office lease as the server returns it for "my-properties" (the
@@ -2783,6 +2787,7 @@ export function createRuntime(scene: Scene) {
         lobby: remote.state.lobby || "",
         x: remote.state.x,
         z: remote.state.z,
+        server: typeof remote.state.server === "number" ? remote.state.server : null,
       })),
       npcs: npcs.map((npc) => ({ name: npc.name, x: npc.x, z: npc.z })),
       friends: world.me?.friends ?? [],
@@ -2896,6 +2901,7 @@ export function createRuntime(scene: Scene) {
       lobby: remote.state.lobby || "",
       x: remote.state.x,
       z: remote.state.z,
+      server: typeof remote.state.server === "number" ? remote.state.server : null,
     };
   }
 
@@ -9553,13 +9559,13 @@ export function createRuntime(scene: Scene) {
       world.emote = name;
       world.emoteUntil = Date.now() + 3200;
     },
-    joinLobby(id: string) {
-      void joinVoice(id);
-      say(id ? `Voice lobby: ${id}` : "Left the voice lobby.");
+    async joinLobby(id: string) {
+      const ok = await joinVoice(id);
+      say(ok ? (id ? `Voice lobby: ${id}` : "Left the voice lobby.") : "Could not join that voice room — try again.");
     },
-    joinProximity() {
-      void joinProximityVoice();
-      say("Proximity voice on — talk to players near you.");
+    async joinProximity() {
+      const ok = await joinProximityVoice();
+      say(ok ? "Proximity voice on — talk to players near you." : "Could not start proximity voice — try again.");
     },
     leaveLobby() {
       leaveVoice();
@@ -9609,12 +9615,40 @@ export function createRuntime(scene: Scene) {
         if (data.ok) notify("PARTY", id ? String(data.message || "Party invite sent.") : "Party started.", "party");
       }).catch((err) => say(err.message));
     },
-    partyAccept(id: string) {
-      void world.partyAccept(id).then((data) => {
+    // Accept a party invite — and GO to the inviter's room. The server
+    // answers party-accept with the universe the inviter is on right
+    // now; when it differs from this universe the accepter travels
+    // there, so the party is actually together instead of the accepter
+    // staying on their own universe while the party plays on another
+    // one (the "sometimes I join and I'm not with them" bug). A full
+    // universe (150 cap) is an honest no: the player stays in the
+    // party on their own universe and is told to travel from the
+    // Multiverse panel when there is room. Home universe and save are
+    // untouched — travel only switches the universe you are in.
+    async partyAccept(id: string) {
+      try {
+        const data = await world.partyAccept(id);
         applyMe();
-        say(String(data.message || "Joined the party."));
-        if (data.ok) notify("PARTY", String(data.message || "Joined the party."), "party");
-      }).catch((err) => say(err.message));
+        const server = Number(data.server);
+        if (data.ok && isUniverseId(server) && currentUniverse !== server) {
+          try {
+            await travelUniverse(server);
+            const message = `Joined the party — moved to ${universeDisplayName(server)} with them.`;
+            say(message);
+            notify("PARTY", message, "party");
+          } catch {
+            const here = currentUniverse ? universeDisplayName(currentUniverse as UniverseId) : "this universe";
+            const message = `${universeDisplayName(server)} is full right now — you are in the party, but still on ${here}. Travel from the Multiverse panel when there is room.`;
+            say(message);
+            notify("PARTY", message, "party");
+          }
+        } else {
+          say(String(data.message || "Joined the party."));
+          if (data.ok) notify("PARTY", String(data.message || "Joined the party."), "party");
+        }
+      } catch (err) {
+        say(err instanceof Error ? err.message : "Could not join the party.");
+      }
     },
     partyLeave() {
       void world.partyLeave().then((data) => {
@@ -9624,14 +9658,42 @@ export function createRuntime(scene: Scene) {
       }).catch((err) => say(err.message));
     },
     // Teleport to a player in the city (FREE): steps out of the car /
-    // train / bus first, then lands on foot beside them. Same universe
-    // only — the panel only lists players the game can actually see.
-    teleportToPlayer(id: string) {
-      const found = remotes.get(id);
+    // train / bus first, then lands on foot beside them. When the
+    // target is on ANOTHER universe, travel there first and then land
+    // beside them — the old same-universe-only rule stranded players
+    // whose friend was on another room, and the panel only ever showed
+    // players the game could see. The pop-up says which universe you
+    // moved to. Home universe and save are untouched.
+    async teleportToPlayer(id: string) {
+      let found = remotes.get(id);
       if (!found || !lastBody) {
         say("That player is gone.");
         publish();
         return;
+      }
+      const targetServer = Number(found.state.server);
+      if (isUniverseId(targetServer) && currentUniverse !== targetServer) {
+        say(`Going to ${found.state.name}'s universe…`);
+        try {
+          await travelUniverse(targetServer);
+        } catch {
+          say(`${universeDisplayName(targetServer)} is full right now — could not go to ${found.state.name}. Try again in a bit.`);
+          publish();
+          return;
+        }
+        notify("CITY", `Moved to ${universeDisplayName(targetServer)} to join ${found.state.name}.`, "event");
+        // Presence re-flows after the travel (250ms flush) — wait for
+        // the target to reappear before landing beside them.
+        const started = Date.now();
+        while (Date.now() - started < 4000 && !remotes.get(id)) {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        found = remotes.get(id);
+        if (!found || !lastBody) {
+          say("That player is gone.");
+          publish();
+          return;
+        }
       }
       const target = found.state;
       if (driving) exitCar(lastBody);

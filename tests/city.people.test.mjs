@@ -322,3 +322,66 @@ test("people: the old party op with an invite SENDS an invite, never force-adds"
   assert.equal(joined.ok, true, joined.message);
   assert.equal(joined.party.members.length, 2);
 });
+
+test("people: party-accept returns the inviter's universe, so the accepter can join their room", async () => {
+  const host = await guest("RoomHost");
+  const guestPlayer = await guest("RoomGuest");
+
+  // The host is playing on Universe 3 — the join touches that save, so
+  // the freshest heartbeat is on 3.
+  const joined3 = await call("universe-join", { server: 3 }, host.token);
+  assert.equal(joined3.ok, true, joined3.message);
+  assert.equal(joined3.serverId, 3);
+
+  const invited = await call("party-invite", { id: guestPlayer.id }, host.token);
+  assert.equal(invited.ok, true, invited.message);
+
+  // Accepting tells the accepter where the host is RIGHT NOW.
+  const accepted = await call("party-accept", { id: host.id }, guestPlayer.token);
+  assert.equal(accepted.ok, true, accepted.message);
+  assert.equal(accepted.server, 3, "party-accept reports the inviter's current universe");
+  assert.equal(accepted.party.members.length, 2);
+});
+
+test("people: party-accept reports null when the inviter has no recent heartbeat", async () => {
+  const host = await guest("OfflineHost");
+  const guestPlayer = await guest("OfflineGuest");
+
+  // The host never joined any universe — no save, no heartbeat.
+  const invited = await call("party-invite", { id: guestPlayer.id }, host.token);
+  assert.equal(invited.ok, true, invited.message);
+  const accepted = await call("party-accept", { id: host.id }, guestPlayer.token);
+  assert.equal(accepted.ok, true, accepted.message);
+  assert.equal(accepted.server, null, "offline inviter has no current universe");
+});
+
+test("people: sync stamps the writer's universe on presence, universe-list shows where friends are", async () => {
+  const host = await guest("PresenceHost");
+  const guestPlayer = await guest("PresenceGuest");
+
+  // Become friends first (the friend-accept flow the notify batch fixed).
+  const asked = await call("friend-ask", { id: guestPlayer.id }, host.token);
+  assert.equal(asked.ok, true, asked.message);
+  const accepted = await call("friend-accept", { id: host.id }, guestPlayer.token);
+  assert.equal(accepted.ok, true, accepted.message);
+
+  // The host plays on Universe 2 and sends a presence heartbeat there.
+  const joined2 = await call("universe-join", { server: 2 }, host.token);
+  assert.equal(joined2.ok, true, joined2.message);
+  const synced = await call("sync", { server: 2, state: { x: 10, y: 0, z: 20, yaw: 0 } }, host.token);
+  assert.equal(synced.ok, true, synced.message);
+
+  // The guest's sync sees the host's presence row carrying Universe 2.
+  const guestSync = await call("sync", { server: 1, state: { x: 0, y: 0, z: 0, yaw: 0 } }, guestPlayer.token);
+  assert.equal(guestSync.ok, true, guestSync.message);
+  const row = guestSync.people.find((p) => p.id === host.id);
+  assert.ok(row, "the host shows in the guest's people list");
+  assert.equal(row.server, 2, "presence carries the writer's universe");
+
+  // And universe-list tells the guest where their friend is.
+  const list = await call("universe-list", {}, guestPlayer.token);
+  assert.equal(list.ok, true, list.message);
+  const friendRow = (list.friends || []).find((f) => f.id === host.id);
+  assert.ok(friendRow, "the friend shows in universe-list");
+  assert.equal(friendRow.server, 2, "universe-list reports the friend's current universe");
+});
