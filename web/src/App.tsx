@@ -4005,9 +4005,16 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
   // yanked the map up and never put it back (a one-way ratchet), and if
   // the clamp ran late the map sat off-screen below the fold. Now a
   // temporary shrink only clamps what is drawn, and the map springs back
-  // to its saved spot when the viewport grows again. No resize listener
-  // at all — the render-time clamp is the whole mechanism.
+  // to its saved spot when the viewport grows again. The resize listener
+  // only forces a re-render so the clamp recomputes — it never touches
+  // the saved spot.
   const disp = clampMinimapPos(pos);
+  const [, setResizeTick] = useState(0);
+  useEffect(() => {
+    const onResize = () => setResizeTick((t) => t + 1);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // Keep the latest position in a ref so the drag-end save always has the
   // final spot, even if the pointer-up lands between renders.
