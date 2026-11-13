@@ -852,6 +852,12 @@ body {
   text-align: left;
 }
 
+/* Chat alerts in the Alerts history are tappable — they open the Chat
+ * panel so you can answer. */
+.list article.alert-tap {
+  cursor: pointer;
+}
+
 .list article div,
 .list label {
   display: flex;

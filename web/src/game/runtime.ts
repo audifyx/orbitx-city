@@ -194,8 +194,10 @@ export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "
 // A toast is a short card that slides in, shows for ~5s, and can be
 // tapped away. The Alerts panel keeps the history so nothing important
 // disappears. `icon` is a short text label (FRIEND / PARTY / VOICE /
-// JOB / MONEY / CITY) — no emoji icons, per the HUD style.
-export type ToastKind = "friend" | "party" | "voice" | "job" | "money" | "event" | "info";
+// JOB / MONEY / CITY / CHAT) — no emoji icons, per the HUD style.
+// `action` is what tapping the toast does: "chat" opens the Chat panel
+// (chat pop-ups); every other toast just dismisses.
+export type ToastKind = "friend" | "party" | "voice" | "job" | "money" | "event" | "info" | "chat";
 export interface ToastItem {
   id: number;
   icon: string;
@@ -203,6 +205,7 @@ export interface ToastItem {
   at: number;
   kind: ToastKind;
   read: boolean;
+  action?: "chat";
 }
 export interface PersonCard {
   id: string;
@@ -1385,6 +1388,11 @@ export function createRuntime(scene: Scene) {
   let prevFriends: { id: string; name: string }[] = [];
   let prevPartyMembers: { id: string; name: string }[] = [];
   let prevLobbyMembers: { id: string; name: string }[] = [];
+  // Chat lines seen so far, as dedup keys (sender + name + text, with an
+  // occurrence suffix so the same player saying the same thing twice still
+  // pops twice). Chat lines carry no message id — the sender id + text is
+  // the only key — so the suffix is what keeps repeats from collapsing.
+  let prevChatKeys: string[] = [];
   let socialDiffPrimed = false;
   let job = "";
   let phase = 0;
@@ -3017,14 +3025,14 @@ export function createRuntime(scene: Scene) {
 
   // --- NOTIFICATIONS: pop a toast card + keep it in the Alerts history.
   // `icon` is a short text label (FRIEND / PARTY / VOICE / JOB / MONEY /
-  // CITY) — no emoji icons. Live toasts auto-expire after 5s in the Snap
+  // CITY / CHAT) — no emoji icons. Live toasts auto-expire after 5s in the Snap
   // builder; the history keeps the last 30 for the Alerts panel.
   // pushToast does NOT publish — diffSocial() calls it from inside
   // publish(), and a nested publish there would re-run the diff before
   // the previous sets update (infinite pop-ups for one event).
-  function pushToast(icon: string, text: string, kind: ToastKind = "info") {
+  function pushToast(icon: string, text: string, kind: ToastKind = "info", action?: "chat") {
     toastSeq += 1;
-    toasts.unshift({ id: toastSeq, icon, text, at: Date.now(), kind, read: false });
+    toasts.unshift({ id: toastSeq, icon, text, at: Date.now(), kind, read: false, action });
     if (toasts.length > 30) toasts.length = 30;
   }
 
@@ -3035,10 +3043,13 @@ export function createRuntime(scene: Scene) {
 
   // Watch the social snapshot for changes the player should hear about:
   // friend requests + party invites landing in the inbox, friends added,
-  // party members joining/leaving, and voice-lobby members joining/leaving.
-  // Runs inside publish() (5 Hz) — cheap, small arrays. The first publish
-  // primes the previous sets without notifying, so loading the game never
-  // fires a burst for friends/party you already had.
+  // party members joining/leaving, voice-lobby members joining/leaving,
+  // and NEW chat messages from other players (same feed the Chat panel
+  // reads — online `world.chat` from the sync heartbeat, or the local
+  // cross-tab chat when offline). Runs inside publish() (5 Hz) — cheap,
+  // small arrays. The first publish primes the previous sets without
+  // notifying, so loading the game never fires a burst for friends/party/
+  // chat you already had.
   function diffSocial() {
     const me = world.me;
     const inbox = (me?.inbox ?? []) as { id: string; name: string; kind?: string; party?: string }[];
@@ -3047,11 +3058,30 @@ export function createRuntime(scene: Scene) {
     const myLobby = world.lobby || "";
     const lobbyRoom = myLobby ? (world.lobbies || []).find((room) => room.id === myLobby) : null;
     const lobbyMembers = (lobbyRoom?.members ?? []) as { id: string; name: string; speaking?: boolean }[];
+    // Chat lines, index-aligned with their dedup keys. The server echoes
+    // your own lines back (sync keeps them for near scope), so self lines
+    // are skipped here; the local cross-tab feed already drops them in
+    // net.ts, and the `self` check below is the belt-and-braces for it.
+    const chatLines = (world.online ? world.chat : chat).map((line) => ({
+      id: line.id,
+      name: line.name,
+      text: line.text,
+      self: (line as { self?: boolean }).self === true || line.id === world.id,
+    }));
+    const chatKeys: string[] = [];
+    const chatSeen = new Map<string, number>();
+    for (const line of chatLines) {
+      const base = `${line.id}\0${line.name}\0${line.text}`;
+      const n = (chatSeen.get(base) ?? 0) + 1;
+      chatSeen.set(base, n);
+      chatKeys.push(n === 1 ? base : `${base}#${n}`);
+    }
     if (!socialDiffPrimed) {
       prevInbox = inbox.map((item) => ({ ...item }));
       prevFriends = friends.map((item) => ({ ...item }));
       prevPartyMembers = partyMembers.map((item) => ({ ...item }));
       prevLobbyMembers = lobbyMembers.map((item) => ({ ...item }));
+      prevChatKeys = chatKeys;
       socialDiffPrimed = true;
       return;
     }
@@ -3086,10 +3116,24 @@ export function createRuntime(scene: Scene) {
         pushToast("VOICE", `${old.name} left the voice chat`, "voice");
       }
     }
+    // Chat: only lines that were not in the previous window pop — and
+    // never your own lines. Inbox items (friend requests, party invites)
+    // already pop above, so chat never double-pops for them: a chat line
+    // is a chat message, not an inbox item. The preview is capped so a
+    // long message does not blow the toast out; tapping the toast opens
+    // the Chat panel (its `action`).
+    for (let i = 0; i < chatLines.length; i += 1) {
+      if (prevChatKeys.includes(chatKeys[i])) continue;
+      const line = chatLines[i];
+      if (line.self) continue;
+      const preview = line.text.length > 60 ? `${line.text.slice(0, 60).trimEnd()}…` : line.text;
+      pushToast("CHAT", `${line.name}: ${preview}`, "chat", "chat");
+    }
     prevInbox = inbox.map((item) => ({ ...item }));
     prevFriends = friends.map((item) => ({ ...item }));
     prevPartyMembers = partyMembers.map((item) => ({ ...item }));
     prevLobbyMembers = lobbyMembers.map((item) => ({ ...item }));
+    prevChatKeys = chatKeys;
   }
 
   function nearestAnchor(body: Body, max = 3.2) {

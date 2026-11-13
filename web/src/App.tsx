@@ -1234,7 +1234,7 @@ export default function App() {
       {!menu && !snap.hideHud && snap.toasts.length > 0 && (
         <div className="toasts" aria-live="polite">
           {snap.toasts.map((toast) => (
-            <button type="button" key={toast.id} className="toast" onClick={() => gameRef.current?.runtime.dismissToast(toast.id)}>
+            <button type="button" key={toast.id} className="toast" onClick={() => { gameRef.current?.runtime.dismissToast(toast.id); if (toast.action === "chat") open("chat"); }}>
               <span className="toast-icon">{toast.icon}</span>
               <span className="toast-text">{toast.text}</span>
             </button>
@@ -3104,7 +3104,7 @@ export default function App() {
             }} />}
             {panel === "voice" && <VoicePanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             {panel === "players" && <PlayersPanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
-            {panel === "alerts" && <AlertsPanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
+            {panel === "alerts" && <AlertsPanel snap={snap} rt={gameRef.current?.runtime ?? null} onOpenChat={() => open("chat")} />}
             <FeaturePanel snap={{ ...snap, panel: panel as PanelName | "" }} rt={gameRef.current?.runtime ?? null} />
             {panel === "home" && (() => {
               const zoneId = snap.indoors || "";
@@ -4344,8 +4344,9 @@ function PlayersPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
 
 // Alerts: the notification history — every pop-up the game fired, newest
 // first. Opening this panel marks them all read, so the badge clears
-// once you have looked.
-function AlertsPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
+// once you have looked. Chat alerts are tappable — they open the Chat
+// panel so you can answer.
+function AlertsPanel({ snap, rt, onOpenChat }: { snap: Snap; rt: Runtime | null; onOpenChat?: () => void }) {
   useEffect(() => {
     rt?.markAlertsRead();
     // Runs once, on open — the badge clears when you look.
@@ -4354,10 +4355,15 @@ function AlertsPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   return (
     <div className="list">
       {snap.alerts.length === 0 ? (
-        <p>No notifications yet. Friend adds, party invites, voice joins, jobs, and buys will show up here.</p>
+        <p>No notifications yet. Friend adds, party invites, voice joins, chat messages, jobs, and buys will show up here.</p>
       ) : (
         snap.alerts.map((alert) => (
-          <article key={alert.id}>
+          <article
+            key={alert.id}
+            className={alert.kind === "chat" ? "alert-tap" : undefined}
+            onClick={alert.kind === "chat" && onOpenChat ? onOpenChat : undefined}
+            title={alert.kind === "chat" ? "Tap to open chat" : undefined}
+          >
             <div><b>{alert.icon}</b><span>{alert.text}</span></div>
             <span>{new Date(alert.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
           </article>
