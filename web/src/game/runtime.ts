@@ -188,7 +188,7 @@ export interface TrainPose {
   dwelling: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats";
 
 // --- NOTIFICATIONS: in-game pop-ups (toasts) + the Alerts history.
 // A toast is a short card that slides in, shows for ~5s, and can be
@@ -376,6 +376,54 @@ export interface CityPeople {
   guests: PeopleGuest[];
 }
 export const EMPTY_CITY_PEOPLE: CityPeople = { relationships: [], rentals: [], party: null, guests: [] };
+
+// --- CITY STATS: the FULL stats page (admin-only, audifyx@gmail.com).
+// Same shape the server returns (api/city.js cityStats). `cityStats`
+// rides in the Snap so the Stats panel reads it without a second
+// round-trip; the server is the authority, this is a copy. Fetched on
+// demand when the panel opens — never polled. Null until first load;
+// a field that could not be computed is null with a reason in
+// `unavailable`, never a fake number.
+export interface CityStats {
+  asOf: string;
+  generatedMs: number;
+  launch: { date: string; daysUntil: number };
+  players: {
+    total: number;
+    onlineNow: number;
+    active24h: number;
+    active7d: number;
+    newToday: number | null;
+    new7d: number | null;
+    new30d: number | null;
+    dailyActive14: { day: string; players: number }[];
+    richest: { name: string; balance: number }[];
+    topEarners: { name: string; earned: number }[];
+  };
+  economy: {
+    inCirculation: number;
+    totalEarned: number;
+    totalBurned: number;
+    jobsWorking: { id: string; players: number }[];
+  };
+  world: {
+    homes: { owned: number; total: number; byState: Record<string, number>; byServer: Record<string, number> };
+    vehicles: { owned: number; byKind: Record<string, number>; top: { id: string; count: number }[] };
+    offices: { claimed: number; total: number; value: number };
+    radio: { tracks: number; today: number; topUploaders: { name: string; tracks: number }[] };
+    chat: { total: number; last24h: number };
+    friendships: { total: number; today: number };
+    parties: { active: number };
+    events: { total: number; upcoming: number };
+  };
+  universes: { id: number; name: string; onlineNow: number; saves: number }[];
+  ads: {
+    orders: { total: number; byStatus: Record<string, number>; totalOrbitx: number; today: number };
+    bookings: { total: number; burned: number; totalOrbitx: number };
+  };
+  wallet: { ledgerRows: number; byStatus: Record<string, number>; today: number };
+  unavailable: Record<string, string>;
+}
 /** One people-op result: the status snapshot plus the op's own fields. */
 export interface PeopleResult {
   ok: boolean;
@@ -592,6 +640,14 @@ export interface Snap {
   districtOffice: string;
   // PEOPLE: guests, parties, rentals + NPC relationships (server snapshot).
   cityPeople: CityPeople;
+  /** CITY STATS: the full admin stats page (audifyx@gmail.com only),
+   * fetched on demand when the Stats panel opens. Null until loaded. */
+  cityStats: CityStats | null;
+  /** Stats load state: true while the city-stats op is in flight. */
+  cityStatsLoading: boolean;
+  /** Stats load error: the server's message ("Not found." / "Forbidden.")
+   * when the page is not available to this session, else "". */
+  cityStatsError: string;
 }
 
 interface Remote {
@@ -2923,6 +2979,9 @@ export function createRuntime(scene: Scene) {
       emergency: emergencyDept ? { ...emergencyDept } : null,
       districtOffice: districtOfficeSel,
       cityPeople,
+      cityStats,
+      cityStatsLoading,
+      cityStatsError,
     };
     panel = "";
     for (const listener of listeners) listener(snap);
@@ -5550,6 +5609,11 @@ export function createRuntime(scene: Scene) {
   let missionsLoaded = false;
   // PEOPLE: the server's snapshot (relationships, rentals, party, guests).
   let cityPeople: CityPeople = EMPTY_CITY_PEOPLE;
+  // CITY STATS: the full admin stats page, fetched on demand when the
+  // Stats panel opens (never polled). Null until the first load.
+  let cityStats: CityStats | null = null;
+  let cityStatsLoading = false;
+  let cityStatsError = "";
   // Client-side throttle for mission-step attempts — the server enforces a
   // 3s step cooldown; attempting faster only earns rejections.
   let lastMissionTry = 0;
@@ -9996,6 +10060,28 @@ export function createRuntime(scene: Scene) {
         panel = "";
       } else panel = name;
       publish();
+    },
+    // CITY STATS: fetch the full admin stats page on demand (the Stats
+    // panel calls this when it opens — never polled). The server is the
+    // gate: a non-admin session gets "Forbidden." and a signed-out one
+    // gets "Not found."; both land in cityStatsError and the panel shows
+    // the message instead of any data.
+    async loadCityStats() {
+      if (cityStatsLoading) return;
+      cityStatsLoading = true;
+      cityStatsError = "";
+      publish();
+      try {
+        const data = (await cityOp("city-stats")) as { stats?: CityStats };
+        cityStats = (data.stats as CityStats) || null;
+        if (!cityStats) cityStatsError = "No stats came back.";
+      } catch (err) {
+        cityStats = null;
+        cityStatsError = err instanceof Error ? err.message : "Stats did not load.";
+      } finally {
+        cityStatsLoading = false;
+        publish();
+      }
     },
     applyShot,
     quote: (price: number) => burnAmount(price),

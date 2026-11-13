@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
-import type { AdOrder, MyPropertyClaim, PanelName, RadioTrack, Runtime, Snap } from "./game/runtime";
+import type { AdOrder, CityStats, MyPropertyClaim, PanelName, RadioTrack, Runtime, Snap } from "./game/runtime";
 import { EMPTY_CITY_PEOPLE, FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/runtime";
 import { PROXIMITY_RANGE, PROXIMITY_ROOM } from "./game/voice";
 import { loadLooks, lookName } from "./game/avatar";
@@ -958,6 +958,15 @@ export default function App() {
     if (node) node.scrollTop = node.scrollHeight;
   }, [panel]);
 
+  // CITY STATS: fetch the full admin stats page when the Stats panel
+  // opens (on demand, never polled). The server is the gate — a
+  // non-admin session gets "Forbidden." and a signed-out one gets
+  // "Not found.", and the panel shows the message, never data.
+  useEffect(() => {
+    if (panel !== "stats") return;
+    void gameRef.current?.runtime.loadCityStats();
+  }, [panel]);
+
   const open = (name: PanelName | "offices") => {
     triggerHaptic("tap");
     setPanel(name);
@@ -1316,6 +1325,13 @@ export default function App() {
           <button type="button" onClick={() => open("events")}>Events</button>
           <button type="button" onClick={() => open("chat")}>Chat</button>
           <button type="button" onClick={() => open("phone")}>Phone</button>
+          {/* CITY STATS: admin-only. The button only exists for the
+              signed-in audifyx@gmail.com account — everyone else never
+              sees the page at all, and the server 403s/404s any direct
+              attempt. */}
+          {snap.email.toLowerCase() === "audifyx@gmail.com" ? (
+            <button type="button" onClick={() => open("stats")}>Stats</button>
+          ) : null}
           <button type="button" onClick={() => open("menu")}>Menu</button>
         </div>
       )}
@@ -1403,6 +1419,7 @@ export default function App() {
                 {panel === "voice" && "Voice chat"}
                 {panel === "players" && "Players"}
                 {panel === "profile" && "Profile"}
+                {panel === "stats" && "City Stats"}
                 {panel === "alerts" && "Notifications"}
                 {panel === "offices" && "OrbitX Tower offices"}
                 {panel === "myprops" && "My Properties"}
@@ -3162,6 +3179,7 @@ export default function App() {
             {panel === "voice" && <VoicePanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             {panel === "players" && <PlayersPanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             {panel === "profile" && <ProfilePanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
+            {panel === "stats" && <CityStatsPanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             {panel === "alerts" && <AlertsPanel snap={snap} rt={gameRef.current?.runtime ?? null} onOpenChat={() => open("chat")} />}
             <FeaturePanel snap={{ ...snap, panel: panel as PanelName | "" }} rt={gameRef.current?.runtime ?? null} />
             {panel === "home" && (() => {
@@ -4538,6 +4556,183 @@ function PlayersPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
         <button type="button" onClick={() => rt?.partyInvite("")}>Start a party</button>
         {snap.party.length > 0 ? <button type="button" onClick={() => rt?.partyLeave()}>Leave party</button> : null}
       </div>
+    </div>
+  );
+}
+
+// CITY STATS: the FULL stats page, admin-only (audifyx@gmail.com). The
+// server is the gate — this panel only renders for that email (the HUD
+// button is gated too), and a 403/404 from the server shows the message
+// instead of any data. Real numbers only: anything the server could not
+// compute shows as unavailable with its reason, never a fake number.
+function CityStatsPanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
+  const stats: CityStats | null = snap.cityStats;
+  const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
+  const fmtOrbitx = (n: number) => (Number.isFinite(n) ? n.toLocaleString("en-US", { maximumFractionDigits: 4 }) : "0");
+  const unavailable = (key: string) => stats?.unavailable?.[key];
+  const statCard = (label: string, value: string, sub?: string) => (
+    <article key={label}>
+      <div><b>{label}</b><span>{sub ?? ""}</span></div>
+      <strong style={{ fontSize: 20, color: "#e0b33a" }}>{value}</strong>
+    </article>
+  );
+  if (snap.cityStatsLoading && !stats) return <div className="list"><p>Loading stats…</p></div>;
+  if (snap.cityStatsError && !stats) {
+    return (
+      <div className="list">
+        <p>{snap.cityStatsError}</p>
+        <p className="muted">The stats page is only available to audifyx@gmail.com.</p>
+      </div>
+    );
+  }
+  if (!stats) return <div className="list"><p>No stats yet — open the page again to load them.</p></div>;
+  const maxDaily = Math.max(1, ...stats.players.dailyActive14.map((d) => d.players));
+  const kindLabel: Record<string, string> = { car: "Cars", flying: "Flying", bike: "Bikes", atv: "ATVs", board: "Skateboards", boat: "Boats", other: "Other" };
+  const stateLabel: Record<string, string> = { ny: "New York", la: "Los Angeles", fl: "Florida", other: "Other" };
+  const jobName = (id: string) => JOBS_20.find((job) => job.id === id)?.name ?? id;
+  const jobPay = (id: string) => JOBS_20.find((job) => job.id === id)?.base;
+  return (
+    <div className="list">
+      <p>
+        Live from the city database · {new Date(stats.asOf).toLocaleString()} · generated in {stats.generatedMs}ms
+        {stats.launch.daysUntil > 0 ? ` · launches in ${stats.launch.daysUntil} days (${stats.launch.date})` : " · launched"}
+      </p>
+      <div className="days">
+        <button type="button" disabled={snap.cityStatsLoading} onClick={() => rt?.loadCityStats()}>
+          {snap.cityStatsLoading ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
+      {snap.cityStatsError ? <p>{snap.cityStatsError}</p> : null}
+
+      <h3>Players</h3>
+      {statCard("Total players", fmt(stats.players.total))}
+      {statCard("Online now", fmt(stats.players.onlineNow), "5-minute heartbeat, all universes")}
+      {statCard("Active — last 24h", fmt(stats.players.active24h))}
+      {statCard("Active — last 7 days", fmt(stats.players.active7d))}
+      {stats.players.newToday === null ? (
+        <p>New signups: unavailable — {unavailable("players.new") ?? "no creation timestamp stored"}</p>
+      ) : (
+        <>
+          {statCard("New today", fmt(stats.players.newToday))}
+          {statCard("New — 7 days", fmt(stats.players.new7d ?? 0))}
+          {statCard("New — 30 days", fmt(stats.players.new30d ?? 0))}
+        </>
+      )}
+      <h3>Daily active players — last 14 days</h3>
+      {stats.players.dailyActive14.map((d) => (
+        <article key={d.day}>
+          <div>
+            <b>{d.day}</b>
+            <span>{d.players} active</span>
+          </div>
+          <div style={{ flex: 1, height: 10, background: "#222222", minWidth: 80 }}>
+            <div style={{ height: "100%", width: `${Math.round((d.players / maxDaily) * 100)}%`, background: "#e0b33a" }} />
+          </div>
+        </article>
+      ))}
+      <h3>Richest players — City Sol</h3>
+      {stats.players.richest.length === 0 ? (
+        <p>No players yet.</p>
+      ) : (
+        stats.players.richest.map((p, i) => (
+          <article key={p.name}>
+            <div><b>#{i + 1} {p.name}</b><span>{fmt(p.balance)} City Sol</span></div>
+          </article>
+        ))
+      )}
+      <h3>Top earners — City Sol earned</h3>
+      {stats.players.topEarners.length === 0 ? (
+        <p>No earnings yet.</p>
+      ) : (
+        stats.players.topEarners.map((p, i) => (
+          <article key={p.name}>
+            <div><b>#{i + 1} {p.name}</b><span>{fmt(p.earned)} City Sol earned</span></div>
+          </article>
+        ))
+      )}
+
+      <h3>Economy — City Sol</h3>
+      {statCard("In circulation", `${fmt(stats.economy.inCirculation)} City Sol`, "sum of all player balances")}
+      {statCard("Total earned", `${fmt(stats.economy.totalEarned)} City Sol`)}
+      {statCard("Total burned", `${fmt(stats.economy.totalBurned)} City Sol`)}
+      <h3>Jobs — working right now</h3>
+      {stats.economy.jobsWorking.length === 0 ? (
+        <p>Nobody is on a job right now.</p>
+      ) : (
+        stats.economy.jobsWorking.map((job) => (
+          <article key={job.id}>
+            <div>
+              <b>{jobName(job.id)}</b>
+              <span>{job.players} working{jobPay(job.id) !== undefined ? ` · ${jobPay(job.id)} City Sol base pay` : ""}</span>
+            </div>
+          </article>
+        ))
+      )}
+
+      <h3>World — homes</h3>
+      {statCard("Homes owned", `${fmt(stats.world.homes.owned)} of ${stats.world.homes.total}`)}
+      {Object.entries(stats.world.homes.byState).map(([state, count]) => (
+        <article key={state}>
+          <div><b>{stateLabel[state] ?? state}</b><span>{fmt(count)} owned</span></div>
+        </article>
+      ))}
+      <h3>World — vehicles</h3>
+      {statCard("Vehicles owned", fmt(stats.world.vehicles.owned))}
+      {Object.entries(stats.world.vehicles.byKind).filter(([, count]) => count > 0).map(([kind, count]) => (
+        <article key={kind}>
+          <div><b>{kindLabel[kind] ?? kind}</b><span>{fmt(count)}</span></div>
+        </article>
+      ))}
+      <h3>Most owned vehicles</h3>
+      {stats.world.vehicles.top.length === 0 ? (
+        <p>No vehicles owned yet.</p>
+      ) : (
+        stats.world.vehicles.top.map((v) => (
+          <article key={v.id}>
+            <div><b>{v.id}</b><span>{fmt(v.count)} owned</span></div>
+          </article>
+        ))
+      )}
+      <h3>World — offices, radio, social</h3>
+      {statCard("Offices claimed", `${fmt(stats.world.offices.claimed)} of ${stats.world.offices.total}`, `${fmt(stats.world.offices.value)} City Sol in claims`)}
+      {statCard("Radio tracks", fmt(stats.world.radio.tracks), `${fmt(stats.world.radio.today)} uploaded today`)}
+      {stats.world.radio.topUploaders.length > 0 ? (
+        stats.world.radio.topUploaders.map((u) => (
+          <article key={u.name}>
+            <div><b>{u.name}</b><span>{fmt(u.tracks)} tracks</span></div>
+          </article>
+        ))
+      ) : null}
+      {statCard("Chat messages", fmt(stats.world.chat.total), `${fmt(stats.world.chat.last24h)} in the last 24h`)}
+      {statCard("Friendships", fmt(stats.world.friendships.total), `${fmt(stats.world.friendships.today)} new today`)}
+      {statCard("Active parties", fmt(stats.world.parties.active))}
+      {statCard("Events", fmt(stats.world.events.total), `${fmt(stats.world.events.upcoming)} upcoming`)}
+
+      <h3>Universes</h3>
+      {stats.universes.map((u) => (
+        <article key={u.id}>
+          <div>
+            <b>Universe {u.id} — {u.name}</b>
+            <span>{fmt(u.onlineNow)} online now · {fmt(u.saves)} saves</span>
+          </div>
+        </article>
+      ))}
+
+      <h3>Ads &amp; burns — real ORBITX</h3>
+      {statCard("Ad orders", fmt(stats.ads.orders.total), `${fmt(stats.ads.orders.today)} today · ${fmtOrbitx(stats.ads.orders.totalOrbitx)} ORBITX total`)}
+      {Object.entries(stats.ads.orders.byStatus).map(([status, count]) => (
+        <article key={status}>
+          <div><b>Ad orders — {status}</b><span>{fmt(count)}</span></div>
+        </article>
+      ))}
+      {statCard("Bookings", fmt(stats.ads.bookings.total), `${fmt(stats.ads.bookings.burned)} City Sol burned · ${fmtOrbitx(stats.ads.bookings.totalOrbitx)} ORBITX total`)}
+      <h3>Wallet ledger</h3>
+      {statCard("Ledger rows", fmt(stats.wallet.ledgerRows), `${fmt(stats.wallet.today)} today`)}
+      {Object.entries(stats.wallet.byStatus).map(([status, count]) => (
+        <article key={status}>
+          <div><b>Ledger — {status}</b><span>{fmt(count)}</span></div>
+        </article>
+      ))}
     </div>
   );
 }
