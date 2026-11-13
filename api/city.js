@@ -5848,11 +5848,28 @@ export async function POST(request) {
     let party = store.parties.get(partyId) || { id: partyId, members: [{ id: player.id, name: player.name }] };
     const invite = String(body.invite || "");
     if (invite) {
+      // An invite SENDS an invite — it never force-adds. The old code
+      // pushed the other player straight into the party and set their
+      // party id, with no inbox entry and no notification, so the
+      // invitee never knew and the inviter saw nothing happen ("invite
+      // button don't work"). The invitee answers with party-accept /
+      // decline-request; the new "party-invite" op is the same flow.
       const other = await playerById(invite);
       if (!other) return json({ ok: false, message: "No player with that id." }, 404);
-      if (!party.members.some((item) => item.id === other.id)) party.members.push({ id: other.id, name: other.name });
-      other.party = partyId;
+      if (!party.members.some((item) => item.id === player.id)) party.members.push({ id: player.id, name: player.name });
+      player.party = partyId;
+      store.parties.set(partyId, party);
+      const client = sb();
+      if (client) {
+        const { error } = await client.from("parties").upsert({ id: partyId, members: party.members });
+        if (error) noteSupabase(error.message);
+      }
+      await savePlayer(player);
+      if (!other.inbox.some((item) => item.id === player.id && item.kind === "party" && item.party === partyId)) {
+        other.inbox.push({ id: player.id, name: player.name, kind: "party", party: partyId });
+      }
       await savePlayer(other);
+      return json({ ok: true, party, me: publicPlayer(player), message: `Invite sent to ${other.name}.` });
     }
     player.party = partyId;
     if (!party.members.some((item) => item.id === player.id)) party.members.push({ id: player.id, name: player.name });

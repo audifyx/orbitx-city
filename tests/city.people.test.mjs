@@ -282,3 +282,43 @@ test("people: accepting a friend request keeps a party invite from the same play
   assert.equal(declined.me.inbox.length, 1, "declining the friend request keeps the party invite");
   assert.equal(declined.me.inbox[0].kind, "party");
 });
+
+test("people: friend-ask lands in the inbox, accept makes both friends", async () => {
+  const asker = await guest("Asker");
+  const asked = await guest("Asked");
+
+  const sent = await call("friend-ask", { id: asked.id }, asker.token);
+  assert.equal(sent.ok, true, sent.message);
+  const inbox = await call("me", {}, asked.token);
+  assert.equal(inbox.me.inbox.length, 1, "the request shows in the other player's inbox");
+  assert.equal(inbox.me.inbox[0].id, asker.id);
+  assert.equal(inbox.me.inbox[0].kind, undefined, "friend requests carry no kind");
+
+  const accepted = await call("friend-accept", { id: asker.id }, asked.token);
+  assert.equal(accepted.ok, true, accepted.message);
+  assert.equal(accepted.me.friends.some((f) => f.id === asker.id), true, "they are friends now");
+  const askerMe = await call("me", {}, asker.token);
+  assert.equal(askerMe.me.friends.some((f) => f.id === asked.id), true, "both sides list the friend");
+});
+
+test("people: the old party op with an invite SENDS an invite, never force-adds", async () => {
+  const host = await guest("OldHost");
+  const guestPlayer = await guest("OldGuest");
+
+  // The live bug: "party" with invite pushed the other player straight
+  // into the party and set their party id, with no inbox entry and no
+  // notification — the invitee never knew, so the button looked dead.
+  const res = await call("party", { invite: guestPlayer.id }, host.token);
+  assert.equal(res.ok, true, res.message);
+  assert.match(res.message || "", /Invite sent/);
+  const guestMe = await call("me", {}, guestPlayer.token);
+  assert.equal(guestMe.me.party, "", "the invitee is NOT in the party until they accept");
+  assert.equal(guestMe.me.inbox.length, 1, "the invitee gets an inbox invite instead");
+  assert.equal(guestMe.me.inbox[0].kind, "party");
+  assert.equal(res.party.members.length, 1, "only the host is in the party so far");
+
+  // And the invite can still be accepted afterwards.
+  const joined = await call("party-accept", { id: host.id }, guestPlayer.token);
+  assert.equal(joined.ok, true, joined.message);
+  assert.equal(joined.party.members.length, 2);
+});
