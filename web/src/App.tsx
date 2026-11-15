@@ -4586,7 +4586,6 @@ function CityStatsPanel({ stats, loading, error, onRefresh }: { stats: CityStats
     return (
       <div className="list">
         <p>{error}</p>
-        <p className="muted">The stats page is only available to audifyx@gmail.com.</p>
       </div>
     );
   }
@@ -4790,7 +4789,7 @@ export function StatsPage() {
         <header className="stats-page-head">
           <div>
             <h1>City Stats</h1>
-            <p>OrbitX City — live from the city database. Only audifyx@gmail.com can see this page.</p>
+            <p>OrbitX City — live from the city database.</p>
           </div>
           <a href="/">Back to the city</a>
         </header>
