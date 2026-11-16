@@ -323,6 +323,11 @@ export function animateWalk(
   // Arms swing opposite to the same-side leg, at 70% amplitude.
   handle.armL.rotation.x = -swing * 0.7;
   handle.armR.rotation.x = swing * 0.7;
+  // Arms flare a touch outward as they swing forward and tuck as they
+  // swing back (base ±0.08 from makeWalker) — the arms used to hang
+  // rigidly parallel; now they breathe with the stride.
+  handle.armL.rotation.z = 0.08 + swing * 0.035;
+  handle.armR.rotation.z = -(0.08 - swing * 0.035);
 
   // Bob: two bounces per cycle, strongest at mid-stride. Additive on top
   // of the position runtime.after() already set this frame.
@@ -331,6 +336,10 @@ export function animateWalk(
 
   // Forward lean while moving, additive on top of applyEmote's rotation.
   handle.group.rotation.x += 0.05 * (handle.amp / 0.55);
+  // Torso sway: a gentle side-to-side lean that peaks at mid-stride,
+  // so the whole body rolls with the walk instead of staying bolt
+  // upright. Subtle (max ~1.4°) — it reads as a walk, not a tilt.
+  handle.group.rotation.z += Math.sin(handle.phase) * 0.025 * (handle.amp / 0.55);
 }
 
 /** Snap a walker back to a neutral standing pose (teleports, emotes). */
@@ -341,6 +350,12 @@ export function resetWalkPose(handle: WalkerHandle): void {
   handle.legR.rotation.x = 0;
   handle.armL.rotation.x = 0;
   handle.armR.rotation.x = 0;
+  // animateWalk drives rotation.z on the arms (flare) and the group
+  // (sway) — reset those too, or a reset character keeps a mid-stride
+  // lean until the next walk frame.
+  handle.armL.rotation.z = 0.08;
+  handle.armR.rotation.z = -0.08;
+  handle.group.rotation.z = 0;
 }
 
 /**

@@ -171,6 +171,18 @@ function add(group: Group, color: string, x: number, y: number, z: number, sx: n
   return mesh;
 }
 
+// Darken a hex colour by a factor (0-1) — used for the nose, a shade
+// darker than the character's own skin, so it reads on every skin tone
+// (light #f0c2a0 through dark brown #6b4429) instead of a fixed brown
+// that would vanish on one end and clash on the other.
+function shade(hex: string, factor: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, Math.min(255, Math.round(((n >> 16) & 255) * factor)));
+  const g = Math.max(0, Math.min(255, Math.round(((n >> 8) & 255) * factor)));
+  const b = Math.max(0, Math.min(255, Math.round((n & 255) * factor)));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+}
+
 export function dressPerson(
   group: Group,
   look: Look,
@@ -225,6 +237,16 @@ export function dressPerson(
   }
   add(group, torsoColor, 0, 0.9, 0, 0.66, 0.78, 0.4);
   add(group, chestStripe, 0, 1.05, 0.16, 0.28, 0.42, 0.08);
+  // Belt at the waist (dark, gold buckle) + a collar band at the neck
+  // (accent colour) — the outfit read as one flat slab before; now it
+  // has a waist and a neckline. Skipped for dresses (the skirt covers
+  // the waist) and for the suit (the tie bar is already the chest
+  // detail).
+  if (!outfitStyle?.skirt && outfitDef?.style !== "suit") {
+    add(group, "#1a1c22", 0, 0.56, 0, 0.68, 0.07, 0.42);
+    add(group, "#e0b33a", 0, 0.56, 0.21, 0.08, 0.05, 0.02);
+    add(group, accent, 0, 1.27, 0, 0.4, 0.07, 0.42);
+  }
   // Hoodie hood, behind the head (same shape as the "hood" hat branch).
   if (shirtStyle?.layer === "hood") {
     add(group, shirtStyle.color, 0, 1.72, -0.08, 0.52, 0.46, 0.36);
@@ -252,8 +274,15 @@ export function dressPerson(
   // face, do not invent one.
   if (look.id !== "cupsy") {
     const eyes = look.colors.eyes ?? "#1a1a1a";
+    // Eyebrows (hair colour, above the eyes) + nose (a shade darker
+    // than this character's own skin) + mouth (dark line). The face
+    // used to read as two floating dots — now it reads as a face.
+    add(group, hair, -0.08, 1.71, 0.2, 0.09, 0.03, 0.04);
+    add(group, hair, 0.08, 1.71, 0.2, 0.09, 0.03, 0.04);
     add(group, eyes, -0.08, 1.64, 0.2, 0.07, 0.06, 0.04);
     add(group, eyes, 0.08, 1.64, 0.2, 0.07, 0.06, 0.04);
+    add(group, shade(skin, 0.8), 0, 1.56, 0.2, 0.05, 0.07, 0.03);
+    add(group, "#5a2e1e", 0, 1.46, 0.2, 0.1, 0.02, 0.03);
   }
   if (look.accessories.beard) {
     add(group, hair, 0, 1.42, 0.2, 0.26, 0.14, 0.08);
