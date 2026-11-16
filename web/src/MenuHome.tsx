@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AuthPanel } from "./AuthPanel";
 import type { Account } from "./auth";
 import { CITY_URL, GITHUB_URL, MenuFooter, MenuHeader, TELEGRAM_URL, X_URL, type HomePage } from "./HomePages";
+import { CITY_FACTS, FEATURE_HIGHLIGHTS } from "./game/cityFacts";
 import { universeDisplayName } from "./game/multiverse";
 
 const TIPS = [
@@ -110,10 +111,26 @@ export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogi
           </>
         )}
         <div className="menu-stats" aria-label="City numbers">
-          <span><b>12</b> characters</span>
-          <span><b>20</b> jobs</span>
-          <span><b>18</b> venues</span>
+          <span><b>{CITY_FACTS.characters}</b> characters</span>
+          <span><b>{CITY_FACTS.jobs}</b> jobs</span>
+          <span><b>{CITY_FACTS.homes}</b> homes</span>
+          <span><b>{CITY_FACTS.vehicles}</b> vehicles</span>
           <span><b>0</b> fees</span>
+        </div>
+        {/* What's in the city — reads FEATURE_HIGHLIGHTS from the same
+            registry as the intro (game/cityFacts.ts). Add a feature to
+            the registry and it appears here (and in the intro) with no
+            menu edit; remove or rename one and it follows. */}
+        <div className="menu-features" aria-label="What's in the city">
+          <h2>WHAT'S IN THE CITY</h2>
+          <div className="menu-feature-grid">
+            {FEATURE_HIGHLIGHTS.map((feature) => (
+              <article key={feature.id} className="menu-feature">
+                <b>{feature.name}</b>
+                <span>{feature.blurb}</span>
+              </article>
+            ))}
+          </div>
         </div>
         <div className="menu-social" aria-label="Community">
           <h2>IN THE CITY NOW</h2>

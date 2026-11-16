@@ -282,6 +282,53 @@ body,
   margin-right: 4px;
 }
 
+/* What's in the city — the feature grid on the menu home. Reads the
+   same FEATURE_HIGHLIGHTS registry as the intro, so the menu and the
+   splash can never drift apart. Clean dark cards, gold names, white
+   blurbs — black/white/gold, high contrast, no rainbow. */
+.menu-features {
+  margin: 28px auto 0;
+  max-width: 860px;
+}
+
+.menu-features h2 {
+  margin: 0 0 12px;
+  color: #e0b33a;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  text-shadow: 0 1px 3px #000000;
+}
+
+.menu-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  text-align: left;
+}
+
+.menu-feature {
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid rgba(224, 179, 58, 0.55);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.menu-feature b {
+  color: #e0b33a;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.menu-feature span {
+  color: #ffffff;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .menu-bottom {
   margin-top: 24px;
 }
@@ -1662,7 +1709,12 @@ body.touch .touch-ui {
   justify-content: space-between;
   padding: 18px 20px 22px;
   color: #ffffff;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0.08) 45%, rgba(0, 0, 0, 0.42));
+  /* Cinematic vignette (GTA VI trailer frame): dark edges so the
+     flyover reads as a trailer shot, on top of the top/bottom legibility
+     gradient. Pure CSS — no video, no load cost. */
+  background:
+    radial-gradient(ellipse at center, transparent 52%, rgba(0, 0, 0, 0.5) 100%),
+    linear-gradient(to top, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0.08) 45%, rgba(0, 0, 0, 0.42));
   pointer-events: none;
 }
 .intro-top {
@@ -1746,6 +1798,30 @@ body.touch .touch-ui {
   margin: 0 auto;
   width: 100%;
 }
+
+/* Rotating feature strip: one highlight from the registry every 3s
+   (Intro.tsx cycles FEATURE_HIGHLIGHTS). Gold name, white blurb — the
+   intro always shows what is actually in the city right now. Fades in
+   on each change (keyed by feature id). */
+.intro-feature {
+  margin: 0 0 12px;
+  text-align: center;
+  font-size: 14px;
+  color: #ffffff;
+  text-shadow: 0 1px 3px #000000;
+  animation: intro-feature-in 0.6s ease both;
+}
+
+.intro-feature b {
+  color: #e0b33a;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@keyframes intro-feature-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .intro-progress {
   height: 6px;
   background: rgba(255, 255, 255, 0.25);
@@ -1767,6 +1843,7 @@ body.touch .touch-ui {
 }
 @media (prefers-reduced-motion: reduce) {
   .intro-card { animation: none; }
+  .intro-feature { animation: none; }
   .menu-ticker-track { animation-duration: 120s; }
 }
 

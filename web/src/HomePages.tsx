@@ -1,5 +1,6 @@
 import type { Account } from "./auth";
 import type { Snap } from "./game/runtime";
+import { CITY_FACTS } from "./game/cityFacts";
 
 // Home rebrand — the shared header, footer, and info pages for the OrbitX
 // City home. Everything here is honest copy: real counts, real links, no
@@ -90,19 +91,20 @@ export function AboutPage() {
     <PageShell title="About OrbitX City">
       <p>
         <b>OrbitX City</b> is a voxel city you can own — a GTA-style open world that runs in your browser, on your
-        phone or your PC. Three states, one city: New York, Los Angeles, and Florida, joined by real bridges you can
-        walk and drive across.
+        phone or your PC. {CITY_FACTS.states} states, one city: {CITY_FACTS.stateNames}, joined by real bridges you
+        can walk and drive across.
       </p>
       <h3>The world</h3>
       <p>
-        12 districts, 150 homes, 20 jobs, 34 vehicles — cars, bikes, skateboards, flying cars, planes, helicopters,
-        and the Orbit Ferry. Ride the OrbitX Line train, catch the bus across the states, or drive the loop monorail
-        yourself.
+        {CITY_FACTS.districts} districts, {CITY_FACTS.homes} homes, {CITY_FACTS.jobs} jobs, {CITY_FACTS.vehicles}{" "}
+        vehicles — cars, bikes, skateboards, flying cars, planes, helicopters, and the Orbit Ferry. Ride the OrbitX
+        Line train, catch the bus across the states, or drive the loop monorail yourself.
       </p>
       <h3>The multiverse</h3>
       <p>
-        Five universes, same world, different progress in each. Your home universe is where your homes, cars, and
-        money live. You can travel between universes for free, and join friends in whatever universe they are on.
+        {CITY_FACTS.universes === 1 ? "One universe" : `${CITY_FACTS.universes} universes`}, same world, different
+        progress in each. Your home universe is where your homes, cars, and money live. You can travel between
+        universes for free, and join friends in whatever universe they are on.
       </p>
       <h3>The economy</h3>
       <p>
