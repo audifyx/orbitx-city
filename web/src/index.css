@@ -981,6 +981,27 @@ body {
   letter-spacing: 0.06em;
 }
 
+/* Panel section headings (Roblox-settings style): small gold
+   uppercase labels that group the rows under them. */
+.panel h3 {
+  margin: 8px 0 0;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #e0b33a;
+}
+
+/* Settings rows: a hairline separator under each row so a long panel
+   reads as a list of labelled controls, not a wall of text. */
+.list article {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.list article:last-child {
+  border-bottom: none;
+}
+
 .demo {
   color: #e0b33a;
   font-size: 13px;

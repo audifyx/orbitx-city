@@ -3793,20 +3793,49 @@ export default function App() {
             })()}
             {panel === "menu" && (
               <div className="list">
-                <p>{HELP} · P phone · N day/night · V push to talk · 1-4 emotes</p>
-                <p>Server: {snap.server || snap.netMode}. Quality {snap.quality}. Time {snap.time}.</p>
-                <div className="days">
-                  {(["low", "medium", "high"] as const).map((level) => (
-                    <button key={level} type="button" className={snap.quality === level ? "on" : ""} onClick={() => gameRef.current?.runtime.setQuality(level)}>
-                      {level}
-                    </button>
-                  ))}
+                {/* Roblox-settings style: grouped rows, label left,
+                    control right, gold section headings. Every control
+                    that was here is still here — just organised. */}
+                <h3>Session</h3>
+                <article>
+                  <div>
+                    <b>Server</b>
+                    <span>{snap.server || snap.netMode}</span>
+                  </div>
+                </article>
+                <article>
+                  <div>
+                    <b>Graphics quality</b>
+                    <span>Lower runs smoother on older phones.</span>
+                  </div>
+                  <div className="days">
+                    {(["low", "medium", "high"] as const).map((level) => (
+                      <button key={level} type="button" className={snap.quality === level ? "on" : ""} onClick={() => gameRef.current?.runtime.setQuality(level)}>
+                        {level}
+                      </button>
+                    ))}
+                  </div>
+                </article>
+                <article>
+                  <div>
+                    <b>Time of day</b>
+                    <span>Currently {snap.time}.</span>
+                  </div>
                   <button type="button" onClick={() => gameRef.current?.runtime.cycleTime()}>Time: {snap.time}</button>
-                </div>
-                <button type="button" onClick={() => gameRef.current?.runtime.setHaptics(!snap.haptics)}>
-                  Haptics: {snap.haptics ? "On" : "Off"}
-                </button>
+                </article>
+                <h3>Controls</h3>
+                <article>
+                  <div>
+                    <b>Haptics</b>
+                    <span>Phone vibration on taps and actions.</span>
+                  </div>
+                  <button type="button" onClick={() => gameRef.current?.runtime.setHaptics(!snap.haptics)}>
+                    {snap.haptics ? "On" : "Off"}
+                  </button>
+                </article>
+                <p>{HELP} · P phone · N day/night · V push to talk · 1-4 emotes</p>
                 <p>On a phone, use the stick to move, drag the right side to look, pinch to zoom, and the Camera button to change view.</p>
+                <h3>Game</h3>
                 <button
                   type="button"
                   onClick={() => {
