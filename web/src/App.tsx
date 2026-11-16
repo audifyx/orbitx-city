@@ -1243,30 +1243,6 @@ export default function App() {
             <b>{snap.name || "Guest"}</b>
             <span>{snap.account ? "Account" : "Guest"}</span>
           </div>
-          <strong>CITY SOL {snap.balance}</strong>
-          {/* Hunger + stamina — one hunger, shared by the grocery
-              store and the kitchen (see runtime.ts applyFoodData). The
-              Eat button is the HUD quick-eat (most-restorative owned
-              food, one tap); it only shows when the player owns food.
-              The HUD is pointer-events: none, so the row re-enables
-              events. */}
-          <span className="hunger">
-            <span>Hunger {snap.hunger}{snap.hunger <= 0 ? " — Hungry" : ""}</span>
-            <span className="hunger-bar" aria-label={`Hunger ${snap.hunger} out of 100`}><i style={{ width: `${snap.hunger}%` }} className={snap.hunger <= 25 ? "low" : undefined} /></span>
-            {Object.values(snap.food).reduce((sum, n) => sum + n, 0) > 0 ? (
-              <button type="button" onClick={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}>Eat</button>
-            ) : null}
-          </span>
-          <div className="food-meter" title={`Stamina ${snap.foodStamina} — you run at x${foodSpeedMult(snap.hunger, snap.foodStamina).toFixed(2)}`}>
-            <span>Stamina {snap.foodStamina} · runs x{foodSpeedMult(snap.hunger, snap.foodStamina).toFixed(2)}</span>
-            <i><b style={{ width: `${snap.foodStamina}%` }} /></i>
-          </div>
-          {snap.hunger === 0 ? <span className="starving-chip">STARVING — eat something! You run slow.</span> : null}
-          {snap.foodFed ? <span>Satisfied — job pay +10%</span> : null}
-          <span className="energy-chip" title={snap.energyLabel === "Rested" ? "Rested — +15% speed, +10% job pay" : snap.energyLabel === "Exhausted" ? "Exhausted — slow. Sleep in your own bed." : "Energy drains as you play — sleep in your own bed to restore it."}>
-            <span className="energy-label">ENERGY {snap.energy} · {snap.energyLabel}</span>
-            <span className="energy-bar"><i style={{ width: `${Math.max(0, Math.min(100, snap.energy))}%` }} /></span>
-          </span>
           {snap.flying || snap.carFlying ? <span className="flying-chip">FLYING</span> : null}
           {snap.drivingTrain ? <span className="driving-chip">DRIVING THE LOOP TRAIN</span> : null}
           {snap.holder ? <span>HOLDER</span> : null}
@@ -1280,8 +1256,25 @@ export default function App() {
           <span>{snap.jobTitle ? `${snap.jobTitle} — ${snap.objective}` : snap.objective}</span>
           {snap.eventLabel ? <span>{snap.eventLabel}</span> : null}
           {snap.notice ? <em>{snap.notice}</em> : null}
+          {snap.hunger === 0 ? <span className="starving-chip">STARVING — eat something! You run slow.</span> : null}
+          {snap.foodFed ? <span>Satisfied — job pay +10%</span> : null}
+        </div>
+      )}
+      {/* GTA VI-style top bar: compass top-center (Fortnite-style
+          heading from the player yaw), City Sol + who's here top-right
+          (Fortnite-style stats strip). The balance and the quiet line
+          used to live in the left HUD block — they read cleaner here. */}
+      {!menu && !snap.hideHud && (
+        <div className="compass" aria-label={`Facing ${compassLabel(snap.me.yaw)}`}>
+          <span>{compassLabel(snap.me.yaw)}</span>
+          <b>{Math.round(compassDeg(snap.me.yaw))}°</b>
+        </div>
+      )}
+      {!menu && !snap.hideHud && (
+        <div className="topbar">
+          <strong>CITY SOL {snap.balance}</strong>
           <span className="quiet">
-            {snap.others + 1} in the city · {snap.camLabel} · {snap.lookName}
+            {snap.others + 1} in the city
             {snap.universe ? ` · ${snap.universe.name} · ${snap.universe.isHome ? "Home" : "Visitor"}` : ""}
           </span>
         </div>
@@ -1407,7 +1400,17 @@ export default function App() {
           rendered after the touch controls so that, at the same z-index,
           it paints above the stick / pad-buttons and stays draggable. */}
       {!menu && !snap.hideHud && (
-        <Minimap me={snap.me} people={snap.people} seed={seed} />
+        <Minimap
+          me={snap.me}
+          people={snap.people}
+          seed={seed}
+          hunger={snap.hunger}
+          foodStamina={snap.foodStamina}
+          energy={snap.energy}
+          energyLabel={snap.energyLabel}
+          foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
+          onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
+        />
       )}
       {panel ? (
         <section className="panel-wrap" id="panel">
@@ -4048,20 +4051,28 @@ function fallbackUniverses(): Universe[] {
 // Minimap: 132px (was 168 — smaller, but still big enough to read the
 // roads, the player dot, and the venue labels). Draggable — the player can
 // put it anywhere on screen; the spot persists in localStorage.
+// GTA-style: the map is CIRCULAR (see index.css .minimap) with the
+// hunger / stamina / energy vitals stacked under it, like GTA's
+// health + armor bars under the minimap.
 const MINIMAP_SIZE = 132;
 const MINIMAP_STORAGE_KEY = "orbitx-minimap-pos";
+// Vitals cluster under the map: three thin labelled bars (hunger,
+// stamina, energy) + gaps. The wrap is this much taller than the map.
+const MINIMAP_VITALS_H = 48;
 
 type MinimapPos = { x: number; y: number };
 
 // The canvas is 132px plus a 1px border on each side, so the wrapper's
-// outer box is 134px — clamp/dock against that, or the border pokes off
-// the edge when the map sits at the far right / bottom.
+// outer box is 134px wide and 134 + 48 tall — clamp/dock against that,
+// or the border / vitals poke off the edge when the map sits at the far
+// right / bottom.
 const MINIMAP_OUTER = MINIMAP_SIZE + 2;
+const MINIMAP_WRAP_H = MINIMAP_OUTER + MINIMAP_VITALS_H;
 
 function clampMinimapPos(pos: MinimapPos): MinimapPos {
   return {
     x: Math.max(0, Math.min(pos.x, window.innerWidth - MINIMAP_OUTER)),
-    y: Math.max(0, Math.min(pos.y, window.innerHeight - MINIMAP_OUTER)),
+    y: Math.max(0, Math.min(pos.y, window.innerHeight - MINIMAP_WRAP_H)),
   };
 }
 
@@ -4073,14 +4084,16 @@ function isTouchDevice(): boolean {
 }
 
 function minimapDefaultPos(): MinimapPos {
-  const x = Math.max(0, window.innerWidth - MINIMAP_OUTER - 10);
-  // Touch: bottom-right, above the pad-buttons (~176px tall) AND above
-  // the driving Gas/Brake buttons (they top out at ~244px while driving,
+  // GTA-style: bottom-LEFT on desktop (nothing else lives there — the
+  // HUD is top-left, the actions are top-right). Touch keeps
+  // bottom-right, above the pad-buttons (~176px tall) AND above the
+  // driving Gas/Brake buttons (they top out at ~244px while driving,
   // so the map's bottom sits at 256px — 12px clear of them, 80px clear
-  // of the pad grid). Desktop: bottom-right corner, nothing else lives
-  // there.
-  const bottom = isTouchDevice() ? 256 : 12;
-  return { x, y: Math.max(0, window.innerHeight - MINIMAP_OUTER - bottom) };
+  // of the pad grid) — the movement stick owns bottom-left on touch.
+  const touch = isTouchDevice();
+  const x = touch ? Math.max(0, window.innerWidth - MINIMAP_OUTER - 10) : 10;
+  const bottom = touch ? 256 : 12;
+  return { x, y: Math.max(0, window.innerHeight - MINIMAP_WRAP_H - bottom) };
 }
 
 function loadMinimapPos(): MinimapPos {
@@ -4113,7 +4126,22 @@ function loadMinimapPos(): MinimapPos {
   return fallback;
 }
 
-function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"]; seed: number }) {
+// Compass heading from the player yaw. Yaw is atan2(dx, -dz), so
+// yaw 0 faces -Z (map north), yaw +90° faces +X (east) — bearing is
+// clockwise from north, 0-360. Cardinal is the nearest of the 8.
+function compassDeg(yaw: number): number {
+  return ((yaw * 180 / Math.PI) % 360 + 360) % 360;
+}
+function compassLabel(yaw: number): string {
+  const cardinals = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  return cardinals[Math.round(compassDeg(yaw) / 45) % 8];
+}
+
+function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, foodCount, onEat }: {
+  me: Snap["me"]; people: Snap["people"]; seed: number;
+  hunger: number; foodStamina: number; energy: number; energyLabel: string;
+  foodCount: number; onEat: () => void;
+}) {
   const ref = useRef<HTMLCanvasElement>(null);
   // Offscreen static layer (blocks, roads, venue labels, north marker).
   // It used to be redrawn on every snap (5 Hz) together with the moving
@@ -4374,6 +4402,30 @@ function Minimap({ me, people, seed }: { me: Snap["me"]; people: Snap["people"];
         ⋮⋮
       </span>
       <canvas ref={ref} className="minimap" width={MINIMAP_SIZE} height={MINIMAP_SIZE} />
+      {/* GTA-style vitals under the map: hunger (health) + stamina
+          (armor) + energy, thin gold bars with a number. The Eat button
+          is the HUD quick-eat (most-restorative owned food, one tap);
+          it only shows when the player owns food. */}
+      <div className="minimap-vitals">
+        <span className="minimap-vital">
+          <b>Hunger</b>
+          <i className="minimap-bar"><u style={{ width: `${hunger}%` }} className={hunger <= 25 ? "low" : undefined} /></i>
+          <em>{hunger}</em>
+          {foodCount > 0 ? (
+            <button type="button" onClick={onEat}>Eat</button>
+          ) : null}
+        </span>
+        <span className="minimap-vital">
+          <b>Stamina</b>
+          <i className="minimap-bar"><u style={{ width: `${foodStamina}%` }} /></i>
+          <em>{foodStamina}</em>
+        </span>
+        <span className="minimap-vital" title={energyLabel}>
+          <b>Energy</b>
+          <i className="minimap-bar"><u style={{ width: `${Math.max(0, Math.min(100, energy))}%` }} /></i>
+          <em>{energy}</em>
+        </span>
+      </div>
     </div>
   );
 }

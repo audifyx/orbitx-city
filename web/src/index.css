@@ -707,11 +707,156 @@ body {
   font-size: 13px;
 }
 
+/* GTA-style circular minimap: a gold ring, like GTA's round map. The
+   canvas is square underneath (the static layer draws a square), the
+   circle clips it — corners are just map edge, same as GTA. */
 .minimap {
   display: block;
   width: 132px;
   height: 132px;
-  border: 1px solid #7ef6ff;
+  border: 2px solid #e0b33a;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 2px 10px rgba(0, 0, 0, 0.5);
+  background: rgba(8, 12, 18, 0.72);
+}
+
+/* GTA-style vitals under the minimap: hunger (health) + stamina
+   (armor) + energy, thin gold bars with a number. White labels on
+   black, gold fill, red when hunger is low — never light-on-light. */
+.minimap-vitals {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 132px;
+  padding: 5px 2px 0;
+  line-height: 1;
+}
+
+.minimap-vital {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+.minimap-vital b {
+  width: 38px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.minimap-vital em {
+  font-style: normal;
+  font-weight: 700;
+  min-width: 16px;
+  text-align: right;
+}
+
+.minimap-bar {
+  display: block;
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.minimap-bar u {
+  display: block;
+  height: 100%;
+  background: #e0b33a;
+  text-decoration: none;
+}
+
+.minimap-bar u.low {
+  background: #ff5a3c;
+}
+
+.minimap-vital button {
+  margin: 0;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  background: #e0b33a;
+  color: #000000;
+  border: 1px solid #e0b33a;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+/* GTA VI-style top bar: City Sol + who's here, top-right above the
+   action buttons (Fortnite-style stats strip). Black bg, gold balance,
+   white quiet text — never light-on-light. */
+.topbar {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid #e0b33a;
+  color: #ffffff;
+  font-size: 13px;
+  pointer-events: none;
+  max-width: min(360px, 46vw);
+}
+
+.topbar strong {
+  color: #e0b33a;
+  letter-spacing: 0.04em;
+  font-size: 14px;
+}
+
+.topbar .quiet {
+  color: #c8c8c8;
+  font-size: 12px;
+}
+
+/* Compass pill, top-center (Fortnite-style heading). Black bg, white
+   cardinal, gold degrees. */
+.compass {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid #e0b33a;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+}
+
+.compass b {
+  color: #e0b33a;
+}
+
+/* Phone: the top row is crowded (HUD left, top bar right), so the
+   compass hides under 640px — the circular minimap's N marker and the
+   player dot already give direction there. Desktop keeps it. The HUD
+   and top bar narrow so they fit side by side on a 390px phone. */
+@media (max-width: 640px) {
+  .compass {
+    display: none;
+  }
+  .hud {
+    max-width: 52vw;
+  }
+  .topbar {
+    max-width: 42vw;
+  }
 }
 
 /* Draggable minimap shell — positioned by the component (left/top), the
@@ -775,15 +920,19 @@ body {
   text-align: center;
 }
 
+/* Action buttons, top-right under the top bar (the top bar is ~54px
+   tall, so the grid starts below it). Compact 2-row grid, black bg,
+   gold border, white text — every HUD function is still here, just
+   tighter. */
 .actions {
   position: fixed;
-  top: max(10px, env(safe-area-inset-top));
+  top: calc(max(10px, env(safe-area-inset-top)) + 62px);
   right: max(10px, env(safe-area-inset-right));
   z-index: 5;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 5px;
   max-width: min(360px, 46vw);
 }
 
