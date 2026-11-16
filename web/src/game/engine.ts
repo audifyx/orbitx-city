@@ -219,7 +219,11 @@ export function createGame(
             col = mix(col, cloudCol, cloud * 0.55);
           }
           col = mix(col, vec3(0.03, 0.05, 0.12), uNight);
-          col = mix(col, vec3(0.45, 0.72, 0.95), uDay * 0.9);
+          // Day: a deeper, cleaner Miami / Vice City blue (was a paler
+          // 0.45,0.72,0.95). Kept at 0.9 so the procedural clouds still
+          // read white against it — at 1.0 they would tint blue and
+          // vanish into the sky.
+          col = mix(col, vec3(0.36, 0.66, 0.96), uDay * 0.9);
           gl_FragColor = vec4(col, 1.0);
         }
       `,

@@ -563,6 +563,26 @@ function addAwning(boxes: Box[], x0: number, z0: number, w: number, d: number, f
   visualHide = false;
 }
 
+// Rooftop plant (GTA VI lived-in roofs): AC condenser boxes + a vent
+// pipe on a flat roof. Cheap static boxes — no new systems. Deterministic
+// per building (its own rng stream, so the main sequence never moves).
+// Gray + dark, small — they read as rooftop clutter from the street and
+// from above, like a GTA VI trailer frame.
+function addRooftop(boxes: Box[], x0: number, z0: number, w: number, d: number, roofY: number, rng: Rng) {
+  if (w < 8 || d < 8) return;
+  // 1-2 AC units, tucked to one corner so they don't crowd the roof.
+  const n = 1 + Math.floor(rng() * 2);
+  for (let i = 0; i < n; i++) {
+    const ax = x0 + 2 + rng() * Math.max(1, w - 5);
+    const az = z0 + 2 + rng() * Math.max(1, d - 5);
+    put(boxes, ax, roofY + 0.5, az, 2.2, 1, 1.6, "gray");
+    put(boxes, ax, roofY + 1.05, az, 1.8, 0.12, 1.2, "black");
+  }
+  // A vent pipe near the opposite corner.
+  put(boxes, x0 + w - 2, roofY + 0.7, z0 + d - 2, 0.5, 1.4, 0.5, "gray");
+  put(boxes, x0 + w - 2, roofY + 1.45, z0 + d - 2, 0.7, 0.15, 0.7, "black");
+}
+
 function addBalcony(boxes: Box[], x0: number, y: number, z0: number, w: number, d: number, face: Face) {
   visualHide = true;
   if (face === "n") put(boxes, x0 + w / 2, y, z0 - 0.55, w * 0.72, 0.16, 1.1, "stone");
@@ -1057,6 +1077,9 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
   // (lot positions, heights, styles, street life, car spawns) never moves.
   const varRng = makeRng((seed || 1) * 977 + 13);
   const homeRng = makeRng((seed || 1) * 733 + 29);
+  // Rooftop plant draws here, so the main sequence (heights, styles,
+  // street life) and the var/home streams never move.
+  const roofRng = makeRng((seed || 1) * 1499 + 41);
   const zones: Zone[] = [];
   const anchors: Anchor[] = [];
   let homesBuilt = 0;
@@ -1310,6 +1333,12 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
         put(boxes, gx0 + gw / 2, roofY + 0.7, gz0 + 0.4, gw, 0.7, 0.7, "hedge");
         put(boxes, gx0 + gw / 2, roofY + 0.7, gz0 + gd - 0.4, gw, 0.7, 0.7, "hedge");
         if (gw > 6) addTree(boxes, cols, gx0 + 2, gz0 + Math.max(3, gd / 2), roofY + 0.3);
+      }
+      // Rooftop plant on flat roofs without a garden (the garden owns
+      // its roof). Skipped on pitched/stepped roofs — it would pierce
+      // the slope.
+      if (gardenRoll <= 0.42 && roof !== "gable" && roof !== "hip" && roof !== "stepped") {
+        addRooftop(boxes, fbx, fbz, fbw, fbd, roofY, roofRng);
       }
       addAwning(boxes, fbx, fbz, fbw, fbd, face);
       if (height > 18) addBalcony(boxes, fbx, Math.min(12, roofY - 4), fbz, fbw, fbd, face);

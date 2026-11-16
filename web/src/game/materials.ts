@@ -110,7 +110,7 @@ MATERIALS.water.depthWrite = false;
  * Strengths match the `grid` values on the literal above.
  */
 const grainCache = new Map<string, CanvasTexture>();
-function grainTexture(kind: "speckle" | "streak", strength: number): CanvasTexture | undefined {
+function grainTexture(kind: "speckle" | "streak" | "brick", strength: number): CanvasTexture | undefined {
   const key = `${kind}:${strength.toFixed(2)}`;
   const hit = grainCache.get(key);
   if (hit) return hit;
@@ -121,7 +121,32 @@ function grainTexture(kind: "speckle" | "streak", strength: number): CanvasTextu
   if (!ctx) return undefined;
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, 128, 128);
-  if (kind === "streak") {
+  if (kind === "brick") {
+    // Brick courses: horizontal mortar lines every 16px, vertical
+    // joints staggered by half a brick on alternate courses, plus a
+    // slight per-brick brightness variation so the courses don't read
+    // flat. The near-white base keeps the material colour dominant;
+    // the mortar is a soft dark line. Facades are built from small
+    // boxes, so this reads — the huge ground slabs deliberately get
+    // no map (see the scale rule above).
+    for (let row = 0; row < 8; row++) {
+      const y = row * 16;
+      ctx.fillStyle = `rgba(0,0,0,${(strength * 0.4).toFixed(3)})`;
+      ctx.fillRect(0, y, 128, 1.5);
+      const offset = row % 2 === 0 ? 0 : 16;
+      for (let col = -1; col < 5; col++) {
+        ctx.fillRect(offset + col * 32, y, 1.5, 16);
+      }
+      for (let col = 0; col < 4; col++) {
+        const x = offset + col * 32;
+        const light = Math.random() > 0.5;
+        ctx.fillStyle = light
+          ? `rgba(255,255,255,${(strength * 0.1).toFixed(3)})`
+          : `rgba(0,0,0,${(strength * 0.08).toFixed(3)})`;
+        ctx.fillRect(x + 2, y + 2, 28, 12);
+      }
+    }
+  } else if (kind === "streak") {
     // Vertical bark / wood-grain streaks, full height of the face.
     for (let i = 0; i < 110; i++) {
       const x = Math.random() * 128;
@@ -153,7 +178,7 @@ function grainTexture(kind: "speckle" | "streak", strength: number): CanvasTextu
   return tex;
 }
 
-const GRAIN: Partial<Record<Mat, { kind: "speckle" | "streak"; strength: number }>> = {
+const GRAIN: Partial<Record<Mat, { kind: "speckle" | "streak" | "brick"; strength: number }>> = {
   trunk: { kind: "streak", strength: 0.4 },
   wood: { kind: "streak", strength: 0.55 },
   leaves: { kind: "speckle", strength: 0.55 },
@@ -163,8 +188,14 @@ const GRAIN: Partial<Record<Mat, { kind: "speckle" | "streak"; strength: number 
   black: { kind: "speckle", strength: 0.85 },
   gray: { kind: "speckle", strength: 0.7 },
   white: { kind: "speckle", strength: 0.75 },
+  // Brick for the warm facade material (cream walls in Venice /
+  // Beverly Hills / Orlando + state floors) — buildings read as
+  // masonry now, not flat colour. Hill gets speckle so terrain isn't
+  // a flat brown slab.
+  cream: { kind: "brick", strength: 0.5 },
+  hill: { kind: "speckle", strength: 0.25 },
 };
-for (const [key, spec] of Object.entries(GRAIN) as Array<[Mat, { kind: "speckle" | "streak"; strength: number }]>) {
+for (const [key, spec] of Object.entries(GRAIN) as Array<[Mat, { kind: "speckle" | "streak" | "brick"; strength: number }]>) {
   const tex = grainTexture(spec.kind, spec.strength);
   if (tex) MATERIALS[key].map = tex;
 }

@@ -381,6 +381,13 @@ export function buildRegionCore(city: City, state: StateDef): void {
   city.anchors.push(doorAnchorFor(`${state.id}-landmark`, `${state.name} Landmark`, "hall", cx - tw / 2, cz - tw / 2, tw, tw, "s", 0));
   // Gold beacon on top.
   pushBox(city, cx, t.towerH + 1, cz, 3, 2, 3, "gold");
+  // Florida / Vice City: a neon band around the landmark tower near
+  // the top — Ocean Drive hotels wear neon. Bright emissive cyan, so
+  // it glows at dusk and night. FL only; the other states keep the
+  // gold beacon alone.
+  if (state.id === "fl") {
+    pushBox(city, cx, t.towerH - 2, cz, tw + 0.6, 0.4, tw + 0.6, "cyanhot");
+  }
   // Plaza corner lamps + state props.
   for (const [lx, lz] of [[-26, -26], [26, -26], [-26, 26], [26, 26]] as const) {
     pushBox(city, cx + lx, 1.5, cz + lz, 0.3, 3, 0.3, "black");
