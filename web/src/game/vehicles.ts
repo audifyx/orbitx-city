@@ -1991,6 +1991,15 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
     // Front + rear bumpers: dark slabs that read as the car's chin.
     add(partMaterial("dark", paint), half - 0.06, p.bodyY - 0.08, 0, 0.16, 0.2, p.width - 0.08);
     add(partMaterial("dark", paint), -half + 0.06, p.bodyY - 0.08, 0, 0.16, 0.2, p.width - 0.08);
+    // Front grille: a dark slab on the front face, between the
+    // headlights — the fascia used to be blank paint between the
+    // lights; now it reads as a grille.
+    add(partMaterial("dark", paint), half - 0.02, p.bodyY + 0.04, 0, 0.06, 0.16, p.width - 1.0);
+    // Chrome beltline: a thin chrome strip along each side at the
+    // window base — reads as window trim and gives the body a
+    // horizontal line, like the AI demo's cars.
+    add(partMaterial("chrome", paint), 0, p.bodyY + p.bodyH / 2 + 0.02, p.width / 2 + 0.01, p.length - 0.4, 0.05, 0.03);
+    add(partMaterial("chrome", paint), 0, p.bodyY + p.bodyH / 2 + 0.02, -p.width / 2 - 0.01, p.length - 0.4, 0.05, 0.03);
     // Rear license plate: "ORBITX" on white with a gold rule, like the
     // red sedan in the demo (plate "ORBITX 42"). One shared canvas
     // texture for every car; the plane faces -X (rear) and reads
@@ -2001,6 +2010,12 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
       plateMesh.position.set(-half - 0.05, p.bodyY + 0.06, 0);
       plateMesh.rotation.y = -Math.PI / 2;
       group.add(plateMesh);
+      // Front plate, same ORBITX plate, on the front bumper — the car
+      // used to be plated only at the rear.
+      const frontPlate = new Mesh(new PlaneGeometry(0.72, 0.2), plate);
+      frontPlate.position.set(half + 0.05, p.bodyY - 0.08, 0);
+      frontPlate.rotation.y = Math.PI / 2;
+      group.add(frontPlate);
     }
   }
 
