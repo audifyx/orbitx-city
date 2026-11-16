@@ -10695,6 +10695,24 @@ export function createRuntime(scene: Scene) {
       }
       if (driving) exitCar(lastBody);
       stepInside(anchor, lastBody);
+      // Go-to lands 3.5 inside the door, but the service point (desk /
+      // counter) is deeper in — E/Use right after Go-to did nothing
+      // because the player was outside the 2.6 interact radius. Walk
+      // the player to within 2.0 of the service point so E works
+      // immediately. The HQ lands by its front desk already (stepInside
+      // special-cases it), so the nudge is a no-op there. The normal
+      // enter flow (E at the door) and the interact radius are untouched.
+      const zone = zoneAt(lastBody);
+      if (zone) {
+        const dx = zone.serviceX - lastBody.x;
+        const dz = zone.serviceZ - lastBody.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist > 2.0) {
+          const step = dist - 2.0;
+          lastBody.x += (dx / dist) * step;
+          lastBody.z += (dz / dist) * step;
+        }
+      }
       panel = "";
       publish();
     },

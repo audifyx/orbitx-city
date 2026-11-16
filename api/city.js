@@ -5480,7 +5480,15 @@ export async function POST(request) {
   // A heartbeat loads and reconciles but never mints a save.
   if (op === "me") {
     const save = await ensureSave(player, currentServerFor(body, player), { mint: false });
-    return json({ ok: true, me: publicPlayer(save || player) });
+    const me = publicPlayer(save || player);
+    // Garage overlay: the per-universe save is the garage authority
+    // (vehicles / active vehicle / garage upgrades / live rental).
+    // Without it, `me` carries the global row's (stale) garage fields
+    // — the rental/vehicles the player just rented on this universe
+    // vanish from the display until the next 250ms sync corrects it.
+    // Mirrors the sync op, which overlays before returning.
+    await overlaySaveGarage(player, body, me);
+    return json({ ok: true, me });
   }
 
   // Multiverse — one save per (player, universe). Joining and travelling

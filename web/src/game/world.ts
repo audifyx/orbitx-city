@@ -760,8 +760,15 @@ class CityWorld {
   // digest op has no server handler, so this is the way a panel that just
   // spent City Sol (e.g. an office claim) refreshes the displayed balance.
   async meNow() {
-    const data = await this.call("me", {});
-    if (data.me) this.me = data.me as CityMe;
+    // Send the current universe, like the 250ms sync heartbeat does —
+    // without it the server falls back to homeServer (which guests
+    // never have), resolves the WRONG save, and the rental/vehicles
+    // the player just rented on this universe vanish until the next
+    // sync corrects it (<250ms flicker). Run the result through
+    // mergeGarageMe too, so a `me` that carries no garage data can
+    // never wipe the current universe's rental/vehicles.
+    const data = await this.call("me", { server: this.currentServer ?? undefined });
+    if (data.me) this.me = this.mergeGarageMe(data.me as CityMe);
     return data;
   }
 
