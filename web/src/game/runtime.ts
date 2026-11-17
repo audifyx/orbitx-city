@@ -207,10 +207,12 @@ export interface TrainPose {
 
 export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats";
 
-// UNIFIED SHOP: the Shop panel's five category tabs. "grocery" is a tab
+// UNIFIED SHOP: the Shop panel's category tabs. "grocery" is a tab
 // now, not a panel — the grocery store in the world opens the Shop on
-// it, and the old standalone Grocery panel is gone.
-export type ShopTab = "clothes" | "cars" | "homes" | "grocery" | "items";
+// it, and the old standalone Grocery panel is gone. "inventory" lists
+// everything the player owns (2026-11-17, shop-items) — bought items
+// show there the moment the buy lands.
+export type ShopTab = "clothes" | "cars" | "homes" | "grocery" | "items" | "inventory";
 
 /** Owned state the server returns with shop-catalog / shop-buy. */
 export interface ShopSnapshot {

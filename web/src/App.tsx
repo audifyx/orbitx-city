@@ -1152,6 +1152,63 @@ export default function App() {
             </div>
           );
         })}
+        {/* Clothes bought in the shop (classics) — the wardrobe used to
+            only list the three store pieces, so a bought tee never showed
+            in the closet (2026-11-17, shop-items). */}
+        {(() => {
+          const worn: Record<string, string> = {};
+          for (const entry of snap.owned) {
+            if (!entry.startsWith("worn:")) continue;
+            const [, slot, value] = entry.split(":");
+            if (slot && value) worn[slot] = value;
+          }
+          const clothes = snap.shop.filter((item) => item.kind === "clothes" && snap.owned.includes(item.id));
+          const extras = snap.shop.filter((item) => (item.kind === "color" || item.kind === "hat" || item.kind === "car" || item.kind === "trail") && snap.owned.includes(item.id));
+          if (!clothes.length && !extras.length) return null;
+          return (
+            <>
+              {clothes.length ? (
+                <div>
+                  <p className="muted">Clothes — {clothes.length} owned</p>
+                  {clothes.map((item) => {
+                    const equipped = item.slot ? worn[item.slot] === item.value : false;
+                    return (
+                      <article key={item.id}>
+                        <div>
+                          <b>{item.name}{equipped ? " — worn" : ""}</b>
+                          <span>{item.slot ? `${item.slot} · ` : ""}{item.price} City Sol</span>
+                        </div>
+                        {item.slot ? (
+                          equipped ? (
+                            <button type="button" onClick={() => gameRef.current?.runtime.unequipClothes(item.slot as string)}>Unequip</button>
+                          ) : (
+                            <button type="button" onClick={() => gameRef.current?.runtime.equipClothes(item.id)}>Equip</button>
+                          )
+                        ) : (
+                          <button type="button" onClick={() => void gameRef.current?.runtime.buy(item.id)}>Equip</button>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {extras.length ? (
+                <div>
+                  <p className="muted">Suits, hats & trails — {extras.length} owned</p>
+                  {extras.map((item) => (
+                    <article key={item.id}>
+                      <div>
+                        <b>{item.name}</b>
+                        <span>{item.price} City Sol</span>
+                      </div>
+                      <button type="button" onClick={() => void gameRef.current?.runtime.buy(item.id)}>Equip</button>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          );
+        })()}
         <h3>My fits — save your look</h3>
         <p className="muted">A fit is the outfit + shoes + chain + watch + glasses + hairstyle you are wearing right now. Save it, then wear it back in one tap.</p>
         <div className="days">
@@ -1206,6 +1263,169 @@ export default function App() {
         ) : (
           <p className="muted">No saved fits yet.</p>
         )}
+      </>
+    );
+  };
+
+  // INVENTORY (2026-11-17, shop-items): one tab that lists everything
+  // the player owns — a bought item shows here the moment the buy
+  // lands. Reads the server-fresh shop snapshot (balance + owned +
+  // vehicles + homes + food + furniture) with the live snap as
+  // fallback, so the tab is never stale after a purchase.
+  const inventorySections = () => {
+    const runtime = gameRef.current?.runtime;
+    if (!runtime) return null;
+    const shop = shopData?.shop;
+    const owned = shop?.owned ?? snap.owned;
+    const worn: Record<string, string> = {};
+    for (const entry of owned) {
+      if (!entry.startsWith("worn:")) continue;
+      const [, slot, value] = entry.split(":");
+      if (slot && value) worn[slot] = value;
+    }
+    const clothes = snap.shop.filter((item) => item.kind === "clothes" && owned.includes(item.id));
+    const wardrobeOwned = WARDROBE_CATALOG.filter((item) => owned.includes(item.id));
+    const extras = snap.shop.filter((item) => (item.kind === "color" || item.kind === "hat" || item.kind === "car" || item.kind === "trail") && owned.includes(item.id));
+    const vehicles = shop?.vehicles ?? snap.vehicles;
+    const homes = shop?.homes ?? [];
+    const food = shop?.food ?? snap.food;
+    const furniture = shop?.furnitureOwned ?? snap.furnitureOwned;
+    const foodCount = Object.values(food).reduce((sum, n) => sum + (n || 0), 0);
+    const empty = !clothes.length && !wardrobeOwned.length && !extras.length && !vehicles.length && !homes.length && foodCount === 0 && !furniture.length;
+    if (empty) return <p className="muted">Nothing yet — buy something in the shop and it shows up here.</p>;
+    return (
+      <>
+        {clothes.length ? (
+          <div>
+            <h3>Clothes — {clothes.length} owned</h3>
+            {clothes.map((item) => {
+              const equipped = item.slot ? worn[item.slot] === item.value : false;
+              return (
+                <article key={item.id}>
+                  <div>
+                    <b>{item.name}{equipped ? " — worn" : ""}</b>
+                    <span>{item.slot ? `${item.slot} · ` : ""}{item.price} City Sol</span>
+                  </div>
+                  {item.slot ? (
+                    equipped ? (
+                      <button type="button" onClick={() => runtime.unequipClothes(item.slot as string)}>Unequip</button>
+                    ) : (
+                      <button type="button" onClick={() => runtime.equipClothes(item.id)}>Equip</button>
+                    )
+                  ) : (
+                    <button type="button" onClick={() => void runtime.buy(item.id)}>Equip</button>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        ) : null}
+        {wardrobeOwned.length ? (
+          <div>
+            <h3>Wardrobe — {wardrobeOwned.length} owned</h3>
+            {wardrobeOwned.map((item) => {
+              const wearing = snap.wardrobe[item.kind] === item.value;
+              return (
+                <article key={item.id}>
+                  <div>
+                    <b>{item.name}</b>
+                    <span>{item.blurb}</span>
+                  </div>
+                  <button type="button" disabled={wearing} onClick={() => buyItem(item.id)}>
+                    {wearing ? "Wearing" : "Equip"}
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        ) : null}
+        {extras.length ? (
+          <div>
+            <h3>Suits, hats & trails — {extras.length} owned</h3>
+            {extras.map((item) => (
+              <article key={item.id}>
+                <div>
+                  <b>{item.name}</b>
+                  <span>{item.price} City Sol</span>
+                </div>
+                <button type="button" onClick={() => void runtime.buy(item.id)}>Equip</button>
+              </article>
+            ))}
+          </div>
+        ) : null}
+        {vehicles.length ? (
+          <div>
+            <h3>Cars — {vehicles.length} owned</h3>
+            {vehicles.map((car) => {
+              const v = getVehicle(car.id);
+              const active = snap.activeVehicle === car.id;
+              return (
+                <article key={car.id}>
+                  <div>
+                    <b>{v?.name ?? car.id}</b>
+                    <span>{car.color}{active ? " · selected" : ""}</span>
+                  </div>
+                  {active ? (
+                    <button type="button" disabled>Selected</button>
+                  ) : (
+                    <button type="button" disabled={shopBusy} onClick={() => void runShopBuy("car", car.id, { color: car.color })}>Drive</button>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        ) : null}
+        {homes.length ? (
+          <div>
+            <h3>Homes — {homes.length} owned</h3>
+            {homes.map((homeId) => {
+              const home = HOMES.find((h) => h.id === homeId);
+              return (
+                <article key={homeId}>
+                  <div>
+                    <b>{home?.name ?? homeId}</b>
+                    <span>{home ? `${home.state === "ny" ? "New York" : home.state === "la" ? "Los Angeles" : "Florida"} · ${home.district}` : ""}</span>
+                  </div>
+                  <button type="button" disabled>Owned</button>
+                </article>
+              );
+            })}
+          </div>
+        ) : null}
+        {foodCount ? (
+          <div>
+            <h3>Food — {foodCount} in your pantry</h3>
+            {snap.foodCatalog.filter((item) => (food[item.id] || 0) > 0).map((item) => (
+              <article key={item.id}>
+                <div>
+                  <b>{item.name}</b>
+                  <span>You own {food[item.id]} · restores {item.hunger} hunger</span>
+                </div>
+                <button type="button" onClick={() => gameRef.current?.runtime.eatFood(item.id)}>Eat</button>
+              </article>
+            ))}
+          </div>
+        ) : null}
+        {furniture.length ? (
+          <div>
+            <h3>Furniture — {furniture.length} pieces</h3>
+            {[...new Set(furniture)].map((id) => {
+              const item = FURNITURE_CATALOG.find((f) => f.id === id);
+              const count = furniture.filter((f) => f === id).length;
+              return (
+                <article key={id}>
+                  <div>
+                    <b>{item?.name ?? id}</b>
+                    <span>owned ×{count}</span>
+                  </div>
+                  <button type="button" onClick={() => gameRef.current?.runtime.sellFurniture(id)}>
+                    Sell +{item ? Math.floor(item.price / 2) : 0}
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        ) : null}
       </>
     );
   };
@@ -1582,9 +1802,9 @@ export default function App() {
                 {shopMsg ? <p>{shopMsg}</p> : null}
                 <p className="muted">One shop, everything in the city — clothes, cars, homes, groceries and furniture. All City Sol, all yours to keep.</p>
                 <div className="days">
-                  {(["clothes", "cars", "homes", "grocery", "items"] as ShopTab[]).map((tab) => (
+                  {(["clothes", "cars", "homes", "grocery", "items", "inventory"] as ShopTab[]).map((tab) => (
                     <button key={tab} type="button" className={shopTab === tab ? "on" : ""} onClick={() => setShopTab(tab)}>
-                      {tab === "clothes" ? "Clothes" : tab === "cars" ? "Cars" : tab === "homes" ? "Homes" : tab === "grocery" ? "Grocery" : "Items"}
+                      {tab === "clothes" ? "Clothes" : tab === "cars" ? "Cars" : tab === "homes" ? "Homes" : tab === "grocery" ? "Grocery" : tab === "items" ? "Items" : "Inventory"}
                     </button>
                   ))}
                 </div>
@@ -1901,6 +2121,13 @@ export default function App() {
                     </article>
                   );
                 })}
+                  </>
+                )}
+                {shopTab === "inventory" && (
+                  <>
+                    <h3>Inventory — everything you own</h3>
+                    <p className="muted">Bought it, it lives here. Equip clothes, drive cars, eat food — straight from your inventory.</p>
+                    {inventorySections()}
                   </>
                 )}
               </div>
