@@ -3,7 +3,7 @@ import { neon } from "@neondatabase/serverless";
 import { createClient } from "@supabase/supabase-js";
 import { Redis } from "@upstash/redis";
 import { ensureDaily, handleLive, noteEarn } from "./live.js";
-import { adBuy, adCompose, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus, adSubmit } from "./ads.js";
+import { adBuy, adCompose, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus, adSubmit, officeSolBuy, officeSolCompose, officeSolLeasesFor, officeSolQuote, officeSolStatus, officeSolSubmit } from "./ads.js";
 import { authMode, checkReauth, handleAuthOp, looksLikeAccountToken, supabasePublic, verifyAccessToken } from "./auth.js";
 import { audit, chainShopEnabled, confirmSend, ensureWallet, exportWallet, latestBlockhash, networkName, publicBalance, quoteSend, submitSignedTx, walletView } from "./wallet.js";
 import { AccessToken } from "livekit-server-sdk";
@@ -481,13 +481,16 @@ function taskPayFor(id, streak, task) {
 
 // OrbitX Tower offices (floors 2-4). 25 suites: 24 claimable + the
 // Founder's Office, which belongs to OrbitX and is never for sale.
-// Leases are paid in City Sol only — the game's own money. There is no
-// real-money price, no SOL, no ORBITX and no burn for offices; buy+burn
-// is ads/banners only. Prices are opening prices: standard (floors 2-3)
+// Leases are paid in City Sol by default — the game's own money. A
+// project may also rent in real SOL (office-sol-* ops): the payment buys
+// ORBITX and burns it all, same as billboards. Real money is
+// ads/banners + office rentals ONLY — nothing else in the game takes it.
+// Prices are opening prices: standard (floors 2-3)
 // 100/day, 500/week, 1500/month; premium (floor 4) 250/day, 1200/week,
 // 3500/month. A new player starts at 60,000 City Sol and jobs pay 40-90,
 // so a standard day is affordable on day one and a standard week takes
-// a few days of playing.
+// a few days of playing. Real-SOL prices are USD per term, per tier, and
+// stay under $5 (standard $0.99/$2.99/$4.49, premium $1.49/$3.99/$4.99).
 const OFFICES = [
   { id: "office-f2-a", name: "Suite 2A", floor: 2, tier: "standard", claimable: true },
   { id: "office-f2-b", name: "Suite 2B", floor: 2, tier: "standard", claimable: true },
@@ -1567,6 +1570,13 @@ async function ensureSchema() {
   )`;
   await sql`ALTER TABLE office_claims ADD COLUMN IF NOT EXISTS server_id INTEGER NOT NULL DEFAULT 1`;
   await sql`ALTER TABLE office_claims ADD COLUMN IF NOT EXISTS theme TEXT NOT NULL DEFAULT ''`;
+  // Real-SOL leases (office-sol-*): the claim row carries the burn
+  // receipt. Added with the SOL lease feature; older rows read as "city".
+  await sql`ALTER TABLE office_claims ADD COLUMN IF NOT EXISTS paid TEXT NOT NULL DEFAULT 'city'`;
+  await sql`ALTER TABLE office_claims ADD COLUMN IF NOT EXISTS sol_lamports BIGINT NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE office_claims ADD COLUMN IF NOT EXISTS burn_signature TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE office_claims ADD COLUMN IF NOT EXISTS orbitx_amount TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE office_claims ADD COLUMN IF NOT EXISTS order_id TEXT NOT NULL DEFAULT ''`;
   // Re-key a pre-multiverse office_claims table (PK was suite alone).
   // Best effort, same as properties above.
   try {
@@ -2694,6 +2704,15 @@ function publicOfficeClaim(row) {
     price: Number(row.price),
     claimed_at: row.claimed_at || "",
     theme: row.theme || "",
+    // Real-SOL leases (office-sol-*): paid is "sol", price is 0 City
+    // Sol, and the burn receipt rides along. verified is the trust
+    // signal — a project that paid real SOL is a verified project.
+    paid: row.paid || "city",
+    solLamports: Number(row.sol_lamports || 0),
+    burned: Math.floor(Number(row.orbitx_amount || "0") / 1e6),
+    burnSignature: row.burn_signature || "",
+    orderId: row.order_id || "",
+    verified: row.paid === "sol",
   };
 }
 
@@ -2712,6 +2731,11 @@ function officeClaimRow(row) {
     price: Number(row.price),
     claimed_at: row.claimed_at || "",
     theme: row.theme || "",
+    paid: row.paid || "city",
+    sol_lamports: Number(row.sol_lamports || 0),
+    burn_signature: row.burn_signature || "",
+    orbitx_amount: row.orbitx_amount || "",
+    order_id: row.order_id || "",
   };
 }
 
@@ -2731,9 +2755,9 @@ async function saveOfficeClaim(claim) {
   const sql = db();
   if (sql) {
     await ensureSchema();
-    await sql`INSERT INTO office_claims (suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at, theme)
-      VALUES (${row.suite}, ${row.server_id}, ${row.owner_id}, ${row.owner_name}, ${row.project}, ${row.logo}, ${row.site}, ${Number(row.term_days)}, ${row.start}, ${row.until}, ${Number(row.price)}, ${row.claimed_at}, ${row.theme})
-      ON CONFLICT (suite, server_id) DO UPDATE SET owner_id = EXCLUDED.owner_id, owner_name = EXCLUDED.owner_name, project = EXCLUDED.project, logo = EXCLUDED.logo, site = EXCLUDED.site, term_days = EXCLUDED.term_days, start = EXCLUDED.start, until = EXCLUDED.until, price = EXCLUDED.price, claimed_at = EXCLUDED.claimed_at, theme = EXCLUDED.theme`;
+await sql`INSERT INTO office_claims (suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at, theme, paid, sol_lamports, burn_signature, orbitx_amount, order_id)
+      VALUES (${row.suite}, ${row.server_id}, ${row.owner_id}, ${row.owner_name}, ${row.project}, ${row.logo}, ${row.site}, ${Number(row.term_days)}, ${row.start}, ${row.until}, ${Number(row.price)}, ${row.claimed_at}, ${row.theme}, ${row.paid || "city"}, ${Number(row.sol_lamports || 0)}, ${row.burn_signature || ""}, ${String(row.orbitx_amount || "")}, ${row.order_id || ""})
+      ON CONFLICT (suite, server_id) DO UPDATE SET owner_id = EXCLUDED.owner_id, owner_name = EXCLUDED.owner_name, project = EXCLUDED.project, logo = EXCLUDED.logo, site = EXCLUDED.site, term_days = EXCLUDED.term_days, start = EXCLUDED.start, until = EXCLUDED.until, price = EXCLUDED.price, claimed_at = EXCLUDED.claimed_at, theme = EXCLUDED.theme, paid = EXCLUDED.paid, sol_lamports = EXCLUDED.sol_lamports, burn_signature = EXCLUDED.burn_signature, orbitx_amount = EXCLUDED.orbitx_amount, order_id = EXCLUDED.order_id`;
     return;
   }
   const cache = redis();
@@ -2768,11 +2792,23 @@ async function deleteOfficeClaim(suiteId, serverId = 1) {
 async function readOfficeClaims(serverId) {
   const client = sb();
   if (client) {
-    let query = client
-      .from("office_claims")
-      .select("suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at, theme");
+    // The SOL columns land with the office-sol migration — until it is
+    // applied, a select naming them errors, so fall back to the legacy
+    // columns and the directory still works (SOL fields read as empty).
+    const legacyCols = "suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at";
+    const solCols = "paid, sol_lamports, burn_signature, orbitx_amount, order_id";
+    let query = client.from("office_claims").select(`${legacyCols}, theme, ${solCols}`);
     if (isServerId(serverId)) query = query.eq("server_id", serverId);
-    const { data, error } = await query;
+    let { data, error } = await query;
+    if (error) {
+      noteSupabase(error.message);
+      let retry = client.from("office_claims").select(legacyCols);
+      if (isServerId(serverId)) retry = retry.eq("server_id", serverId);
+      const second = await retry;
+      data = second.data;
+      error = second.error;
+      if (error) noteSupabase(error.message);
+    }
     if (!error && data) return data.map(officeClaimRow);
     if (error) noteSupabase(error.message);
   }
@@ -2780,8 +2816,8 @@ async function readOfficeClaims(serverId) {
   if (sql) {
     await ensureSchema();
     const rows = isServerId(serverId)
-      ? await sql`SELECT suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at, theme FROM office_claims WHERE server_id = ${serverId}`
-      : await sql`SELECT suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at, theme FROM office_claims`;
+      ? await sql`SELECT suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at, theme, paid, sol_lamports, burn_signature, orbitx_amount, order_id FROM office_claims WHERE server_id = ${serverId}`
+      : await sql`SELECT suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at, theme, paid, sol_lamports, burn_signature, orbitx_amount, order_id FROM office_claims`;
     return rows.map(officeClaimRow);
   }
   const cache = redis();
@@ -6130,7 +6166,20 @@ export async function POST(request) {
 
   // Real billboards: pay SOL from the in-app wallet, Jupiter swaps
   // SOL -> ORBITX, and the received ORBITX is burned. 100% buy + burn.
-  const adCtx = { sb, note: noteSupabase, readBookings, saveBooking, savePlayer };
+  // The office SOL lease flow (office-sol-*) shares this context: the
+  // suite lookup, availability check and claim write come from city.js,
+  // the buy+burn itself lives in ads.js.
+  const anyOfficeSuite = (id) => officeSuite(id) || districtOfficeSuite(id);
+  const adCtx = {
+    sb,
+    note: noteSupabase,
+    readBookings,
+    saveBooking,
+    savePlayer,
+    officeSuite: anyOfficeSuite,
+    officeTaken: async (id, server) => activeOfficeClaim(await readOfficeClaims(server), id, server),
+    saveOfficeLeaseClaim: saveOfficeClaim,
+  };
   const adReply = async (result) => {
     const { status, ...payload } = result;
     if (result.ok) payload.me = publicPlayer(player);
@@ -6153,6 +6202,24 @@ export async function POST(request) {
     return adReply(await adSubmit(adCtx, player, body));
   }
   if (op === "book") return adReply(await adBuy(adCtx, player, body));
+
+  // Office leases in real SOL (office-sol-*): rent a suite in SOL, the
+  // payment buys ORBITX and burns it all — same single-transaction
+  // buy+burn as billboards. The lease lands in the shared office_claims
+  // table with paid: "sol", so a SOL lease and a City Sol claim on the
+  // same suite block each other, and the directory shows it.
+  if (op === "office-sol-quote") return adReply(await officeSolQuote(adCtx, player, body));
+  if (op === "office-sol-status") return adReply(await officeSolStatus(adCtx, player, body));
+  if (op === "office-sol-leases") return adReply(await officeSolLeasesFor(adCtx, player));
+  if (op === "office-sol-compose") {
+    if (!player.authUser) return json({ ok: false, message: "Create an account to rent an office in SOL. Guests keep City Sol only." }, 400);
+    return adReply(await officeSolCompose(adCtx, player, body));
+  }
+  if (op === "office-sol-submit") {
+    if (!player.authUser) return json({ ok: false, message: "Create an account to rent an office in SOL. Guests keep City Sol only." }, 400);
+    return adReply(await officeSolSubmit(adCtx, player, body));
+  }
+  if (op === "office-sol-buy") return adReply(await officeSolBuy(adCtx, player, body));
 
   const radioReply = async (result) => {
     const { status, ...payload } = result;

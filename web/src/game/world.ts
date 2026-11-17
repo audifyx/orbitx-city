@@ -875,6 +875,34 @@ class CityWorld {
     return this.call("ad-submit", { orderId, signedTx });
   }
 
+  // Office leases in real SOL: rent a suite in SOL, the payment buys
+  // ORBITX and burns it all — same single-transaction buy+burn as
+  // billboards. Compose/submit is the on-device PIN wallet path; buy is
+  // the server-held in-app wallet path.
+  async officeSolQuote(suite: string, server: number, days: number, project: string, logo: string, site: string, extend = false) {
+    return this.call("office-sol-quote", { suite, server, days, project, logo, site, extend });
+  }
+
+  async officeSolBuy(suite: string, server: number, days: number, project: string, logo: string, site: string, idempotencyKey = "", extend = false) {
+    return this.call("office-sol-buy", { suite, server, days, project, logo, site, idempotencyKey, extend });
+  }
+
+  async officeSolCompose(suite: string, server: number, days: number, project: string, logo: string, site: string, address: string, idempotencyKey = "", extend = false) {
+    return this.call("office-sol-compose", { suite, server, days, project, logo, site, address, idempotencyKey, extend });
+  }
+
+  async officeSolSubmit(orderId: string, signedTx: string) {
+    return this.call("office-sol-submit", { orderId, signedTx });
+  }
+
+  async officeSolStatus(orderId: string) {
+    return this.call("office-sol-status", { orderId });
+  }
+
+  async officeSolLeases() {
+    return this.call("office-sol-leases", {});
+  }
+
   private async call(op: string, extra: Record<string, unknown>, auth: boolean | "account" = true) {
     // Fail closed on the server id: live.js 400s EVERY live op (including the
     // 1s digest) on an invalid explicit `server`. Only 1-5 may ever be sent;

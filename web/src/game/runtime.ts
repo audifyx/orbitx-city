@@ -356,6 +356,29 @@ export interface AdOrder {
   expiresAt: string;
 }
 
+export interface OfficeSolLease {
+  id: string;
+  suite: string;
+  server: number;
+  tier: string;
+  days: number;
+  extend: boolean;
+  project: string;
+  logo: string;
+  site: string;
+  status: string;
+  solLamports: number;
+  priceUsd: number;
+  priceSol: number;
+  orbitxAmount: string;
+  swapSignature: string;
+  burnSignature: string;
+  swapUrl: string;
+  burnUrl: string;
+  error: string;
+  expiresAt: string;
+}
+
 // A track on the public radio. Playback is personal: the file plays on the
 // device that pressed play and is never broadcast to other players.
 export interface RadioTrack {
@@ -8452,6 +8475,78 @@ export function createRuntime(scene: Scene) {
     }
   }
 
+  // Office leases in real SOL: rent a suite in SOL, the payment buys
+  // ORBITX and burns it all — same single-transaction buy+burn as
+  // billboards. leaseOfficeSol pays from the server-held in-app wallet
+  // (mirrors book); leaseOfficeSolLocal pays from the PIN-unlocked
+  // on-device wallet (mirrors bookLocal).
+  async function quoteOfficeSol(suite: string, server: number, days: number, project: string, logo: string, site: string, extend = false) {
+    if (!world.online) return { ok: false as const, message: "Sign in to price an office in SOL. Guests use City Sol only." };
+    try {
+      return await world.officeSolQuote(suite, server, days, project, logo, site, extend);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "The quote failed." };
+    }
+  }
+
+  async function leaseOfficeSol(suite: string, server: number, days: number, project: string, logo: string, site: string, extend = false) {
+    if (!world.online) return { ok: false as const, message: "Sign in to rent an office in SOL. Guests use City Sol only." };
+    try {
+      const data = await world.officeSolBuy(suite, server, days, project, logo, site, crypto.randomUUID(), extend);
+      if (!data.ok) {
+        const message = String(data.message || "Lease refused.");
+        say(message);
+        return { ok: false as const, message };
+      }
+      const message = String(data.message || "Swap sent.");
+      say(message);
+      return { ok: true as const, message, lease: data.lease as OfficeSolLease | undefined };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "The city refused the lease.";
+      say(message);
+      return { ok: false as const, message };
+    }
+  }
+
+  async function leaseOfficeSolLocal(suite: string, server: number, days: number, project: string, logo: string, site: string, extend = false) {
+    if (!world.online) return { ok: false as const, message: "Sign in to rent an office in SOL. Guests use City Sol only." };
+    if (!hasLocalWallet()) return { ok: false as const, message: "No on-device wallet yet — create one in the Wallet panel first." };
+    if (!isLocalWalletUnlocked()) return { ok: false as const, message: "Unlock your on-device wallet with your PIN first." };
+    try {
+      const data = await world.officeSolCompose(suite, server, days, project, logo, site, localWalletAddress(), crypto.randomUUID(), extend);
+      const unsignedTx = String((data as { unsignedTx?: string }).unsignedTx || "");
+      if (!unsignedTx) throw new Error("The city did not return a transaction to sign.");
+      const signedTx = signVersionedTx(unsignedTx);
+      const done = await world.officeSolSubmit(String((data.lease as { id?: string } | undefined)?.id || ""), signedTx);
+      const message = String((done as { message?: string }).message || "Swap sent.");
+      say(message);
+      await refreshLocalWallet();
+      return { ok: true as const, message, lease: (done as { lease?: OfficeSolLease }).lease };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "The city refused the lease.";
+      say(message);
+      return { ok: false as const, message };
+    }
+  }
+
+  async function officeSolStatus(orderId: string) {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      return await world.officeSolStatus(orderId);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Could not load the lease." };
+    }
+  }
+
+  async function officeSolLeases() {
+    if (!world.online) return { ok: false as const, message: "Offline.", leases: [] as OfficeSolLease[] };
+    try {
+      return await world.officeSolLeases();
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Could not load your leases.", leases: [] as OfficeSolLease[] };
+    }
+  }
+
   // In-game radio: the playlist is shared, the sound is personal.
   async function radioList() {
     if (!world.online) return { ok: false as const, message: "Offline.", tracks: [] as RadioTrack[] };
@@ -10537,6 +10632,11 @@ export function createRuntime(scene: Scene) {
     adRetryBurn,
     adRemove,
     adOrders,
+    quoteOfficeSol,
+    leaseOfficeSol,
+    leaseOfficeSolLocal,
+    officeSolStatus,
+    officeSolLeases,
     radioList,
     radioUploadUrl,
     radioRegister,

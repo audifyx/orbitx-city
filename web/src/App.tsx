@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
-import type { AdOrder, CityStats, MyPropertyClaim, PanelName, RadioTrack, Runtime, ShopCatalogData, ShopTab, Snap } from "./game/runtime";
+import type { AdOrder, CityStats, MyPropertyClaim, OfficeSolLease, PanelName, RadioTrack, Runtime, ShopCatalogData, ShopTab, Snap } from "./game/runtime";
 import { EMPTY_CITY_PEOPLE, FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/runtime";
 import { PROXIMITY_RANGE, VOICE_FILTERS } from "./game/voice";
 import { allLooks, loadLooks, lookName } from "./game/avatar";
-import { GROCERY_FOOD_BY_ID, GYM_WORKOUTS, OFFICE_SUITES, RECIPES, RESTAURANT_BY_ID, RESTAURANT_MENUS, adUsdPrice, foodSpeedMult, hungerLabel } from "./game/content";
+import { GROCERY_FOOD_BY_ID, GYM_WORKOUTS, OFFICE_SUITES, RECIPES, RESTAURANT_BY_ID, RESTAURANT_MENUS, adUsdPrice, foodSpeedMult, hungerLabel, officeSolUsdPrice } from "./game/content";
 import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
 import { CharacterSelect } from "./Roster";
@@ -118,6 +118,14 @@ interface OfficeClaimState {
   price: number;
   claimed_at: string;
   theme: string;
+  // Real-SOL lease receipt (office-sol-*): paid is "sol", price is 0
+  // City Sol, verified marks a project that paid real SOL.
+  paid?: string;
+  solLamports?: number;
+  burned?: number;
+  burnSignature?: string;
+  orderId?: string;
+  verified?: boolean;
 }
 
 interface OfficeSuiteState {
@@ -544,6 +552,14 @@ export default function App() {
   const [officeMsg, setOfficeMsg] = useState("");
   const [officeBusy, setOfficeBusy] = useState(false);
   const [officeSuite, setOfficeSuite] = useState("");
+  // Real-SOL office leases (office-sol-*): pay in SOL, the payment buys
+  // ORBITX and burns it all — same as billboards. The quote step mirrors
+  // the Ads panel (Get price, then Confirm & pay).
+  const [officePay, setOfficePay] = useState<"city" | "sol">("city");
+  const [officeSolQuoteData, setOfficeSolQuoteData] = useState<{ priceUsd: number; priceSol: number; estOrbitxUi: string; endsAt: string } | null>(null);
+  const [officeSolPin, setOfficeSolPin] = useState("");
+  const [officeSolLeases, setOfficeSolLeases] = useState<OfficeSolLease[]>([]);
+  const [officeExtend, setOfficeExtend] = useState(false);
   // My Properties panel (HUD fast access): one snapshot of everything the
   // player owns on the current universe.
   const [myProps, setMyProps] = useState<MyPropertyRow[] | null>(null);
@@ -616,6 +632,10 @@ export default function App() {
   const [districtProject, setDistrictProject] = useState("");
   const [districtLogo, setDistrictLogo] = useState("");
   const [districtSite, setDistrictSite] = useState("");
+  // Real-SOL leases for district suites — same flow as the HQ panel.
+  const [districtPay, setDistrictPay] = useState<"city" | "sol">("city");
+  const [districtSolQuoteData, setDistrictSolQuoteData] = useState<{ priceUsd: number; priceSol: number; estOrbitxUi: string; endsAt: string } | null>(null);
+  const [districtSolPin, setDistrictSolPin] = useState("");
   // State homes (Home panel, current universe only).
   const [homeMine, setHomeMine] = useState<OwnedHome[]>([]);
   const [homeServer, setHomeServer] = useState(0);
@@ -812,6 +832,11 @@ export default function App() {
     void callCity("office-claims").then((res) => {
       if (res.ok && Array.isArray(res.offices)) setOffices(res.offices as OfficeSuiteState[]);
       else setOfficeMsg(String(res.message || "Could not load the office directory."));
+    });
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    void rt.officeSolLeases().then((res) => {
+      if (res.ok) setOfficeSolLeases(((res as { leases?: OfficeSolLease[] }).leases || []) as OfficeSolLease[]);
     });
   }, [panel]);
 
@@ -2744,7 +2769,8 @@ export default function App() {
             {panel === "offices" && (
               <div className="list">
                 <p className="muted">
-                  Tower offices lease for City Sol — the game&apos;s own money. No real SOL, no ORBITX, nothing burned.
+                  Tower offices lease for City Sol — the game&apos;s own money — or rent in real SOL: the payment buys
+                  ORBITX and burns it all, same as billboards, and marks your project verified. Under $5, any term.
                   One active claim per suite. A lease runs to its end date; releasing early ends it with no refund.
                 </p>
                 <p>Your balance {snap.balance} City Sol</p>
@@ -2773,6 +2799,9 @@ export default function App() {
                                 ) : null}
                                 Claimed by {suite.claim.project} until {suite.claim.until}
                                 {suite.claim.theme ? ` · ${OFFICE_THEMES[suite.claim.theme]?.label ?? suite.claim.theme} theme` : ""}
+                                {suite.claim.verified ? (
+                                  <> ✓ Verified project — rented in SOL{suite.claim.burned ? ` · burned ${suite.claim.burned} ORBITX` : ""}</>
+                                ) : null}
                                 {suite.claim.site ? (
                                   <>
                                     {" "}· <a href={suite.claim.site} target="_blank" rel="noreferrer">Visit site</a>
@@ -2790,6 +2819,9 @@ export default function App() {
                                 setOfficeSuite(suite.id);
                                 setOfficeTerm(7);
                                 setOfficeMsg("");
+                                setOfficePay("city");
+                                setOfficeSolQuoteData(null);
+                                setOfficeExtend(false);
                               }}
                             >
                               Claim
@@ -2841,15 +2873,85 @@ export default function App() {
                 ))}
                 {(() => {
                   const selected = offices.find((suite) => suite.id === officeSuite) || null;
-                  if (!selected || !selected.claimable || selected.claim) return null;
+                  if (!selected || !selected.claimable) return null;
+                  // An extend re-leases a suite the player already holds
+                  // (SOL only); a fresh claim needs the suite free.
+                  if (selected.claim && !(officeExtend && selected.claim.owner_id === snap.meId)) return null;
                   const price = selected.prices[officeTerm];
+                  const solPrice = officeSolUsdPrice(selected.tier, officeTerm);
                   return (
                     <form
                       onSubmit={async (event) => {
                         event.preventDefault();
                         if (officeBusy) return;
+                        const rt = gameRef.current?.runtime;
                         setOfficeBusy(true);
                         setOfficeMsg("");
+                        if (officePay === "sol") {
+                          // Real-SOL rent: quote first (Get price), then
+                          // Confirm & pay — on-device PIN wallet when one
+                          // exists on this phone, else the in-app wallet.
+                          // Same single-transaction buy+burn as billboards.
+                          if (!rt) {
+                            setOfficeMsg("The game is not ready yet.");
+                            setOfficeBusy(false);
+                            return;
+                          }
+                          if (!officeSolQuoteData) {
+                            const q = await rt.quoteOfficeSol(selected.id, 1, officeTerm, officeProject, officeLogo, officeSite, officeExtend);
+                            if (q.ok) {
+                              setOfficeSolQuoteData({
+                                priceUsd: Number((q as { priceUsd?: number }).priceUsd || 0),
+                                priceSol: Number((q as { priceSol?: number }).priceSol || 0),
+                                estOrbitxUi: String((q as { estOrbitxUi?: string }).estOrbitxUi || ""),
+                                endsAt: String((q as { endsAt?: string }).endsAt || ""),
+                              });
+                            } else {
+                              setOfficeMsg(String((q as { message?: string }).message || "The quote failed."));
+                            }
+                            setOfficeBusy(false);
+                            return;
+                          }
+                          let res;
+                          if (snap.localAddress) {
+                            if (!snap.localUnlocked) {
+                              if (!officeSolPin) {
+                                setOfficeMsg("Enter your wallet PIN to pay from your on-device wallet.");
+                                setOfficeBusy(false);
+                                return;
+                              }
+                              const unlocked = await rt.unlockLocalWallet(officeSolPin);
+                              if (!unlocked.ok) {
+                                setOfficeMsg(String(unlocked.message || "Wrong PIN."));
+                                setOfficeBusy(false);
+                                return;
+                              }
+                              setOfficeSolPin("");
+                            }
+                            res = await rt.leaseOfficeSolLocal(selected.id, 1, officeTerm, officeProject, officeLogo, officeSite, officeExtend);
+                          } else {
+                            res = await rt.leaseOfficeSol(selected.id, 1, officeTerm, officeProject, officeLogo, officeSite, officeExtend);
+                          }
+                          triggerHaptic(res.ok ? "success" : "error");
+                          if (res.ok) {
+                            setOfficeMsg(String(res.message || "Rented."));
+                            const dir = await callCity("office-claims");
+                            if (dir.ok && Array.isArray(dir.offices)) setOffices(dir.offices as OfficeSuiteState[]);
+                            const mine = await rt.officeSolLeases();
+                            if (mine.ok) setOfficeSolLeases(((mine as { leases?: OfficeSolLease[] }).leases || []) as OfficeSolLease[]);
+                            setOfficeSuite("");
+                            setOfficeProject("");
+                            setOfficeLogo("");
+                            setOfficeSite("");
+                            setOfficeSolQuoteData(null);
+                            setOfficeExtend(false);
+                            gameRef.current?.runtime.refreshMe();
+                          } else {
+                            setOfficeMsg(String(res.message || "Lease failed."));
+                          }
+                          setOfficeBusy(false);
+                          return;
+                        }
                         const res = await callCity("office-claim", {
                           suite: selected.id,
                           term_days: officeTerm,
@@ -2875,16 +2977,26 @@ export default function App() {
                         setOfficeBusy(false);
                       }}
                     >
-                      <h3>Claim {selected.name} — Floor {selected.floor}</h3>
+                      <h3>{officeExtend ? "Extend" : "Claim"} {selected.name} — Floor {selected.floor}</h3>
+                      {!officeExtend ? (
+                        <div className="days">
+                          <button type="button" className={officePay === "city" ? "on" : ""} onClick={() => { setOfficePay("city"); setOfficeSolQuoteData(null); }}>
+                            City Sol
+                          </button>
+                          <button type="button" className={officePay === "sol" ? "on" : ""} onClick={() => { setOfficePay("sol"); setOfficeSolQuoteData(null); }}>
+                            Pay in SOL · verified
+                          </button>
+                        </div>
+                      ) : null}
                       <div className="days">
                         {([1, 7, 30] as const).map((days) => (
                           <button
                             key={days}
                             type="button"
                             className={officeTerm === days ? "on" : ""}
-                            onClick={() => setOfficeTerm(days)}
+                            onClick={() => { setOfficeTerm(days); setOfficeSolQuoteData(null); }}
                           >
-                            {days === 1 ? "1 day" : days === 7 ? "7 days" : "30 days"} · {selected.prices[days]} City Sol
+                            {days === 1 ? "1 day" : days === 7 ? "7 days" : "30 days"} · {officePay === "sol" ? `$${officeSolUsdPrice(selected.tier, days).toFixed(2)}` : `${selected.prices[days]} City Sol`}
                           </button>
                         ))}
                       </div>
@@ -2910,18 +3022,77 @@ export default function App() {
                           onChange={(event) => setOfficeSite(event.target.value)}
                         />
                       </label>
-                      <p>
-                        {price} City Sol for {officeTerm === 1 ? "1 day" : officeTerm === 7 ? "7 days" : "30 days"}.
-                        Your balance {snap.balance} City Sol.
-                        {snap.balance < price ? " Not enough City Sol — play jobs to earn more." : ""}
-                      </p>
-                      <button type="submit" disabled={officeBusy || snap.balance < price || !officeProject.trim()}>
-                        {officeBusy ? "Claiming…" : `Confirm — pay ${price} City Sol`}
+                      {officePay === "sol" ? (
+                        officeSolQuoteData ? (
+                          <>
+                            <p>
+                              ${officeSolQuoteData.priceUsd.toFixed(2)} buys ~{officeSolQuoteData.estOrbitxUi} ORBITX ({officeSolQuoteData.priceSol} SOL) and burns it all.
+                              100% buy + burn. No fee, no cut. Live until {officeSolQuoteData.endsAt}.
+                            </p>
+                            {snap.localAddress ? (
+                              <p>Paying from your on-device wallet {shortAddress(snap.localAddress)} · {snap.localSol == null ? "balance not read" : `${snap.localSol} SOL`}.{snap.localUnlocked ? "" : " Enter your PIN below to pay."}</p>
+                            ) : (
+                              <p>Paying from your in-app wallet.</p>
+                            )}
+                          </>
+                        ) : (
+                          <p>Real-SOL rent: pay SOL from your in-app wallet, the city buys ORBITX and burns it all. No fee, no cut. Under $5, any term.</p>
+                        )
+                      ) : (
+                        <p>
+                          {price} City Sol for {officeTerm === 1 ? "1 day" : officeTerm === 7 ? "7 days" : "30 days"}.
+                          Your balance {snap.balance} City Sol.
+                          {snap.balance < price ? " Not enough City Sol — play jobs to earn more." : ""}
+                        </p>
+                      )}
+                      {officePay === "sol" && officeSolQuoteData && snap.localAddress && !snap.localUnlocked ? (
+                        <label>
+                          Wallet PIN
+                          <input type="password" inputMode="numeric" autoComplete="current-password" value={officeSolPin} onChange={(event) => setOfficeSolPin(event.target.value)} />
+                        </label>
+                      ) : null}
+                      <button type="submit" disabled={officeBusy || !officeProject.trim() || (officePay === "city" && snap.balance < price)}>
+                        {officeBusy ? "Working…" : officePay === "sol" ? (officeSolQuoteData ? (snap.localAddress ? "Confirm & pay from on-device wallet" : "Confirm & pay from in-app wallet") : "Get SOL price") : `Confirm — pay ${price} City Sol`}
                       </button>
-                      <button type="button" onClick={() => setOfficeSuite("")}>Cancel</button>
+                      {officePay === "sol" && officeSolQuoteData ? <button type="button" onClick={() => setOfficeSolQuoteData(null)}>Change term</button> : null}
+                      <button type="button" onClick={() => { setOfficeSuite(""); setOfficeSolQuoteData(null); setOfficeExtend(false); }}>Cancel</button>
                     </form>
                   );
                 })()}
+                {officeSolLeases.length ? (
+                  <div>
+                    <p>My SOL leases</p>
+                    {officeSolLeases.map((item) => (
+                      <article key={item.id}>
+                        <div>
+                          <b>{item.suite} — {item.status}</b>
+                          <span>{item.project} · {item.days} days · ${Number(item.priceUsd || 0).toFixed(2)} · until {String(item.expiresAt || "").slice(0, 10)}</span>
+                          {item.burnUrl ? <span><a href={item.burnUrl} target="_blank" rel="noreferrer">Burn tx</a></span> : null}
+                        </div>
+                        {item.status === "live" ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const suite = offices.find((row) => row.id === item.suite);
+                              if (!suite) return;
+                              setOfficeSuite(suite.id);
+                              setOfficeTerm(7);
+                              setOfficeProject(item.project);
+                              setOfficeLogo(item.logo || "");
+                              setOfficeSite(item.site || "");
+                              setOfficePay("sol");
+                              setOfficeSolQuoteData(null);
+                              setOfficeExtend(true);
+                              setOfficeMsg("");
+                            }}
+                          >
+                            Extend in SOL
+                          </button>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             )}
             {panel === "myprops" && (
@@ -3613,7 +3784,7 @@ export default function App() {
                         <article key={suite.id}>
                           <div>
                             <b>{suite.name}</b>
-                            <span>{suite.tier} · {suite.prices[1]} City Sol / day · {suite.prices[7]} / week · {suite.prices[30]} / month{suite.claim ? ` · Claimed by ${suite.claim.project} until ${suite.claim.until}` : ""}</span>
+                            <span>{suite.tier} · {suite.prices[1]} City Sol / day · {suite.prices[7]} / week · {suite.prices[30]} / month{suite.claim ? ` · Claimed by ${suite.claim.project} until ${suite.claim.until}${suite.claim.verified ? ` · ✓ Verified — rented in SOL${suite.claim.burned ? ` · burned ${suite.claim.burned} ORBITX` : ""}` : ""}` : ""}</span>
                           </div>
                           {suite.claimable && !suite.claim ? (
                             <button
@@ -3622,6 +3793,8 @@ export default function App() {
                                 setDistrictSuite(suite.id);
                                 setDistrictTerm(7);
                                 setDistrictMsg("");
+                                setDistrictPay("city");
+                                setDistrictSolQuoteData(null);
                               }}
                             >
                               Claim
@@ -3657,6 +3830,7 @@ export default function App() {
                   const selected = districtOffices.find((suite) => suite.id === districtSuite) || null;
                   if (!selected || !selected.claimable || selected.claim) return null;
                   const price = selected.prices[districtTerm];
+                  const server = snap.universe?.id ?? 1;
                   return (
                     <form
                       onSubmit={async (event) => {
@@ -3665,6 +3839,61 @@ export default function App() {
                         if (!rt || districtBusy) return;
                         setDistrictBusy(true);
                         setDistrictMsg("");
+                        if (districtPay === "sol") {
+                          // Real-SOL rent: quote first (Get price), then
+                          // Confirm & pay — same buy+burn as billboards.
+                          if (!districtSolQuoteData) {
+                            const q = await rt.quoteOfficeSol(selected.id, server, districtTerm, districtProject, districtLogo, districtSite, false);
+                            if (q.ok) {
+                              setDistrictSolQuoteData({
+                                priceUsd: Number((q as { priceUsd?: number }).priceUsd || 0),
+                                priceSol: Number((q as { priceSol?: number }).priceSol || 0),
+                                estOrbitxUi: String((q as { estOrbitxUi?: string }).estOrbitxUi || ""),
+                                endsAt: String((q as { endsAt?: string }).endsAt || ""),
+                              });
+                            } else {
+                              setDistrictMsg(String((q as { message?: string }).message || "The quote failed."));
+                            }
+                            setDistrictBusy(false);
+                            return;
+                          }
+                          let res;
+                          if (snap.localAddress) {
+                            if (!snap.localUnlocked) {
+                              if (!districtSolPin) {
+                                setDistrictMsg("Enter your wallet PIN to pay from your on-device wallet.");
+                                setDistrictBusy(false);
+                                return;
+                              }
+                              const unlocked = await rt.unlockLocalWallet(districtSolPin);
+                              if (!unlocked.ok) {
+                                setDistrictMsg(String(unlocked.message || "Wrong PIN."));
+                                setDistrictBusy(false);
+                                return;
+                              }
+                              setDistrictSolPin("");
+                            }
+                            res = await rt.leaseOfficeSolLocal(selected.id, server, districtTerm, districtProject, districtLogo, districtSite, false);
+                          } else {
+                            res = await rt.leaseOfficeSol(selected.id, server, districtTerm, districtProject, districtLogo, districtSite, false);
+                          }
+                          triggerHaptic(res.ok ? "success" : "error");
+                          if (res.ok) {
+                            setDistrictMsg(res.message);
+                            const rows = await rt.loadDistrictOffices(districtSel);
+                            if (rows.ok) setDistrictOffices(rows.offices as DistrictOfficeDirectoryRow[]);
+                            setDistrictSuite("");
+                            setDistrictProject("");
+                            setDistrictLogo("");
+                            setDistrictSite("");
+                            setDistrictSolQuoteData(null);
+                            rt.refreshMe();
+                          } else {
+                            setDistrictMsg(res.message);
+                          }
+                          setDistrictBusy(false);
+                          return;
+                        }
                         const res = await rt.claimDistrictOffice(selected.id, districtTerm, districtProject, districtLogo, districtSite);
                         triggerHaptic(res.ok ? "success" : "error");
                         if (res.ok) {
@@ -3683,14 +3912,22 @@ export default function App() {
                     >
                       <h3>Claim {selected.name} — Floor {selected.floor}</h3>
                       <div className="days">
+                        <button type="button" className={districtPay === "city" ? "on" : ""} onClick={() => { setDistrictPay("city"); setDistrictSolQuoteData(null); }}>
+                          City Sol
+                        </button>
+                        <button type="button" className={districtPay === "sol" ? "on" : ""} onClick={() => { setDistrictPay("sol"); setDistrictSolQuoteData(null); }}>
+                          Pay in SOL · verified
+                        </button>
+                      </div>
+                      <div className="days">
                         {([1, 7, 30] as const).map((days) => (
                           <button
                             key={days}
                             type="button"
                             className={districtTerm === days ? "on" : ""}
-                            onClick={() => setDistrictTerm(days)}
+                            onClick={() => { setDistrictTerm(days); setDistrictSolQuoteData(null); }}
                           >
-                            {days === 1 ? "1 day" : days === 7 ? "7 days" : "30 days"} · {selected.prices[days]} City Sol
+                            {days === 1 ? "1 day" : days === 7 ? "7 days" : "30 days"} · {districtPay === "sol" ? `$${officeSolUsdPrice(selected.tier, days).toFixed(2)}` : `${selected.prices[days]} City Sol`}
                           </button>
                         ))}
                       </div>
@@ -3706,11 +3943,39 @@ export default function App() {
                         Site URL
                         <input value={districtSite} maxLength={200} placeholder="https://…" onChange={(event) => setDistrictSite(event.target.value)} />
                       </label>
-                      <p>
-                        {price} City Sol for {districtTerm === 1 ? "1 day" : districtTerm === 7 ? "7 days" : "30 days"}.
-                        Your balance {snap.balance} City Sol.
-                      </p>
-                      <button type="submit" disabled={districtBusy || snap.balance < price}>Claim — {price} City Sol</button>
+                      {districtPay === "sol" ? (
+                        districtSolQuoteData ? (
+                          <>
+                            <p>
+                              ${districtSolQuoteData.priceUsd.toFixed(2)} buys ~{districtSolQuoteData.estOrbitxUi} ORBITX ({districtSolQuoteData.priceSol} SOL) and burns it all.
+                              100% buy + burn. No fee, no cut. Live until {districtSolQuoteData.endsAt}.
+                            </p>
+                            {snap.localAddress ? (
+                              <p>Paying from your on-device wallet {shortAddress(snap.localAddress)} · {snap.localSol == null ? "balance not read" : `${snap.localSol} SOL`}.{snap.localUnlocked ? "" : " Enter your PIN below to pay."}</p>
+                            ) : (
+                              <p>Paying from your in-app wallet.</p>
+                            )}
+                          </>
+                        ) : (
+                          <p>Real-SOL rent: pay SOL from your in-app wallet, the city buys ORBITX and burns it all. No fee, no cut. Under $5, any term.</p>
+                        )
+                      ) : (
+                        <p>
+                          {price} City Sol for {districtTerm === 1 ? "1 day" : districtTerm === 7 ? "7 days" : "30 days"}.
+                          Your balance {snap.balance} City Sol.
+                        </p>
+                      )}
+                      {districtPay === "sol" && districtSolQuoteData && snap.localAddress && !snap.localUnlocked ? (
+                        <label>
+                          Wallet PIN
+                          <input type="password" inputMode="numeric" autoComplete="current-password" value={districtSolPin} onChange={(event) => setDistrictSolPin(event.target.value)} />
+                        </label>
+                      ) : null}
+                      <button type="submit" disabled={districtBusy || (districtPay === "city" && snap.balance < price)}>
+                        {districtBusy ? "Working…" : districtPay === "sol" ? (districtSolQuoteData ? (snap.localAddress ? "Confirm & pay from on-device wallet" : "Confirm & pay from in-app wallet") : "Get SOL price") : `Claim — ${price} City Sol`}
+                      </button>
+                      {districtPay === "sol" && districtSolQuoteData ? <button type="button" onClick={() => setDistrictSolQuoteData(null)}>Change term</button> : null}
+                      <button type="button" onClick={() => { setDistrictSuite(""); setDistrictSolQuoteData(null); }}>Cancel</button>
                     </form>
                   );
                 })()}

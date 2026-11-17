@@ -153,8 +153,9 @@ function admins() {
 function store() {
   const slot = globalThis;
   if (!slot.__orbitxAds) {
-    slot.__orbitxAds = { orders: new Map(), limits: new Map(), decimals: 0, mintProgram: new Map() };
+    slot.__orbitxAds = { orders: new Map(), limits: new Map(), decimals: 0, mintProgram: new Map(), officeLeases: new Map() };
   }
+  if (!slot.__orbitxAds.officeLeases) slot.__orbitxAds.officeLeases = new Map();
   return slot.__orbitxAds;
 }
 
@@ -973,4 +974,680 @@ export async function adOrdersFor(ctx, player) {
   }
   mine.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   return { ok: true, orders: mine.slice(0, 10).map(publicOrder) };
+}
+
+// ===========================================================================
+// Office leases in real SOL
+// ===========================================================================
+// Projects can rent an office suite in real SOL: the payment buys ORBITX
+// and burns it all — the SAME single-transaction Jupiter swap + Token-2022
+// burn as billboards (composeBuyBurn below). Offices cost City Sol
+// in-game by default; the real-SOL lease is the second way in, and it is
+// one of only TWO real-money products (ads/banners + office rentals).
+// Nothing else in the game takes real money.
+//
+// Price is USD per term, per tier, and stays under $5 by design:
+// standard $0.99 / $2.99 / $4.49, premium $1.49 / $3.99 / $4.99.
+// The SOL amount is computed at quote and buy time from the live SOL
+// price, like ads. Same caps as ads: 0.5 SOL per buy, 1 SOL/day,
+// 3 buys/hour. A lease is an order with the same state machine as an ad
+// (processing -> composed -> swapping -> burning -> live); when it goes
+// live the suite is claimed in the shared office_claims table with
+// paid: "sol" (ctx.saveOfficeLeaseClaim), so a SOL lease blocks a City
+// Sol claim on the same suite and vice versa, and the directory shows it.
+//
+// The suite lookup, availability check and claim write come from the
+// caller through ctx (city.js owns the office tables):
+//   ctx.officeSuite(id) -> { id, name, floor, tier, claimable } | null
+//   ctx.officeTaken(id, server) -> active claim row | null
+//   ctx.saveOfficeLeaseClaim(claim) -> persists the claim row
+// An extend (body.extend) re-leases a suite the player already holds:
+// the availability check passes for their own claim and the finalize
+// moves that claim's end date instead of writing a fresh claim.
+
+export const OFFICE_SOL_USD_PRICE = {
+  standard: { 1: envNum("OFFICE_SOL_DAY_USD", 0.99), 7: envNum("OFFICE_SOL_WEEK_USD", 2.99), 30: envNum("OFFICE_SOL_MONTH_USD", 4.49) },
+  premium: { 1: envNum("OFFICE_SOL_DAY_USD_PREMIUM", 1.49), 7: envNum("OFFICE_SOL_WEEK_USD_PREMIUM", 3.99), 30: envNum("OFFICE_SOL_MONTH_USD_PREMIUM", 4.99) },
+};
+// Hard ceiling: no office lease may cost $5 or more, whatever the env vars say.
+export const OFFICE_SOL_MAX_USD = 5;
+
+export function officeSolPriceUsd(tier, days) {
+  const table = OFFICE_SOL_USD_PRICE[tier];
+  if (!table) return 0;
+  return table[Number(days)] || 0;
+}
+
+export async function officeSolPriceLamports(tier, days) {
+  const usd = officeSolPriceUsd(tier, days);
+  if (!usd) return 0;
+  const solPrice = await solUsdPrice();
+  return Math.round((usd / solPrice) * LAMPORTS_PER_SOL);
+}
+
+// One buy+burn transaction for an arbitrary real-SOL payment: Jupiter
+// quotes the SOL amount, builds the swap, and the Token-2022 burn for the
+// quote's guaranteed minimum output is appended — the same
+// single-transaction shape as billboards (prepareAdBuy). The caller owns
+// the order row and the finalize step; this only composes.
+export async function composeBuyBurn(owner, priceLamports) {
+  const quote = await getQuote(priceLamports);
+  const swap = await buildSwap(quote.quoteResponse, owner);
+  const burnRaw = String(BigInt(quote.otherAmountThreshold || quote.outAmount || "0"));
+  if (BigInt(burnRaw) <= 0n) throw new Error("Jupiter quoted no ORBITX output to burn.");
+  const composed = await attachBurnToSwap(swap.swapTransaction, { owner, mint: orbitxMint(), burnRaw });
+  return { composed, burnRaw, quote };
+}
+
+function leaseFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    playerId: row.player_id || "",
+    suite: row.suite,
+    server: Number(row.server_id || 1),
+    tier: row.tier || "standard",
+    days: Number(row.days || 0),
+    extend: !!row.extend,
+    project: row.project || "",
+    logo: row.logo || "",
+    site: row.site || "",
+    status: row.status,
+    solLamports: Number(row.sol_lamports || 0),
+    priceUsd: Number(row.price_usd || 0),
+    orbitxAmount: String(row.orbitx_amount || ""),
+    swapSignature: row.swap_signature || "",
+    burnSignature: row.burn_signature || "",
+    idempotencyKey: row.idempotency_key || "",
+    error: row.error || "",
+    createdAt: row.created_at || "",
+    expiresAt: row.expires_at || "",
+    meta: row.meta && typeof row.meta === "object" ? row.meta : {},
+  };
+}
+
+function leaseToRow(lease) {
+  return {
+    id: lease.id,
+    user_id: lease.userId,
+    player_id: lease.playerId,
+    suite: lease.suite,
+    server_id: lease.server,
+    tier: lease.tier,
+    days: lease.days,
+    extend: !!lease.extend,
+    project: lease.project,
+    logo: lease.logo || "",
+    site: lease.site || "",
+    status: lease.status,
+    sol_lamports: lease.solLamports,
+    price_usd: lease.priceUsd,
+    orbitx_amount: lease.orbitxAmount ? String(lease.orbitxAmount) : "0",
+    swap_signature: lease.swapSignature || "",
+    burn_signature: lease.burnSignature || "",
+    idempotency_key: lease.idempotencyKey || "",
+    error: lease.error || "",
+    expires_at: lease.expiresAt || null,
+    meta: lease.meta || {},
+  };
+}
+
+async function persistLease(ctx, lease) {
+  store().officeLeases.set(lease.id, lease);
+  const client = ctx.sb ? ctx.sb() : null;
+  if (!client) return;
+  const { error } = await client.from("office_leases").upsert(leaseToRow(lease));
+  if (error && ctx.note) ctx.note(error.message);
+}
+
+async function loadLease(ctx, id) {
+  const local = store().officeLeases.get(id);
+  if (local) return local;
+  const client = ctx.sb ? ctx.sb() : null;
+  if (!client) return null;
+  const { data, error } = await client.from("office_leases").select("*").eq("id", id).maybeSingle();
+  if (error) {
+    if (ctx.note) ctx.note(error.message);
+    return null;
+  }
+  const lease = leaseFromRow(data);
+  if (lease) store().officeLeases.set(lease.id, lease);
+  return lease;
+}
+
+async function loadLeaseByKey(ctx, key) {
+  for (const lease of store().officeLeases.values()) {
+    if (lease.idempotencyKey === key) return lease;
+  }
+  const client = ctx.sb ? ctx.sb() : null;
+  if (!client) return null;
+  const { data, error } = await client.from("office_leases").select("*").eq("idempotency_key", key).maybeSingle();
+  if (error) {
+    if (ctx.note) ctx.note(error.message);
+    return null;
+  }
+  const lease = leaseFromRow(data);
+  if (lease) store().officeLeases.set(lease.id, lease);
+  return lease;
+}
+
+export function publicLease(lease) {
+  return {
+    id: lease.id,
+    suite: lease.suite,
+    server: lease.server,
+    tier: lease.tier,
+    days: lease.days,
+    extend: !!lease.extend,
+    project: lease.project,
+    logo: lease.logo || "",
+    site: lease.site || "",
+    status: lease.status,
+    solLamports: lease.solLamports,
+    priceUsd: lease.priceUsd,
+    priceSol: Number(lease.solLamports || 0) / LAMPORTS_PER_SOL,
+    orbitxAmount: lease.orbitxAmount || "",
+    swapSignature: lease.swapSignature || "",
+    burnSignature: lease.burnSignature || "",
+    swapUrl: explorerUrl(lease.swapSignature),
+    burnUrl: explorerUrl(lease.burnSignature),
+    error: lease.error || "",
+    createdAt: lease.createdAt || "",
+    expiresAt: lease.expiresAt || "",
+  };
+}
+
+function officeSolSpendToday(userId) {
+  const since = Date.now() - DAY_MS;
+  let sum = 0;
+  for (const lease of store().officeLeases.values()) {
+    if (lease.userId !== userId) continue;
+    if (!["processing", "swapping", "burning", "live"].includes(lease.status)) continue;
+    if (Date.parse(lease.createdAt || "") < since) continue;
+    sum += Number(lease.solLamports || 0);
+  }
+  return sum;
+}
+
+function addDaysISO(isoDate, days) {
+  const at = Date.parse(`${isoDate}T00:00:00Z`);
+  if (!Number.isFinite(at)) return endStr(days);
+  return new Date(at + Number(days) * DAY_MS).toISOString().slice(0, 10);
+}
+
+// The office_claims row a live SOL lease writes. Pure (testable): the
+// claim is the lease — same table, same key, same directory as a City
+// Sol claim, plus paid: "sol" and the burn receipt. price stays 0
+// (no City Sol changed hands).
+export function leaseClaimRow(order, player) {
+  const start = todayStr();
+  return {
+    suite: order.suite,
+    server_id: order.server,
+    owner_id: player.id,
+    owner_name: player.name,
+    project: order.project,
+    logo: order.logo || "",
+    site: order.site || "",
+    term_days: order.days,
+    start,
+    until: endStr(order.days),
+    price: 0,
+    claimed_at: order.createdAt || new Date().toISOString(),
+    paid: "sol",
+    sol_lamports: order.solLamports,
+    burn_signature: order.burnSignature || "",
+    orbitx_amount: order.orbitxAmount || "",
+    order_id: order.id,
+  };
+}
+
+function leaseProjectFields(body) {
+  const project = String(body.project || "").trim().slice(0, 48);
+  const logo = String(body.logo || "").trim().slice(0, 200);
+  const site = String(body.site || "").trim().slice(0, 200);
+  if (!project) return { error: "Name the project renting this office." };
+  for (const url of [logo, site]) {
+    if (url && !/^https?:\/\//i.test(url)) return { error: "Logo and site links must start with http:// or https://." };
+  }
+  return { project, logo, site };
+}
+
+function leaseServer(body) {
+  const server = Number(body.server) || 1;
+  return [1, 2, 3, 4, 5].includes(server) ? server : 0;
+}
+
+export async function officeSolQuote(ctx, player, body) {
+  if (!player.authUser) return fail("Create an account to rent an office in SOL. Guests keep City Sol only.");
+  const server = leaseServer(body);
+  if (!server) return fail("Pick a server (1-5).");
+  const suite = ctx.officeSuite ? ctx.officeSuite(String(body.suite || "")) : null;
+  if (!suite) return fail("Unknown office suite.");
+  if (!suite.claimable) return fail("The Founder's Office belongs to OrbitX. It is never for sale.");
+  const days = Number(body.term_days ?? body.days);
+  if (![1, 7, 30].includes(days)) return fail("Pick a 1-day, 7-day, or 30-day lease.");
+  const fields = leaseProjectFields(body);
+  if (fields.error) return fail(fields.error);
+  const usd = officeSolPriceUsd(suite.tier, days);
+  if (!usd || usd >= OFFICE_SOL_MAX_USD) return fail("That lease is over the $5 cap.");
+  const taken = ctx.officeTaken ? await ctx.officeTaken(suite.id, server) : null;
+  const extend = !!body.extend;
+  if (taken && !(extend && taken.owner_id === player.id)) {
+    return fail(`${suite.name} is already claimed by ${taken.project} until ${taken.until}.`);
+  }
+  let price;
+  try {
+    price = await officeSolPriceLamports(suite.tier, days);
+  } catch (err) {
+    return fail(err.message || "The SOL price could not be read. Nothing was bought.", 502);
+  }
+  if (price > AD_MAX_SOL_LAMPORTS) {
+    return fail(`That lease is over the ${AD_MAX_SOL_LAMPORTS / LAMPORTS_PER_SOL} SOL per-buy cap.`);
+  }
+  let quote;
+  try {
+    quote = await getQuote(price);
+  } catch (err) {
+    return fail(err.message || "The quote failed. Nothing was bought.", 502);
+  }
+  const dec = await decimals();
+  const estOrbitx = Number(quote.outAmount || 0);
+  return {
+    ok: true,
+    suite: suite.id,
+    name: suite.name,
+    tier: suite.tier,
+    server,
+    days,
+    extend,
+    priceUsd: usd,
+    priceSol: price / LAMPORTS_PER_SOL,
+    priceLamports: price,
+    estOrbitx: quote.outAmount,
+    estOrbitxUi: (estOrbitx / 10 ** dec).toFixed(0),
+    endsAt: endStr(days),
+    pricesUsd: OFFICE_SOL_USD_PRICE,
+    burnNote: "100% buy + burn. No fee, no cut — every ORBITX bought is burned.",
+  };
+}
+
+// Advance one lease one step. Safe to call repeatedly (polling).
+// swapping -> (single buy+burn tx confirmed) -> claim written + live
+// A failed single transaction lands on swap-failed: nothing was bought,
+// so the same click retries the whole buy+burn (officeSolBuy re-runs a
+// swap-failed lease on the same idempotency key).
+export async function advanceOfficeLease(ctx, order, player) {
+  if (order.status === "swapping") {
+    const status = await getSignatureStatus(order.swapSignature);
+    if (!status) return order;
+    if (status === "failed") {
+      order.status = "swap-failed";
+      order.error = "The buy+burn transaction failed on-chain. No ORBITX was bought and no lease was made — try again and it retries in one click.";
+      await persistLease(ctx, order);
+      return order;
+    }
+    // One transaction did both jobs: measure what it actually burned.
+    const burned = await measureBurned(order.swapSignature);
+    const guaranteed = BigInt(order.meta.burnRaw || "0");
+    const amount = burned > 0n ? burned : guaranteed;
+    if (amount <= 0n) {
+      order.status = "burn-pending";
+      order.error = "The transaction confirmed but no burn was measured. The burn retry will re-measure.";
+      await persistLease(ctx, order);
+      return order;
+    }
+    order.orbitxAmount = amount.toString();
+    order.burnSignature = order.swapSignature; // same transaction
+    order.status = "burning";
+    order.error = "";
+    await persistLease(ctx, order);
+    // Falls through to the "burning" branch below, which confirms the
+    // same signature and finalizes the lease.
+  }
+  if (order.status === "burning") {
+    const status = await getSignatureStatus(order.burnSignature);
+    if (!status) return order;
+    if (status === "failed") {
+      order.status = "burn-pending";
+      order.error = "The burn transaction failed on-chain. Your ORBITX is still in your wallet — retry the lease.";
+      await persistLease(ctx, order);
+      return order;
+    }
+    const dec = await decimals();
+    const burnedUi = Math.floor(Number(order.orbitxAmount || "0") / 10 ** dec);
+    // Finalize: the lease IS the claim row (paid: "sol"). An extend moves
+    // the existing claim's end date instead of writing a fresh claim.
+    let claim = null;
+    if (order.extend && ctx.officeTaken) {
+      const existing = await ctx.officeTaken(order.suite, order.server);
+      if (existing && existing.owner_id === player.id) {
+        const until = addDaysISO(existing.until, order.days);
+        claim = {
+          ...existing,
+          until,
+          term_days: Math.max(1, Math.round((Date.parse(`${until}T00:00:00Z`) - Date.parse(`${existing.start}T00:00:00Z`)) / DAY_MS)),
+          sol_lamports: Number(existing.sol_lamports || 0) + Number(order.solLamports || 0),
+          burn_signature: order.burnSignature,
+          orbitx_amount: order.orbitxAmount,
+          order_id: order.id,
+        };
+      }
+    }
+    if (!claim) claim = leaseClaimRow(order, player);
+    if (ctx.saveOfficeLeaseClaim) await ctx.saveOfficeLeaseClaim(claim);
+    order.status = "live";
+    order.error = "";
+    await persistLease(ctx, order);
+    if (player) {
+      player.burned = Number(player.burned || 0) + burnedUi;
+      if (ctx.savePlayer) await ctx.savePlayer(player);
+    }
+    await audit(order.userId, "office-sol-burn", `${order.suite} ${order.days}d burned ${burnedUi} ORBITX (${order.orbitxAmount} base)`);
+    return order;
+  }
+  return order;
+}
+
+// Shared preparation for BOTH office-lease buy paths (same shape as
+// prepareAdBuy): validate, price, cap-check, quote, build the Jupiter
+// swap, and append the Token-2022 burn — everything up to the signature.
+// The LEGACY path (officeSolBuy) then signs with the server-held wallet
+// key; the ON-DEVICE path (officeSolCompose/officeSolSubmit) returns the
+// unsigned transaction so the device's PIN-unlocked wallet signs it
+// instead. The server never sees the device key.
+async function prepareOfficeLease(ctx, player, body, owner, resumeComposed) {
+  const idem = String(body.idempotencyKey || "").slice(0, 80);
+  if (!idem) return { error: "Missing a confirm id. Open the office sheet again.", status: 400 };
+  const existing = await loadLeaseByKey(ctx, idem);
+  let reuse = null;
+  if (existing) {
+    if (existing.status === "swapping" || existing.status === "burning") {
+      await advanceOfficeLease(ctx, existing, player);
+      return { reuse: true, lease: existing };
+    }
+    if (existing.status === "composed") {
+      if (resumeComposed && existing.meta.unsignedTx) {
+        return {
+          lease: existing,
+          composed: existing.meta.unsignedTx,
+          burnRaw: String(existing.meta.burnRaw || "0"),
+          resumed: true,
+        };
+      }
+      if (resumeComposed && !existing.meta.unsignedTx) {
+        // No stored transaction to sign: re-run the whole buy+burn on
+        // the same lease and the same idempotency key.
+        reuse = existing;
+      } else {
+        // The legacy path never re-runs a device-composed lease: its fee
+        // payer is the device address, so a server-key signature would
+        // be invalid. The device flow resumes it instead.
+        return { reuse: true, lease: existing };
+      }
+    } else if (existing.status === "swap-failed") {
+      // The first attempt never landed, so nothing was bought or burned.
+      // One more click re-runs the whole buy+burn on the same lease and
+      // the same idempotency key.
+      reuse = existing;
+    } else {
+      return { reuse: true, lease: existing };
+    }
+  }
+  const server = leaseServer(body);
+  if (!server) return { error: "Pick a server (1-5).", status: 400 };
+  const suite = ctx.officeSuite ? ctx.officeSuite(String(body.suite || "")) : null;
+  if (!suite) return { error: "Unknown office suite.", status: 400 };
+  if (!suite.claimable) return { error: "The Founder's Office belongs to OrbitX. It is never for sale.", status: 400 };
+  const days = Number(body.term_days ?? body.days);
+  if (![1, 7, 30].includes(days)) return { error: "Pick a 1-day, 7-day, or 30-day lease.", status: 400 };
+  const fields = leaseProjectFields(body);
+  if (fields.error) return { error: fields.error, status: 400 };
+  const usd = officeSolPriceUsd(suite.tier, days);
+  if (!usd || usd >= OFFICE_SOL_MAX_USD) return { error: "That lease is over the $5 cap.", status: 400 };
+  const taken = ctx.officeTaken ? await ctx.officeTaken(suite.id, server) : null;
+  const extend = !!body.extend;
+  if (taken && !(extend && taken.owner_id === player.id)) {
+    return { error: `${suite.name} is already claimed by ${taken.project} until ${taken.until}.`, status: 400 };
+  }
+  if (hitLimit(`officelease:${player.authUser}`, AD_BUYS_PER_HOUR, 60 * 60 * 1000)) {
+    return { error: "Too many office leases this hour. Wait and try again.", status: 429 };
+  }
+  let price;
+  try {
+    price = await officeSolPriceLamports(suite.tier, days);
+  } catch (err) {
+    return { error: err.message || "The SOL price could not be read. Nothing was bought.", status: 502 };
+  }
+  if (price > AD_MAX_SOL_LAMPORTS) {
+    return { error: `That lease is over the ${AD_MAX_SOL_LAMPORTS / LAMPORTS_PER_SOL} SOL per-buy cap.`, status: 400 };
+  }
+  if (officeSolSpendToday(player.authUser) + price > AD_DAILY_SOL_CAP_LAMPORTS) {
+    return { error: "That lease is over the daily real-money cap.", status: 400 };
+  }
+  let balance = 0;
+  try {
+    const raw = await solanaRpc("getBalance", [owner]);
+    balance = typeof raw === "number" ? raw : raw?.value || 0;
+  } catch (err) {
+    return { error: `The SOL balance was not read (${err.message || "RPC"}). Nothing was bought.`, status: 502 };
+  }
+  if (balance < price + FEE_BUFFER_LAMPORTS) {
+    return { error: `Not enough SOL in the in-app wallet. This lease costs $${usd.toFixed(2)} (about ${price / LAMPORTS_PER_SOL} SOL) plus a small fee buffer.`, status: 400 };
+  }
+  const now = new Date().toISOString();
+  let lease;
+  if (reuse) {
+    reuse.suite = suite.id;
+    reuse.server = server;
+    reuse.tier = suite.tier;
+    reuse.days = days;
+    reuse.extend = extend;
+    reuse.project = fields.project;
+    reuse.logo = fields.logo;
+    reuse.site = fields.site;
+    reuse.solLamports = price;
+    reuse.priceUsd = usd;
+    reuse.status = "processing";
+    reuse.error = "";
+    reuse.swapSignature = "";
+    reuse.burnSignature = "";
+    reuse.orbitxAmount = "";
+    reuse.createdAt = now;
+    reuse.expiresAt = endStr(days);
+    reuse.meta = { ...(reuse.meta || {}), owner };
+    lease = reuse;
+  } else {
+    lease = {
+      id: `lease_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+      userId: player.authUser,
+      playerId: player.id,
+      suite: suite.id,
+      server,
+      tier: suite.tier,
+      days,
+      extend,
+      project: fields.project,
+      logo: fields.logo,
+      site: fields.site,
+      status: "processing",
+      solLamports: price,
+      priceUsd: usd,
+      orbitxAmount: "",
+      swapSignature: "",
+      burnSignature: "",
+      idempotencyKey: idem,
+      error: "",
+      createdAt: now,
+      expiresAt: endStr(days),
+      meta: { owner },
+    };
+  }
+  await persistLease(ctx, lease);
+  let composed;
+  let burnRaw = "0";
+  try {
+    const built = await composeBuyBurn(owner, price);
+    composed = built.composed;
+    burnRaw = built.burnRaw;
+    lease.meta.burnRaw = burnRaw;
+    lease.meta.unsignedTx = composed;
+    lease.meta.messageHash = messageHash(versionedMessage(composed));
+  } catch (err) {
+    lease.status = "swap-failed";
+    lease.error = `The buy+burn transaction could not be composed (${err.message || "compose"}). Nothing was signed.`;
+    await persistLease(ctx, lease);
+    return { error: lease.error, status: 502 };
+  }
+  lease.status = "composed";
+  await persistLease(ctx, lease);
+  return { lease, composed, burnRaw };
+}
+
+export async function officeSolBuy(ctx, player, body) {
+  if (!player.authUser) return fail("Create an account to rent an office in SOL. Guests keep City Sol only.");
+  const row = await walletRow(player.authUser);
+  if (!row) return fail("This account has no in-app wallet yet.");
+  const prepared = await prepareOfficeLease(ctx, player, body, row.public_key, false);
+  if (prepared.error) return fail(prepared.error, prepared.status || 400);
+  if (prepared.reuse) {
+    return { ok: true, lease: publicLease(prepared.lease), message: "This lease was already started. No second payment was made." };
+  }
+  const { lease, composed, burnRaw } = prepared;
+  let signed;
+  try {
+    const secret = openSecret(row);
+    try {
+      signed = signVersionedTransaction(composed, secret, encode58);
+    } finally {
+      secret.fill(0);
+    }
+  } catch (err) {
+    lease.status = "swap-failed";
+    lease.error = `The transaction could not be signed (${err.message || "signing"}).`;
+    await persistLease(ctx, lease);
+    return fail(lease.error, 502);
+  }
+  let swapSig = "";
+  try {
+    swapSig = await sendSignedTx(signed.signedTx);
+  } catch (err) {
+    lease.status = "swap-failed";
+    lease.error = `The transaction was not accepted (${err.message || "RPC"}).`;
+    await persistLease(ctx, lease);
+    return fail(lease.error, 502);
+  }
+  lease.swapSignature = swapSig || signed.signature;
+  lease.burnSignature = lease.swapSignature; // same transaction
+  lease.orbitxAmount = burnRaw; // guaranteed burn; measured on confirm
+  lease.status = "swapping";
+  await persistLease(ctx, lease);
+  await audit(player.authUser, "office-sol-swap", `${lease.suite} ${lease.days}d buy+burn sent (${lease.solLamports / LAMPORTS_PER_SOL} SOL, one tx)`);
+  return {
+    ok: true,
+    lease: publicLease(lease),
+    message: `One transaction sent for ${lease.suite} — it buys the ORBITX and burns it in the same signature. The city is watching it confirm.`,
+  };
+}
+
+// ON-DEVICE wallet office lease, step 1: compose the same buy+burn
+// transaction prepareOfficeLease builds, but do NOT sign it here — return
+// it unsigned so the device's PIN-unlocked wallet signs it in the browser
+// (officeSolSubmit). The server never sees the device key.
+export async function officeSolCompose(ctx, player, body) {
+  if (!player.authUser) return fail("Create an account to rent an office in SOL. Guests keep City Sol only.");
+  const owner = String(body.address || "").trim();
+  const decoded = b58decode(owner);
+  if (!decoded || decoded.length !== 32) return fail("That on-device wallet address is not valid.", 400);
+  const prepared = await prepareOfficeLease(ctx, player, body, owner, true);
+  if (prepared.error) return fail(prepared.error, prepared.status || 400);
+  if (prepared.reuse) {
+    return { ok: true, lease: publicLease(prepared.lease), message: "This lease was already started. No second payment was made." };
+  }
+  return {
+    ok: true,
+    lease: publicLease(prepared.lease),
+    unsignedTx: prepared.composed,
+    priceSol: Number(prepared.lease.solLamports || 0) / LAMPORTS_PER_SOL,
+    message: "Sign this transaction with your on-device wallet to pay.",
+  };
+}
+
+// ON-DEVICE wallet office lease, step 2: the device signed the composed
+// transaction — verify it is EXACTLY this lease's transaction, signed by
+// the lease's wallet, then broadcast it. A valid signature on any other
+// transaction is refused: the message hash must match the one recorded
+// at compose time, so a substituted transaction can never claim this
+// lease's burn.
+export async function officeSolSubmit(ctx, player, body) {
+  if (!player.authUser) return fail("Create an account to rent an office in SOL. Guests keep City Sol only.");
+  const lease = await loadLease(ctx, String(body.orderId || body.leaseId || ""));
+  if (!lease) return fail("That lease was not found.", 404);
+  if (lease.userId !== player.authUser) return fail("That lease is not yours.", 403);
+  if (lease.status !== "composed") {
+    if (["swapping", "burning"].includes(lease.status)) await advanceOfficeLease(ctx, lease, player);
+    return { ok: true, lease: publicLease(lease), message: "This lease does not need another signature." };
+  }
+  const signedTx = String(body.signedTx || "");
+  if (!signedTx) return fail("No signed transaction was sent.", 400);
+  let submittedHash = "";
+  try {
+    submittedHash = messageHash(versionedMessage(signedTx));
+  } catch {
+    return fail("That signed transaction could not be read.", 400);
+  }
+  if (!lease.meta.messageHash || submittedHash !== lease.meta.messageHash) {
+    return fail("That signature is not for this lease. Compose it again.", 400);
+  }
+  const verified = verifySignedTx(signedTx, lease.meta.owner);
+  if (!verified.ok) return fail(verified.message || "That signature does not verify.", 400);
+  let swapSig = "";
+  try {
+    swapSig = await sendSignedTx(signedTx);
+  } catch (err) {
+    lease.status = "swap-failed";
+    lease.error = `The transaction was not accepted (${err.message || "RPC"}).`;
+    await persistLease(ctx, lease);
+    return fail(lease.error, 502);
+  }
+  lease.swapSignature = swapSig || verified.signature;
+  lease.burnSignature = lease.swapSignature; // same transaction
+  lease.orbitxAmount = String(lease.meta.burnRaw || "0"); // guaranteed burn; measured on confirm
+  lease.status = "swapping";
+  lease.error = "";
+  await persistLease(ctx, lease);
+  await audit(player.authUser, "office-sol-swap", `${lease.suite} ${lease.days}d buy+burn sent from the on-device wallet (${lease.solLamports / LAMPORTS_PER_SOL} SOL, one tx)`);
+  return {
+    ok: true,
+    lease: publicLease(lease),
+    message: `One transaction sent for ${lease.suite} — it buys the ORBITX and burns it in the same signature. The city is watching it confirm.`,
+  };
+}
+
+export async function officeSolStatus(ctx, player, body) {
+  const lease = await loadLease(ctx, String(body.orderId || body.leaseId || ""));
+  if (!lease) return fail("That lease was not found.", 404);
+  if (lease.userId !== player.authUser) return fail("That lease is not yours.", 403);
+  if (["swapping", "burning"].includes(lease.status)) await advanceOfficeLease(ctx, lease, player);
+  return { ok: true, lease: publicLease(lease) };
+}
+
+export async function officeSolLeasesFor(ctx, player) {
+  const mine = [...store().officeLeases.values()].filter((lease) => lease.userId === player.authUser);
+  const client = ctx.sb ? ctx.sb() : null;
+  if (client && mine.length === 0) {
+    const { data, error } = await client.from("office_leases").select("*").eq("user_id", player.authUser).order("created_at", { ascending: false }).limit(10);
+    if (!error && data) {
+      for (const row of data) {
+        const lease = leaseFromRow(row);
+        if (lease) {
+          store().officeLeases.set(lease.id, lease);
+          mine.push(lease);
+        }
+      }
+    }
+  }
+  mine.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  return { ok: true, leases: mine.slice(0, 10).map(publicLease) };
 }

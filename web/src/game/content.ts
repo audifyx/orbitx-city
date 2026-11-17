@@ -64,6 +64,17 @@ export function adUsdPrice(board: string, days: number): number {
   const base = AD_USD_PRICE[days] ?? 0;
   return AD_PLAZA_BOARDS.has(board) ? base * AD_PLAZA_MULT : base;
 }
+
+// Real-SOL office lease prices (USD, display only — the server quote is
+// authoritative at purchase). Mirrors OFFICE_SOL_USD_PRICE in api/ads.js:
+// every term stays under $5 by design.
+export const OFFICE_SOL_USD_PRICE: Record<string, Record<number, number>> = {
+  standard: { 1: 0.99, 7: 2.99, 30: 4.49 },
+  premium: { 1: 1.49, 7: 3.99, 30: 4.99 },
+};
+export function officeSolUsdPrice(tier: string, days: number): number {
+  return OFFICE_SOL_USD_PRICE[tier]?.[days] ?? 0;
+}
 // Play-money prices for the offline (this-device-only) demo booking.
 // Online bookings always go through the real SOL flow above.
 export const DEMO_AD_PRICE: Record<number, number> = { 1: 25, 7: 80, 30: 200 };

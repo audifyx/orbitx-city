@@ -1577,6 +1577,14 @@ export interface DistrictOfficeClaim {
   until: string;
   price: number;
   claimed_at: string;
+  // Real-SOL lease receipt (office-sol-*): paid is "sol", verified marks
+  // a project that paid real SOL.
+  paid?: string;
+  solLamports?: number;
+  burned?: number;
+  burnSignature?: string;
+  orderId?: string;
+  verified?: boolean;
 }
 
 export interface DistrictOfficeDirectoryRow {
