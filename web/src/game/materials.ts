@@ -281,11 +281,14 @@ function paintPavers(ctx: CanvasRenderingContext2D, rng: Rng) {
   speckle(ctx, rng, 2600, ["#a8adb5", "#e8eaec", "#8f939a"], 0.2, 0.45, 1, 2);
 }
 
-const BRICK_COLORS = ["#a85a44", "#b96a4e", "#c49a6a", "#b98a5a", "#d9c49a", "#cbb28a", "#8a4a38", "#c07a58", "#a8703f"];
+const BRICK_COLORS = ["#9a4a34", "#b85a40", "#c07a3e", "#a86a30", "#d9b06a", "#c49a5a", "#7a3a28", "#b06a48", "#8a5a30", "#c98a5a"];
 function paintBrick(ctx: CanvasRenderingContext2D, rng: Rng) {
   // Mortar first, then bricks. 4 courses x 2 bricks per tile: on a 1u
   // voxel face each brick is 0.5u x 0.25u — real brick proportions.
-  ctx.fillStyle = "#b8a894";
+  // The mortar is dark and the per-brick colours are strongly varied, so
+  // the courses read at street distance (a faint brick reads as flat
+  // beige — the user asked for REAL building texture, not a hint of it).
+  ctx.fillStyle = "#8a7a64";
   ctx.fillRect(0, 0, SIZE, SIZE);
   const courseH = SIZE / 4;
   const brickW = SIZE / 2;
@@ -296,13 +299,13 @@ function paintBrick(ctx: CanvasRenderingContext2D, rng: Rng) {
       const x = offset + col * brickW;
       const color = pick(rng, BRICK_COLORS);
       ctx.fillStyle = color;
-      ctx.fillRect(x + 4, y + 4, brickW - 8, courseH - 8);
+      ctx.fillRect(x + 5, y + 5, brickW - 10, courseH - 10);
       // Per-brick mottling + a top highlight / bottom shadow for depth.
-      ctx.fillStyle = "rgba(255,255,255,0.10)";
-      ctx.fillRect(x + 4, y + 4, brickW - 8, 10);
-      ctx.fillStyle = "rgba(0,0,0,0.14)";
-      ctx.fillRect(x + 4, y + courseH - 14, brickW - 8, 10);
-      speckle(ctx, rng, 14, ["#000000", "#ffffff"], 0.05, 0.12, 2, 5);
+      ctx.fillStyle = "rgba(255,255,255,0.14)";
+      ctx.fillRect(x + 5, y + 5, brickW - 10, 12);
+      ctx.fillStyle = "rgba(0,0,0,0.20)";
+      ctx.fillRect(x + 5, y + courseH - 17, brickW - 10, 12);
+      speckle(ctx, rng, 14, ["#000000", "#ffffff"], 0.08, 0.16, 2, 5);
       // Wrap the brick rect across the seam when it straddles an edge.
       if (x < 0) {
         ctx.fillStyle = color;
