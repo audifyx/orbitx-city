@@ -2878,7 +2878,6 @@ export default function App() {
                   // (SOL only); a fresh claim needs the suite free.
                   if (selected.claim && !(officeExtend && selected.claim.owner_id === snap.meId)) return null;
                   const price = selected.prices[officeTerm];
-                  const solPrice = officeSolUsdPrice(selected.tier, officeTerm);
                   return (
                     <form
                       onSubmit={async (event) => {
