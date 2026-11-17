@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
 import type { AdOrder, CityStats, MyPropertyClaim, PanelName, RadioTrack, Runtime, ShopCatalogData, ShopTab, Snap } from "./game/runtime";
 import { EMPTY_CITY_PEOPLE, FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/runtime";
-import { PROXIMITY_RANGE, PROXIMITY_ROOM } from "./game/voice";
+import { PROXIMITY_RANGE, VOICE_FILTERS } from "./game/voice";
 import { allLooks, loadLooks, lookName } from "./game/avatar";
 import { GROCERY_FOOD_BY_ID, GYM_WORKOUTS, OFFICE_SUITES, RECIPES, RESTAURANT_BY_ID, RESTAURANT_MENUS, adUsdPrice, foodSpeedMult, hungerLabel } from "./game/content";
 import { parseSeed } from "./game/seed";
@@ -338,6 +338,12 @@ const EMPTY: Snap = {
   voiceError: "",
   speaking: false,
   voiceProximity: false,
+  voicePeers: [],
+  volumes: {},
+  voiceFilter: "normal",
+  voiceReverb: 0,
+  voiceEcho: 0,
+  micLevel: 0,
   quality: "high",
   time: "sunset",
   me: { x: 0, z: 0, yaw: 0 },
@@ -5414,39 +5420,107 @@ function AlertsPanel({ snap, rt, onOpenChat }: { snap: Snap; rt: Runtime | null;
   );
 }
 
-// Proximity voice chat: talk to players standing near you — no lobby
-// to join, just walk up to someone. Free, peer-to-peer, nothing recorded.
+// Voice chat — the full suite in one panel: join/leave, mic + speakers,
+// who is in the room, who is talking, a volume slider per person, voice
+// filters and effects on your own mic. Free, nothing recorded.
 function VoicePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   const online = snap.server !== "This device";
-  const nearby = snap.people
-    .map((person) => ({ ...person, distance: Math.hypot(person.x - snap.me.x, person.z - snap.me.z) }))
-    .filter((person) => person.distance <= PROXIMITY_RANGE)
-    .sort((a, b) => a.distance - b.distance);
+  const inRoom = !!snap.lobby;
+  const currentFilter = VOICE_FILTERS.find((item) => item.id === snap.voiceFilter) ?? VOICE_FILTERS[0];
   return (
     <div className="list">
       <p>
         {snap.voiceProximity
           ? `Proximity voice on (${snap.voiceProvider || "connecting"}) — you can hear players within ${PROXIMITY_RANGE} units, and they can hear you. Walk away and they fade out.`
-          : "Proximity voice is off. Join to talk to players standing near you — no lobby to join, just walk up to someone."}
+          : inRoom
+            ? `In voice: ${snap.lobby} (${snap.voiceProvider || "connecting"}).`
+            : "Voice is off. Join proximity voice to talk to players standing near you — no lobby to join, just walk up to someone — or join a channel below."}
       </p>
       {snap.voiceError ? <p>{snap.voiceError}</p> : null}
       {!online ? <p>Voice needs the online city.</p> : null}
       <div className="days">
-        {snap.voiceProximity ? (
+        {inRoom ? (
           <button type="button" onClick={() => rt?.leaveLobby()}>Leave voice</button>
         ) : (
           <button type="button" onClick={() => rt?.joinProximity()}>Join proximity voice</button>
         )}
         <button type="button" className={snap.muted ? "on" : ""} onClick={() => rt?.setMuted(!snap.muted)}>Mute</button>
-        <button type="button" className={snap.deafened ? "on" : ""} onClick={() => rt?.setDeafened(!snap.deafened)}>Deafen</button>
+        <button type="button" className={snap.deafened ? "" : "on"} onClick={() => rt?.setDeafened(!snap.deafened)}>Speakers</button>
         <button type="button" className={snap.pushToTalk ? "on" : ""} onClick={() => rt?.setPushToTalk(!snap.pushToTalk)}>Push to talk</button>
       </div>
+      <div className="mic-meter">
+        <i style={{ width: `${Math.round(snap.micLevel * 100)}%` }} />
+      </div>
       <p>
-        Your mic: {snap.muted ? "Muted" : snap.pushToTalk ? "Push to talk — hold the button below to talk" : snap.speaking ? "Live — speaking" : "Live"}
+        Your mic: {snap.muted ? "Muted" : snap.pushToTalk ? "Push to talk — hold the button below to talk" : snap.speaking ? "Live — speaking" : "Live"} · Filter: {currentFilter.label}
       </p>
       {snap.pushToTalk ? (
         <Hold label="Hold to talk" onDown={() => rt?.setTalking(true)} onUp={() => rt?.setTalking(false)} />
       ) : null}
+      <h3>In this room</h3>
+      {!inRoom ? <span>Not in a voice room yet — join to see who is here.</span> : null}
+      {inRoom && snap.voicePeers.length === 0 ? <span>Connecting…</span> : null}
+      {snap.voicePeers.map((peer) => {
+        const volume = snap.volumes[peer.id] ?? 1;
+        return (
+          <article key={peer.id} className={peer.speaking ? "speaking" : ""}>
+            <div>
+              <b>{peer.name} {peer.isLocal ? "(you)" : ""} {peer.speaking ? "●" : ""}</b>
+              <span>{peer.isLocal ? `Filter: ${currentFilter.label}` : volume === 0 ? "Muted by you" : `Volume ${Math.round(volume * 100)}%`}</span>
+            </div>
+            {peer.isLocal ? null : (
+              <label>
+                Volume
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={volume}
+                  onChange={(event) => rt?.setVolume(peer.id, Number(event.target.value))}
+                />
+              </label>
+            )}
+          </article>
+        );
+      })}
+      <h3>Voice filters</h3>
+      <div className="days">
+        {VOICE_FILTERS.map((filter) => (
+          <button
+            key={filter.id}
+            type="button"
+            className={snap.voiceFilter === filter.id ? "on" : ""}
+            onClick={() => rt?.setVoiceFilter(filter.id)}
+          >
+            {filter.label}
+          </button>
+        ))}
+      </div>
+      <p>{currentFilter.blurb} Filters change how you sound to everyone in the room.</p>
+      <h3>Effects</h3>
+      <label>
+        Reverb {snap.voiceReverb === 0 ? "— off" : `— ${Math.round(snap.voiceReverb * 100)}%`}
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={snap.voiceReverb}
+          onChange={(event) => rt?.setVoiceReverb(Number(event.target.value))}
+        />
+      </label>
+      <label>
+        Echo {snap.voiceEcho === 0 ? "— off" : `— ${Math.round(snap.voiceEcho * 100)}%`}
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={snap.voiceEcho}
+          onChange={(event) => rt?.setVoiceEcho(Number(event.target.value))}
+        />
+      </label>
       <h3>Channels</h3>
       {snap.lobbies.length === 0 ? <span>No channels right now — join proximity voice to talk.</span> : null}
       {snap.lobbies.map((room) => (
@@ -5462,27 +5536,6 @@ function VoicePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           ) : (
             <button type="button" onClick={() => rt?.joinLobby(room.id)}>Join</button>
           )}
-        </article>
-      ))}
-      <h3>Near you now</h3>
-      {nearby.length === 0 ? <span>No one in voice range right now. Walk up to a player and they will show up here.</span> : null}
-      {nearby.map((person) => (
-        <article key={person.id}>
-          <div>
-            <b>{person.name} {person.speaking ? "●" : ""}</b>
-            <span>{Math.round(person.distance)} units away · {person.lobby === PROXIMITY_ROOM ? "proximity" : person.lobby || "in the street"}</span>
-          </div>
-          <label>
-            Volume
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              defaultValue={1}
-              onChange={(event) => rt?.setVolume(person.id, Number(event.target.value))}
-            />
-          </label>
         </article>
       ))}
       <p>Free — voice is a core social feature, not a purchase. Audio runs through LiveKit&apos;s servers; nothing is recorded or stored.</p>
@@ -5572,7 +5625,7 @@ function Phone({ snap, rt, onLogout }: { snap: Snap; rt: Runtime | null; onLogou
       <div className="days">
         <button type="button" onClick={() => rt?.leaveLobby()}>Leave voice</button>
         <button type="button" className={snap.muted ? "on" : ""} onClick={() => rt?.setMuted(!snap.muted)}>Mute</button>
-        <button type="button" className={snap.deafened ? "on" : ""} onClick={() => rt?.setDeafened(!snap.deafened)}>Deafen</button>
+        <button type="button" className={snap.deafened ? "" : "on"} onClick={() => rt?.setDeafened(!snap.deafened)}>Speakers</button>
         <button type="button" className={snap.pushToTalk ? "on" : ""} onClick={() => rt?.setPushToTalk(!snap.pushToTalk)}>Push to talk</button>
         <button type="button" onClick={() => rt?.emote("wave")}>Wave</button>
       </div>

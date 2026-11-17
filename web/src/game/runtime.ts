@@ -176,6 +176,9 @@ import {
   setPushToTalk as armTalk,
   setTalking as holdTalk,
   setVolume as volumeFor,
+  setVoiceFilter as voiceFilterFor,
+  setVoiceReverb as voiceReverbFor,
+  setVoiceEcho as voiceEchoFor,
   voiceTick,
 } from "./voice";
 
@@ -631,6 +634,16 @@ export interface Snap {
   voiceProximity: boolean;
   voiceProvider: string;
   voiceError: string;
+  /** LiveKit room participants (you first): id, display name, speaking, local. */
+  voicePeers: { id: string; name: string; speaking: boolean; isLocal: boolean }[];
+  /** Per-person volume 0..1 (default 1). */
+  volumes: Record<string, number>;
+  /** Voice filter preset id + effect amounts 0..1. */
+  voiceFilter: string;
+  voiceReverb: number;
+  voiceEcho: number;
+  /** Mic input level 0..1. */
+  micLevel: number;
   quality: string;
   time: string;
   me: { x: number; z: number; yaw: number };
@@ -3034,6 +3047,12 @@ export function createRuntime(scene: Scene) {
       voiceProximity: world.proximity,
       voiceProvider: world.provider,
       voiceError: world.voiceError,
+      voicePeers: world.voicePeers.map((peer) => ({ ...peer })),
+      volumes: { ...world.volumes },
+      voiceFilter: world.voiceFilter,
+      voiceReverb: world.voiceReverb,
+      voiceEcho: world.voiceEcho,
+      micLevel: world.micLevel,
       quality: quality(),
       time: timeName,
       me: { x: lastBody?.x ?? 0, z: lastBody?.z ?? 0, yaw: lastBody?.yaw ?? 0 },
@@ -10550,6 +10569,18 @@ export function createRuntime(scene: Scene) {
     },
     setVolume(id: string, value: number) {
       volumeFor(id, value);
+    },
+    setVoiceFilter(id: string) {
+      voiceFilterFor(id);
+      publish();
+    },
+    setVoiceReverb(value: number) {
+      voiceReverbFor(value);
+      publish();
+    },
+    setVoiceEcho(value: number) {
+      voiceEchoFor(value);
+      publish();
     },
     friendAsk(id: string) {
       void world.friendAsk(id).then((data) => {

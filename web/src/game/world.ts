@@ -154,6 +154,16 @@ class CityWorld {
   volumes: Record<string, number> = {};
   provider = "";
   voiceError = "";
+  /** LiveKit room participants (you first), refreshed from the room. */
+  voicePeers: { id: string; name: string; speaking: boolean; isLocal: boolean }[] = [];
+  /** Voice filter preset id (see VOICE_FILTERS in voice.ts). */
+  voiceFilter = "normal";
+  /** Reverb amount 0..1 (0 = off). */
+  voiceReverb = 0;
+  /** Echo amount 0..1 (0 = off). */
+  voiceEcho = 0;
+  /** Mic input level 0..1 from the speaking analyser (post-effects). */
+  micLevel = 0;
   lots: LotCard[] = [];
   leaders: Leaders = EMPTY_LEADERS;
   daily: DailyCard | null = null;

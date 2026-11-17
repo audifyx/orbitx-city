@@ -1071,6 +1071,34 @@ body {
   border-bottom: none;
 }
 
+/* VOICE (full suite): the person talking gets a gold edge so you can
+ * see who is speaking at a glance; the mic meter shows your own input
+ * level so you know the mic is live. */
+.list article.speaking {
+  border-bottom-color: #e0b33a;
+  box-shadow: inset 3px 0 0 #e0b33a;
+  padding-left: 8px;
+}
+
+.mic-meter {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.mic-meter > i {
+  display: block;
+  height: 100%;
+  background: #e0b33a;
+  border-radius: 3px;
+  transition: width 0.1s linear;
+}
+
+.list article .vol-mute.on {
+  outline: 2px solid #e0b33a;
+}
+
 .demo {
   color: #e0b33a;
   font-size: 13px;
