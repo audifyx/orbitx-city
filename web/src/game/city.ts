@@ -1874,6 +1874,39 @@ function addTrainLine(boxes: Box[], cols: Collider[]): { zones: Zone[] } {
     put(boxes, wx, 5.66, Z, 0.3, 2.92, 4, "white");
     cols.push({ minX: wx - 0.15, maxX: wx + 0.15, minY: 4.2, maxY: 7.12, minZ: 31, maxZ: 35 });
   }
+  // ---- Station street faces: real architecture, not a flat white wall
+  // (building-quality pass, 2026-11-17). The hall's long walls were two
+  // single 84m x 7m "white" boxes — one stucco tile stretched across the
+  // whole wall, so the station read as a flat beige slab from the plaza
+  // and the spawn (the big flat wall in the rig's spawn/drive shots).
+  // Now each street face gets a stone base band, stone pilasters, real
+  // glass windows between them, and a framed entrance — the wall reads
+  // as a station, not a box. No colliders: the proud elements sit within
+  // 0.3 of the wall face, like the gold trim above.
+  for (const face of [BZ0, BZ1] as const) {
+    const south = face === BZ0;
+    const dir = south ? -1 : 1;
+    const faceZ = south ? BZ0 - 0.15 : BZ1 + 0.15;
+    // Centre z for a box of thickness t: overlaps the wall by 0.05 and
+    // stands proud of its face.
+    const zc = (t: number) => faceZ + dir * (t / 2 - 0.05);
+    // Stone base band along the whole face.
+    put(boxes, 0, 0.52, zc(0.3), 84, 0.8, 0.3, "stone");
+    // Stone pilasters every 10.5m.
+    for (let k = 0; k < 8; k++) {
+      put(boxes, -36.75 + k * 10.5, 3.62, zc(0.3), 0.8, 7, 0.3, "stone");
+    }
+    // Glass windows in the bays (never the centre bay — the door is there).
+    for (const bx of [-31.5, -21, -10.5, 10.5, 21, 31.5]) {
+      put(boxes, bx, 3.0, zc(0.2), 3.5, 3.2, 0.2, "black");
+      put(boxes, bx, 1.3, zc(0.3), 3.9, 0.25, 0.3, "stone");
+    }
+    // Framed entrance: stone pilasters + lintel around the street door.
+    for (const side of [-1, 1]) {
+      put(boxes, side * 2.0, 1.52, zc(0.3), 0.6, 2.8, 0.3, "stone");
+    }
+    put(boxes, 0, 2.85, zc(0.3), 4.4, 0.5, 0.3, "stone");
+  }
   // Below-grade walls: the basement is one open hall under the whole
   // building, enclosed on all four sides. They stop at y=0 (not 0.12) so
   // the train's bogies clear the wall tops where the track crosses them
