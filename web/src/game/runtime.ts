@@ -7742,7 +7742,7 @@ export function createRuntime(scene: Scene) {
       void world.refresh().then(() => {
         panel = shot === "daily" ? "daily" : "wallet";
         if (shot === "wallet" && !world.me?.account) {
-          world.walletNote = "Sign in to open the in-app wallet. This shot is still a guest.";
+          world.walletNote = "Guests use the on-device wallet below. Sign in to open the server wallet too.";
         }
         publish();
       });
