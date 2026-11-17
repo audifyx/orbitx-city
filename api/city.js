@@ -397,6 +397,48 @@ function scaledPay(id, streak) {
   return Math.round(base * mult);
 }
 
+// Job tasks: how many payable tasks each job's shift has. The client
+// (web/src/game/emergency.ts JOB_TASK_COUNTS, runtime.ts jobTaskList)
+// runs the same counts — keep the three in step:
+// courier 2, taxi 6 (3 fares x pickup + drop), guide 3, security 3,
+// mail 4, lifeguard 3, cleaner 5, bus 4, fire 4, doctor 5, teacher 3,
+// cop 4, paramedic 4, photographer 2, promoter 2, everything else 1.
+// Mini-games (coinhunt/fishing/shootout/treasure) are 1 — they pay in
+// full through `earn` and never call `job-task`.
+const JOB_TASKS = {
+  courier: 2,
+  taxi: 6,
+  guide: 3,
+  security: 3,
+  mail: 4,
+  lifeguard: 3,
+  cleaner: 5,
+  bus: 4,
+  fire: 4,
+  doctor: 5,
+  teacher: 3,
+  cop: 4,
+  paramedic: 4,
+  photographer: 2,
+  promoter: 2,
+};
+
+function jobTaskCount(id) {
+  return JOB_TASKS[id] || 1;
+}
+
+// A shift's hourly rate IS the job's scaled pay: one finished shift =
+// one hour on the clock. Task pay splits the rate across the shift's
+// tasks (floor per task; the last task takes the remainder so the split
+// is exact). Clocking out early keeps the task pay already earned.
+function taskPayFor(id, streak, task) {
+  const total = jobTaskCount(id);
+  const rate = scaledPay(id, streak);
+  if (!Number.isInteger(task) || task < 0 || task >= total || rate <= 0) return 0;
+  const each = Math.floor(rate / total);
+  return task === total - 1 ? rate - each * (total - 1) : each;
+}
+
 // OrbitX Tower offices (floors 2-4). 25 suites: 24 claimable + the
 // Founder's Office, which belongs to OrbitX and is never for sale.
 // Leases are paid in City Sol only — the game's own money. There is no
@@ -5760,9 +5802,82 @@ export async function POST(request) {
     const id = String(body.job || "");
     if (!JOBS[id]) return json({ ok: false, message: "Unknown job." }, 400);
     const save = await ensureSave(player, currentServerFor(body, player));
-    save.job = { id, started: Date.now() };
+    // Clock in: the shift records its hourly rate (the scaled pay — one
+    // finished shift is one hour on the clock), how many tasks it has,
+    // and the task pay earned so far. Old saves ({ id, started }) still
+    // read fine: job-task / earn default the missing fields to 0.
+    save.job = { id, started: Date.now(), hourlyRate: scaledPay(id, save.jobStreak), tasks: jobTaskCount(id), tasksDone: 0, taskPaid: 0 };
     await saveSave(save);
     return json({ ok: true, me: publicPlayer(save) });
+  }
+
+  // Clock in/out + per-task pay. job-task credits one task's pay the
+  // moment the client reports it done (sequential, one at a time, so a
+  // replayed or skipped task pays nothing). job-clockout ends the shift:
+  // task pay already earned stays, a finished shift bumps the streak and
+  // touches the daily quest, an early clock-out does neither. `earn`
+  // still settles a finished shift — it pays only the REMAINDER after
+  // task pay — so mini-games and old clients keep working unchanged,
+  // and the shift total is exactly the scaled pay either way.
+  if (op === "job-task") {
+    const id = String(body.job || "");
+    const task = Number(body.task);
+    const save = await ensureSave(player, currentServerFor(body, player));
+    if (!JOBS[id]) return json({ ok: false, message: "Unknown job." }, 400);
+    if (!save.job || save.job.id !== id) return json({ ok: false, message: "Clock in to that job first." }, 400);
+    const total = jobTaskCount(id);
+    const done = Number(save.job.tasksDone || 0);
+    if (!Number.isInteger(task) || task !== done || task >= total) {
+      return json({ ok: false, message: "That task is not next." }, 400);
+    }
+    const pay = taskPayFor(id, save.jobStreak, task);
+    save.job.tasksDone = done + 1;
+    save.job.taskPaid = Number(save.job.taskPaid || 0) + pay;
+    save.balance += pay;
+    save.earned = Number(save.earned || 0) + pay;
+    // The global `earned` total (the leaderboard reads it) gets the task
+    // pay here, directly — the quest touch stays in the settling op
+    // (earn / job-clockout), exactly once per finished shift.
+    player.earned = Number(player.earned || 0) + pay;
+    await saveSave(save);
+    await mirrorBalance(player, save);
+    await savePlayer(player);
+    return json({ ok: true, message: `Task ${done + 1} of ${total} paid ${pay} City Sol.`, taskPay: pay, tasksDone: save.job.tasksDone, tasks: total, me: publicPlayer(save) });
+  }
+
+  if (op === "job-clockout") {
+    const save = await ensureSave(player, currentServerFor(body, player));
+    if (!save.job) return json({ ok: false, message: "Not clocked in to a job." }, 400);
+    const id = String(save.job.id || "");
+    const total = jobTaskCount(id);
+    const done = Number(save.job.tasksDone || 0);
+    const earned = Number(save.job.taskPaid || 0);
+    const complete = done >= total;
+    let extra = "";
+    if (complete) {
+      save.jobStreak = Number(save.jobStreak || 0) + 1;
+      player.jobStreak = save.jobStreak;
+      // Quest touch only: the task pay is already in player.earned via
+      // job-task, so noteEarn gets 0 pay and only counts the shift.
+      const bonus = noteEarn(player, id, 0, save);
+      extra = bonus ? ` Quest paid ${bonus} City Sol.` : "";
+    }
+    save.job = null;
+    player.job = null;
+    await saveSave(save);
+    await mirrorBalance(player, save);
+    await savePlayer(player);
+    return json({
+      ok: true,
+      message: complete
+        ? `Shift complete — ${id} paid ${earned} City Sol in all. Job streak ${save.jobStreak}.${extra}`
+        : `Clocked out early — kept ${earned} City Sol for ${done} of ${total} tasks.${extra}`,
+      earned,
+      tasksDone: done,
+      tasks: total,
+      complete,
+      me: publicPlayer(save),
+    });
   }
 
   if (op === "earn") {
@@ -5774,10 +5889,16 @@ export async function POST(request) {
     if (Date.now() - Number(save.job.started) < JOB_MS) {
       return json({ ok: false, message: "Finish the route. The city checks the clock." }, 400);
     }
+    // Task pay already landed stays landed: earn settles the REMAINDER
+    // only, so a finished shift totals exactly the scaled pay. Bonuses
+    // still compute on the full pay, as before.
+    const taskPaid = Number(save.job.taskPaid || 0);
+    const remainder = Math.max(0, pay - taskPaid);
     // CRIB: rested players (energy >= 70) earn +10% — sleep in your own
     // bed to stay rested. The bonus is real pay, not a display trick.
     const rested = cribEnergyBonus(save);
-    const finalPay = rested ? Math.round(pay * 1.1) : pay;
+    const restedExtra = rested ? Math.round(pay * 1.1) - pay : 0;
+    const finalPay = remainder + restedExtra;
     save.balance += finalPay;
     save.job = null;
     save.jobStreak = Number(save.jobStreak || 0) + 1;
@@ -5798,7 +5919,10 @@ export async function POST(request) {
     await mirrorBalance(player, save);
     await savePlayer(player);
     const extra = bonus ? ` Quest paid ${bonus} City Sol.` : "";
-    return json({ ok: true, message: `${id} paid ${finalPay} City Sol.${rested ? " Rested bonus +10%." : ""}${fedBonus > 0 ? ` Satisfied bonus +${fedBonus}.` : ""} Job streak ${save.jobStreak}.${extra}`, me: publicPlayer(save) });
+    const settled = finalPay > 0 || fedBonus > 0
+      ? `${id} paid ${finalPay} City Sol.${rested ? " Rested bonus +10%." : ""}${fedBonus > 0 ? ` Satisfied bonus +${fedBonus}.` : ""} Job streak ${save.jobStreak}.${extra}`
+      : `${id} shift already paid in full as task pay (${taskPaid} City Sol). Job streak ${save.jobStreak}.${extra}`;
+    return json({ ok: true, message: settled, me: publicPlayer(save) });
   }
 
   // Real billboards: pay SOL from the in-app wallet, Jupiter swaps

@@ -98,7 +98,7 @@ import {
 } from "./vehicles";
 import { ensureWalker, animateWalk, makeCameraSmoother } from "./movement";
 import { triggerHaptic, isHapticsEnabled, setHapticsEnabled } from "./haptics";
-import { emergencyJobById, jobObjective, jobTargetFor } from "./emergency";
+import { emergencyJobById, jobObjective, jobTargetFor, jobTaskCountFor } from "./emergency";
 import {
   buyHomeLocal,
   freshHomesSave,
@@ -188,7 +188,7 @@ export interface TrainPose {
   dwelling: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats";
 
 // UNIFIED SHOP: the Shop panel's five category tabs. "grocery" is a tab
 // now, not a panel — the grocery store in the world opens the Shop on
@@ -550,6 +550,22 @@ export interface Snap {
   hat: string;
   car: string;
   jobTitle: string;
+  /** The live shift (null when off the clock): hourly rate, the task
+   * list with map points and per-task pay, and task pay landed so far.
+   * The Jobs panel + HUD + minimap read this, never the raw job id. */
+  jobShift: {
+    id: string;
+    title: string;
+    hourlyRate: number;
+    startedAt: number;
+    tasksTotal: number;
+    tasksDone: number;
+    taskPaid: number;
+    tasks: { label: string; x: number; z: number; done: boolean; current: boolean; pay: number }[];
+  } | null;
+  /** Current task's map point (null when off the clock) — the minimap
+   * marker follows the same target as the 3D beacon. */
+  jobTarget: { x: number; z: number } | null;
   objective: string;
   notice: string;
   /** Live toasts (unread, under 5s old, newest first, max 5) — the
@@ -1539,6 +1555,21 @@ export function createRuntime(scene: Scene) {
   let socialDiffPrimed = false;
   let job = "";
   let phase = 0;
+  // Shift clock: clock-in time, hourly rate, task pay earned so far.
+  // The server is the authority online (job-start / job-task /
+  // job-clockout); these locals mirror it so the HUD + Jobs panel can
+  // show the shift live, and drive the offline wallet when the city
+  // server is unreachable. jobTaskSynced is how many finished tasks
+  // have had their pay credited (server or local wallet).
+  let jobStartedAt = 0;
+  let jobHourlyRate = 0;
+  let jobTasksTotal = 0;
+  let jobTaskPaid = 0;
+  let jobTaskSynced = 0;
+  let jobTaskBusy = false;
+  // Current task's map point, for the minimap marker + the Jobs panel
+  // distances. Set every frame by tickJobs; null when off the clock.
+  let jobTargetPoint: { x: number; z: number } | null = null;
   // Dwell jobs (lifeguard scan, cleaner sweep): seconds held at the target.
   let dwell = 0;
   // One-line prompt while holding still / waiting on a game, shown by the
@@ -2902,6 +2933,29 @@ export function createRuntime(scene: Scene) {
       hat: wallet.hat,
       car: wallet.car,
       jobTitle: job ? jobTitle(job) : "",
+      // The live shift, for the Jobs panel + HUD + minimap: hourly rate,
+      // the task list with map points and per-task pay, and how much task
+      // pay has landed so far. Null when off the clock.
+      jobShift: job
+        ? {
+            id: job,
+            title: jobTitle(job),
+            hourlyRate: jobHourlyRate,
+            startedAt: jobStartedAt,
+            tasksTotal: jobTasksTotal,
+            tasksDone: phase,
+            taskPaid: jobTaskPaid,
+            tasks: jobTaskList(job).map((task, i) => ({
+              label: task.label,
+              x: task.x,
+              z: task.z,
+              done: i < phase,
+              current: i === phase,
+              pay: jobTaskPay(job, world.me?.jobStreak ?? 0, i),
+            })),
+          }
+        : null,
+      jobTarget: jobTargetPoint,
       objective: objectiveText(),
       notice: clock < noticeUntil ? notice : "",
       // Live toasts: unread and under 5s old, newest first, max 5.
@@ -3314,6 +3368,97 @@ export function createRuntime(scene: Scene) {
     { x: 72, z: 0 },
   ] as const;
   const TAXI_DROPS = ["cafe", "hall", "bank"] as const;
+
+  // Base pay per job — MUST match JOBS in api/city.js. One finished
+  // shift is one hour on the clock, so the scaled base IS the hourly
+  // rate; task pay splits it across the shift's tasks.
+  const JOB_PAY: Record<string, number> = {
+    courier: 45, taxi: 90, guide: 60, mechanic: 55, photographer: 40,
+    promoter: 50, dock: 65, dj: 55, banker: 50, barista: 45, vendor: 55,
+    security: 75, mail: 70, lifeguard: 65, cleaner: 55, bus: 80,
+    fire: 75, doctor: 70, cop: 85, paramedic: 80, teacher: 60,
+    coinhunt: 40, fishing: 45, shootout: 50, treasure: 45,
+  };
+
+  function jobHourlyRateFor(id: string, streak: number) {
+    const base = JOB_PAY[id] ?? 0;
+    return Math.round(base * (1 + 0.05 * Math.min(Math.max(0, streak), 10)));
+  }
+
+  // One task's pay — mirrors taskPayFor in api/city.js: floor per task,
+  // the last task takes the remainder so the split is exact.
+  function jobTaskPay(id: string, streak: number, task: number) {
+    const total = jobTaskCountFor(id);
+    const rate = jobHourlyRateFor(id, streak);
+    if (task < 0 || task >= total || rate <= 0) return 0;
+    const each = Math.floor(rate / total);
+    return task === total - 1 ? rate - each * (total - 1) : each;
+  }
+
+  // The shift's task list: every task in order, with its label and map
+  // point, so the Jobs panel can show the route and the minimap can mark
+  // the current stop. Mirrors tickJobs' targets and objectiveText's
+  // labels — keep the three in step when a job changes.
+  function jobTaskList(id: string): Array<{ label: string; x: number; z: number }> {
+    const anchor = (aid: string) => anchors.find((item) => item.id === aid);
+    const emSpec = emergencyJobById(id);
+    if (emSpec) {
+      return emSpec.phases.map((ph, i) => {
+        const pt = jobTargetFor(emSpec, i, lastBody?.x ?? 0, lastBody?.z ?? 0, anchors);
+        return { label: ph.label, x: pt?.x ?? 0, z: pt?.z ?? 0 };
+      });
+    }
+    if (id === "courier") return [
+      { label: "Pick up the glowing package in front of the fountain", x: 0, z: 24 },
+      { label: "Drop the package at OrbitX Shop", x: anchor("shop")?.x ?? 0, z: anchor("shop")?.z ?? 0 },
+    ];
+    if (id === "taxi") {
+      const list: Array<{ label: string; x: number; z: number }> = [];
+      for (let fare = 0; fare < 3; fare++) {
+        const pickup = TAXI_PICKUPS[fare];
+        const drop = anchor(TAXI_DROPS[fare]);
+        list.push({ label: `Fare ${fare + 1} of 3 — pick up the rider`, x: pickup.x, z: pickup.z });
+        list.push({ label: `Fare ${fare + 1} of 3 — drop the rider at ${taxiDropName(fare + 1)}`, x: drop?.x ?? 0, z: drop?.z ?? 0 });
+      }
+      return list;
+    }
+    if (id === "guide") return [
+      { label: "Visit the OrbitX Shop door", x: anchor("shop")?.x ?? 0, z: anchor("shop")?.z ?? 0 },
+      { label: "Visit the Community Hall door", x: anchor("hall")?.x ?? 0, z: anchor("hall")?.z ?? 0 },
+      { label: "Visit OrbitX HQ in the Project District", x: anchor("project-0")?.x ?? 0, z: anchor("project-0")?.z ?? 0 },
+    ];
+    if (id === "mail") {
+      resolveMailStops();
+      return mailStops.map((stop) => ({ label: stop.label, x: stop.x, z: stop.z }));
+    }
+    if (id === "lifeguard") return LIFEGUARD_POSTS.map((post) => ({ label: post.label, x: post.x, z: post.z }));
+    if (id === "cleaner") return LITTER_SPOTS.map((spot, i) => ({ label: `Sweep litter spot ${i + 1} of ${LITTER_SPOTS.length}`, x: spot.x, z: spot.z }));
+    if (id === "bus") return BUS_STOPS.map((stop) => ({ label: stop.label, x: stop.x, z: stop.z }));
+    if (id === "teacher") return TEACHER_STOPS.map((stop) => ({ label: stop.label, x: stop.x, z: stop.z }));
+    if (id === "security") return [
+      { label: "Patrol the fountain", x: 0, z: 12 },
+      { label: "Patrol the Community Hall", x: anchor("hall")?.x ?? 0, z: anchor("hall")?.z ?? 0 },
+      { label: "Patrol OrbitX HQ in the Project District", x: anchor("project-0")?.x ?? 0, z: anchor("project-0")?.z ?? 0 },
+    ];
+    if (id === "mechanic") return [{ label: "Service the hover-car on the east road", x: 36, z: 50 }];
+    if (id === "photographer") return [
+      { label: "Photograph the fountain", x: 0, z: 12 },
+      { label: "Photograph the ORBITX tower", x: -30, z: 8 },
+    ];
+    if (id === "promoter") return [
+      { label: "Stop by the Community Hall", x: anchor("hall")?.x ?? 0, z: anchor("hall")?.z ?? 0 },
+      { label: "Stand at the plaza ad kiosk", x: 8, z: 70 },
+    ];
+    if (id === "dock") {
+      const dock = anchor("dock");
+      return [{ label: "Clock in at the harbor office", x: dock?.x ?? 0, z: dock?.z ?? 148 }];
+    }
+    if (id === "dj") return [{ label: "Play the Community Hall", x: anchor("hall")?.x ?? 0, z: anchor("hall")?.z ?? 0 }];
+    if (id === "banker") return [{ label: "Open the window at OrbitX Bank", x: anchor("bank")?.x ?? 0, z: anchor("bank")?.z ?? 0 }];
+    if (id === "barista") return [{ label: "Serve the shift at Cafe Nova", x: anchor("cafe")?.x ?? 0, z: anchor("cafe")?.z ?? 0 }];
+    if (id === "vendor") return [{ label: "Open the stall at the Night Market", x: anchor("market")?.x ?? 0, z: anchor("market")?.z ?? 0 }];
+    return [];
+  }
 
   function taxiDropName(fare: number) {
     const drop = TAXI_DROPS[Math.min(fare - 1, 2)];
@@ -5288,6 +5433,9 @@ export function createRuntime(scene: Scene) {
         beacon.rotation.y = clock;
       }
     }
+    // The minimap marker + Jobs panel distances follow the same target
+    // as the 3D beacon, so all three guides always agree.
+    jobTargetPoint = target && job ? { x: target.x, z: target.z } : null;
     if (packageMesh) {
       packageMesh.visible = job === "courier";
       if (job === "courier" && phase === 0 && target) packageMesh.position.set(target.x, 0.7, target.z);
@@ -6342,13 +6490,16 @@ export function createRuntime(scene: Scene) {
   }
 
   async function pay(id: string) {
-    const amounts: Record<string, number> = { courier: 45, taxi: 90, guide: 60, mechanic: 55, photographer: 40, promoter: 50, dock: 65, dj: 55, banker: 50, barista: 45, vendor: 55, security: 75, mail: 70, lifeguard: 65, cleaner: 55, bus: 80, fire: 75, doctor: 70, cop: 85, paramedic: 80, teacher: 60, coinhunt: 40, fishing: 45, shootout: 50, treasure: 45 };
     // A hotel rest pays +10% on top of the job (min 1 City Sol) — the
     // same bonus whether the pay comes from the local wallet or the server.
-    const base = amounts[id] ?? 0;
+    // Task pay already landed stays landed: the settle pays the REMAINDER
+    // only, so a finished shift totals exactly the hourly rate.
+    const base = JOB_PAY[id] ?? 0;
+    const alreadyPaid = job === id ? jobTaskPaid : 0;
+    const remainder = Math.max(0, base - alreadyPaid);
     const restedBonus = isRested() && base > 0 ? Math.max(1, Math.round(base * 0.1)) : 0;
     if (!world.online) {
-      const offlineMsg = earn(wallet, amounts[id] + restedBonus, jobTitle(id) + (restedBonus ? " · rested +10%" : ""));
+      const offlineMsg = earn(wallet, remainder + restedBonus, jobTitle(id) + (restedBonus ? " · rested +10%" : ""));
       say(offlineMsg);
       notify("JOB", offlineMsg, "job");
       triggerHaptic("jobPay");
@@ -6372,13 +6523,61 @@ export function createRuntime(scene: Scene) {
     }
   }
 
+  // Credit each finished task's pay, in order, one call per task.
+  // Runs after every tick (a no-op when nothing new) and is awaited by
+  // finishJob / clockOut so the settle never overtakes a task pay.
+  // Online the server is the authority (job-task); offline the local
+  // wallet pays the same split. A server rejection (already paid, out of
+  // order) just moves on — the settle pays the remainder, so the shift
+  // total is exactly the hourly rate either way.
+  async function syncJobTasks() {
+    if (!job || jobTaskBusy) return;
+    if (jobTaskSynced >= phase) return;
+    jobTaskBusy = true;
+    try {
+      while (job && jobTaskSynced < phase) {
+        const task = jobTaskSynced;
+        const taskPay = jobTaskPay(job, world.me?.jobStreak ?? 0, task);
+        if (world.online) {
+          try {
+            const data = await world.jobTask(job, task);
+            if (data.me) applySaveMe(data.me);
+            jobTaskPaid += Number((data as { taskPay?: number }).taskPay ?? taskPay);
+          } catch {
+            // Server said no — trust it; the settle covers the rest.
+          }
+        } else {
+          const msg = earn(wallet, taskPay, `Task ${task + 1} of ${jobTasksTotal} — ${jobTitle(job)}`);
+          jobTaskPaid += taskPay;
+          notify("JOB", msg, "job");
+          triggerHaptic("jobPay");
+        }
+        jobTaskSynced = task + 1;
+        publish();
+      }
+    } finally {
+      jobTaskBusy = false;
+    }
+  }
+
+  function resetShift() {
+    jobStartedAt = 0;
+    jobHourlyRate = 0;
+    jobTasksTotal = 0;
+    jobTaskPaid = 0;
+    jobTaskSynced = 0;
+    jobTargetPoint = null;
+  }
+
   async function finishJob(id: string) {
     if (performance.now() < payAfter || job !== id) return;
     payAfter = performance.now() + 1500;
+    await syncJobTasks();
     const ok = await pay(id);
     if (!ok || job !== id) return;
     job = "";
     phase = 0;
+    resetShift();
   }
 
   function burst(x: number, y: number, z: number) {
@@ -6481,6 +6680,7 @@ export function createRuntime(scene: Scene) {
     }
     if (!opts.orbit) {
       tickJobs(body, dt);
+      void syncJobTasks();
       tickGames(body);
       tickTour(body);
       tickMissionPlace(body);
@@ -9958,14 +10158,63 @@ export function createRuntime(scene: Scene) {
         say("Finish your game first — one gig at a time.");
         return;
       }
+      if (job) {
+        say(`Already clocked in as ${jobTitle(job)} — clock out first.`);
+        return;
+      }
       job = id;
       phase = 0;
       dwell = 0;
       mailStops = [];
       if (id === "mail") resolveMailStops();
       riderOn = false;
+      // Clock in: the shift starts now, at this job's hourly rate, with
+      // its tasks on the map. The server records the same shift
+      // (job-start) — online it is the authority for task pay.
+      jobStartedAt = Date.now();
+      jobHourlyRate = jobHourlyRateFor(id, world.me?.jobStreak ?? 0);
+      jobTasksTotal = jobTaskCountFor(id);
+      jobTaskPaid = 0;
+      jobTaskSynced = 0;
       void world.jobStart(id);
-      say(`${jobTitle(id)} started.`);
+      say(`${jobTitle(id)} — clocked in at ${jobHourlyRate} City Sol/hr. ${jobTasksTotal} task${jobTasksTotal === 1 ? "" : "s"} on the map.`);
+      publish();
+    },
+    async clockOut() {
+      if (!job) {
+        say("Not clocked in to a job.");
+        return;
+      }
+      const id = job;
+      const done = jobTasksTotal > 0 ? Math.min(phase, jobTasksTotal) : 0;
+      // Flush any finished task's pay before settling, so the clock-out
+      // message reports the true earnings.
+      await syncJobTasks();
+      if (!world.online) {
+        const earned = jobTaskPaid;
+        job = "";
+        phase = 0;
+        resetShift();
+        const msg = `Clocked out — kept ${earned} City Sol for ${done} task${done === 1 ? "" : "s"}.`;
+        say(msg);
+        notify("JOB", msg, "job");
+        publish();
+        return;
+      }
+      try {
+        const data = await world.jobClockout();
+        applyMe();
+        job = "";
+        phase = 0;
+        resetShift();
+        const msg = String(data.message || "Clocked out.");
+        say(msg);
+        notify("JOB", msg, "job");
+        void attemptMission();
+      } catch (err) {
+        say(err instanceof Error ? err.message : "The city held the clock-out.");
+      }
+      publish();
     },
     talkNext() {
       if (!talk || !talkLines.length) return;

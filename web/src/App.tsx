@@ -62,6 +62,7 @@ import {
   JOB_LIST_DESC_UPDATES,
   JOBS_20,
   districtOfficeSuites,
+  jobTaskCountFor,
   type DistrictId,
   type DistrictOfficeDirectoryRow,
 } from "./game/emergency";
@@ -299,6 +300,8 @@ const EMPTY: Snap = {
   hat: "none",
   car: "black",
   jobTitle: "",
+  jobShift: null,
+  jobTarget: null,
   objective: "",
   notice: "",
   toasts: [],
@@ -759,10 +762,11 @@ export default function App() {
     };
   }, []);
 
-  // Keep the mission chain fresh while the Missions panel is open — the
+  // Keep the mission chain fresh while the Jobs panel is open — the
   // list, progress and rewards all come from the server, never local.
+  // Missions live inside Jobs now (a job-linked track, not a panel).
   useEffect(() => {
-    if (panel !== "missions") return;
+    if (panel !== "jobs") return;
     gameRef.current?.runtime.loadMissions();
   }, [panel]);
 
@@ -1320,7 +1324,7 @@ export default function App() {
             </span>
           ) : null}
           <span>Burned {snap.burned}</span>
-          <span>{snap.jobTitle ? `${snap.jobTitle} — ${snap.objective}` : snap.objective}</span>
+          <span>{snap.jobShift ? `${snap.jobShift.title} · ${snap.jobShift.hourlyRate} City Sol/hr — ${snap.objective}` : snap.jobTitle ? `${snap.jobTitle} — ${snap.objective}` : snap.objective}</span>
           {snap.eventLabel ? <span>{snap.eventLabel}</span> : null}
           {snap.notice ? <em>{snap.notice}</em> : null}
           {snap.hunger === 0 ? <span className="starving-chip">STARVING — eat something! You run slow.</span> : null}
@@ -1374,7 +1378,6 @@ export default function App() {
           <button type="button" onClick={() => openShop("clothes")}>Shop</button>
           <button type="button" onClick={() => openShop("grocery")}>Grocery</button>
           <button type="button" onClick={() => open("jobs")}>Jobs</button>
-          <button type="button" onClick={() => open("missions")}>Missions</button>
           <button type="button" onClick={() => open("ads")}>Ads</button>
           <button type="button" onClick={() => open("radio")}>Radio</button>
           <button type="button" onClick={() => open("voice")}>Voice</button>
@@ -1492,6 +1495,7 @@ export default function App() {
           foodStamina={snap.foodStamina}
           energy={snap.energy}
           energyLabel={snap.energyLabel}
+          jobTarget={snap.jobTarget}
           foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
           onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
         />
@@ -1522,7 +1526,6 @@ export default function App() {
               <strong>
                 {panel === "shop" && "OrbitX shop"}
                 {panel === "wardrobe" && "Wardrobe"}                {panel === "jobs" && "Jobs"}
-                {panel === "missions" && "Missions"}
                 {panel === "ads" && "Book a billboard"}
                 {panel === "radio" && "Radio"}
                 {panel === "voice" && "Voice chat"}
@@ -2106,8 +2109,62 @@ export default function App() {
                 })}
                 <p className="quiet">30s between workouts. Standing on the gym floor also opens this panel — press E.</p>
               </div>            )}
-            {panel === "missions" && (
+            {panel === "jobs" && (
               <div className="list">
+                <p className="muted">
+                  Every job pays in City Sol — the game&apos;s own money, never real SOL. Job streak {snap.jobStreak}: +5% pay per job in a row, up to +50%.
+                </p>
+                {snap.jobShift ? (
+                  <>
+                    <article>
+                      <div>
+                        <b>CLOCKED IN — {snap.jobShift.title}</b>
+                        <span>{snap.jobShift.hourlyRate} City Sol/hr · {snap.jobShift.tasksDone} of {snap.jobShift.tasksTotal} tasks · +{snap.jobShift.taskPaid} City Sol earned so far · {Math.max(0, Math.floor((Date.now() - snap.jobShift.startedAt) / 1000))}s on the clock · Balance {snap.balance}</span>
+                      </div>
+                      <button type="button" onClick={() => gameRef.current?.runtime.clockOut()}>Clock out</button>
+                    </article>
+                    {snap.jobShift.tasks.map((task) => {
+                      const dist = Math.round(Math.hypot(task.x - snap.me.x, task.z - snap.me.z));
+                      return (
+                        <article key={task.label}>
+                          <div>
+                            <b>{task.done ? "✓ " : task.current ? "→ " : "· "}{task.label}</b>
+                            <span>{task.pay} City Sol · {dist}m away{task.current ? " — follow the gold marker on your map" : ""}</span>
+                          </div>
+                          {task.current ? <button type="button" onClick={() => close()}>Go to task</button> : null}
+                        </article>
+                      );
+                    })}
+                  </>
+                ) : null}
+                {JOBS_20.map((job) => {
+                  const pay = Math.round(job.base * (1 + 0.05 * Math.min(snap.jobStreak, 10)));
+                  const tasks = jobTaskCountFor(job.id);
+                  return (
+                    <article key={job.id}>
+                      <div>
+                        <b>{job.name}</b>
+                        <span>{job.duty} Pays {pay} City Sol/hr · {tasks} task{tasks === 1 ? "" : "s"} · ~{Math.round(pay / tasks)} per task.</span>
+                      </div>
+                      <button type="button" disabled={!!snap.jobShift} onClick={() => { gameRef.current?.runtime.startJob(job.id); close(); }}>{snap.jobShift ? "On shift" : "Clock in"}</button>
+                    </article>
+                  );
+                })}
+                <h3>Also playable</h3>
+                {JOB_LIST.filter((job) => !JOBS_20.some((roster) => roster.id === job.id)).map((job) => {
+                  const pay = Math.round(job.base * (1 + 0.05 * Math.min(snap.jobStreak, 10)));
+                  const tasks = jobTaskCountFor(job.id);
+                  return (
+                    <article key={job.id}>
+                      <div>
+                        <b>{job.name}</b>
+                        <span>{job.desc} Pays {pay} City Sol/hr · {tasks} task{tasks === 1 ? "" : "s"} · ~{Math.round(pay / tasks)} per task.</span>
+                      </div>
+                      <button type="button" disabled={!!snap.jobShift} onClick={() => { gameRef.current?.runtime.startJob(job.id); close(); }}>{snap.jobShift ? "On shift" : "Clock in"}</button>
+                    </article>
+                  );
+                })}
+                <h3>Job missions</h3>
                 <p className="muted">
                   Six missions, in order — each one pays City Sol into this universe&apos;s save. 800 in total. Steps are confirmed by the city server: visit a place, say hello in chat, take a car for a drive, work a job, claim your daily, or buy from the shop.
                 </p>
@@ -2181,38 +2238,6 @@ export default function App() {
                   );
                 })}
                 {snap.photoMsg ? <p>{snap.photoMsg}</p> : null}
-              </div>
-            )}
-            {panel === "jobs" && (
-              <div className="list">
-                <p className="muted">
-                  Every job pays in City Sol — the game&apos;s own money, never real SOL. Job streak {snap.jobStreak}: +5% pay per job in a row, up to +50%.
-                </p>
-                {JOBS_20.map((job) => {
-                  const pay = Math.round(job.base * (1 + 0.05 * Math.min(snap.jobStreak, 10)));
-                  return (
-                    <article key={job.id}>
-                      <div>
-                        <b>{job.name}</b>
-                        <span>{job.duty} Pays {pay} City Sol.</span>
-                      </div>
-                      <button type="button" onClick={() => { gameRef.current?.runtime.startJob(job.id); close(); }}>Start</button>
-                    </article>
-                  );
-                })}
-                <h3>Also playable</h3>
-                {JOB_LIST.filter((job) => !JOBS_20.some((roster) => roster.id === job.id)).map((job) => {
-                  const pay = Math.round(job.base * (1 + 0.05 * Math.min(snap.jobStreak, 10)));
-                  return (
-                    <article key={job.id}>
-                      <div>
-                        <b>{job.name}</b>
-                        <span>{job.desc} Pays {pay} City Sol.</span>
-                      </div>
-                      <button type="button" onClick={() => { gameRef.current?.runtime.startJob(job.id); close(); }}>Start</button>
-                    </article>
-                  );
-                })}
                 <h3>Your business</h3>
                 <p className="muted">Open a business and it earns City Sol while you play. Collect before it fills at 240 — it does not overflow. Opening one burns 25% of its setup cost.</p>
                 {snap.business ? (
@@ -3236,7 +3261,7 @@ export default function App() {
                         <b>{dept.name}</b>
                         <span>{roster.name} — {roster.duty} Pays {pay} City Sol.</span>
                       </div>
-                      <button type="button" onClick={() => { gameRef.current?.runtime.startJob(roster.id); close(); }}>Take job</button>
+                      <button type="button" onClick={() => { gameRef.current?.runtime.startJob(roster.id); close(); }}>Clock in</button>
                     </article>
                   );
                 })()}
@@ -4428,9 +4453,10 @@ function compassLabel(yaw: number): string {
   return cardinals[Math.round(compassDeg(yaw) / 45) % 8];
 }
 
-function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, foodCount, onEat, docked }: {
+function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, jobTarget, foodCount, onEat, docked }: {
   me: Snap["me"]; people: Snap["people"]; seed: number;
   hunger: number; foodStamina: number; energy: number; energyLabel: string;
+  jobTarget: Snap["jobTarget"];
   foodCount: number; onEat: () => void;
   // Docked (touch cluster / panel dock): no drag, no inline position —
   // the parent (a fixed column or dock) places it, so it can never drift
@@ -4643,7 +4669,23 @@ function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, f
     ctx.beginPath();
     ctx.arc(mx, mz, 5.5, 0, Math.PI * 2);
     ctx.stroke();
-  }, [me, people, model]);
+    // Current job task: a gold diamond on the same spot as the 3D
+    // beacon, so the map guides the player to the task while they walk.
+    if (jobTarget) {
+      const [jx, jz] = plot(jobTarget.x, jobTarget.z);
+      ctx.fillStyle = "#e0b33a";
+      ctx.beginPath();
+      ctx.moveTo(jx, jz - 6);
+      ctx.lineTo(jx + 6, jz);
+      ctx.lineTo(jx, jz + 6);
+      ctx.lineTo(jx - 6, jz);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }, [me, people, model, jobTarget]);
   // Drag starts ONLY from the grip in the top-right corner — a touch on
   // the map body does nothing. The handlers used to live on the whole
   // wrapper, so a thumb brushing the map while steering / reaching for

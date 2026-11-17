@@ -369,6 +369,21 @@ class CityWorld {
     return data;
   }
 
+  // Jobs: per-task pay + clocking out. jobTask credits one finished
+  // task's pay (sequential — the server enforces order); jobClockout
+  // ends the shift and settles it (task pay already earned stays).
+  async jobTask(job: string, task: number) {
+    const data = await this.call("job-task", { job, task });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async jobClockout() {
+    const data = await this.call("job-clockout", {});
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
   async book(id: string, days: number, project: string, text: string, idempotencyKey = "") {
     return this.call("book", { id, days, project, text, idempotencyKey });
   }

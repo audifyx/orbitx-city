@@ -1960,6 +1960,34 @@ export const JOBS_20: RosterJob[] = [
   { id: "paramedic", name: "Paramedic", area: "Emergency Center", base: 80, duty: "Report to the hospital, pick up the stretcher at the Emergency Center, treat a patient at the fountain, bring them back." },
 ];
 
+/** Payable tasks per job shift — MUST match JOB_TASKS in api/city.js
+ * and the phase counts in runtime.ts tickJobs / jobTaskList. The shift's
+ * hourly rate splits across these tasks (floor per task, last task takes
+ * the remainder). Single-task jobs pay the whole rate on their one task.
+ * Mini-games are 1 — they pay in full through `earn` and never call
+ * `job-task`. */
+export const JOB_TASK_COUNTS: Record<string, number> = {
+  courier: 2,
+  taxi: 6,
+  guide: 3,
+  security: 3,
+  mail: 4,
+  lifeguard: 3,
+  cleaner: 5,
+  bus: 4,
+  fire: 4,
+  doctor: 5,
+  teacher: 3,
+  cop: 4,
+  paramedic: 4,
+  photographer: 2,
+  promoter: 2,
+};
+
+export function jobTaskCountFor(id: string): number {
+  return JOB_TASK_COUNTS[id] ?? 1;
+}
+
 /** Entries to ADD to App.tsx JOB_LIST (cop + paramedic) and the two
  * descriptions to REPLACE there (fire + doctor, now department jobs). */
 export const JOB_LIST_ADDITION: Array<{ id: string; name: string; desc: string; base: number }> = [
