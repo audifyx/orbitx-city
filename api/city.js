@@ -3296,6 +3296,66 @@ async function deleteFitOp(player, save, body) {
   return { ok: true, message: `Deleted fit "${name}".`, me: publicPlayer(save) };
 }
 
+// --- UNIFIED SHOP -------------------------------------------------------
+// One shop, five categories (clothes / cars / homes / grocery /
+// furniture), City Sol only — no burn on any shop buy (buy+burn is
+// ads/banners only). The shop ops only ROUTE: every category reuses
+// its existing, tested buy function (spendItem / buyCar / buyHome /
+// foodBuyOp / furnitureBuyOp), so no money logic is duplicated and no
+// new DB column is needed. shop-catalog is a read (never mints a
+// save); shop-buy returns the refreshed shop snapshot (balance +
+// owned state) so the Shop panel re-renders in one round trip.
+function shopCatalogData() {
+  return {
+    clothes: Object.entries(CATALOG).map(([id, item]) => ({
+      id, price: item.price, kind: item.kind, value: item.value, slot: item.slot || null,
+    })),
+    cars: Object.entries(VEHICLE_PRICES).map(([id, price]) => ({
+      id, price, name: VEHICLE_NAMES[id] || id, colors: VEHICLE_COLORS[id] || [],
+    })),
+    homes: Object.entries(HOME_PRICES).map(([id, price]) => ({ id, price })),
+    food: FOOD_CATALOG,
+    furniture: furnitureCatalogPublic(),
+  };
+}
+
+function shopSnapshot(player, save, server) {
+  const homes = save.homes && Array.isArray(save.homes.homes) ? save.homes.homes : [];
+  const food = foodPublic(save);
+  return {
+    balance: save.balance,
+    burned: save.burned,
+    owned: [...(player.owned || [])],
+    vehicles: Array.isArray(save.vehicles) ? save.vehicles.map((v) => ({ id: v.id, color: v.color })) : [],
+    activeVehicle: save.activeVehicle ?? null,
+    homes: homes.filter((h) => h.server === server).map((h) => h.homeId),
+    food: food.pantry,
+    hunger: food.hunger,
+    furnitureOwned: save.homes && Array.isArray(save.homes.furnitureOwned)
+      ? sanitizeFurnitureOwned(save.homes.furnitureOwned) : [],
+    garage: garageOf(save),
+  };
+}
+
+function shopCatalogOp(player, save, server) {
+  return { ok: true, shop: shopSnapshot(player, save, server), catalog: shopCatalogData(), me: publicPlayer(save) };
+}
+
+async function shopBuyOp(player, save, body, server) {
+  const category = String(body.category || "");
+  const id = String(body.id || body.item || "");
+  if (!id) return { ok: false, message: "Pick something to buy.", status: 400 };
+  let result;
+  if (category === "clothes") result = await spendItem(player, save, id);
+  else if (category === "car") result = await buyCar(save, { ...body, id, server });
+  else if (category === "home") result = await buyHome(player, save, { ...body, home: id, server });
+  else if (category === "food") result = await foodBuyOp(save, { ...body, id });
+  else if (category === "furniture") result = await furnitureBuyOp(player, save, { ...body, item: id });
+  else return { ok: false, message: "Unknown shop category.", status: 400 };
+  if (!result.ok) return result;
+  return { ...result, shop: shopSnapshot(player, save, server) };
+}
+
 // --- Garage (vehicles.ts catalog, mirrored — the server is the price
 // authority; never trust a client-sent price) ---
 
@@ -5663,6 +5723,37 @@ export async function POST(request) {
           ? await wearFitOp(player, save, body)
           : await deleteFitOp(player, save, body);
     return json(result, result.ok ? 200 : 400);
+  }
+
+  // UNIFIED SHOP — one buy op for every category (clothes / cars /
+  // homes / grocery / furniture), City Sol only. shop-catalog is a
+  // read: never mints a save for it. A guest with no save yet gets the
+  // catalog with an empty shop snapshot (balance from their player
+  // row); shop-buy needs the save.
+  if (op === "shop-catalog" || op === "shop-buy") {
+    const server = parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5) first." }, 400);
+    const save = await ensureSave(player, server, { mint: op !== "shop-catalog" });
+    if (!save) {
+      if (op === "shop-catalog") {
+        return json({
+          ok: true,
+          shop: {
+            balance: player.balance ?? 0, burned: 0, owned: [...(player.owned || [])],
+            vehicles: [], activeVehicle: null, homes: [], food: {}, hunger: 100,
+            furnitureOwned: [], garage: { slots: 0, workshop: false, showroom: false },
+          },
+          catalog: shopCatalogData(),
+          me: publicPlayer(player),
+        });
+      }
+      return json({ ok: false, message: "No save on this server yet." }, 400);
+    }
+    let result;
+    if (op === "shop-catalog") result = shopCatalogOp(player, save, server);
+    else result = await shopBuyOp(player, save, body, server);
+    if (result.ok) await mirrorBalance(player, save);
+    return json(result, result.ok ? 200 : result.status || 400);
   }
 
   if (op === "job-start") {
