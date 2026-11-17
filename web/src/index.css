@@ -1110,6 +1110,49 @@ body {
   color: #dedede;
 }
 
+/* PROFILE (advanced): two-column stat grid — black cards, white
+ * labels, gold values. Phone-first: two columns fit 390px with room
+ * to spare; long values wrap instead of overflowing. */
+.profile-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.profile-stats .stat {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #0d0d0d;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.profile-stats .stat b {
+  font-size: 12px;
+  font-weight: 600;
+  color: #dedede;
+}
+
+.profile-stats .stat strong {
+  font-size: 18px;
+  line-height: 1.2;
+  color: #e0b33a;
+  overflow-wrap: anywhere;
+}
+
+.profile-stats .stat span {
+  font-size: 11px;
+  color: #9a9a9a;
+}
+
+.profile-bio {
+  color: #ffffff;
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
 .list select,
 .list input,
 .chat-log {

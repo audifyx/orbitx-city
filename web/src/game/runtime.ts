@@ -250,6 +250,22 @@ export interface ProfileView {
   inCity: boolean;
   distance: number | null;
   loading: boolean;
+  // PROFILE (advanced): bio + showcase picks, real stats from the
+  // player's save. `offices` is null until the my-properties fetch
+  // lands (own profile only); the panel hides that row until then.
+  bio: string;
+  showcase: { home: string; car: string } | null;
+  spent: number;
+  missionsDone: number;
+  missionsTotal: number;
+  jobStreak: number;
+  bestRace: number;
+  bestHover: number;
+  business: { kind: string; started: number; lastCollect: number } | null;
+  rental: { id: string; color: string; days: number; daysLeft: number; expiresAt: number } | null;
+  offices: number | null;
+  npcFriends: number;
+  itemsOwned: number;
 }
 
 // One office lease as the server returns it for "my-properties" (the
@@ -3044,6 +3060,19 @@ export function createRuntime(scene: Scene) {
       inCity: !!remote,
       distance: here,
       loading: true,
+      bio: "",
+      showcase: null,
+      spent: 0,
+      missionsDone: 0,
+      missionsTotal: 0,
+      jobStreak: 0,
+      bestRace: 0,
+      bestHover: 0,
+      business: null,
+      rental: null,
+      offices: null,
+      npcFriends: 0,
+      itemsOwned: 0,
     };
     profileId = id;
     panel = "profile";
@@ -3080,6 +3109,22 @@ export function createRuntime(scene: Scene) {
           ? Math.hypot(still.state.x - (lastBody?.x ?? 0), still.state.z - (lastBody?.z ?? 0))
           : null,
         loading: false,
+        bio: typeof p.bio === "string" ? p.bio : "",
+        showcase:
+          p.showcase && typeof p.showcase === "object"
+            ? { home: String((p.showcase as Record<string, unknown>).home || ""), car: String((p.showcase as Record<string, unknown>).car || "") }
+            : null,
+        spent: Number(p.spent || 0),
+        missionsDone: Number(p.missionsDone || 0),
+        missionsTotal: Number(p.missionsTotal || 0),
+        jobStreak: Number(p.jobStreak || 0),
+        bestRace: Number(p.bestRace || 0),
+        bestHover: Number(p.bestHover || 0),
+        business: (p.business as ProfileView["business"]) ?? null,
+        rental: (p.rental as ProfileView["rental"]) ?? null,
+        offices: typeof p.offices === "number" ? p.offices : null,
+        npcFriends: Number(p.npcFriends || 0),
+        itemsOwned: Number(p.itemsOwned || 0),
       };
     } catch (err) {
       if (profileView?.id === id) profileView.loading = false;
@@ -3090,6 +3135,7 @@ export function createRuntime(scene: Scene) {
 
   function viewOwnProfile() {
     const me = world.me;
+    const homeServer = me?.homes?.homeServer ?? currentUniverse ?? null;
     profileView = {
       id: me?.id || world.id,
       name: wallet.name || me?.name || "Guest",
@@ -3097,7 +3143,7 @@ export function createRuntime(scene: Scene) {
       color: me?.color || "",
       hat: me?.hat || "",
       clothes: (me?.clothes as Clothes | undefined) ?? null,
-      homeServer: me?.homes?.homeServer ?? currentUniverse ?? null,
+      homeServer,
       homes: (me?.homes?.homes || []).map((h) => ({ homeId: h.homeId, server: h.server, tier: h.tier || "" })),
       vehicles: (me?.vehicles || []).map((v) => ({ id: v.id, color: v.color })),
       friendsCount: me?.friends?.length ?? 0,
@@ -3109,10 +3155,37 @@ export function createRuntime(scene: Scene) {
       inCity: true,
       distance: 0,
       loading: false,
+      bio: typeof me?.bio === "string" ? me.bio : "",
+      showcase: me?.showcase && typeof me.showcase === "object" ? { home: me.showcase.home || "", car: me.showcase.car || "" } : null,
+      spent: me?.spent || 0,
+      missionsDone: me?.missionsDone || 0,
+      missionsTotal: 6,
+      jobStreak: me?.jobStreak || 0,
+      bestRace: me?.bestRace || 0,
+      bestHover: me?.bestHover || 0,
+      business: me?.business ?? null,
+      rental: (me?.rental as ProfileView["rental"]) ?? null,
+      // PROFILE: offices live on the server (office_claims), not on
+      // `me` — fetch them once and patch the view; the panel hides
+      // the row until the count lands.
+      offices: null,
+      npcFriends: cityPeople.relationships.filter((rel) => rel.level >= 2).length,
+      itemsOwned: (me?.owned || []).filter((entry) => typeof entry === "string" && !entry.startsWith("eq:") && !entry.startsWith("fit:") && !entry.startsWith("worn:")).length,
     };
     profileId = "";
     panel = "profile";
     publish();
+    if (world.online && homeServer) {
+      void world
+        .myProperties(homeServer)
+        .then((data) => {
+          if (!profileView?.self) return;
+          const mine = (data as { offices?: unknown[] }).offices;
+          profileView.offices = Array.isArray(mine) ? mine.length : null;
+          publish();
+        })
+        .catch(() => {});
+    }
   }
 
   function jobTitle(id: string) {
@@ -9831,6 +9904,35 @@ export function createRuntime(scene: Scene) {
       saveWallet(wallet);
       if (world.online) void world.rename(wallet.name).then(() => applyMe());
       publish();
+    },
+    // PROFILE: change character from the profile. Same write path as
+    // boot (world.rename) — the look still applies on this device if
+    // the profile write fails.
+    setLook(id: string) {
+      const next = lookById(id).id;
+      lookId = next;
+      localStorage.setItem("orbitx-look", next);
+      if (world.online) void world.rename(wallet.name, next).then(() => applyMe());
+      if (profileView?.self) profileView.look = next;
+      publish();
+    },
+    // PROFILE: save the bio and/or showcase picks. Returns the server
+    // reply so the panel can show the error (e.g. showcasing a home
+    // you do not own). On success `me` refreshes and the open own
+    // profile re-renders from it.
+    async saveProfile(patch: { bio?: string; showcaseHome?: string; showcaseCar?: string }) {
+      if (!world.online) {
+        say("Profile saves need the online city.");
+        return { ok: false, message: "Profile saves need the online city." };
+      }
+      const data = (await world.updateProfile(patch)) as { ok?: boolean; message?: string; me?: unknown };
+      if (data.ok) {
+        applyMe();
+        if (profileView?.self) viewOwnProfile();
+      } else {
+        say(data.message || "Could not save that profile change.");
+      }
+      return data;
     },
     setChatScope(scope: "global" | "near") {
       chatScope = scope;

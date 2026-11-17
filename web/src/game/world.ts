@@ -80,6 +80,13 @@ export interface CityMe {
   party: string;
   look?: string;
   earned?: number;
+  // PROFILE: total City Sol spent on this save (real counter — see
+  // noteSpent in api/city.js) + missions completed + player-written
+  // bio and showcase picks (one owned home, one owned car).
+  spent?: number;
+  missionsDone?: number;
+  bio?: string;
+  showcase?: { home: string; car: string } | null;
   jobStreak?: number;
   business?: { kind: string; started: number; lastCollect: number } | null;
   rent?: Record<string, { nextDue: number; arrears: number }>;
@@ -472,6 +479,15 @@ class CityWorld {
 
   async rename(name: string, look = "") {
     const data = await this.call("profile", { name, look });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  // PROFILE: save the player-written bio and/or showcase picks (one
+  // owned home, one owned car — "" clears a slot). The server validates
+  // showcase ownership; a 400 leaves `me` untouched.
+  async updateProfile(patch: { bio?: string; showcaseHome?: string; showcaseCar?: string }) {
+    const data = await this.call("profile", patch);
     if (data.me) this.me = data.me as CityMe;
     return data;
   }

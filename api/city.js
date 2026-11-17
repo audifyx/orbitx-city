@@ -191,6 +191,7 @@ async function foodBuyOp(save, body) {
   // City Sol only: no burn, no burned increment — food is a purchase,
   // not a burn event.
   save.balance -= cost;
+  noteSpent(save, cost);
   food[item.id] = (food[item.id] || 0) + qty;
   await saveSave(save);
   return {
@@ -1422,6 +1423,8 @@ async function ensureSchema() {
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS auth_user TEXT NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS showcase TEXT NOT NULL DEFAULT 'null'`;
   // Lots are ownable once per universe: (id, server_id) is the key, so
   // the same lot can be owned on Universe 1 and Universe 2 independently.
   // Existing rows keep server_id = 1 (bought pre-multiverse).
@@ -1507,6 +1510,7 @@ async function ensureSchema() {
     business TEXT NOT NULL DEFAULT '{}',
     rent TEXT NOT NULL DEFAULT '{}',
     earned INTEGER NOT NULL DEFAULT 0,
+    spent INTEGER NOT NULL DEFAULT 0,
     best_race INTEGER NOT NULL DEFAULT 0,
     best_hover INTEGER NOT NULL DEFAULT 0,
     daily TEXT NOT NULL DEFAULT '{}',
@@ -1523,6 +1527,7 @@ async function ensureSchema() {
     PRIMARY KEY (player_id, server_id)
   )`;
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS missions TEXT NOT NULL DEFAULT '{}'`;
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS spent INTEGER NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS trail TEXT NOT NULL DEFAULT 'none'`;
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS homes TEXT NOT NULL DEFAULT '{"homeServer":0,"homes":[]}'`;
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS vehicles TEXT NOT NULL DEFAULT '[]'`;
@@ -1576,6 +1581,17 @@ function freshPlayer(id, name) {
     missions: {},
     look: "tjr",
     earned: 0,
+    // PROFILE: total City Sol spent across every purchase on this
+    // save. A real counter, never derived — rental income, harvest
+    // pay and tour rewards bypass `earned`, so starter + earned -
+    // balance would be wrong. Counts from this update: older saves
+    // start at 0.
+    spent: 0,
+    // PROFILE: player-written bio/status (public) + showcase picks
+    // (one owned home, one owned car). Stored on the identity row and
+    // mirrored onto saves by syncSaveIdentity.
+    bio: "",
+    showcase: null,
     bestRace: 0,
     bestHover: 0,
     daily: null,
@@ -1774,6 +1790,19 @@ function sanitizeRental(rental) {
 }
 
 function publicPlayer(player) {
+  // PROFILE: missionsDone counts mission-chain missions with done in
+  // the missions map — read directly, never via missionProgress, which
+  // mutates the save with snapshot entries.
+  const missionsDone = Array.isArray(MISSION_CHAIN)
+    ? MISSION_CHAIN.filter((m) => player.missions && player.missions[m.id] && player.missions[m.id].done).length
+    : 0;
+  const showcase =
+    player.showcase && typeof player.showcase === "object"
+      ? {
+          home: typeof player.showcase.home === "string" ? player.showcase.home : "",
+          car: typeof player.showcase.car === "string" ? player.showcase.car : "",
+        }
+      : null;
   return {
     id: player.id,
     name: player.name,
@@ -1796,6 +1825,12 @@ function publicPlayer(player) {
     mission: player.mission || 0,
     look: player.look || "tjr",
     earned: player.earned || 0,
+    // PROFILE: total spent (real counter — see noteSpent) + missions
+    // completed + player-written bio and showcase picks.
+    spent: Number(player.spent || 0),
+    missionsDone,
+    bio: typeof player.bio === "string" ? player.bio : "",
+    showcase,
     jobStreak: Number(player.jobStreak || 0),
     business: player.business || null,
     rent: player.rent || {},
@@ -1869,8 +1904,9 @@ async function savePlayer(player) {
     const daily = JSON.stringify(player.daily || {});
     const business = JSON.stringify(player.business || null);
     const rent = JSON.stringify(player.rent || {});
-    await sql`INSERT INTO players (id, token, name, balance, burned, owned, color, hat, car, friends, inbox, job, job_streak, business, rent, party, look, earned, best_race, best_hover, daily, wallet, holder, email, avatar, provider, auth_user, address, home_server)
-      VALUES (${player.id}, ${player.token}, ${player.name}, ${player.balance}, ${player.burned}, ${owned}, ${player.color}, ${player.hat}, ${player.car}, ${friends}, ${inbox}, ${job}, ${Number(player.jobStreak || 0)}, ${business}, ${rent}, ${player.party}, ${player.look || "tjr"}, ${player.earned || 0}, ${player.bestRace || 0}, ${player.bestHover || 0}, ${daily}, ${player.wallet || ""}, ${!!player.holder}, ${player.email || ""}, ${player.avatar || ""}, ${player.provider || ""}, ${player.authUser || ""}, ${player.address || ""}, ${player.homeServer ?? null})
+    const showcase = JSON.stringify(player.showcase || null);
+    await sql`INSERT INTO players (id, token, name, balance, burned, owned, color, hat, car, friends, inbox, job, job_streak, business, rent, party, look, earned, best_race, best_hover, daily, wallet, holder, email, avatar, provider, auth_user, address, home_server, bio, showcase)
+      VALUES (${player.id}, ${player.token}, ${player.name}, ${player.balance}, ${player.burned}, ${owned}, ${player.color}, ${player.hat}, ${player.car}, ${friends}, ${inbox}, ${job}, ${Number(player.jobStreak || 0)}, ${business}, ${rent}, ${player.party}, ${player.look || "tjr"}, ${player.earned || 0}, ${player.bestRace || 0}, ${player.bestHover || 0}, ${daily}, ${player.wallet || ""}, ${!!player.holder}, ${player.email || ""}, ${player.avatar || ""}, ${player.provider || ""}, ${player.authUser || ""}, ${player.address || ""}, ${player.homeServer ?? null}, ${player.bio || ""}, ${showcase})
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         balance = EXCLUDED.balance,
@@ -1898,7 +1934,9 @@ async function savePlayer(player) {
         provider = EXCLUDED.provider,
         auth_user = EXCLUDED.auth_user,
         address = EXCLUDED.address,
-        home_server = EXCLUDED.home_server`;
+        home_server = EXCLUDED.home_server,
+        bio = EXCLUDED.bio,
+        showcase = EXCLUDED.showcase`;
     return;
   }
   const cache = redis();
@@ -1955,6 +1993,7 @@ function parseSave(row) {
   save.business = typeof row.business === "string" ? JSON.parse(row.business || "null") : row.business || null;
   save.rent = typeof row.rent === "string" ? JSON.parse(row.rent || "{}") : row.rent || {};
   save.earned = Number(row.earned || 0);
+  save.spent = Number(row.spent || 0);
   save.bestRace = Number(row.best_race ?? row.bestRace ?? 0);
   save.bestHover = Number(row.best_hover ?? row.bestHover ?? 0);
   save.daily = typeof row.daily === "string" ? JSON.parse(row.daily || "null") : row.daily || null;
@@ -1988,6 +2027,7 @@ function rowFromSave(save) {
     business: JSON.stringify(save.business || null),
     rent: JSON.stringify(save.rent || {}),
     earned: Number(save.earned || 0),
+    spent: Number(save.spent || 0),
     best_race: Number(save.bestRace || 0),
     best_hover: Number(save.bestHover || 0),
     daily: JSON.stringify(save.daily || {}),
@@ -2037,13 +2077,13 @@ async function saveSave(save) {
   if (sql) {
     await ensureSchema();
     const row = rowFromSave(save);
-    await sql`INSERT INTO player_saves (player_id, server_id, balance, burned, owned, color, hat, car, look, job, job_streak, business, rent, earned, best_race, best_hover, daily, mission, mission_at, missions, trail, homes, vehicles, active_vehicle, rental, last_seen, updated_at)
-      VALUES (${row.player_id}, ${row.server_id}, ${row.balance}, ${row.burned}, ${row.owned}, ${row.color}, ${row.hat}, ${row.car}, ${row.look}, ${row.job}, ${row.job_streak}, ${row.business}, ${row.rent}, ${row.earned}, ${row.best_race}, ${row.best_hover}, ${row.daily}, ${row.mission}, ${row.mission_at}, ${row.missions}, ${row.trail}, ${row.homes}, ${row.vehicles}, ${row.active_vehicle}, ${row.rental}, ${row.last_seen}, ${row.updated_at})
+    await sql`INSERT INTO player_saves (player_id, server_id, balance, burned, owned, color, hat, car, look, job, job_streak, business, rent, earned, spent, best_race, best_hover, daily, mission, mission_at, missions, trail, homes, vehicles, active_vehicle, rental, last_seen, updated_at)
+      VALUES (${row.player_id}, ${row.server_id}, ${row.balance}, ${row.burned}, ${row.owned}, ${row.color}, ${row.hat}, ${row.car}, ${row.look}, ${row.job}, ${row.job_streak}, ${row.business}, ${row.rent}, ${row.earned}, ${row.spent}, ${row.best_race}, ${row.best_hover}, ${row.daily}, ${row.mission}, ${row.mission_at}, ${row.missions}, ${row.trail}, ${row.homes}, ${row.vehicles}, ${row.active_vehicle}, ${row.rental}, ${row.last_seen}, ${row.updated_at})
       ON CONFLICT (player_id, server_id) DO UPDATE SET
         balance = EXCLUDED.balance, burned = EXCLUDED.burned, owned = EXCLUDED.owned,
         color = EXCLUDED.color, hat = EXCLUDED.hat, car = EXCLUDED.car, look = EXCLUDED.look,
         job = EXCLUDED.job, job_streak = EXCLUDED.job_streak, business = EXCLUDED.business,
-        rent = EXCLUDED.rent, earned = EXCLUDED.earned, best_race = EXCLUDED.best_race,
+        rent = EXCLUDED.rent, earned = EXCLUDED.earned, spent = EXCLUDED.spent, best_race = EXCLUDED.best_race,
         best_hover = EXCLUDED.best_hover, daily = EXCLUDED.daily, mission = EXCLUDED.mission,
         mission_at = EXCLUDED.mission_at, missions = EXCLUDED.missions, trail = EXCLUDED.trail,
         homes = EXCLUDED.homes, vehicles = EXCLUDED.vehicles,
@@ -2121,6 +2161,24 @@ async function mirrorBalance(player, save) {
     player.balance = next;
     await savePlayer(player);
   }
+}
+
+// PROFILE: bank a City Sol purchase into the save's `spent` counter —
+// the profile's "total spent" is this counter, never a derivation
+// (rental income, harvest pay and tour rewards bypass `earned`, so
+// starter + earned - balance would be wrong). One call per spend site,
+// right after the balance drops. Counts from this update: older saves
+// start at 0.
+function noteSpent(save, amount) {
+  if (!save || !(amount > 0)) return;
+  save.spent = Number(save.spent || 0) + Math.floor(amount);
+}
+
+// PROFILE: a refund or sell-back returns previously spent City Sol, so
+// the `spent` counter gives it back — total spent stays net, not gross.
+function noteRefund(save, amount) {
+  if (!save || !(amount > 0)) return;
+  save.spent = Math.max(0, Number(save.spent || 0) - Math.floor(amount));
 }
 
 // The universe an op belongs to: an explicit server in the body, else
@@ -2242,6 +2300,10 @@ function syncSaveIdentity(save, player) {
   // Cosmetics are identity, not per-server progress: a hat or colour
   // bought on the global shop shows up on every universe. Without this
   // the save keeps its own stale color/hat/car from when it was minted.
+  // PROFILE: bio + showcase are identity too, so the save (what
+  // publicPlayer reads for `me`) always carries the current values.
+  save.bio = typeof player.bio === "string" ? player.bio : "";
+  save.showcase = player.showcase && typeof player.showcase === "object" ? player.showcase : null;
   save.owned = player.owned || [];
   save.color = player.color || "white";
   save.hat = player.hat || "none";
@@ -2278,6 +2340,17 @@ function parsePlayer(row) {
     provider: row.provider || "",
     authUser: row.auth_user || row.authUser || "",
     address: row.address || "",
+    bio: typeof row.bio === "string" ? row.bio : "",
+    showcase:
+      typeof row.showcase === "string"
+        ? (() => {
+            try {
+              return JSON.parse(row.showcase || "null");
+            } catch {
+              return null;
+            }
+          })()
+        : row.showcase || null,
     homeServer: row.home_server != null ? Number(row.home_server) : row.homeServer != null ? Number(row.homeServer) : null,
     homes: typeof row.homes === "string" ? JSON.parse(row.homes || '{"homeServer":0,"homes":[]}') : row.homes || { homeServer: 0, homes: [] },
     vehicles: typeof row.vehicles === "string" ? JSON.parse(row.vehicles || "[]") : row.vehicles || [],
@@ -2319,6 +2392,8 @@ function rowFromPlayer(player) {
     auth_user: player.authUser || "",
     address: player.address || "",
     home_server: player.homeServer ?? null,
+    bio: player.bio || "",
+    showcase: player.showcase || null,
   };
 }
 
@@ -2754,6 +2829,7 @@ async function claimOffice(player, save, body) {
   };
   const prevHomeServer = player.homeServer ?? null;
   save.balance -= price;
+  noteSpent(save, price);
   player.balance = save.balance;
   // Claiming an office makes this universe the player's home universe
   // (latest home wins) — players.home_server.
@@ -2766,6 +2842,7 @@ async function claimOffice(player, save, body) {
     // The claim did not land — refund the City Sol rather than leave the
     // player poorer with no office.
     save.balance += price;
+    noteRefund(save, price);
     player.balance = save.balance;
     player.homeServer = prevHomeServer;
     await saveSave(save);
@@ -2882,6 +2959,7 @@ async function claimDistrictOffice(player, save, body) {
   };
   const prevHomeServer = player.homeServer ?? null;
   save.balance -= price;
+  noteSpent(save, price);
   player.balance = save.balance;
   await saveSave(save);
   player.homeServer = server;
@@ -2892,6 +2970,7 @@ async function claimDistrictOffice(player, save, body) {
     // The claim did not land — refund the City Sol rather than leave the
     // player poorer with no office.
     save.balance += price;
+    noteRefund(save, price);
     player.balance = save.balance;
     await saveSave(save);
     player.homeServer = prevHomeServer;
@@ -3098,6 +3177,7 @@ async function spendItem(player, save, itemId) {
   // kind keeps the existing quarter-price City Sol burn tally.
   const burned = item.kind === "clothes" || item.noBurn ? 0 : burnOf(item.price);
   save.balance -= item.price;
+  noteSpent(save, item.price);
   save.burned += burned;
   player.burned += burned;
   player.owned.push(itemId);
@@ -3253,6 +3333,7 @@ async function buyCar(save, body) {
   // City Sol only: no burn, no burned increment — a vehicle is a
   // purchase, not a burn event.
   save.balance -= price;
+  noteSpent(save, price);
   vehicles.push({ id, color });
   save.vehicles = vehicles;
   save.activeVehicle = id;
@@ -3332,6 +3413,7 @@ async function customizeCar(save, body) {
   if (save.balance < price) return { ok: false, message: "Not enough City Sol.", status: 400 };
   // City Sol only: no burn, no burned increment — a mod is a purchase.
   save.balance -= price;
+  noteSpent(save, price);
   if (mod === "paint") entry.color = String(value);
   else if (mod === "rims") mods.rims = value;
   else if (mod === "spoiler") mods.spoiler = value;
@@ -3359,6 +3441,7 @@ async function washCar(save, body) {
   const cost = Math.round(washCost(wear.dirt) * (garage.workshop ? 1 - WORKSHOP_DISCOUNT : 1));
   if (save.balance < cost) return { ok: false, message: "Not enough City Sol.", status: 400 };
   save.balance -= cost;
+  noteSpent(save, cost);
   entry.dirt = 0;
   save.vehicles = vehicles;
   await saveSave(save);
@@ -3378,6 +3461,7 @@ async function repairCar(save, body) {
   const cost = Math.round(repairCost(wear.damage) * (garage.workshop ? 1 - WORKSHOP_DISCOUNT : 1));
   if (save.balance < cost) return { ok: false, message: "Not enough City Sol.", status: 400 };
   save.balance -= cost;
+  noteSpent(save, cost);
   entry.damage = 0;
   save.vehicles = vehicles;
   await saveSave(save);
@@ -3393,6 +3477,7 @@ async function upgradeGarage(save, body) {
   if (price == null) return { ok: false, message: "That upgrade is already owned — or maxed out.", status: 400 };
   if (save.balance < price) return { ok: false, message: "Not enough City Sol.", status: 400 };
   save.balance -= price;
+  noteSpent(save, price);
   if (upgrade === "slots") garage.slots += 1;
   else if (upgrade === "workshop") garage.workshop = true;
   else if (upgrade === "showroom") garage.showroom = true;
@@ -3484,6 +3569,7 @@ async function rentCar(save, body) {
   const cost = rentalCost(days);
   if (save.balance < cost) return { ok: false, message: "Not enough City Sol.", status: 400 };
   save.balance -= cost;
+  noteSpent(save, cost);
   save.rental = { id, color, days, expiresAt: Date.now() + days * RENTAL_DAY_MS };
   await saveSave(save);
   return {
@@ -3526,6 +3612,7 @@ async function buyHome(player, save, body) {
     return { ok: false, message: `Not enough City Sol — this home is ${price}.`, status: 400 };
   }
   save.balance -= price;
+  noteSpent(save, price);
   player.balance = save.balance;
   homes.homes.push({
     homeId,
@@ -3836,6 +3923,7 @@ async function peoplePartyStart(player, save, body) {
     .sort((a, b) => b.level - a.level || b.talks - a.talks)
     .slice(0, PEOPLE_MAX_PARTY_GUESTS);
   save.balance -= PEOPLE_PARTY_COST;
+  noteSpent(save, PEOPLE_PARTY_COST);
   const party = {
     homeId: home.homeId,
     startedAt: now,
@@ -3879,6 +3967,7 @@ async function furnitureBuyOp(player, save, body) {
   if (save.balance < item.price) return { ok: false, message: "Not enough City Sol.", status: 400 };
   // City Sol only: a furniture buy is a purchase, not a burn event.
   save.balance -= item.price;
+  noteSpent(save, item.price);
   player.balance = save.balance;
   const homes = save.homes && Array.isArray(save.homes.homes) ? save.homes : { homeServer: 0, homes: [] };
   homes.furnitureOwned = [...sanitizeFurnitureOwned(homes.furnitureOwned), itemId];
@@ -3931,6 +4020,7 @@ async function furnitureSellOp(player, save, body) {
   save.homes = homes;
   const refund = Math.floor(item.price / 2);
   save.balance += refund;
+  noteRefund(save, refund);
   player.balance = save.balance;
   await saveSave(save);
   return { ok: true, message: `Sold ${item.name} for ${refund} City Sol.`, refund, owned, me: publicPlayer(save) };
@@ -4181,6 +4271,7 @@ function crazyOwnedHome(save, homeId, server) {
 function crazyPay(save, player, amount) {
   if (save.balance < amount) return { ok: false, message: `Not enough City Sol — that is ${amount}.`, status: 400 };
   save.balance -= amount;
+  noteSpent(save, amount);
   player.balance = save.balance;
   return { ok: true };
 }
@@ -4552,6 +4643,7 @@ async function cribPayBill(save, body) {
   const amount = Number(bill.amount || 0);
   if (save.balance < amount) return { ok: false, message: `Not enough City Sol — this week's bills are ${amount}.`, status: 400 };
   save.balance -= amount;
+  noteSpent(save, amount);
   entry.crib.bills.dueAt = now + CRIB_WEEK_MS;
   entry.crib.bills.paidUntil = now + CRIB_WEEK_MS;
   entry.crib.bills.lightsOff = false;
@@ -4594,6 +4686,7 @@ async function cribBuyPet(save, body) {
   if (crib.pet) return { ok: false, message: `You already have a ${CRIB_PETS[crib.pet.kind]?.name || "pet"} — one pet per home life.`, status: 400 };
   if (save.balance < pet.price) return { ok: false, message: `Not enough City Sol — a ${pet.name.toLowerCase()} is ${pet.price}.`, status: 400 };
   save.balance -= pet.price;
+  noteSpent(save, pet.price);
   crib.pet = { kind, name: String(body.name || pet.name), fedAt: Date.now() };
   await saveSave(save);
   return { ok: true, message: `You adopted a ${pet.name.toLowerCase()}! It follows you around your home. Feed it pet food to keep it happy.`, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
@@ -4628,6 +4721,7 @@ async function cribBuyFood(save, body) {
   food[String(body.item)] = Number(food[String(body.item)] || 0) + qty;
   crib.food = food;
   save.balance -= cost;
+  noteSpent(save, cost);
   await saveSave(save);
   return { ok: true, message: `Bought ${qty}x ${item.name} for ${cost} City Sol — it's in your fridge.`, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
 }
@@ -4659,6 +4753,7 @@ async function cribUpgrade(save, body) {
   if (!next) return { ok: false, message: "Already a penthouse — the top tier.", status: 400 };
   if (save.balance < next.price) return { ok: false, message: `Not enough City Sol — ${next.name} is ${next.price}.`, status: 400 };
   save.balance -= next.price;
+  noteSpent(save, next.price);
   entry.crib.tier = next.tier;
   await saveSave(save);
   return { ok: true, message: `Upgraded to a ${next.name}! More rooms, more space, more flex.`, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
@@ -4693,6 +4788,7 @@ async function cribDecor(save, body) {
   if (!changes.length) return { ok: false, message: "That is already how your home looks.", status: 400 };
   if (save.balance < total) return { ok: false, message: `Not enough City Sol — that redecoration is ${total}.`, status: 400 };
   save.balance -= total;
+  noteSpent(save, total);
   for (const [key, value] of changes) decor[key] = value;
   entry.crib.decor = decor;
   await saveSave(save);
@@ -5105,6 +5201,7 @@ async function foodOrderOp(player, save, body) {
   const food = ensureFood(save);
   const state = foodState(save);
   save.balance -= item.price;
+  noteSpent(save, item.price);
   save.daily.hunger = Math.min(HUNGER_MAX, state.hunger + item.hunger);
   food.fedUntil = Date.now() + FED_MIN * 60 * 1000;
   await saveSave(save);
@@ -5124,6 +5221,7 @@ async function foodWorkoutOp(player, save, body) {
     return { ok: false, message: `Not enough City Sol — a workout is ${workout.cost}.`, status: 400 };
   }
   save.balance -= workout.cost;
+  noteSpent(save, workout.cost);
   food.stamina = Math.min(STAMINA_MAX, food.stamina + workout.gain);
   food.lastWorkout = Date.now();
   food.staminaAt = Date.now();
@@ -5912,23 +6010,75 @@ export async function POST(request) {
     if (name) player.name = name;
     const look = String(body.look || "");
     if (LOOKS.has(look)) player.look = look;
+    // PROFILE: bio — one line, 120 chars, shown on the public profile.
+    if (typeof body.bio === "string") {
+      player.bio = body.bio.replace(/[\r\n]+/g, " ").trim().slice(0, 120);
+    }
+    // PROFILE: showcase — one owned home + one owned car, or "" to
+    // clear that slot. Ownership is checked against the home-universe
+    // save, so a player can only feature what they actually own. A
+    // field left out of the body keeps its current value.
+    if (body.showcaseHome !== undefined || body.showcaseCar !== undefined) {
+      const current = player.showcase && typeof player.showcase === "object" ? player.showcase : {};
+      const next = {
+        home: typeof current.home === "string" ? current.home : "",
+        car: typeof current.car === "string" ? current.car : "",
+      };
+      const showServer = Number(player.homeServer || 0) || null;
+      const showSave = showServer ? await saveKey(player.id, showServer) : null;
+      const ownedHomes = showSave?.homes && Array.isArray(showSave.homes.homes) ? showSave.homes.homes : [];
+      const ownedCars = sanitizeVehicles(showSave?.vehicles ?? player.vehicles ?? []);
+      if (body.showcaseHome !== undefined) {
+        const home = String(body.showcaseHome || "");
+        if (home && !ownedHomes.some((h) => String(h.homeId || "") === home)) {
+          return json({ ok: false, message: "Showcase a home you own.", status: 400 });
+        }
+        next.home = home;
+      }
+      if (body.showcaseCar !== undefined) {
+        const car = String(body.showcaseCar || "");
+        if (car && !ownedCars.some((v) => String(v.id || "") === car)) {
+          return json({ ok: false, message: "Showcase a car you own.", status: 400 });
+        }
+        next.car = car;
+      }
+      player.showcase = next.home || next.car ? next : null;
+    }
     await savePlayer(player);
     return json({ ok: true, me: publicPlayer(player) });
   }
 
   // Public profile — what anyone in the city can see about a player:
-  // name, look, home universe, homes, cars, friend count, tour
-  // progress, total earned. Balance, inbox, email, wallet, and address
+  // name, look, bio, showcase, home universe, homes, cars, friend
+  // count, tour progress, missions done, jobs worked, total earned,
+  // total spent, offices, NPC friends, items owned, best race/hover,
+  // business, rental. Balance, inbox, email, wallet, and address
   // NEVER leave the server here. Homes + cars come from the target's
   // home-universe save (same source as my-properties), so the profile
-  // shows real ownership, not a guess.
+  // shows real ownership, not a guess. Anything the game does not
+  // track is left out — never a made-up number.
   if (op === "profile-view") {
     const other = await playerById(String(body.id || ""));
     if (!other) return json({ ok: false, message: "No player with that id." }, 404);
     const pub = publicPlayer(other);
     const homeServer = Number(pub.homeServer || 0) || null;
     const save = homeServer ? await saveKey(other.id, homeServer) : null;
+    if (save) syncSaveIdentity(save, other);
     const homes = save?.homes && Array.isArray(save.homes.homes) ? save.homes.homes : [];
+    // PROFILE: offices are live leases on the home universe; NPC
+    // friends are relationships at Friend (level 2+) on this save;
+    // items owned counts the save's owned list minus wardrobe/worn
+    // markers (eq:/fit:/worn: are not items).
+    const claims = homeServer ? await readOfficeClaims(homeServer) : [];
+    const offices = claims.filter((row) => row.owner_id === other.id && row.until >= todayISO()).length;
+    const relationships = save ? peopleStatusFor(save).relationships : [];
+    const npcFriends = relationships.filter((rel) => Number(rel.level || 0) >= 2).length;
+    const itemsOwned = Array.isArray(save?.owned)
+      ? save.owned.filter((entry) => typeof entry === "string" && !entry.startsWith("eq:") && !entry.startsWith("fit:") && !entry.startsWith("worn:")).length
+      : 0;
+    const missionsDone = Array.isArray(MISSION_CHAIN)
+      ? MISSION_CHAIN.filter((m) => save?.missions && save.missions[m.id] && save.missions[m.id].done).length
+      : 0;
     return json({
       ok: true,
       profile: {
@@ -5946,7 +6096,20 @@ export async function POST(request) {
         friendsCount: (pub.friends || []).length,
         inParty: !!pub.party,
         mission: pub.mission || 0,
-        earned: pub.earned || 0,
+        earned: Number(save?.earned ?? pub.earned ?? 0),
+        bio: pub.bio || "",
+        showcase: pub.showcase || null,
+        spent: Number(save?.spent || 0),
+        missionsDone,
+        missionsTotal: Array.isArray(MISSION_CHAIN) ? MISSION_CHAIN.length : 0,
+        jobStreak: Number(save?.jobStreak ?? pub.jobStreak ?? 0),
+        bestRace: Number(save?.bestRace ?? pub.bestRace ?? 0),
+        bestHover: Number(save?.bestHover ?? pub.bestHover ?? 0),
+        business: save?.business ?? pub.business ?? null,
+        rental: save?.rental ?? pub.rental ?? null,
+        offices,
+        npcFriends,
+        itemsOwned,
       },
     });
   }

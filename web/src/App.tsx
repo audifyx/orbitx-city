@@ -3,7 +3,7 @@ import { createGame, type Game, type PlayMode } from "./game/engine";
 import type { AdOrder, CityStats, MyPropertyClaim, PanelName, RadioTrack, Runtime, Snap } from "./game/runtime";
 import { EMPTY_CITY_PEOPLE, FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/runtime";
 import { PROXIMITY_RANGE, PROXIMITY_ROOM } from "./game/voice";
-import { loadLooks, lookName } from "./game/avatar";
+import { allLooks, loadLooks, lookName } from "./game/avatar";
 import { GROCERY_FOOD_BY_ID, GYM_WORKOUTS, OFFICE_SUITES, RECIPES, RESTAURANT_BY_ID, RESTAURANT_MENUS, adUsdPrice, foodSpeedMult, hungerLabel } from "./game/content";
 import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
@@ -4529,14 +4529,35 @@ function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, f
 // Each row says which universe the player is on.
 // Player profile — the real profile view. Your own profile shows your
 // City Sol, homes, cars, friends and universe; another player's shows
-// the public half (name, look, homes, cars, friend count, tour
-// progress, total earned). Opens from the HUD Profile button, the
-// Players panel, or the Phone panel's Profile button. The old Phone
-// card only ever showed a name + suit colour + hat — and only when the
-// player happened to be in the (8s-pruned) presence map — which is why
-// the Profile button looked dead.
+// the public half (name, look, bio, showcase, homes, cars, friend
+// count, tour progress, total earned, total spent). Opens from the HUD
+// Profile button, the Players panel, or the Phone panel's Profile
+// button. The old Phone card only ever showed a name + suit colour +
+// hat — and only when the player happened to be in the (8s-pruned)
+// presence map — which is why the Profile button looked dead.
+//
+// PROFILE (advanced): grouped sections — identity + bio, a stats grid
+// of REAL numbers from the player's save (houses, cars, jobs worked,
+// earnings, friends, missions, offices, NPC friends, items owned, best
+// race/hover), a showcase, and — on your own profile — editing: bio,
+// character, showcase home + car. Every figure comes from the server;
+// anything the game does not track is left out, never invented. Email
+// is NEVER rendered here (2026-11-15 rule).
 function ProfilePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   const view = snap.profileView;
+  const [bioDraft, setBioDraft] = useState("");
+  const [lookDraft, setLookDraft] = useState("");
+  const [showHome, setShowHome] = useState("");
+  const [showCar, setShowCar] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    setBioDraft(view?.bio ?? "");
+    setLookDraft(view?.look ?? "");
+    setShowHome(view?.showcase?.home ?? "");
+    setShowCar(view?.showcase?.car ?? "");
+    setMsg("");
+  }, [view?.id, view?.bio, view?.showcase?.home, view?.showcase?.car, view?.look]);
   if (!view) {
     return (
       <div className="list">
@@ -4548,6 +4569,26 @@ function ProfilePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   const universeName = view.homeServer
     ? universeDisplayName(view.homeServer as UniverseId)
     : "No home universe yet";
+  const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
+  const raceTime = (ms: number) => (ms > 0 ? `${(ms / 1000).toFixed(1)}s` : "—");
+  const businessLabel = (kind: string) => (kind === "stand" ? "Plaza coffee stand" : kind === "stall" ? "Night Market stall" : kind);
+  const stat = (label: string, value: string, sub?: string) => (
+    <div className="stat" key={label}>
+      <b>{label}</b>
+      <strong>{value}</strong>
+      {sub ? <span>{sub}</span> : null}
+    </div>
+  );
+  const showcaseHome = view.showcase?.home ? view.homes.find((h) => h.homeId === view.showcase?.home) : undefined;
+  const showcaseCar = view.showcase?.car ? view.vehicles.find((v) => v.id === view.showcase?.car) : undefined;
+  const saveProfile = async () => {
+    if (!rt || saving) return;
+    setSaving(true);
+    setMsg("");
+    const res = (await rt.saveProfile({ bio: bioDraft, showcaseHome: showHome, showcaseCar: showCar })) as { ok?: boolean; message?: string };
+    setSaving(false);
+    setMsg(res?.ok ? "Saved." : res?.message || "Could not save.");
+  };
   return (
     <div className="list">
       <div className="who">
@@ -4555,6 +4596,7 @@ function ProfilePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
         <b>{view.name}</b>
         <span>{lookName(view.look)}{view.self ? " · You" : ""}</span>
       </div>
+      <p className="profile-bio">{view.bio ? view.bio : view.self ? "No bio yet — add one below." : "No bio yet."}</p>
       <p>
         {view.inCity
           ? view.distance != null
@@ -4564,20 +4606,110 @@ function ProfilePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
         {view.inParty ? " · In a party" : ""}
       </p>
       {view.loading ? <p>Loading details…</p> : null}
-      {view.self && view.balance != null ? (
-        <article>
-          <div><b>City Sol</b><span>{view.balance.toLocaleString()} City Sol</span></div>
-        </article>
-      ) : null}
+
+      <h3>Stats</h3>
+      <div className="profile-stats">
+        {view.self && view.balance != null ? stat("City Sol", fmt(view.balance), "your balance") : null}
+        {stat("Total earned", `${fmt(view.earned)} City Sol`, "all time")}
+        {stat("Total spent", `${fmt(view.spent)} City Sol`, "counted since this update")}
+        {stat("Houses", String(view.homes.length), "owned")}
+        {stat("Cars", String(view.vehicles.length), "owned")}
+        {stat("Friends", String(view.friendsCount), "players")}
+        {stat("Jobs worked", String(view.jobStreak), "shifts completed")}
+        {stat("Missions", `${view.missionsDone} / ${view.missionsTotal || 6}`, "mission chain")}
+        {stat("City tour", `Stop ${Math.min(view.mission + 1, 6)} of 6`, view.mission >= 6 ? "complete" : "in progress")}
+        {stat("NPC friends", String(view.npcFriends), "level 2+")}
+        {stat("Items owned", String(view.itemsOwned), "clothes + gear")}
+        {view.offices != null ? stat("Offices", String(view.offices), "live leases") : null}
+        {stat("Best race", raceTime(view.bestRace), view.bestRace > 0 ? "street race" : "no race yet")}
+        {stat("Best hover", raceTime(view.bestHover), view.bestHover > 0 ? "hoverboard" : "no run yet")}
+      </div>
       <article>
         <div><b>Universe</b><span>{universeName}</span></div>
       </article>
-      <article>
-        <div><b>City tour</b><span>Stop {Math.min(view.mission + 1, 6)} of 6{view.mission >= 6 ? " — complete" : ""}</span></div>
-      </article>
-      <article>
-        <div><b>Earned</b><span>{view.earned.toLocaleString()} City Sol total</span></div>
-      </article>
+      {view.business ? (
+        <article>
+          <div><b>Business</b><span>{businessLabel(view.business.kind)} · since {new Date(view.business.started).toLocaleDateString()}</span></div>
+        </article>
+      ) : null}
+      {view.rental ? (
+        <article>
+          <div><b>Rental car</b><span>{getVehicle(view.rental.id)?.name ?? view.rental.id} · {view.rental.daysLeft} day{view.rental.daysLeft === 1 ? "" : "s"} left</span></div>
+        </article>
+      ) : null}
+
+      {showcaseHome || showcaseCar ? (
+        <>
+          <h3>Showcase</h3>
+          {showcaseHome ? (
+            <article>
+              <div><b>{homeById(showcaseHome.homeId)?.name ?? showcaseHome.homeId}</b><span>Featured home · Universe {showcaseHome.server}</span></div>
+            </article>
+          ) : null}
+          {showcaseCar ? (
+            <article>
+              <div><b>{getVehicle(showcaseCar.id)?.name ?? showcaseCar.id}</b><span>Featured car{showcaseCar.color ? ` · ${showcaseCar.color} paint` : ""}</span></div>
+            </article>
+          ) : null}
+        </>
+      ) : null}
+
+      {view.self ? (
+        <>
+          <h3>Edit profile</h3>
+          <label>
+            Bio
+            <input
+              type="text"
+              value={bioDraft}
+              maxLength={120}
+              placeholder="Say something about your city life…"
+              onChange={(e) => setBioDraft(e.target.value)}
+            />
+          </label>
+          <label>
+            Character
+            <select
+              value={lookDraft}
+              onChange={(e) => {
+                setLookDraft(e.target.value);
+                void rt?.setLook(e.target.value);
+              }}
+            >
+              {allLooks().map((look) => (
+                <option key={look.id} value={look.id}>{look.displayName}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Showcase home
+            <select value={showHome} onChange={(e) => setShowHome(e.target.value)}>
+              <option value="">None</option>
+              {view.homes.map((h) => (
+                <option key={`${h.homeId}:${h.server}`} value={h.homeId}>
+                  {homeById(h.homeId)?.name ?? h.homeId} (Universe {h.server})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Showcase car
+            <select value={showCar} onChange={(e) => setShowCar(e.target.value)}>
+              <option value="">None</option>
+              {view.vehicles.map((v) => (
+                <option key={v.id} value={v.id}>{getVehicle(v.id)?.name ?? v.id}</option>
+              ))}
+            </select>
+          </label>
+          <div className="days">
+            <button type="button" disabled={saving} onClick={() => void saveProfile()}>
+              {saving ? "Saving…" : "Save profile"}
+            </button>
+            {msg ? <span>{msg}</span> : null}
+          </div>
+        </>
+      ) : null}
+
       <h3>Homes ({view.homes.length})</h3>
       {view.homes.length === 0 ? (
         <p>No homes yet.</p>
@@ -4586,7 +4718,7 @@ function ProfilePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           const def = homeById(h.homeId);
           return (
             <article key={`${h.homeId}:${h.server}`}>
-              <div><b>{def?.name ?? h.homeId}</b><span>{h.tier ? `${h.tier} · ` : ""}Universe {h.server}</span></div>
+              <div><b>{def?.name ?? h.homeId}</b><span>{h.tier ? `${h.tier} · ` : ""}Universe {h.server}{view.showcase?.home === h.homeId ? " · Showcase" : ""}</span></div>
             </article>
           );
         })
@@ -4599,7 +4731,7 @@ function ProfilePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           const def = getVehicle(v.id);
           return (
             <article key={v.id}>
-              <div><b>{def?.name ?? v.id}</b><span>{v.color ? `${v.color} paint` : "Stock paint"}</span></div>
+              <div><b>{def?.name ?? v.id}</b><span>{v.color ? `${v.color} paint` : "Stock paint"}{view.showcase?.car === v.id ? " · Showcase" : ""}{view.rental?.id === v.id ? " · Rental" : ""}</span></div>
             </article>
           );
         })
