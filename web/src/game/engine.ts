@@ -724,7 +724,7 @@ export function createGame(
       wheelY = 0;
       runtime.setWheel(true);
     }
-    if (event.code === "KeyX" && !event.repeat) runtime.toggleDecor();
+    if (event.code === "KeyX" && !event.repeat) runtime.editHome();
     if (event.code === "KeyO" && !event.repeat) runtime.toggleSpectator();
     if (event.code === "KeyU" && !event.repeat) runtime.toggleHud();
     if (event.code === "KeyI" && !event.repeat) runtime.toggleNames();

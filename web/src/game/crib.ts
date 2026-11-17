@@ -25,6 +25,7 @@ export interface CribHomeState {
   tier: number;
   tierName: string;
   decor: { wall: string; floor: string; light: string };
+  style: { exterior: string; roof: string; yard: string };
   lightsOn: boolean;
   tvOn: boolean;
   bills: CribBill;
@@ -169,6 +170,54 @@ export function doorSpot(home: HomeDef): { x: number; z: number } {
 }
 
 /** Days left on a bill, for the panel ("due in 3 days" / "overdue"). */
+// ---------------------------------------------------------------------------
+// EXTERIOR + THEMES — client mirrors of the server catalogs in api/city.js.
+// The server owns prices and validation; these mirrors carry the render
+// colours (trim / roof / yard) and the theme preset copy for the editor.
+// ---------------------------------------------------------------------------
+
+/** Exterior trim (front band + door frame) — "default" renders nothing. */
+export const HOME_EXTERIORS: Record<string, { label: string; price: number; trim: number }> = {
+  default: { label: "Classic trim", price: 0, trim: 0xe8dcc8 },
+  gold: { label: "Gold trim", price: 150, trim: 0xe0b33a },
+  beach: { label: "Beach trim", price: 120, trim: 0x7eefff },
+  neon: { label: "Neon trim", price: 180, trim: 0xff5ad0 },
+  midnight: { label: "Midnight trim", price: 150, trim: 0x3a4a6b },
+};
+
+/** Roof edge — "standard" renders nothing. */
+export const HOME_ROOFS: Record<string, { label: string; price: number; roof: number }> = {
+  standard: { label: "Standard roof", price: 0, roof: 0x8a5a2e },
+  gold: { label: "Gold roof", price: 120, roof: 0xe0b33a },
+  neon: { label: "Neon roof", price: 150, roof: 0xff5ad0 },
+};
+
+/** Front yard — "none" renders nothing. */
+export const HOME_YARDS: Record<string, { label: string; price: number; yard: number }> = {
+  none: { label: "No yard", price: 0, yard: 0x000000 },
+  deck: { label: "Wooden deck", price: 200, yard: 0x8a5a2e },
+  patio: { label: "Stone patio", price: 150, yard: 0x9aa0a8 },
+  garden: { label: "Garden", price: 100, yard: 0x3a7d44 },
+};
+
+/** One-tap presets: interior decor + exterior together. */
+export const HOME_THEMES: Record<string, { label: string; price: number; wall: string; floor: string; light: string; exterior: string; roof: string; yard: string }> = {
+  classic: { label: "Classic", price: 0, wall: "cream", floor: "wood", light: "warm", exterior: "default", roof: "standard", yard: "none" },
+  "orbitx-gold": { label: "OrbitX Gold", price: 400, wall: "gold", floor: "gold", light: "gold", exterior: "gold", roof: "gold", yard: "deck" },
+  beach: { label: "Beach House", price: 250, wall: "cyan", floor: "white", light: "white", exterior: "beach", roof: "standard", yard: "deck" },
+  neon: { label: "Neon Nights", price: 350, wall: "black", floor: "black", light: "pink", exterior: "neon", roof: "neon", yard: "patio" },
+  midnight: { label: "Midnight", price: 300, wall: "black", floor: "wood", light: "blue", exterior: "midnight", roof: "standard", yard: "garden" },
+};
+
+/** Office themes — same presets, applied to a claimed office suite. */
+export const OFFICE_THEMES: Record<string, { label: string; price: number }> = {
+  default: { label: "Default", price: 0 },
+  gold: { label: "OrbitX Gold", price: 200 },
+  beach: { label: "Beach", price: 200 },
+  neon: { label: "Neon Nights", price: 200 },
+  midnight: { label: "Midnight", price: 200 },
+};
+
 export function billDaysLeft(bill: CribBill, now = Date.now()): number {
   return Math.ceil((bill.dueAt - now) / 86400000);
 }

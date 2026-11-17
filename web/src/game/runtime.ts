@@ -205,7 +205,7 @@ export interface TrainPose {
   dwelling: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homeedit" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats";
 
 // UNIFIED SHOP: the Shop panel's category tabs. "grocery" is a tab
 // now, not a panel — the grocery store in the world opens the Shop on
@@ -416,11 +416,11 @@ export interface PeopleRelationship {
 export interface PeopleRental {
   homeId: string;
   tenant: string;
-  weeklyRent: number;
+  dailyRent: number;
   nextRentAt: number;
   startedAt: number;
   collected: number;
-  weeksDue: number;
+  daysDue: number;
   due: number;
 }
 export interface PeopleParty {
@@ -612,6 +612,8 @@ export interface Snap {
   foodMsg: string;
   eventLabel: string;
   panel: PanelName | "";
+  /** The home the Home Editor panel is editing ("" when it is closed). */
+  homeEditId: string;
   lift: { name: string; floors: number[]; stops: string[]; current: number } | null;
   mission: number;
   board: { name: string; burned: number }[];
@@ -1747,6 +1749,11 @@ export function createRuntime(scene: Scene) {
   let eventLeft = 0;
   let burstLeft = 0;
   let panel: PanelName | "" = "";
+  // Home Editor: which home it is editing ("" = closed). The editor takes
+  // the home id directly — unlike the old home panel it never depends on
+  // snap.indoors, so it opens from anywhere (My Props, the world, the
+  // home panel itself).
+  let homeEditId = "";
   // Wardrobe stores (style theme): which store tab the Shop opens on.
   // A store venue (Mega Mall shopfront anchor) sets panelStore + bumps
   // shopStoreNonce before opening the panel; App syncs on the nonce.
@@ -3172,6 +3179,7 @@ export function createRuntime(scene: Scene) {
       foodCarryCap,
       eventLabel: eventLeft > 0 ? `Fountain lights in ${Math.ceil(eventLeft)}` : burstLeft > 0 ? "Fountain lights" : "",
       panel,
+      homeEditId,
       lift: liftPanel,
       people: [...remotes.values()].map((remote) => ({
         id: remote.state.id,
@@ -4466,6 +4474,16 @@ export function createRuntime(scene: Scene) {
     // back into the car instead of walking in. The car is the fallback —
     // only when nothing nearer answers E.
     const zone = zoneAt(body);
+    // Your own home: Use / X opens the full home editor. The prompt
+    // promises "edit your home", and on a phone there is no X key — the
+    // Use button IS the X here. The old path only opened the home panel
+    // at the service point, deep inside the house, so standing anywhere
+    // else in your own home did nothing at all.
+    if (zone && zone.id.startsWith("home-") && ownHomeId(zone.id)) {
+      openHomeEditor(zone.id);
+      publish();
+      return;
+    }
     if (zone && nearService(body, zone)) {
       if (zone.kind === "shop") {
         // The shop counter opens the Shop on its Clothes tab.
@@ -7267,7 +7285,7 @@ export function createRuntime(scene: Scene) {
         else if (nearCar >= 0) {
           prompt = (cars[nearCar]?.group.userData.kind as string) === "boat" ? "Press E to sail — free ferry" : "Press E to drive";
         }
-        else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : zone.kind === "grocery" ? "OrbitX Grocery — checkout at the back" : zone.id.startsWith("home-") && ownHomeId(zone.id) ? `${zoneTitle(zone)} — press X to edit your home` : lot?.ownerId === world.id ? `${lot.name} — press X to decorate` : zoneTitle(zone);
+        else if (zone) prompt = zone.kind === "shop" ? "OrbitX Shop — counter at the back" : zone.kind === "grocery" ? "OrbitX Grocery — checkout at the back" : zone.id.startsWith("home-") && ownHomeId(zone.id) ? `${zoneTitle(zone)} — ${touch ? "tap Use to edit your home" : "press X to edit your home"}` : lot?.ownerId === world.id ? `${lot.name} — ${touch ? "tap Use to decorate" : "press X to decorate"}` : zoneTitle(zone);
         else prompt = "";
       }
     }
@@ -9172,6 +9190,7 @@ export function createRuntime(scene: Scene) {
           tier: 0,
           tierName: "Apartment",
           decor: { wall: "cream", floor: "wood", light: "warm" },
+          style: { exterior: "default", roof: "standard", yard: "none" },
           lightsOn: true,
           tvOn: false,
           bills: { homeId: h.homeId, amount: cribBillAmount(h.price), dueAt, paidUntil: dueAt, overdue, lightsOff: overdue },
@@ -10310,6 +10329,72 @@ export function createRuntime(scene: Scene) {
     publish();
   }
 
+  // Home Editor: the full editor panel for one owned home. Takes the
+  // home id directly — it never depends on where the player is standing,
+  // so My Props, the world prompt and the home panel can all open it for
+  // any home the player owns.
+  function openHomeEditor(homeId: string) {
+    homeEditId = homeId;
+    panel = "homeedit";
+    publish();
+  }
+
+  // X on PC, Use on mobile, same button: inside your own home it opens
+  // the editor; while decorating it closes decor mode (the old X
+  // behaviour); anywhere else it falls through to decor mode, which
+  // says why it cannot open there.
+  function editHome() {
+    if (decorating) {
+      toggleDecor();
+      return;
+    }
+    const zone = lastBody ? zoneAt(lastBody) : null;
+    if (zone && zone.id.startsWith("home-") && ownHomeId(zone.id)) {
+      openHomeEditor(zone.id);
+      return;
+    }
+    toggleDecor();
+  }
+
+  function toggleDecor() {
+    if (decorating) {
+      // Leaving Edit Home with a piece still in hand puts it back —
+      // the server still has the pre-pickup list; the next heartbeat
+      // restores it from me.homes.
+      decorating = false;
+      decorMode = "";
+      decorHomeId = "";
+      carrying = null;
+      publish();
+      return;
+    }
+    // Inside your own home: Edit Home mode (furniture you bought).
+    const zone = lastBody ? zoneAt(lastBody) : null;
+    if (zone && zone.id.startsWith("home-") && ownHomeId(zone.id)) {
+      if (!world.online) {
+        say("Sign in to edit your home.");
+        return;
+      }
+      decorating = true;
+      decorMode = "home";
+      decorHomeId = zone.id;
+      decorKind = "couch";
+      say("Edit Home — pick a piece, press Place to drop it, Q/R to rotate.");
+      publish();
+      return;
+    }
+    const lot = currentLot();
+    if (!lot || lot.ownerId !== world.id) {
+      decorating = false;
+      say(lot ? "Only the owner can decorate." : "Step inside a place you own, then press X.");
+      publish();
+      return;
+    }
+    decorating = true;
+    decorMode = "lot";
+    publish();
+  }
+
   return {
     begin,
     cols: () => activeCols,
@@ -11008,43 +11093,40 @@ export function createRuntime(scene: Scene) {
       world.emoteUntil = Date.now() + 3200;
       publish();
     },
-    toggleDecor() {
-      if (decorating) {
-        // Leaving Edit Home with a piece still in hand puts it back —
-        // the server still has the pre-pickup list; the next heartbeat
-        // restores it from me.homes.
-        decorating = false;
-        decorMode = "";
-        decorHomeId = "";
-        carrying = null;
+    toggleDecor,
+    openHomeEditor,
+    editHome,
+    async homeStyle(homeId: string, patch: { exterior?: string; roof?: string; yard?: string }) {
+      if (!world.online || !currentUniverse) return cribNeedsSignIn();
+      try {
+        const data = await world.homeStyle(homeId, currentUniverse, patch);
+        applyMe();
+        triggerHaptic("success");
         publish();
-        return;
+        say(String(data.message || "Restyled."));
+        return String(data.message || "Restyled.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not restyle.";
+        say(message);
+        triggerHaptic("error");
+        return message;
       }
-      // Inside your own home: Edit Home mode (furniture you bought).
-      const zone = lastBody ? zoneAt(lastBody) : null;
-      if (zone && zone.id.startsWith("home-") && ownHomeId(zone.id)) {
-        if (!world.online) {
-          say("Sign in to edit your home.");
-          return;
-        }
-        decorating = true;
-        decorMode = "home";
-        decorHomeId = zone.id;
-        decorKind = "couch";
-        say("Edit Home — pick a piece, press Place to drop it, Q/R to rotate.");
+    },
+    async homeTheme(homeId: string, theme: string) {
+      if (!world.online || !currentUniverse) return cribNeedsSignIn();
+      try {
+        const data = await world.homeTheme(homeId, currentUniverse, theme);
+        applyMe();
+        triggerHaptic("success");
         publish();
-        return;
+        say(String(data.message || "Themed."));
+        return String(data.message || "Themed.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not apply the theme.";
+        say(message);
+        triggerHaptic("error");
+        return message;
       }
-      const lot = currentLot();
-      if (!lot || lot.ownerId !== world.id) {
-        decorating = false;
-        say(lot ? "Only the owner can decorate." : "Step inside a place you own, then press X.");
-        publish();
-        return;
-      }
-      decorating = true;
-      decorMode = "lot";
-      publish();
     },
     pickFurniture(kind: string) {
       if (decorMode === "home") {

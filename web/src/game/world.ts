@@ -482,6 +482,18 @@ class CityWorld {
     return data;
   }
 
+  async homeStyle(home: string, server: number, patch: { exterior?: string; roof?: string; yard?: string }) {
+    const data = await this.call("home-style", { home, server, ...patch });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
+  async homeTheme(home: string, server: number, theme: string) {
+    const data = await this.call("home-theme", { home, server, theme });
+    if (data.me) this.me = data.me as CityMe;
+    return data;
+  }
+
   async cribLights(home: string, server: number, on: boolean) {
     const data = await this.call("crib-lights", { home, server, on });
     if (data.me) this.me = data.me as CityMe;

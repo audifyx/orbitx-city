@@ -22,6 +22,11 @@
 //     through it — App owns the audio).
 //   - Door notice: any owned home with overdue bills gets a "LIGHTS OFF
 //     — BILLS DUE" sign over the door, visible from the street.
+//   - Exterior: a bought exterior trim paints a band along the front
+//     facade + a door frame; a bought roof colours the front eave; a
+//     bought yard lays a slab in front of the door; a theme puts its
+//     name on a sign over the door. Defaults render nothing — the
+//     designed facade stays.
 //   - Pet: a small dog / cat that follows you around your own home,
 //     trotting when happy, lagging when sad (unfed).
 // ---------------------------------------------------------------------------
@@ -38,7 +43,7 @@ import {
   SpriteMaterial,
 } from "three";
 import type { HomeDef } from "./homes";
-import { CRIB_FLOORS, CRIB_LIGHTS, CRIB_WALLS, doorSpot, tvSpot, type CribHomeState, type CribPetState } from "./crib";
+import { CRIB_FLOORS, CRIB_LIGHTS, CRIB_WALLS, HOME_EXTERIORS, HOME_ROOFS, HOME_THEMES, HOME_YARDS, doorSpot, tvSpot, type CribHomeState, type CribPetState } from "./crib";
 
 const box = new BoxGeometry(1, 1, 1);
 
@@ -105,7 +110,8 @@ export function createCribView(root: Group) {
   const dark = new Group();
   const tvGroup = new Group();
   const doorGroup = new Group();
-  root.add(decor, tierGroup, dark, tvGroup, doorGroup);
+  const extGroup = new Group();
+  root.add(decor, tierGroup, dark, tvGroup, doorGroup, extGroup);
 
   const pet = new Group();
   pet.visible = false;
@@ -231,6 +237,83 @@ export function createCribView(root: Group) {
     }
   }
 
+  // Which one-tap theme does this crib match, if any? Derived from the
+  // saved decor + style — the server stores the pieces, not the name.
+  function themeLabelFor(crib: CribHomeState): string {
+    for (const [key, theme] of Object.entries(HOME_THEMES)) {
+      if (key === "classic") continue;
+      if (
+        crib.decor.wall === theme.wall &&
+        crib.decor.floor === theme.floor &&
+        crib.decor.light === theme.light &&
+        crib.style.exterior === theme.exterior &&
+        crib.style.roof === theme.roof &&
+        crib.style.yard === theme.yard
+      ) return theme.label;
+    }
+    return "";
+  }
+
+  // Exterior overlay: trim band + roof eave + yard slab + theme sign.
+  // Only for the home the player owns and is standing in — the static
+  // city cannot carry per-player state, so this is the exterior surface.
+  function buildExterior(home: HomeDef, crib: CribHomeState) {
+    const { x0, z0, w, d, h, door } = home;
+    const cx = x0 + w / 2;
+    const cz = z0 + d / 2;
+    const style = crib.style ?? { exterior: "default", roof: "standard", yard: "none" };
+    const alongX = door === "n" || door === "s";
+    // Front facade line: the wall the door is on, pushed 0.25 out so the
+    // band sits proud of the static facade instead of z-fighting it.
+    const frontX = door === "e" ? x0 + w + 0.25 : door === "w" ? x0 - 0.25 : cx;
+    const frontZ = door === "s" ? z0 + d + 0.25 : door === "n" ? z0 - 0.25 : cz;
+    const frontLen = alongX ? w : d;
+    // Trim: a band just under the roofline + a frame around the door.
+    if (style.exterior !== "default") {
+      const trim = HOME_EXTERIORS[style.exterior]?.trim ?? 0xe8dcc8;
+      if (alongX) addBox(extGroup, trim, frontX, h - 0.45, frontZ, frontLen - 1, 0.5, 0.18);
+      else addBox(extGroup, trim, frontX, h - 0.45, frontZ, 0.18, 0.5, frontLen - 1);
+      const spot = doorSpot(home);
+      addBox(extGroup, trim, spot.x - 0.9, 2.6, spot.z, 0.18, 5.2, 0.18);
+      addBox(extGroup, trim, spot.x + 0.9, 2.6, spot.z, 0.18, 5.2, 0.18);
+      addBox(extGroup, trim, spot.x, 5.1, spot.z, 2.0, 0.18, 0.18);
+    }
+    // Roof: a coloured edge along the front eave, just above the wall top.
+    if (style.roof !== "standard") {
+      const roof = HOME_ROOFS[style.roof]?.roof ?? 0x8a5a2e;
+      if (alongX) addBox(extGroup, roof, frontX, h + 0.12, frontZ, frontLen + 0.4, 0.24, 0.5);
+      else addBox(extGroup, roof, frontX, h + 0.12, frontZ, 0.5, 0.24, frontLen + 0.4);
+    }
+    // Yard: a slab on the ground in front of the door.
+    if (style.yard !== "none") {
+      const yard = HOME_YARDS[style.yard]?.yard ?? 0x8a5a2e;
+      const spot = doorSpot(home);
+      addBox(extGroup, yard, spot.x, 0.12, spot.z, alongX ? 7 : 4.5, 0.14, alongX ? 4.5 : 7);
+    }
+    // Theme sign over the door, same pattern as the PENTHOUSE sign.
+    const themeLabel = themeLabelFor(crib);
+    if (themeLabel) {
+      const tex = canvasTexture((ctx, w, h) => {
+        ctx.fillStyle = "#071018";
+        ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = "#e0b33a";
+        ctx.font = "700 52px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(themeLabel.toUpperCase(), w / 2, h / 2 + 18);
+      });
+      const signMat = new MeshLambertMaterial({ map: tex, side: FrontSide, emissive: 0x332200, emissiveIntensity: 0.4 });
+      const rotY = alongX ? 0 : Math.PI / 2;
+      const sign = new Mesh(new PlaneGeometry(5, 1.25), signMat);
+      sign.position.set(frontX, 4.6, frontZ);
+      sign.rotation.y = rotY;
+      extGroup.add(sign);
+      const signBack = new Mesh(new PlaneGeometry(5, 1.25), signMat);
+      signBack.position.set(frontX, 4.6, frontZ);
+      signBack.rotation.y = rotY + Math.PI;
+      extGroup.add(signBack);
+    }
+  }
+
   function buildNotices(notices: HomeDef[]) {
     for (const home of notices) {
       const spot = doorSpot(home);
@@ -257,7 +340,7 @@ export function createCribView(root: Group) {
       const { currentHome, currentCrib, pet: nextPet, insideOwnHome } = input;
       const nextKey = JSON.stringify([
         currentHome?.id ?? null,
-        currentCrib ? [currentCrib.tier, currentCrib.decor, currentCrib.tvOn, currentCrib.lightsOn, currentCrib.bills.lightsOff] : null,
+        currentCrib ? [currentCrib.tier, currentCrib.decor, currentCrib.style, currentCrib.tvOn, currentCrib.lightsOn, currentCrib.bills.lightsOff] : null,
         insideOwnHome,
       ]);
       if (nextKey !== key) {
@@ -266,7 +349,11 @@ export function createCribView(root: Group) {
         tierGroup.clear();
         dark.clear();
         tvGroup.clear();
-        if (currentHome && currentCrib) buildDecor(currentHome, currentCrib);
+        extGroup.clear();
+        if (currentHome && currentCrib) {
+          buildDecor(currentHome, currentCrib);
+          buildExterior(currentHome, currentCrib);
+        }
       }
       const nextNoticeKey = JSON.stringify(input.notices.map((h) => h.id));
       if (nextNoticeKey !== noticeKey) {

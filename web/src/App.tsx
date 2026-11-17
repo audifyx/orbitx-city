@@ -83,6 +83,11 @@ import {
   CRIB_LIGHTS,
   CRIB_PETS,
   CRIB_WALLS,
+  HOME_EXTERIORS,
+  HOME_ROOFS,
+  HOME_THEMES,
+  HOME_YARDS,
+  OFFICE_THEMES,
   billDaysLeft,
   cribForHome,
   nextTier,
@@ -112,6 +117,7 @@ interface OfficeClaimState {
   until: string;
   price: number;
   claimed_at: string;
+  theme: string;
 }
 
 interface OfficeSuiteState {
@@ -323,6 +329,7 @@ const EMPTY: Snap = {
   foodMsg: "",
   eventLabel: "",
   panel: "",
+  homeEditId: "",
   lift: null,
   people: [],
   npcs: [],
@@ -2765,6 +2772,7 @@ export default function App() {
                                   <img alt="" src={suite.claim.logo} style={{ height: 24, verticalAlign: "middle", marginRight: 6 }} />
                                 ) : null}
                                 Claimed by {suite.claim.project} until {suite.claim.until}
+                                {suite.claim.theme ? ` · ${OFFICE_THEMES[suite.claim.theme]?.label ?? suite.claim.theme} theme` : ""}
                                 {suite.claim.site ? (
                                   <>
                                     {" "}· <a href={suite.claim.site} target="_blank" rel="noreferrer">Visit site</a>
@@ -2802,6 +2810,30 @@ export default function App() {
                             >
                               Release
                             </button>
+                          ) : null}
+                          {suite.claim && suite.claim.owner_id === snap.meId ? (
+                            <div className="days">
+                              {Object.entries(OFFICE_THEMES).map(([themeKey, theme]) => (
+                                <button
+                                  key={themeKey}
+                                  type="button"
+                                  className={suite.claim?.theme === themeKey ? "on" : ""}
+                                  disabled={officeBusy || suite.claim?.theme === themeKey || snap.balance < theme.price}
+                                  onClick={async () => {
+                                    if (officeBusy) return;
+                                    setOfficeBusy(true);
+                                    const res = await callCity("office-theme", { suite: suite.id, theme: themeKey });
+                                    triggerHaptic(res.ok ? "success" : "error");
+                                    setOfficeMsg(String(res.message || ""));
+                                    if (res.ok && Array.isArray(res.offices)) setOffices(res.offices as OfficeSuiteState[]);
+                                    if (res.ok) gameRef.current?.runtime.refreshMe();
+                                    setOfficeBusy(false);
+                                  }}
+                                >
+                                  {suite.claim?.theme === themeKey ? `✓ ${theme.label}` : `${theme.label} — ${theme.price}`}
+                                </button>
+                              ))}
+                            </div>
                           ) : null}
                         </article>
                       ))}
@@ -2900,7 +2932,7 @@ export default function App() {
                 </p>
                 {(() => {
                   // Property empire: rent out homes you do not live in —
-                  // 5% of the price a week, first payout in 7 days.
+                  // 5% of the price a day, first payout tomorrow.
                   const cityPeople = snap.cityPeople;
                   const homeRows = (myProps ?? []).filter((row) => row.kind === "home");
                   if (!homeRows.length) return null;
@@ -2908,7 +2940,7 @@ export default function App() {
                   return (
                     <>
                       <h3>Property empire</h3>
-                      <p className="muted">Rent out a home you own but do not live in — 5% of the price a week, first payout in 7 days.</p>
+                      <p className="muted">Rent out a home you own but do not live in — 5% of the price a day, first payout tomorrow.</p>
                       {totalDue > 0 ? (
                         <article>
                           <div>
@@ -2923,7 +2955,7 @@ export default function App() {
                       {homeRows.map((row) => {
                         const def = homeById(row.key);
                         const price = def ? homePrice(def.id) ?? def.price : 0;
-                        const weekly = Math.max(10, Math.round((price * 0.05) / 10) * 10);
+                        const daily = Math.max(10, Math.round((price * 0.05) / 7 / 5) * 5);
                         const rental = cityPeople.rentals.find((r) => r.homeId === row.key);
                         return (
                           <article key={`empire-${row.key}`}>
@@ -2931,12 +2963,12 @@ export default function App() {
                               <b>{row.name}</b>
                               <span>
                                 {rental
-                                  ? `Rented to ${rental.tenant} · ${rental.weeklyRent} City Sol/week · ${rental.collected} collected`
-                                  : `${weekly} City Sol/week if rented out`}
+                                  ? `Rented to ${rental.tenant} · ${rental.dailyRent} City Sol a day · ${rental.collected} collected`
+                                  : `${daily} City Sol a day if rented out`}
                               </span>
-                              {rental && rental.weeksDue > 0 ? (
+                              {rental && rental.daysDue > 0 ? (
                                 <span>
-                                  {rental.due} City Sol due ({rental.weeksDue} week{rental.weeksDue === 1 ? "" : "s"})
+                                  {rental.due} City Sol due ({rental.daysDue} day{rental.daysDue === 1 ? "" : "s"})
                                 </span>
                               ) : null}
                               {rental ? <span>Next payout {new Date(rental.nextRentAt).toLocaleDateString()}</span> : null}
@@ -2947,7 +2979,7 @@ export default function App() {
                               </button>
                             ) : (
                               <button type="button" disabled={peopleBusy} onClick={() => void runPeople((rt) => rt.peopleRentOut(row.key))}>
-                                Rent out — {weekly}/week
+                                Rent out — {daily}/day
                               </button>
                             )}
                           </article>
@@ -3020,7 +3052,7 @@ export default function App() {
                         Manage
                       </button>
                     ) : row.manage === "home" ? (
-                      <button type="button" onClick={() => { triggerHaptic("tap"); open("home"); }}>
+                      <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.openHomeEditor(row.key); }}>
                         Manage
                       </button>
                     ) : row.manage === "offices" ? (
@@ -3798,7 +3830,7 @@ export default function App() {
                           <span>{h.price} City Sol · Server {h.server}</span>
                           {rental ? (
                             <span>
-                              Rented to {rental.tenant} · {rental.weeklyRent} City Sol/week{rental.weeksDue > 0 ? ` · ${rental.due} due` : ""}
+                              Rented to {rental.tenant} · {rental.dailyRent} City Sol a day{rental.daysDue > 0 ? ` · ${rental.due} due` : ""}
                             </span>
                           ) : null}
                           {partyHere ? <span>House party is going here</span> : null}
@@ -3880,9 +3912,9 @@ export default function App() {
                   <div>
                     <b>Rented out to {rentalHere.tenant}</b>
                     <span>
-                      {rentalHere.weeklyRent} City Sol a week · {rentalHere.collected} City Sol collected so far
-                      {rentalHere.weeksDue > 0
-                        ? ` · ${rentalHere.due} City Sol due (${rentalHere.weeksDue} week${rentalHere.weeksDue === 1 ? "" : "s"})`
+                      {rentalHere.dailyRent} City Sol a day · {rentalHere.collected} City Sol collected so far
+                      {rentalHere.daysDue > 0
+                        ? ` · ${rentalHere.due} City Sol due (${rentalHere.daysDue} day${rentalHere.daysDue === 1 ? "" : "s"})`
                         : ` · next payout ${new Date(rentalHere.nextRentAt).toLocaleDateString()}`}
                     </span>
                   </div>
@@ -4011,8 +4043,8 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => {
-                          setPanel("");
-                          gameRef.current?.runtime.toggleDecor();
+                          triggerHaptic("tap");
+                          gameRef.current?.runtime.openHomeEditor(zoneId);
                         }}
                       >
                         Edit Home
@@ -4357,6 +4389,245 @@ export default function App() {
                     </>
                   ) : null}
                   {mineList}
+                </div>
+              );
+            })()}
+            {panel === "homeedit" && (() => {
+              // Full home editor — inside, outside, themes, rent, bills.
+              // Takes the home id from snap.homeEditId: it opens from
+              // anywhere (My Properties, the world prompt, the home panel)
+              // and never depends on where the player is standing.
+              const homeId = snap.homeEditId;
+              const def = homeId ? homeById(homeId) : null;
+              const homeCrib = homeId ? cribForHome(crib, homeId) : null;
+              const rental = snap.cityPeople.rentals.find((r) => r.homeId === homeId);
+              const next = homeCrib ? nextTier(homeCrib.tier) : null;
+              const ownedFurniture = snap.furnitureOwned.length;
+              const daily = def ? Math.max(10, Math.round(((homePrice(def.id) ?? def.price) * 0.05) / 7 / 5) * 5) : 0;
+              if (!homeId || !def) {
+                return (
+                  <div className="list">
+                    <p>Pick a home you own to edit it — My Properties lists them all.</p>
+                  </div>
+                );
+              }
+              if (!homeCrib) {
+                return (
+                  <div className="list">
+                    <p>Loading {def.name}…</p>
+                  </div>
+                );
+              }
+              const style = homeCrib.style ?? { exterior: "default", roof: "standard", yard: "none" };
+              return (
+                <div className="list">
+                  <p className="muted">
+                    {def.name} · {def.price} City Sol · {def.district} · everything here is City Sol, nothing real.
+                    Edit inside and outside, then go see it in the world.
+                  </p>
+                  {cribMsg ? <p>{cribMsg}</p> : null}
+                  <article>
+                    <div>
+                      <b>Go to this home</b>
+                      <span>Walk in and see your edits in the world</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic("tap");
+                        setPanel("");
+                        gameRef.current?.runtime.goToProperty(homeId);
+                      }}
+                    >
+                      Go to home
+                    </button>
+                  </article>
+                  <h3>Inside — walls, floors, lights</h3>
+                  <p className="muted">Paint, flooring and lighting — bought per change, applied the moment you pay.</p>
+                  {([
+                    ["wall", CRIB_WALLS],
+                    ["floor", CRIB_FLOORS],
+                    ["light", CRIB_LIGHTS],
+                  ] as const).map(([key, table]) => (
+                    <article key={key}>
+                      <div>
+                        <b>{key === "wall" ? "Walls" : key === "floor" ? "Flooring" : "Lighting"} — {table[homeCrib.decor[key] as keyof typeof table]?.name ?? homeCrib.decor[key]}</b>
+                        <span>
+                          {Object.entries(table).map(([optKey, opt]) => (
+                            <button
+                              key={optKey}
+                              type="button"
+                              disabled={homeCrib.decor[key] === optKey || snap.balance < opt.price}
+                              onClick={async () => {
+                                const rt = gameRef.current?.runtime;
+                                if (!rt) return;
+                                setCribMsg(await rt.cribDecor(homeId, { [key]: optKey }));
+                                await refreshCrib();
+                              }}
+                            >
+                              {homeCrib.decor[key] === optKey ? `✓ ${opt.name}` : `${opt.name} — ${opt.price}`}
+                            </button>
+                          ))}
+                        </span>
+                      </div>
+                    </article>
+                  ))}
+                  <h3>Furniture</h3>
+                  <article>
+                    <div>
+                      <b>Place furniture</b>
+                      <span>
+                        {ownedFurniture ? `You own ${ownedFurniture} piece${ownedFurniture === 1 ? "" : "s"} of furniture — buy more in the shop.` : "No furniture yet — buy some in the shop first."}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPanel("");
+                        gameRef.current?.runtime.toggleDecor();
+                      }}
+                    >
+                      Place furniture
+                    </button>
+                  </article>
+                  <h3>Outside — exterior, roof, yard</h3>
+                  <p className="muted">Trim on the front of the house, a coloured roof edge, and a slab in front of the door — visible from the street.</p>
+                  {([
+                    ["exterior", HOME_EXTERIORS, style.exterior],
+                    ["roof", HOME_ROOFS, style.roof],
+                    ["yard", HOME_YARDS, style.yard],
+                  ] as const).map(([key, table, current]) => (
+                    <article key={key}>
+                      <div>
+                        <b>{key === "exterior" ? "Exterior trim" : key === "roof" ? "Roof" : "Yard"} — {(table as Record<string, { label: string }>)[current]?.label ?? current}</b>
+                        <span>
+                          {Object.entries(table).map(([optKey, opt]) => (
+                            <button
+                              key={optKey}
+                              type="button"
+                              disabled={current === optKey || snap.balance < opt.price}
+                              onClick={async () => {
+                                const rt = gameRef.current?.runtime;
+                                if (!rt) return;
+                                setCribMsg(await rt.homeStyle(homeId, { [key]: optKey }));
+                                await refreshCrib();
+                              }}
+                            >
+                              {current === optKey ? `✓ ${opt.label}` : `${opt.label} — ${opt.price}`}
+                            </button>
+                          ))}
+                        </span>
+                      </div>
+                    </article>
+                  ))}
+                  <h3>Themes — one tap, whole house</h3>
+                  <p className="muted">A theme sets the inside and the outside together, themed for a project or a community — OrbitX Gold, Beach House, Neon Nights, Midnight.</p>
+                  <article>
+                    <div>
+                      <b>Apply a theme</b>
+                      <span>
+                        {Object.entries(HOME_THEMES).map(([themeKey, theme]) => (
+                          <button
+                            key={themeKey}
+                            type="button"
+                            disabled={snap.balance < theme.price}
+                            onClick={async () => {
+                              const rt = gameRef.current?.runtime;
+                              if (!rt) return;
+                              setCribMsg(await rt.homeTheme(homeId, themeKey));
+                              await refreshCrib();
+                            }}
+                          >
+                            {`${theme.label} — ${theme.price}`}
+                          </button>
+                        ))}
+                      </span>
+                    </div>
+                  </article>
+                  <h3>Rent it out — get paid daily</h3>
+                  <p className="muted">A tenant moves in and pays {daily} City Sol a day — first payout tomorrow, up to 14 days before you collect.</p>
+                  {rental ? (
+                    <article>
+                      <div>
+                        <b>Rented to {rental.tenant}</b>
+                        <span>
+                          {rental.dailyRent} City Sol a day · {rental.collected} City Sol collected so far
+                          {rental.daysDue > 0
+                            ? ` · ${rental.due} City Sol due (${rental.daysDue} day${rental.daysDue === 1 ? "" : "s"})`
+                            : ` · next payout ${new Date(rental.nextRentAt).toLocaleDateString()}`}
+                        </span>
+                      </div>
+                      <button type="button" disabled={peopleBusy} onClick={() => void runPeople((rt) => rt.peopleCollectRent())}>
+                        Collect rent
+                      </button>
+                    </article>
+                  ) : (
+                    <article>
+                      <div>
+                        <b>List it for rent</b>
+                        <span>{daily} City Sol a day if rented out</span>
+                      </div>
+                      <button type="button" disabled={peopleBusy} onClick={() => void runPeople((rt) => rt.peopleRentOut(homeId))}>
+                        Rent out — {daily}/day
+                      </button>
+                    </article>
+                  )}
+                  {rental ? (
+                    <article>
+                      <div>
+                        <b>End the lease</b>
+                        <span>Tenant moves out — you keep what was collected</span>
+                      </div>
+                      <button type="button" disabled={peopleBusy} onClick={() => void runPeople((rt) => rt.peopleEndRent(homeId))}>
+                        End lease
+                      </button>
+                    </article>
+                  ) : null}
+                  {peopleMsg ? <p>{peopleMsg}</p> : null}
+                  <h3>Upgrades &amp; bills</h3>
+                  {next ? (
+                    <article>
+                      <div>
+                        <b>Upgrade to a {next.name}</b>
+                        <span>{next.price} City Sol · {next.blurb}</span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={snap.balance < next.price}
+                        onClick={async () => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          setCribMsg(await rt.cribUpgrade(homeId));
+                          await refreshCrib();
+                        }}
+                      >
+                        Upgrade — {next.price} City Sol
+                      </button>
+                    </article>
+                  ) : (
+                    <p className="muted">Penthouse — the top tier. Chandelier, gold trim, a balcony over the city.</p>
+                  )}
+                  {homeCrib.bills.amount > 0 ? (
+                    <article>
+                      <div>
+                        <b>Bills due — {homeCrib.bills.amount} City Sol</b>
+                        <span>{homeCrib.bills.lightsOff ? "Lights are cut off — pay to turn them back on." : "Weekly bills for this home."}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          setCribMsg(await rt.cribPayBill(homeId));
+                          await refreshCrib();
+                        }}
+                      >
+                        Pay bills — {homeCrib.bills.amount} City Sol
+                      </button>
+                    </article>
+                  ) : (
+                    <p className="muted">Bills are paid up — nothing due on this home.</p>
+                  )}
                 </div>
               );
             })()}

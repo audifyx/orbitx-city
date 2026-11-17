@@ -24,6 +24,7 @@ export function featureTitle(panel: Snap["panel"]) {
   if (panel === "hq") return "Project HQ";
   if (panel === "race") return "Ring race";
   if (panel === "home") return "Property";
+  if (panel === "homeedit") return "Edit Home";
   if (panel === "talk") return "Chat";
   return "";
 }
