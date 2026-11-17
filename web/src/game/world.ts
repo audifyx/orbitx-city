@@ -261,7 +261,7 @@ class CityWorld {
   async refresh() {
     if (!this.online) return;
     try {
-      const data = await this.call("digest", {});
+      const data = await this.call("digest", { server: this.currentServer ?? undefined });
       this.applyDigest(data);
     } catch {
       // The next tick tries again.
@@ -279,17 +279,35 @@ class CityWorld {
   // that is actually gone is never resurrected by this.
   private mergeGarageMe(incoming: CityMe): CityMe {
     const cur = this.me;
+    if (!cur) return incoming;
+    let next = incoming;
     if (
-      cur &&
       !incoming.rental &&
       !incoming.vehicles?.length &&
       !incoming.activeVehicle &&
       !incoming.garage &&
       (cur.rental || cur.vehicles?.length || cur.activeVehicle || cur.garage)
     ) {
-      return { ...incoming, rental: cur.rental, vehicles: cur.vehicles, activeVehicle: cur.activeVehicle, garage: cur.garage };
+      next = { ...next, rental: cur.rental, vehicles: cur.vehicles, activeVehicle: cur.activeVehicle, garage: cur.garage };
     }
-    return incoming;
+    const incHomes = incoming.homes;
+    const curHomes = cur.homes;
+    const incHasHomes = Boolean(
+      incHomes &&
+        (incHomes.homes?.length ||
+          incHomes.furnitureOwned?.length ||
+          Object.keys(incHomes.furniture || {}).length),
+    );
+    const curHasHomes = Boolean(
+      curHomes &&
+        (curHomes.homes?.length ||
+          curHomes.furnitureOwned?.length ||
+          Object.keys(curHomes.furniture || {}).length),
+    );
+    if (!incHasHomes && curHasHomes) {
+      next = { ...next, homes: cur.homes, crib: cur.crib ?? next.crib };
+    }
+    return next;
   }
 
   private async flush() {
@@ -606,7 +624,7 @@ class CityWorld {
   }
 
   async buyLot(id: string) {
-    const data = await this.call("property-buy", { id });
+    const data = await this.call("property-buy", { id, server: this.currentServer ?? undefined });
     this.applyDigest(data);
     return data;
   }
@@ -738,25 +756,25 @@ class CityWorld {
   }
 
   async payRent(lot: string) {
-    const data = await this.call("rent-pay", { lot });
+    const data = await this.call("rent-pay", { lot, server: this.currentServer ?? undefined });
     this.applyDigest(data);
     return data;
   }
 
   async setBrand(lot: string, name: string, line: string, site: string) {
-    const data = await this.call("hq-brand", { lot, name, line, site });
+    const data = await this.call("hq-brand", { lot, name, line, site, server: this.currentServer ?? undefined });
     this.applyDigest(data);
     return data;
   }
 
   async saveFurniture(id: string, furniture: LotCard["furniture"]) {
-    const data = await this.call("property-save", { id, furniture });
+    const data = await this.call("property-save", { id, furniture, server: this.currentServer ?? undefined });
     this.applyDigest(data);
     return data;
   }
 
   async setAnnouncement(project: string, text: string) {
-    const data = await this.call("hq-note", { project, text });
+    const data = await this.call("hq-note", { project, text, server: this.currentServer ?? undefined });
     this.applyDigest(data);
     return data;
   }

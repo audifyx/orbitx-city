@@ -2374,15 +2374,32 @@ export function createRuntime(scene: Scene) {
       // this home (the server still has the pre-pickup list) — the
       // heartbeat must not restore the piece under the ghost.
       furnitureOwned = Array.isArray(me.homes.furnitureOwned) ? [...me.homes.furnitureOwned] : [];
-      const nextPlaced = me.homes.furniture && typeof me.homes.furniture === "object" ? { ...me.homes.furniture } : {};
-      homeFurniture = carrying ? { ...nextPlaced, [decorHomeId]: homeFurniture[decorHomeId] || [] } : nextPlaced;
-      const carried = carrying;
-      if (carried && !(homeFurniture[decorHomeId] || []).some((piece) => piece.id === carried.id)) {
-        // The server saved the drop while we were mid-move — drop the
-        // carry instead of duplicating the piece.
-        carrying = null;
+      const rawPlaced = me.homes.furniture && typeof me.homes.furniture === "object" ? { ...me.homes.furniture } : {};
+      const nextPlaced: typeof homeFurniture = {};
+      for (const [hId, list] of Object.entries(rawPlaced)) {
+        const zBounds = zones.find((item) => item.id === hId);
+        if (zBounds && Array.isArray(list)) {
+          nextPlaced[hId] = list.map((piece, idx) => {
+            const outX = piece.x < zBounds.minX - 6 || piece.x > zBounds.maxX + 6;
+            const outZ = piece.z < zBounds.minZ - 6 || piece.z > zBounds.maxZ + 6;
+            if (!outX && !outZ) return piece;
+            const cx = (zBounds.minX + zBounds.maxX) / 2;
+            const cz = (zBounds.minZ + zBounds.maxZ) / 2;
+            const col = (idx % 3) - 1;
+            const row = (Math.floor(idx / 3) % 3) - 1;
+            return {
+              ...piece,
+              x: Math.min(zBounds.maxX - 1.5, Math.max(zBounds.minX + 1.5, cx + col * 2.2)),
+              z: Math.min(zBounds.maxZ - 1.5, Math.max(zBounds.minZ + 1.5, cz + row * 2.2)),
+            };
+          });
+        } else if (Array.isArray(list)) {
+          nextPlaced[hId] = [...list];
+        }
       }
-      rebuildCrazy();    }
+      homeFurniture = carrying && decorHomeId ? { ...nextPlaced, [decorHomeId]: homeFurniture[decorHomeId] || [] } : nextPlaced;
+      rebuildCrazy();
+    }
     // CRIB: adopt the server's energy on first load, or when it jumps up
     // (slept / ate on another session). Never adopt a lagging value — the
     // client drains locally and syncs up every 30 s.
@@ -7320,16 +7337,23 @@ export function createRuntime(scene: Scene) {
         else prompt = "";
       }
     }
-    // Edit Home: the carried piece previews as a ghost at the drop point.
-    const homeZone = decorHomeId ? zones.find((item) => item.id === decorHomeId) : undefined;
-    const ghost = carrying && lastBody && homeZone
-      ? {
-          kind: carrying.item,
-          x: Math.min(homeZone.maxX - 1.3, Math.max(homeZone.minX + 1.3, lastBody.x + Math.sin(lastBody.yaw) * 1.5)),
-          z: Math.min(homeZone.maxZ - 1.3, Math.max(homeZone.minZ + 1.3, lastBody.z - Math.cos(lastBody.yaw) * 1.5)),
-          rot: decorRot,
-        }
-      : null;
+    // Edit Home & Lot Decorate: preview the selected or carried piece as a 3D ghost at the drop point.
+    const activeLot = decorMode === "lot" ? currentLot() : null;
+    const decorZone =
+      decorMode === "home" && decorHomeId
+        ? zones.find((item) => item.id === decorHomeId)
+        : activeLot
+          ? zones.find((item) => item.id === activeLot.zone)
+          : undefined;
+    const ghost =
+      decorating && lastBody && decorZone
+        ? {
+            kind: carrying ? carrying.item : decorKind,
+            x: Math.min(decorZone.maxX - 1.3, Math.max(decorZone.minX + 1.3, lastBody.x + Math.sin(lastBody.yaw) * 1.5)),
+            z: Math.min(decorZone.maxZ - 1.3, Math.max(decorZone.minZ + 1.3, lastBody.z - Math.cos(lastBody.yaw) * 1.5)),
+            rot: decorRot,
+          }
+        : null;
     life?.sync({
       lots: world.lots,
       leaders: world.leaders,
@@ -10442,6 +10466,21 @@ export function createRuntime(scene: Scene) {
     publish();
   }
 
+  function findOwnedHomeNear(body: Body | null): string {
+    if (!body) return "";
+    const z = zoneAt(body);
+    if (z && z.id.startsWith("home-") && ownHomeId(z.id)) return z.id;
+    for (const entry of localHomes.homes) {
+      if (currentUniverse && entry.server !== currentUniverse) continue;
+      const h = homeById(entry.homeId);
+      if (!h) continue;
+      if (body.x >= h.x0 - 8 && body.x <= h.x0 + h.w + 8 && body.z >= h.z0 - 8 && body.z <= h.z0 + h.d + 8) {
+        return h.id;
+      }
+    }
+    return "";
+  }
+
   // X on PC, Use on mobile, same button: inside your own home it opens
   // the editor; while decorating it closes decor mode (the old X
   // behaviour); anywhere else it falls through to decor mode, which
@@ -10451,16 +10490,16 @@ export function createRuntime(scene: Scene) {
       toggleDecor();
       return;
     }
-    const zone = lastBody ? zoneAt(lastBody) : null;
-    if (zone && zone.id.startsWith("home-") && ownHomeId(zone.id)) {
-      openHomeEditor(zone.id);
+    const nearHomeId = findOwnedHomeNear(lastBody);
+    if (nearHomeId) {
+      openHomeEditor(nearHomeId);
       return;
     }
     toggleDecor();
   }
 
-  function toggleDecor() {
-    if (decorating) {
+  function toggleDecor(targetHomeId?: string) {
+    if (decorating && !targetHomeId) {
       // Leaving Edit Home with a piece still in hand puts it back —
       // the server still has the pre-pickup list; the next heartbeat
       // restores it from me.homes.
@@ -10471,17 +10510,45 @@ export function createRuntime(scene: Scene) {
       publish();
       return;
     }
-    // Inside your own home: Edit Home mode (furniture you bought).
-    const zone = lastBody ? zoneAt(lastBody) : null;
-    if (zone && zone.id.startsWith("home-") && ownHomeId(zone.id)) {
+    const resolvedHomeId =
+      (targetHomeId && ownHomeId(targetHomeId) ? targetHomeId : "") ||
+      findOwnedHomeNear(lastBody) ||
+      (homeEditId && ownHomeId(homeEditId) ? homeEditId : "");
+    // Inside or editing your own home: Edit Home mode (furniture you bought or catalog).
+    if (resolvedHomeId) {
       if (!world.online) {
         say("Sign in to edit your home.");
         return;
       }
+      const homeZone = zones.find((item) => item.id === resolvedHomeId);
+      if (lastBody && homeZone) {
+        const inside =
+          lastBody.x >= homeZone.minX &&
+          lastBody.x <= homeZone.maxX &&
+          lastBody.z >= homeZone.minZ &&
+          lastBody.z <= homeZone.maxZ;
+        if (!inside) {
+          if (driving) exitCar(lastBody);
+          ridingTrain = false;
+          ridingBus = false;
+          lastBody.x = homeZone.serviceX;
+          lastBody.z = homeZone.serviceZ;
+          lastBody.y = 0;
+          lastBody.vy = 0;
+        }
+      }
+      panel = "";
       decorating = true;
       decorMode = "home";
-      decorHomeId = zone.id;
-      decorKind = "couch";
+      decorHomeId = resolvedHomeId;
+      carrying = null;
+      const placedAll = Object.values(homeFurniture).flat();
+      const firstUnplacedOwned = furnitureOwned.find(
+        (id) => placedAll.filter((p) => p.item === id).length < furnitureOwned.filter((ownedId) => ownedId === id).length,
+      );
+      if (!FURNITURE_CATALOG.some((item) => item.id === decorKind)) {
+        decorKind = firstUnplacedOwned || FURNITURE_CATALOG[0]?.id || "couch";
+      }
       say("Edit Home — pick a piece, press Place to drop it, Q/R to rotate.");
       publish();
       return;
@@ -10493,8 +10560,14 @@ export function createRuntime(scene: Scene) {
       publish();
       return;
     }
+    panel = "";
     decorating = true;
     decorMode = "lot";
+    decorHomeId = "";
+    if (!(FURNITURE as readonly string[]).includes(decorKind)) {
+      decorKind = "table";
+    }
+    say("Decorate Lot — pick a piece, press Place to drop it, Q/R to rotate.");
     publish();
   }
 
@@ -11270,30 +11343,48 @@ export function createRuntime(scene: Scene) {
         if (!zone) return;
         const x = Math.min(zone.maxX - 1.3, Math.max(zone.minX + 1.3, lastBody.x + Math.sin(lastBody.yaw) * 1.5));
         const z = Math.min(zone.maxZ - 1.3, Math.max(zone.minZ + 1.3, lastBody.z - Math.cos(lastBody.yaw) * 1.5));
-        const pieces = [...(homeFurniture[decorHomeId] || [])];
+        const prevPieces = [...(homeFurniture[decorHomeId] || [])];
+        const pieces = [...prevPieces];
         let wasMove = false;
+        let needsBuy = false;
+        const itemId = (carrying ? carrying.item : decorKind) as string;
         if (carrying) {
           // Dropping a moved piece: same id, new spot.
           pieces.push({ ...carrying, x, z, rot: decorRot });
           wasMove = true;
           carrying = null;
         } else {
-          const itemId = decorKind as string;
           const ownedCount = furnitureOwned.filter((id) => id === itemId).length;
-          const placedCount = pieces.filter((piece) => piece.item === itemId).length;
-          if (placedCount >= ownedCount) {
-            say(`Buy a ${furnitureName(itemId)} in the shop first.`);
-            return;
+          const totalPlacedCount = Object.values(homeFurniture)
+            .flat()
+            .filter((piece) => piece.item === itemId).length;
+          if (totalPlacedCount >= ownedCount) {
+            needsBuy = true;
           }
           pieces.push({ id: `hf${Date.now().toString(36)}`, item: itemId, x, z, rot: decorRot });
         }
-        void world.furnitureSave(decorHomeId, pieces, currentUniverse).then(() => {
+        homeFurniture = { ...homeFurniture, [decorHomeId]: pieces };
+        publish();
+        const universe = currentUniverse;
+        const runSave = async () => {
+          if (needsBuy) {
+            await world.furnitureBuy(itemId, universe);
+          }
+          await world.furnitureSave(decorHomeId, pieces, universe);
           applyMe();
           publish();
-          say(wasMove ? "Moved." : `Placed a ${furnitureName(decorKind)}.`);
-        }).catch((err) => {
+          say(
+            wasMove
+              ? "Moved."
+              : needsBuy
+                ? `Bought and placed a ${furnitureName(itemId)}.`
+                : `Placed a ${furnitureName(itemId)}.`,
+          );
+        };
+        void runSave().catch((err) => {
           carrying = null;
-          say(err.message);
+          homeFurniture = { ...homeFurniture, [decorHomeId]: prevPieces };
+          say(err instanceof Error ? err.message : "Could not place furniture.");
           publish();
         });
         return;

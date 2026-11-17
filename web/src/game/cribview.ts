@@ -182,8 +182,8 @@ export function createCribView(root: Group) {
         addBox(tierGroup, 0xd43a2e, cx - 4 + dx, 0.3, z0 + 3.2 + dz, 0.5, 0.5, 0.5);
       }
       const alongX = door === "n" || door === "s";
-      const fx = alongX ? x0 + 1.4 : cx;
-      const fz = alongX ? cz : z0 + 1.4;
+      const fx = alongX ? x0 + 1.22 : cx;
+      const fz = alongX ? cz : z0 + 1.22;
       addBox(tierGroup, 0xff7a3c, fx, 0.9, fz, alongX ? 0.9 : 3.4, 1.2, alongX ? 3.4 : 0.9, 0xff7a3c, 0.9);
       addBox(tierGroup, 0xe0b33a, cx, 3.25, z0 + 0.72, w - 2.5, 0.18, 0.08);
       addBox(tierGroup, 0xe0b33a, cx, 3.25, z0 + d - 0.72, w - 2.5, 0.18, 0.08);

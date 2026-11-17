@@ -394,7 +394,7 @@ function pushPlantBoxes(boxes: CrazyBox[], home: HomeDef, plant: CrazyPlantView,
 function pushTheaterBoxes(boxes: CrazyBox[], home: HomeDef): Array<{ x: number; z: number }> {
   const { x0, z0, w, d, door } = home;
   const alongX = door === "n" || door === "s";
-  const screen = backPoint(door, x0, z0, w, d, 2.65);
+  const screen = backPoint(door, x0, z0, w, d, 0.95);
   // Gold frame around the screen (the screen plane itself is a separate
   // canvas-textured mesh, mounted over the old TV).
   const frameW = alongX ? 7 : 0.3;
@@ -605,7 +605,7 @@ function pushSeasonBoxes(boxes: CrazyBox[], homes: HomeDef[], season: CrazySeaso
 
 function makeScreen(home: HomeDef): TheaterScreen {
   const { x0, z0, w, d, door } = home;
-  const spot = backPoint(door, x0, z0, w, d, 2.78);
+  const spot = backPoint(door, x0, z0, w, d, 1.12);
   const canvas = document.createElement("canvas");
   canvas.width = 512;
   canvas.height = 224;

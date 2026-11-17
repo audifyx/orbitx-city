@@ -421,9 +421,10 @@ function furnishStateHome(city: City, home: HomeDef, arch: HomeArchetype): void 
   const wallMat: Mat = home.state === "ny" ? "gray" : home.state === "la" ? "warm" : "white";
   stateHomeWallpaper(city, home, wallMat, arch.rug);
   // TV on the far wall + rug + sofa facing it.
-  const back = backPoint(door, x0, z0, w, d);
-  pushBox(city, back.x, 1.5, back.z, alongX ? 3.6 : 0.2, 2, alongX ? 0.2 : 3.6, "black");
-  pushBox(city, back.x, 1.5, back.z, alongX ? 3.2 : 0.1, 1.6, alongX ? 0.1 : 3.2, "cyan");
+  const tvPos = backPoint(door, x0, z0, w, d, 0.88);
+  const back = backPoint(door, x0, z0, w, d, 1.38);
+  pushBox(city, tvPos.x, 1.5, tvPos.z, alongX ? 3.6 : 0.2, 2, alongX ? 0.2 : 3.6, "black");
+  pushBox(city, tvPos.x, 1.5, tvPos.z, alongX ? 3.2 : 0.1, 1.6, alongX ? 0.1 : 3.2, "cyan");
   pushBox(city, cx, 0.12, cz, alongX ? 5 : 3.6, 0.05, alongX ? 3.6 : 5, arch.rug);
   const s = door === "s" || door === "e" ? 1 : -1;
   if (alongX) {
@@ -463,7 +464,7 @@ function furnishStateHome(city: City, home: HomeDef, arch: HomeArchetype): void 
   // same side wall as the bed, north of it (clear of the rug, the
   // nightstand and the sofa). The home way to change clothes — the Home
   // panel's "Open closet" button opens the wardrobe from here.
-  const closetX = bedSE ? x0 + w - 1.4 : x0 + 1.4;
+  const closetX = bedSE ? x0 + w - 1.25 : x0 + 1.25;
   const closetZ = bedZ - 3.4;
   pushBox(city, closetX, 1.1, closetZ, 0.9, 2.2, 1.6, "wood");
   pushCol(city, closetX, 1.1, closetZ, 0.9, 2.2, 1.6);
@@ -473,13 +474,18 @@ function furnishStateHome(city: City, home: HomeDef, arch: HomeArchetype): void 
   pushBox(city, handleX, 1.1, closetZ + 0.4, 0.08, 0.3, 0.08, "gold");
   // Rug beside the bed, on the room side of it.
   pushBox(city, bedX + (bedSE ? -2.2 : 2.2), 0.145, bedZ, 2.5, 0.05, 3, arch.rug);
-  // Paintings on the side walls (thin accent boxes) + a plant by the door.
-  pushBox(city, alongX ? cx + 6 : x0 + 1.3, 1.9, alongX ? z0 + 1.3 : cz + 6, alongX ? 2.2 : 0.15, 1.5, alongX ? 0.15 : 2.2, arch.rug);
-  pushBox(city, alongX ? cx - 6 : x0 + w - 1.3, 1.9, alongX ? z0 + d - 1.3 : cz - 6, alongX ? 2.2 : 0.15, 1.5, alongX ? 0.15 : 2.2, "gold");
+  // Paintings flush on the side walls (never on the door wall) + a plant by the door.
+  if (alongX) {
+    pushBox(city, x0 + 0.84, 1.9, cz - 3.6, 0.15, 1.5, 2.2, arch.rug);
+    pushBox(city, x0 + w - 0.84, 1.9, cz - 3.6, 0.15, 1.5, 2.2, "gold");
+  } else {
+    pushBox(city, cx + 4.5, 1.9, z0 + 0.84, 2.2, 1.5, 0.15, arch.rug);
+    pushBox(city, cx - 3.5, 1.9, z0 + d - 0.84, 2.2, 1.5, 0.15, "gold");
+  }
   const plant = backPoint(door === "n" ? "s" : door === "s" ? "n" : door === "w" ? "e" : "w", x0, z0, w, d);
   pushBox(city, plant.x, 0.5, plant.z, 0.7, 0.9, 0.7, "leavesDark");
   pushCol(city, plant.x, 0.5, plant.z, 0.7, 0.9, 0.7);
-  // Dining set in the north-west corner + a floor lamp + a book shelf on a
+  // Dining set in the north-west corner + a floor lamp + a book shelf flush on a
   // wall that never holds the TV, the kitchen, a painting or a window.
   pushBox(city, x0 + 3.5, 0.45, z0 + 3.5, 1.8, 0.08, 1.0, "wood");
   pushBox(city, x0 + 3.5, 0.22, z0 + 3.5, 0.3, 0.4, 0.3, "black");
@@ -492,22 +498,22 @@ function furnishStateHome(city: City, home: HomeDef, arch: HomeArchetype): void 
   pushBox(city, lampX, 0.9, z0 + 2.6, 0.15, 1.8, 0.15, "gray");
   pushBox(city, lampX, 1.85, z0 + 2.6, 0.5, 0.3, 0.5, "warm");
   pushCol(city, lampX, 0.9, z0 + 2.6, 0.3, 1.8, 0.3);
-  const shelfX = door === "n" || door === "w" ? cx + 6 : cx - 6;
-  const shelfZ = door === "n" || door === "w" ? z0 + d - 1.35 : z0 + 1.35;
-  pushBox(city, shelfX, 1.8, shelfZ, 3, 0.12, 0.6, "wood");
+  const shelfX = cx - 5.2;
+  const shelfZ = door === "n" ? z0 + d - 0.98 : z0 + 0.98;
+  pushBox(city, shelfX, 1.8, shelfZ, 3, 0.12, 0.45, "wood");
   const shelfMats: Mat[] = ["red", "cyan", "gold", "white"];
   for (let i = 0; i < 4; i++) {
-    pushBox(city, shelfX - 1 + i * 0.66, 2.1, shelfZ, 0.4, 0.5, 0.4, shelfMats[i % shelfMats.length]);
+    pushBox(city, shelfX - 1 + i * 0.66, 2.1, shelfZ, 0.4, 0.5, 0.35, shelfMats[i % shelfMats.length]);
   }
   // Backyard behind the house.
   stateHomeBackyard(city, home);
   // Per-archetype extra — the one thing that makes this house unlike its neighbours.
   if (arch.extra === "fireplace") {
-    const fx = alongX ? x0 + 1.4 : cx;
-    const fz = alongX ? cz : z0 + 1.4;
-    pushBox(city, fx, 1.0, fz, alongX ? 1.2 : 4, 2, alongX ? 4 : 1.2, "black");
-    pushCol(city, fx, 1.0, fz, alongX ? 1.2 : 4, 2, alongX ? 4 : 1.2);
-    pushBox(city, fx, 2.1, fz, alongX ? 1.4 : 4.2, 0.25, alongX ? 4.2 : 1.4, "gold");
+    const fx = alongX ? x0 + 1.22 : cx;
+    const fz = alongX ? cz : z0 + 1.22;
+    pushBox(city, fx, 1.0, fz, alongX ? 1.0 : 4, 2, alongX ? 4 : 1.0, "black");
+    pushCol(city, fx, 1.0, fz, alongX ? 1.0 : 4, 2, alongX ? 4 : 1.0);
+    pushBox(city, fx, 2.1, fz, alongX ? 1.2 : 4.2, 0.25, alongX ? 4.2 : 1.2, "gold");
   } else if (arch.extra === "patio" || arch.extra === "deck") {
     // Outdoor slab past the door + one palm (LA) or umbrella (FL).
     // The palm / umbrella sits at the slab's far corner, 2.8 off the door
@@ -555,7 +561,8 @@ export function buildHome(city: City, home: HomeDef): void {
   // Zone + anchor mirror the existing homes exactly: kind "hall", id
   // "home-…", so runtime.ts already greets you ("Welcome home") and opens
   // the home panel on entry. Slot = the global home index.
-  const back = backPoint(door, x0, z0, w, d);
+  const back = backPoint(door, x0, z0, w, d, 1.38);
+  const signPos = backPoint(door, x0, z0, w, d, 0.82);
   // Service point: 4.1 inside from the back wall (furnishHome convention).
   const service = backPoint(door, x0, z0, w, d, 4.1);
   // FOOD: the kitchen stand point — same formula as furnishHome in
@@ -575,10 +582,10 @@ export function buildHome(city: City, home: HomeDef): void {
     id: home.id, name: home.name, kind: "hall", slot: home.index,
     minX: x0 + 1.15, maxX: x0 + w - 1.15, minZ: z0 + 1.15, maxZ: z0 + d - 1.15,
     serviceX: service.x, serviceZ: service.z,
-    signX: back.x + (door === "w" ? -0.55 : door === "e" ? 0.55 : 0),
+    signX: signPos.x,
     signY: 2.35,
-    signZ: back.z + (door === "n" ? -0.55 : door === "s" ? 0.55 : 0),
-    signRot: back.rot,
+    signZ: signPos.z,
+    signRot: signPos.rot,
     kitchen,
   };
   city.zones.push(zone);

@@ -1,10 +1,10 @@
 // OrbitX City service worker — app-shell cache, network-first API.
 // RULE: bump CACHE on every push that changes the shell (game.js, index.html,
 // CSS, icons) — otherwise phones keep serving the old bundle from this cache.
-// v17 (2026-11-17): Blue · Black · White · Gold platform UI theme & logo
-// lockup/mark/icon overhaul; on top of v16 (5-act splash flyover + 3D building
-// architectural details) and v15.
-const CACHE = "orbitx-city-v17";
+// v18 (2026-11-17): World Edit / Home Edit furniture placement + move fix,
+// full-world ±1200 coordinate bounds, and flush interior wall mounting for
+// all 150 state homes, 81 state district buildings, and central city rooftops.
+const CACHE = "orbitx-city-v18";
 const PRECACHE = [
   "/",
   "/index.html",

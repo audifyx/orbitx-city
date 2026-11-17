@@ -1039,7 +1039,7 @@ function furnitureCatalogPublic() {
 
 function sanitizeFurniturePlaced(list) {
   if (!Array.isArray(list)) return [];
-  const clamp = (v) => Math.max(-400, Math.min(400, Number(v) || 0));
+  const clamp = (v) => Math.max(-1200, Math.min(1200, Number(v) || 0));
   return list
     .filter((p) => p && FURNITURE_CATALOG[p.item] && typeof p.id === "string" && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.z)) && Number.isFinite(Number(p.rot)))
     .slice(0, FURNITURE_MAX_PER_HOME)
@@ -3754,6 +3754,8 @@ async function overlaySaveGarage(player, body, me) {
   me.vehicles = sanitizeVehicles(save.vehicles);
   me.activeVehicle = save.activeVehicle || null;
   me.garage = sanitizeGarage(save.homes?.garage);
+  me.homes = sanitizeHomes(save.homes);
+  me.crib = sanitizeCrib(save.homes);
   me.rental = sanitizeRental(await liveRental(save));
   return me;
 }
@@ -6860,11 +6862,11 @@ export async function POST(request) {
       if (data) party = data;
       if (error) noteSupabase(error.message);
     }
-    const me = publicPlayer(player);
+    const me = publicPlayer(syncSave || player);
     await overlaySaveGarage(player, body, me);
     return json({
       ok: true,
-      me: publicPlayer(syncSave || player),
+      me,
       people,
       chat: chat.slice(-40),
       bookings: await readBookings(),
@@ -6972,7 +6974,9 @@ export async function POST(request) {
       // The HUD reads the save's balance. The digest already minted /
       // reconciled the save via moneySave, so load (never mint) here.
       const meSave = await ensureSave(player, currentServerFor(body, player), { mint: false });
-      payload.me = publicPlayer(meSave || player);
+      const me = publicPlayer(meSave || player);
+      await overlaySaveGarage(player, body, me);
+      payload.me = me;
       delete payload.includeMe;
     }
     return json(payload, status);
@@ -7343,7 +7347,7 @@ function storageName() {
 function sanitizeState(player, raw) {
   const num = (value, fallback = 0) => {
     const n = Number(value);
-    return Number.isFinite(n) ? Math.max(-400, Math.min(400, n)) : fallback;
+    return Number.isFinite(n) ? Math.max(-1200, Math.min(1200, n)) : fallback;
   };
   return {
     id: player.id,

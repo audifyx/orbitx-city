@@ -673,7 +673,7 @@ function furnishStateBlock(
 
   // Back piece on the wall opposite the door (the door lane ends here).
   const backW = Math.min(6.4, S - 6.4);
-  const backT = T - 2.4;
+  const backT = T - 1.35;
   if (kind === "library") {
     rput(S / 2, backT, backW, 1.1, 2.2, 1.15, "wood");
     rcol(S / 2, backT, backW, 1.1, 2.2, 1.15);
@@ -692,7 +692,7 @@ function furnishStateBlock(
     // Low wooden dais at the back. Centre y 0.18 so it sits ON the floor
     // (floor top 0.12) — at 0.06 its top was flush with the floor (z-fight).
     rput(S / 2, backT, Math.min(9, S - 4), 0.18, 0.12, 2.2, "wood");
-    rput(S / 2, T - 1.4, Math.min(9, S - 4), 1.7, 1.6, 0.1, accent);
+    rput(S / 2, T - 0.75, Math.min(9, S - 4), 1.7, 1.6, 0.1, accent);
   } else {
     rput(S / 2, backT, backW, 0.55, 1.05, 1.15, kind === "hotel" ? "stone" : "wood");
     rcol(S / 2, backT, backW, 0.55, 1.05, 1.15);
@@ -700,12 +700,12 @@ function furnishStateBlock(
     rput(S / 2, backT, 0.35, 1.55, 0.55, 0.35, "gold");
     if (kind === "cafe" || kind === "office") {
       for (const side of [-1, 1]) {
-        rput(S / 2 + side * 2.8, T - 3.8, 0.45, 0.4, 0.45, 0.45, "black");
-        rcol(S / 2 + side * 2.8, T - 3.8, 0.45, 0.4, 0.45, 0.45);
+        rput(S / 2 + side * 2.8, T - 2.8, 0.45, 0.4, 0.45, 0.45, "black");
+        rcol(S / 2 + side * 2.8, T - 2.8, 0.45, 0.4, 0.45, 0.45);
       }
     } else if (kind === "bank") {
       for (const side of [-1, 1]) {
-        rput(S / 2 + side * 2.8, T - 3.6, 0.15, 0.55, 1.1, 0.15, "gold");
+        rput(S / 2 + side * 2.8, T - 2.6, 0.15, 0.55, 1.1, 0.15, "gold");
       }
     }
   }
@@ -757,7 +757,7 @@ function furnishStateBlock(
       rput(a, t, 0.5, 0.7, 0.2, 0.5, accent);
     }
   };
-  for (const a of [1.9, S - 1.9]) {
+  for (const a of [1.2, S - 1.2]) {
     sideUnit(a, T * 0.38);
     sideUnit(a, T * 0.66);
   }
@@ -787,7 +787,7 @@ function furnishStateBlock(
   };
   if (T >= 15) {
     for (const atStart of [true, false]) {
-      const a = atStart ? 1.65 : S - 1.65;
+      const a = atStart ? 0.72 : S - 0.72;
       const p = blockRoomPoint(door, x0, z0, w, d, a, T / 2);
       statePainting(city, p.x, 1.9, p.z, sideRot(atStart), 1.6, 1.4);
     }
@@ -808,8 +808,8 @@ function furnishStateBlock(
     if (door === "w") return { x: x0 + w - inset, z: cz, rot: -Math.PI / 2 };
     return { x: x0 + inset, z: cz, rot: Math.PI / 2 };
   };
-  const back = backPt(2.4);
-  const service = backPt(4.1);
+  const back = backPt(0.68);
+  const service = backPt(3.2);
   return {
     id,
     name: `${district.name} ${label}`,
@@ -821,9 +821,9 @@ function furnishStateBlock(
     maxZ: z0 + d - 1.15,
     serviceX: service.x,
     serviceZ: service.z,
-    signX: back.x + (door === "w" ? -0.55 : door === "e" ? 0.55 : 0),
+    signX: back.x,
     signY: 2.35,
-    signZ: back.z + (door === "n" ? -0.55 : door === "s" ? 0.55 : 0),
+    signZ: back.z,
     signRot: back.rot,
   };
 }
@@ -881,7 +881,7 @@ function furnishStateLandmark(city: City, state: StateDef): Zone {
     serviceZ: cz - 5.5,
     signX: cx,
     signY: 2.35,
-    signZ: z0 + 0.55,
+    signZ: z0 + 0.76,
     signRot: 0,
   };
 }
@@ -1073,7 +1073,7 @@ export function buildEmergencyServices(city: City, state: StateDef): void {
     const zone: Zone = {
       id, name: p.name, kind: "hall", slot: p.slot,
       minX: x0 + 1.15, maxX: x0 + w - 1.15, minZ: z0 + 1.15, maxZ: z0 + d - 1.15,
-      serviceX: mx, serviceZ: mz, signX: mx, signY: 2.35, signZ: z0 + d + 0.55, signRot: 0,
+      serviceX: mx, serviceZ: mz, signX: mx, signY: 2.35, signZ: z0 + 0.68, signRot: 0,
     };
     city.zones.push(zone);
     city.anchors.push(doorAnchorFor(id, p.name, "jobs", x0, z0, w, d, door, p.slot));

@@ -143,8 +143,8 @@ export function fridgeSpot(home: HomeDef): { x: number; z: number } {
   const alongX = home.door === "n" || home.door === "s";
   const cx = home.x0 + home.w / 2;
   const cz = home.z0 + home.d / 2;
-  const backZ = home.door === "n" ? home.z0 + home.d - 2.4 : home.z0 + 2.4;
-  const backX = home.door === "w" ? home.x0 + home.w - 2.4 : home.x0 + 2.4;
+  const backZ = home.door === "n" ? home.z0 + home.d - 1.38 : home.z0 + 1.38;
+  const backX = home.door === "w" ? home.x0 + home.w - 1.38 : home.x0 + 1.38;
   if (alongX) return { x: cx + 5 + 2.8, z: backZ };
   return { x: backX, z: cz + 5 + 2.8 };
 }
@@ -153,10 +153,10 @@ export function fridgeSpot(home: HomeDef): { x: number; z: number } {
 export function tvSpot(home: HomeDef): { x: number; z: number } {
   const cx = home.x0 + home.w / 2;
   const cz = home.z0 + home.d / 2;
-  if (home.door === "w") return { x: home.x0 + home.w - 2.4, z: cz };
-  if (home.door === "e") return { x: home.x0 + 2.4, z: cz };
-  if (home.door === "n") return { x: cx, z: home.z0 + home.d - 2.4 };
-  return { x: cx, z: home.z0 + 2.4 };
+  if (home.door === "w") return { x: home.x0 + home.w - 0.88, z: cz };
+  if (home.door === "e") return { x: home.x0 + 0.88, z: cz };
+  if (home.door === "n") return { x: cx, z: home.z0 + home.d - 0.88 };
+  return { x: cx, z: home.z0 + 0.88 };
 }
 
 /** The door's outside point, for the "lights off — bills due" notice. */

@@ -4784,7 +4784,7 @@ export default function App() {
                       type="button"
                       onClick={() => {
                         setPanel("");
-                        gameRef.current?.runtime.toggleDecor();
+                        gameRef.current?.runtime.toggleDecor(homeId);
                       }}
                     >
                       Place furniture

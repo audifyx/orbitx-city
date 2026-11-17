@@ -573,6 +573,7 @@ function addAwning(boxes: Box[], x0: number, z0: number, w: number, d: number, f
 // from above, like a GTA VI trailer frame.
 function addRooftop(boxes: Box[], x0: number, z0: number, w: number, d: number, roofY: number, rng: Rng) {
   if (w < 8 || d < 8) return;
+  visualHide = true;
   // 1-2 AC units, tucked to one corner so they don't crowd the roof.
   const n = 1 + Math.floor(rng() * 2);
   for (let i = 0; i < n; i++) {
@@ -584,6 +585,7 @@ function addRooftop(boxes: Box[], x0: number, z0: number, w: number, d: number, 
   // A vent pipe near the opposite corner.
   put(boxes, x0 + w - 2, roofY + 0.7, z0 + d - 2, 0.5, 1.4, 0.5, "gray");
   put(boxes, x0 + w - 2, roofY + 1.45, z0 + d - 2, 0.7, 0.15, 0.7, "black");
+  visualHide = false;
 }
 
 function addBalcony(boxes: Box[], x0: number, y: number, z0: number, w: number, d: number, face: Face) {
@@ -1325,17 +1327,17 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
           fbd = Math.max(8, fbd - 4);
         }
       }
-      const roofY = y;
+      const roofY = height + 0.42;
       // The garden roll is drawn exactly when the original code drew it;
       // a pitched roof just means the garden is not placed.
       const gardenRoll = bw >= 12 && bd >= 12 ? rng() : -1;
       // No garden on a pitched roof (it would pierce the slope) or a
       // stepped tower (the garden would overhang the top tier).
       if (gardenRoll > 0.42 && roof !== "gable" && roof !== "hip" && roof !== "stepped") {
-        const gx0 = fbx + 2;
-        const gz0 = fbz + 2;
-        const gw = fbw - 4;
-        const gd = fbd - 4;
+        const gx0 = baseX + 2;
+        const gz0 = baseZ + 2;
+        const gw = baseW - 4;
+        const gd = baseD - 4;
         put(boxes, gx0 + gw / 2, roofY + 0.2, gz0 + gd / 2, gw, 0.35, gd, "grass");
         put(boxes, gx0 + gw / 2, roofY + 0.7, gz0 + 0.4, gw, 0.7, 0.7, "hedge");
         put(boxes, gx0 + gw / 2, roofY + 0.7, gz0 + gd - 0.4, gw, 0.7, 0.7, "hedge");
@@ -1345,10 +1347,10 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
       // its roof). Skipped on pitched/stepped roofs — it would pierce
       // the slope.
       if (gardenRoll <= 0.42 && roof !== "gable" && roof !== "hip" && roof !== "stepped") {
-        addRooftop(boxes, fbx, fbz, fbw, fbd, roofY, roofRng);
+        addRooftop(boxes, baseX, baseZ, baseW, baseD, roofY, roofRng);
       }
-      addAwning(boxes, fbx, fbz, fbw, fbd, face);
-      if (height > 18) addBalcony(boxes, fbx, Math.min(12, roofY - 4), fbz, fbw, fbd, face);
+      addAwning(boxes, baseX, baseZ, baseW, baseD, face);
+      if (height > 18) addBalcony(boxes, baseX, Math.min(12, roofY - 4), baseZ, baseW, baseD, face);
       if (height > 22) addCrown(boxes, cols, fbx + fbw / 2, roofY, fbz + fbd / 2, fbw, fbd);
       if (height > 22 && dist > 40 && dist < 140 && rng() > 0.55) {
         addBillboard(boxes, baseX, 8, baseZ, baseW, baseD, face, Math.floor(rng() * 6));
@@ -4083,7 +4085,7 @@ function furnishBlock(
     pottedPlant(boxes, cols, p.x, p.z);
   }
 
-  const back = opposite(door, x0, z0, w, d, 2.4);
+  const back = opposite(door, x0, z0, w, d, 1.38);
   const service = opposite(door, x0, z0, w, d, 4.1);
   return {
     id,
@@ -4096,9 +4098,9 @@ function furnishBlock(
     maxZ: z0 + d - 1.15,
     serviceX: service.x,
     serviceZ: service.z,
-    signX: back.x + (door === "w" ? -0.55 : door === "e" ? 0.55 : 0),
+    signX: back.x,
     signY: 2.35,
-    signZ: back.z + (door === "n" ? -0.55 : door === "s" ? 0.55 : 0),
+    signZ: back.z,
     signRot: back.rot,
   };
 }

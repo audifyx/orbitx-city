@@ -752,19 +752,17 @@ export function DecorBar({ kind, rt, mode, owned }: { kind: string; rt: Runtime 
   const home = mode === "home";
   const ownedCounts = new Map<string, number>();
   for (const id of owned || []) ownedCounts.set(id, (ownedCounts.get(id) || 0) + 1);
-  const homeChoices = FURNITURE_CATALOG.filter((item) => (ownedCounts.get(item.id) || 0) > 0);
   return (
     <div className="decor-bar" data-feature="decorate">
       {home ? (
-        homeChoices.length ? (
-          homeChoices.map((item) => (
+        FURNITURE_CATALOG.map((item) => {
+          const count = ownedCounts.get(item.id) || 0;
+          return (
             <button key={item.id} type="button" className={kind === item.id ? "on" : ""} onClick={() => rt?.pickFurniture(item.id)}>
-              {item.name} ×{ownedCounts.get(item.id)}
+              {count > 0 ? `${item.name} ×${count}` : `${item.name} (${item.price} Sol)`}
             </button>
-          ))
-        ) : (
-          <span className="muted">No furniture yet — buy some in the shop first.</span>
-        )
+          );
+        })
       ) : (
         FURNITURE.map((name) => (
           <button key={name} type="button" className={kind === name ? "on" : ""} onClick={() => rt?.pickFurniture(name)}>

@@ -60,16 +60,23 @@ test("buy, place, persist, sell-back — full flow on one server", async () => {
   assert.deepEqual(tv.data.owned, ["tv"]);
   await call("furniture-buy", { item: "tv", server: 1 }, token);
 
-  // Placing two TVs is fine (owns two); three is not.
+  // Placing two TVs at real NY state-home coordinates (x: -936) is fine and never clamps to -400.
   const two = [
-    { id: "a", item: "tv", x: 1, z: 2, rot: 0 },
-    { id: "b", item: "tv", x: 3, z: 4, rot: 1 },
+    { id: "a", item: "tv", x: -936, z: 36, rot: 0 },
+    { id: "b", item: "tv", x: -932, z: 38, rot: 1 },
   ];
   const saved = await call("furniture-save", { home: "home-ny-01", furniture: two, server: 1 }, token);
   assert.equal(saved.data.ok, true, JSON.stringify(saved.data));
   assert.equal(saved.data.placed.length, 2);
+  assert.equal(saved.data.placed[0].x, -936);
+  assert.equal(saved.data.placed[0].z, 36);
 
-  const three = [...two, { id: "c", item: "tv", x: 5, z: 6, rot: 0 }];
+  // Sync heartbeat preserves placed furniture and real world coordinates outside ±400.
+  const synced = await call("sync", { state: { x: -936, y: 0, z: 36, yaw: 0 }, server: 1 }, token);
+  assert.equal(synced.data.ok, true);
+  assert.equal(synced.data.me.homes.furniture["home-ny-01"][0].x, -936);
+
+  const three = [...two, { id: "c", item: "tv", x: -930, z: 40, rot: 0 }];
   const over = await call("furniture-save", { home: "home-ny-01", furniture: three, server: 1 }, token);
   assert.equal(over.data.ok, false);
   assert.match(over.data.message, /only own 2/);

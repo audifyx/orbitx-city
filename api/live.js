@@ -283,7 +283,7 @@ function remember(player, store) {
 function clamp(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
-  return Math.max(-400, Math.min(400, n));
+  return Math.max(-1200, Math.min(1200, n));
 }
 
 function cleanFurniture(list) {
