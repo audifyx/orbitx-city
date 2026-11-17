@@ -4556,8 +4556,13 @@ function ProfilePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
     setLookDraft(view?.look ?? "");
     setShowHome(view?.showcase?.home ?? "");
     setShowCar(view?.showcase?.car ?? "");
-    setMsg("");
   }, [view?.id, view?.bio, view?.showcase?.home, view?.showcase?.car, view?.look]);
+  // PROFILE: the save message lives outside the draft sync above — the
+  // sync fires when the server values land after a save, which used to
+  // wipe "Saved." before anyone could read it.
+  useEffect(() => {
+    setMsg("");
+  }, [view?.id]);
   if (!view) {
     return (
       <div className="list">
@@ -4664,7 +4669,7 @@ function ProfilePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
               value={bioDraft}
               maxLength={120}
               placeholder="Say something about your city life…"
-              onChange={(e) => setBioDraft(e.target.value)}
+              onChange={(e) => { setBioDraft(e.target.value); setMsg(""); }}
             />
           </label>
           <label>
@@ -4673,6 +4678,7 @@ function ProfilePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
               value={lookDraft}
               onChange={(e) => {
                 setLookDraft(e.target.value);
+                setMsg("");
                 void rt?.setLook(e.target.value);
               }}
             >
@@ -4683,7 +4689,7 @@ function ProfilePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           </label>
           <label>
             Showcase home
-            <select value={showHome} onChange={(e) => setShowHome(e.target.value)}>
+            <select value={showHome} onChange={(e) => { setShowHome(e.target.value); setMsg(""); }}>
               <option value="">None</option>
               {view.homes.map((h) => (
                 <option key={`${h.homeId}:${h.server}`} value={h.homeId}>
@@ -4694,7 +4700,7 @@ function ProfilePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           </label>
           <label>
             Showcase car
-            <select value={showCar} onChange={(e) => setShowCar(e.target.value)}>
+            <select value={showCar} onChange={(e) => { setShowCar(e.target.value); setMsg(""); }}>
               <option value="">None</option>
               {view.vehicles.map((v) => (
                 <option key={v.id} value={v.id}>{getVehicle(v.id)?.name ?? v.id}</option>

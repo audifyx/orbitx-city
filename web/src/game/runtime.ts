@@ -3021,6 +3021,42 @@ export function createRuntime(scene: Scene) {
     };
   }
 
+  // PROFILE: the server-authoritative fields of a profile-view
+  // response (homes, cars, spent, missions, offices …). Shared by
+  // viewProfile (other players) and viewOwnProfile — the local `me` is
+  // the player row, which carries no homes, cars, spent or missions, so
+  // the own profile overlays these from the server instead of trusting
+  // `me` (whose values lag the save until a heartbeat lands).
+  function serverProfileFields(p: Record<string, unknown>): Pick<
+    ProfileView,
+    "homes" | "vehicles" | "friendsCount" | "inParty" | "mission" | "earned" | "bio" | "showcase" | "spent" | "missionsDone" | "missionsTotal" | "jobStreak" | "bestRace" | "bestHover" | "business" | "rental" | "offices" | "npcFriends" | "itemsOwned"
+  > {
+    return {
+      homes: Array.isArray(p.homes) ? (p.homes as ProfileView["homes"]) : [],
+      vehicles: Array.isArray(p.vehicles) ? (p.vehicles as ProfileView["vehicles"]) : [],
+      friendsCount: Number(p.friendsCount || 0),
+      inParty: !!p.inParty,
+      mission: Number(p.mission || 0),
+      earned: Number(p.earned || 0),
+      bio: typeof p.bio === "string" ? p.bio : "",
+      showcase:
+        p.showcase && typeof p.showcase === "object"
+          ? { home: String((p.showcase as Record<string, unknown>).home || ""), car: String((p.showcase as Record<string, unknown>).car || "") }
+          : null,
+      spent: Number(p.spent || 0),
+      missionsDone: Number(p.missionsDone || 0),
+      missionsTotal: Number(p.missionsTotal || 0),
+      jobStreak: Number(p.jobStreak || 0),
+      bestRace: Number(p.bestRace || 0),
+      bestHover: Number(p.bestHover || 0),
+      business: (p.business as ProfileView["business"]) ?? null,
+      rental: (p.rental as ProfileView["rental"]) ?? null,
+      offices: typeof p.offices === "number" ? p.offices : null,
+      npcFriends: Number(p.npcFriends || 0),
+      itemsOwned: Number(p.itemsOwned || 0),
+    };
+  }
+
   // PROFILES: the Profile panel shows a real profile for any player —
   // your own (balance, homes, cars, friends, universe) or another
   // player's (public only: name, look, homes, cars, friend count).
@@ -3096,12 +3132,6 @@ export function createRuntime(scene: Scene) {
         hat: String(p.hat || ""),
         clothes: (p.clothes as Clothes | null) ?? null,
         homeServer: typeof p.homeServer === "number" ? p.homeServer : null,
-        homes: Array.isArray(p.homes) ? (p.homes as ProfileView["homes"]) : [],
-        vehicles: Array.isArray(p.vehicles) ? (p.vehicles as ProfileView["vehicles"]) : [],
-        friendsCount: Number(p.friendsCount || 0),
-        inParty: !!p.inParty,
-        mission: Number(p.mission || 0),
-        earned: Number(p.earned || 0),
         self: false,
         balance: null,
         inCity: !!still,
@@ -3109,22 +3139,7 @@ export function createRuntime(scene: Scene) {
           ? Math.hypot(still.state.x - (lastBody?.x ?? 0), still.state.z - (lastBody?.z ?? 0))
           : null,
         loading: false,
-        bio: typeof p.bio === "string" ? p.bio : "",
-        showcase:
-          p.showcase && typeof p.showcase === "object"
-            ? { home: String((p.showcase as Record<string, unknown>).home || ""), car: String((p.showcase as Record<string, unknown>).car || "") }
-            : null,
-        spent: Number(p.spent || 0),
-        missionsDone: Number(p.missionsDone || 0),
-        missionsTotal: Number(p.missionsTotal || 0),
-        jobStreak: Number(p.jobStreak || 0),
-        bestRace: Number(p.bestRace || 0),
-        bestHover: Number(p.bestHover || 0),
-        business: (p.business as ProfileView["business"]) ?? null,
-        rental: (p.rental as ProfileView["rental"]) ?? null,
-        offices: typeof p.offices === "number" ? p.offices : null,
-        npcFriends: Number(p.npcFriends || 0),
-        itemsOwned: Number(p.itemsOwned || 0),
+        ...serverProfileFields(p),
       };
     } catch (err) {
       if (profileView?.id === id) profileView.loading = false;
@@ -3165,9 +3180,9 @@ export function createRuntime(scene: Scene) {
       bestHover: me?.bestHover || 0,
       business: me?.business ?? null,
       rental: (me?.rental as ProfileView["rental"]) ?? null,
-      // PROFILE: offices live on the server (office_claims), not on
-      // `me` — fetch them once and patch the view; the panel hides
-      // the row until the count lands.
+      // PROFILE: offices come from the server overlay below (the
+      // profile-view op counts live leases); the panel hides the row
+      // until the overlay lands.
       offices: null,
       npcFriends: cityPeople.relationships.filter((rel) => rel.level >= 2).length,
       itemsOwned: (me?.owned || []).filter((entry) => typeof entry === "string" && !entry.startsWith("eq:") && !entry.startsWith("fit:") && !entry.startsWith("worn:")).length,
@@ -3175,13 +3190,25 @@ export function createRuntime(scene: Scene) {
     profileId = "";
     panel = "profile";
     publish();
-    if (world.online && homeServer) {
+    // PROFILE: the seed above reads the local `me` (the player row),
+    // which carries no homes, cars, spent or missions — overlay the
+    // save-based fields from the server's profile-view, the same
+    // source other players' profiles use. Balance never comes from
+    // profile-view (it stays private there), so it stays on the seed.
+    if (world.online) {
+      const id = me?.id || world.id;
       void world
-        .myProperties(homeServer)
+        .profileView(id)
         .then((data) => {
-          if (!profileView?.self) return;
-          const mine = (data as { offices?: unknown[] }).offices;
-          profileView.offices = Array.isArray(mine) ? mine.length : null;
+          const p = (data as { profile?: Record<string, unknown> }).profile;
+          if (!p || typeof p !== "object" || profileView?.id !== String(p.id || id) || !profileView?.self) return;
+          profileView = {
+            ...profileView,
+            ...serverProfileFields(p),
+            name: typeof p.name === "string" && p.name ? p.name : profileView.name,
+            look: typeof p.look === "string" && p.look ? p.look : profileView.look,
+            homeServer: typeof p.homeServer === "number" ? p.homeServer : profileView.homeServer,
+          };
           publish();
         })
         .catch(() => {});
