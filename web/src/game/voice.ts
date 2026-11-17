@@ -16,7 +16,7 @@
 // publishes — so a voice filter or effect actually changes how the
 // player sounds to everyone else, not just a label in the panel.
 import { Room, RoomEvent, Track } from "livekit-client";
-import type { Participant, RemoteParticipant, RemoteTrack } from "livekit-client";
+import type { RemoteParticipant, RemoteTrack } from "livekit-client";
 import { world } from "./world";
 
 let liveRoom: Room | null = null;
