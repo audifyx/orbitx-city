@@ -525,7 +525,11 @@ class CityWorld {
   }
 
   async voiceToken(room: string) {
-    return this.call("voice-token", { room });
+    // Send the universe the player is actually on: the server mints one
+    // proximity room per universe, and without this it falls back to the
+    // player's home universe — a visitor on another universe would join
+    // the wrong room and hear the wrong people.
+    return this.call("voice-token", { room, server: this.currentServer ?? undefined });
   }
 
   async loadBoard() {

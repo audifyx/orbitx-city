@@ -9216,6 +9216,13 @@ export function createRuntime(scene: Scene) {
     currentUniverse = result.universe.id;
     world.currentServer = result.universe.id;
     universeIsHome = result.isHome;
+    // Proximity voice is one room per universe: leaving the old room so
+    // the player doesn't keep hearing the universe they just left.
+    // Named channels are city-wide and stay joined.
+    if (world.proximity) {
+      leaveVoice();
+      say("Left proximity voice — join again to talk on this universe.");
+    }
     try {
       localStorage.setItem("orbitx-universe", String(id));
     } catch {
@@ -9237,6 +9244,13 @@ export function createRuntime(scene: Scene) {
     currentUniverse = result.universe.id;
     world.currentServer = result.universe.id;
     universeIsHome = result.isHome;
+    // Proximity voice is one room per universe: leaving the old room so
+    // the player doesn't keep hearing the universe they just left.
+    // Named channels are city-wide and stay joined.
+    if (world.proximity) {
+      leaveVoice();
+      say("Left proximity voice — join again to talk on this universe.");
+    }
     try {
       localStorage.setItem("orbitx-universe", String(id));
     } catch {
