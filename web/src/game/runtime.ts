@@ -3194,28 +3194,34 @@ export function createRuntime(scene: Scene) {
     // which carries no homes, cars, spent or missions — overlay the
     // save-based fields from the server's profile-view, the same
     // source other players' profiles use. Balance never comes from
-    // profile-view (it stays private there), so it stays on the seed.
+    // profile-view (it stays private there), so it is re-read from
+    // `world.me`, which the sync/digest heartbeats keep save-based.
     // The HUD mounts before world.start() finishes, so the panel can
     // open while the session is still coming up — wait for online
     // instead of checking once, or the overlay never fires and the
-    // panel sits on the player-row 0s until it is reopened.
-    const id = me?.id || world.id;
+    // panel sits on the player-row 0s until it is reopened. The id is
+    // re-read AFTER the wait: at open time me.id/world.id are still
+    // "" and a profile-view with an empty id 404s.
     const overlay = async () => {
       for (let i = 0; i < 120 && !world.online; i++) {
         await new Promise((r) => setTimeout(r, 500));
       }
       if (!world.online) return;
+      const id = world.me?.id || world.id;
+      if (!id) return;
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const data = await world.profileView(id);
           const p = (data as { profile?: Record<string, unknown> }).profile;
-          if (!p || typeof p !== "object" || profileView?.id !== String(p.id || id) || !profileView?.self) return;
+          if (!p || typeof p !== "object" || !profileView?.self) return;
           profileView = {
             ...profileView,
             ...serverProfileFields(p),
+            id: String(p.id || id),
             name: typeof p.name === "string" && p.name ? p.name : profileView.name,
             look: typeof p.look === "string" && p.look ? p.look : profileView.look,
             homeServer: typeof p.homeServer === "number" ? p.homeServer : profileView.homeServer,
+            balance: typeof world.me?.balance === "number" ? world.me.balance : profileView.balance,
           };
           publish();
           return;
