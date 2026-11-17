@@ -2123,14 +2123,19 @@ body.touch .touch-ui {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 18px 20px 22px;
+  padding: 20px 24px 22px;
   color: #ffffff;
-  /* Cinematic vignette (GTA VI trailer frame): dark edges so the
-     flyover reads as a trailer shot, on top of the top/bottom legibility
-     gradient. Pure CSS — no video, no load cost. */
+  /* Cinematic widescreen vignette + top/bottom letterbox framing */
   background:
-    radial-gradient(ellipse at center, transparent 52%, rgba(0, 0, 0, 0.5) 100%),
-    linear-gradient(to top, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0.08) 45%, rgba(0, 0, 0, 0.42));
+    radial-gradient(ellipse at center, transparent 48%, rgba(0, 0, 0, 0.62) 100%),
+    linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.86) 0%,
+      rgba(0, 0, 0, 0.35) 14%,
+      rgba(0, 0, 0, 0.08) 48%,
+      rgba(0, 0, 0, 0.48) 82%,
+      rgba(0, 0, 0, 0.9) 100%
+    );
   pointer-events: none;
 }
 .intro-top {
@@ -2138,6 +2143,13 @@ body.touch .touch-ui {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
+}
+.intro-brand-group {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
 }
 .intro-word {
   font-weight: 900;
@@ -2149,11 +2161,67 @@ body.touch .touch-ui {
   align-items: center;
   gap: 8px;
 }
-
 .intro-logo {
-  height: 22px;
-  width: 22px;
+  height: 24px;
+  width: 24px;
   flex: none;
+}
+.intro-cam-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.82);
+  border: 1px solid rgba(224, 179, 58, 0.55);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: #e0b33a;
+}
+.intro-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e0b33a;
+  box-shadow: 0 0 8px #e0b33a;
+  animation: intro-dot-pulse 1.4s ease-in-out infinite;
+}
+@keyframes intro-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+.intro-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.intro-timecode {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.72);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.intro-pause {
+  pointer-events: auto;
+  min-height: 44px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  background: rgba(0, 0, 0, 0.78);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.intro-pause:hover {
+  border-color: #e0b33a;
+  color: #e0b33a;
 }
 .intro-skip {
   pointer-events: auto;
@@ -2162,87 +2230,174 @@ body.touch .touch-ui {
   font-size: 15px;
   font-weight: 800;
   letter-spacing: 0.08em;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(0, 0, 0, 0.82);
   color: #ffffff;
   border: 2px solid #e0b33a;
   border-radius: 8px;
   cursor: pointer;
 }
+.intro-skip:hover {
+  background: #e0b33a;
+  color: #000000;
+}
 .intro-card {
   text-align: center;
-  max-width: 860px;
+  max-width: 900px;
   margin: 0 auto;
-  animation: intro-card-in 0.9s ease both;
+  padding: 18px 22px;
+  animation: intro-card-in 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 @keyframes intro-card-in {
-  from { opacity: 0; transform: translateY(18px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(22px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .intro-kicker {
   margin: 0 0 10px;
   color: #e0b33a;
-  font-weight: 800;
-  letter-spacing: 0.32em;
+  font-weight: 900;
+  letter-spacing: 0.34em;
   font-size: 13px;
-  text-shadow: 0 1px 3px #000000;
+  text-shadow: 0 2px 6px #000000;
 }
 .intro-title {
   margin: 0;
-  font-size: clamp(38px, 8vw, 84px);
+  font-size: clamp(36px, 7.6vw, 82px);
   line-height: 0.98;
   letter-spacing: 0.06em;
   font-weight: 900;
   color: #ffffff;
-  text-shadow: 0 4px 0 #000000, 0 10px 32px rgba(0, 0, 0, 0.6);
+  text-shadow: 0 4px 0 #000000, 0 12px 36px rgba(0, 0, 0, 0.85);
   border-bottom: 4px solid #e0b33a;
   padding-bottom: 14px;
   display: inline-block;
 }
 .intro-sub {
   margin: 16px auto 0;
-  max-width: 560px;
-  font-size: clamp(16px, 2.4vw, 20px);
+  max-width: 620px;
+  font-size: clamp(16px, 2.3vw, 21px);
   line-height: 1.45;
   color: #ffffff;
-  text-shadow: 0 1px 3px #000000, 0 0 12px #000000;
+  text-shadow: 0 2px 6px #000000, 0 0 16px #000000;
+}
+.intro-pills {
+  margin: 18px auto 0;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.intro-pill {
+  padding: 7px 14px;
+  background: rgba(0, 0, 0, 0.84);
+  color: #ffffff;
+  border: 1px solid #e0b33a;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+.intro-cta-row {
+  margin-top: 22px;
+  display: flex;
+  justify-content: center;
 }
 .intro-enter {
   pointer-events: auto;
-  margin-top: 24px;
-  padding: 16px 34px;
-  font-size: 20px;
-  font-weight: 800;
+  padding: 15px 34px;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
   background: #e0b33a;
   color: #000000;
-  border: none;
+  border: 2px solid #ffffff;
   border-radius: 8px;
   cursor: pointer;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.65);
+  transition: transform 0.15s ease;
+}
+.intro-enter:hover {
+  transform: translateY(-2px);
 }
 .intro-bottom {
-  max-width: 560px;
+  max-width: 720px;
   margin: 0 auto;
   width: 100%;
 }
-
-/* Rotating feature strip: one highlight from the registry every 3s
-   (Intro.tsx cycles FEATURE_HIGHLIGHTS). Gold name, white blurb — the
-   intro always shows what is actually in the city right now. Fades in
-   on each change (keyed by feature id). */
+.intro-chapters {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.intro-chapter {
+  background: rgba(0, 0, 0, 0.76);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 6px;
+  padding: 7px 8px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 40px;
+}
+.intro-chapter.active {
+  border-color: #e0b33a;
+  background: rgba(0, 0, 0, 0.9);
+}
+.intro-chapter-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.intro-chapter.active .intro-chapter-label {
+  color: #e0b33a;
+}
+.intro-chapter-bar {
+  display: block;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.intro-chapter-bar i {
+  display: block;
+  height: 100%;
+  background: #e0b33a;
+  transition: width 0.08s linear;
+}
 .intro-feature {
-  margin: 0 0 12px;
+  margin: 0 0 10px;
   text-align: center;
   font-size: 14px;
   color: #ffffff;
   text-shadow: 0 1px 3px #000000;
   animation: intro-feature-in 0.6s ease both;
 }
-
+.intro-feature-idx {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 7px;
+  background: rgba(0, 0, 0, 0.82);
+  border: 1px solid rgba(224, 179, 58, 0.6);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #e0b33a;
+}
 .intro-feature b {
   color: #e0b33a;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-
 @keyframes intro-feature-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
@@ -2257,18 +2412,37 @@ body.touch .touch-ui {
   height: 100%;
   background: #e0b33a;
   border-radius: 3px;
-  transition: width 0.12s linear;
+  transition: width 0.08s linear;
 }
 .intro-hint {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   text-align: center;
   color: #ffffff;
-  font-size: 13px;
+  font-size: 12px;
   text-shadow: 0 1px 3px #000000;
+}
+@media (max-width: 640px) {
+  .intro {
+    padding: 14px 14px 16px;
+  }
+  .intro-cam-badge,
+  .intro-timecode {
+    display: none;
+  }
+  .intro-chapters {
+    gap: 4px;
+  }
+  .intro-chapter {
+    padding: 5px 4px;
+  }
+  .intro-chapter-label {
+    font-size: 9px;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .intro-card { animation: none; }
   .intro-feature { animation: none; }
+  .intro-live-dot { animation: none; }
   .menu-ticker-track { animation-duration: 120s; }
 }
 

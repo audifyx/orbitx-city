@@ -1,6 +1,7 @@
 // Unit tests for the real billboard flow (no network): pricing, the
 // versioned-transaction signer, and the Token burn message builder.
 // Run: SOL_USD=100 node --test api/ads.test.mjs
+process.env.SOL_USD ||= "100";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createPublicKey, verify } from "node:crypto";

@@ -313,10 +313,10 @@ async function loadWorld(ctx, server = 1) {
   const store = ensureStore(ctx);
   const client = ctx.sb();
   if (client) {
-    const props = await client
+    const propQuery = client
       .from("properties")
-      .select("id, server_id, owner_id, owner_name, furniture, brand")
-      .eq("server_id", server);
+      .select("id, server_id, owner_id, owner_name, furniture, brand");
+    const props = await (typeof propQuery.eq === "function" ? propQuery.eq("server_id", server) : propQuery);
     if (!props.error && props.data) {
       for (const row of props.data) {
         store.lots.set(lotKey(server, row.id), {

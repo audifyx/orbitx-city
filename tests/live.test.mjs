@@ -29,6 +29,7 @@ function ctxFor() {
 }
 
 function player(id = "ada") {
+  const day = new Date().toISOString().slice(0, 10);
   return {
     id,
     name: id === "ada" ? "Ada" : "Bea",
@@ -37,7 +38,18 @@ function player(id = "ada") {
     earned: 0,
     bestRace: 0,
     bestHover: 0,
-    daily: null,
+    daily: {
+      day,
+      streak: 0,
+      claimed: false,
+      progress: {},
+      paid: {},
+      quests: [
+        { id: "courier", label: "Complete 2 courier jobs", need: 2 },
+        { id: "visit", label: "Visit a project HQ", need: 1 },
+        { id: "race", label: "Finish a street race or time trial", need: 1 },
+      ],
+    },
     wallet: "",
     holder: false,
   };

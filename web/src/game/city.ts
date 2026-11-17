@@ -948,8 +948,10 @@ function addYardDoor(boxes: Box[], cols: Collider[], x0: number, z0: number, x1:
       cols.push(col(doorCx + s * 2.2, 0.7, yz, 0.6, 0.9, 2.6));
     }
     const treeWest = Math.abs(x0 + 1.5 - doorCx) > Math.abs(x1 - 1.5 - doorCx);
-    if (wantTree) addTree(boxes, cols, treeWest ? x0 + 1.5 : x1 - 1.5, yz, 0.19);
-    if (wantLamp) addLamp(boxes, clamp(doorCx + (treeWest ? 3.5 : -3.5), x0 + 1, x1 - 1), yz, 0.19);
+    const tx = inBusRoad(treeWest ? x0 + 1.5 : x1 - 1.5, yz) ? (treeWest ? x1 - 1.5 : x0 + 1.5) : (treeWest ? x0 + 1.5 : x1 - 1.5);
+    if (wantTree && !inBusRoad(tx, yz)) addTree(boxes, cols, tx, yz, 0.19);
+    const lx = clamp(doorCx + (treeWest ? 3.5 : -3.5), x0 + 1, x1 - 1);
+    if (wantLamp && !inBusRoad(lx, yz)) addLamp(boxes, lx, yz, 0.19);
   } else {
     const xz = face === "w" ? x0 + 1.5 : x1 - 1.5;
     put(boxes, xz, 0.15, doorCz, 3, 0.08, 2, "stone");
@@ -958,8 +960,10 @@ function addYardDoor(boxes: Box[], cols: Collider[], x0: number, z0: number, x1:
       cols.push(col(xz, 0.7, doorCz + s * 2.2, 2.6, 0.9, 0.6));
     }
     const treeNorth = Math.abs(z0 + 1.5 - doorCz) > Math.abs(z1 - 1.5 - doorCz);
-    if (wantTree) addTree(boxes, cols, xz, treeNorth ? z0 + 1.5 : z1 - 1.5, 0.19);
-    if (wantLamp) addLamp(boxes, xz, clamp(doorCz + (treeNorth ? 3.5 : -3.5), z0 + 1, z1 - 1), 0.19);
+    const tz = inBusRoad(xz, treeNorth ? z0 + 1.5 : z1 - 1.5) ? (treeNorth ? z1 - 1.5 : z0 + 1.5) : (treeNorth ? z0 + 1.5 : z1 - 1.5);
+    if (wantTree && !inBusRoad(xz, tz)) addTree(boxes, cols, xz, tz, 0.19);
+    const lz = clamp(doorCz + (treeNorth ? 3.5 : -3.5), z0 + 1, z1 - 1);
+    if (wantLamp && !inBusRoad(xz, lz)) addLamp(boxes, xz, lz, 0.19);
   }
 }
 
@@ -1564,6 +1568,18 @@ function addBusRoads(boxes: Box[]) {
   road(12, 246, 50, 256);
 }
 
+/** True when (x, z) lies inside one of the City Loop bus detour/approach roads
+ * built by addBusRoads, so street furniture and yard trees never block the bus. */
+function inBusRoad(x: number, z: number): boolean {
+  if (x > 147 && x < 265 && z > 21 && z < 35) return true;
+  if (x > 251 && x < 265 && z > 10 && z < 35) return true;
+  if (x > -273 && x < -147 && z > -75 && z < -61) return true;
+  if (x > -273 && x < -259 && z > -75 && z < -10) return true;
+  if (x > 48 && x < 62 && z > 183 && z < 258) return true;
+  if (x > 10 && x < 52 && z > 244 && z < 258) return true;
+  return false;
+}
+
 /** The OrbitX Line ground train runs the z=33 road (x -144..144), 2.5 wide.
  * A street-tree canopy is r=2 (spans ~2.5 from the trunk) — a tree planted
  * beside the z=36 road overhangs the track, so the train runs under its
@@ -1633,14 +1649,14 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng, zones: DoorZone
         if (Math.abs(x) < 32 && Math.abs(z) < 32) continue;
         if (inMega(x, z)) continue;
         lampI++;
-        if (lampI % 2 === 0 && !lampBlockedByDoor(x, z, zones)) addLamp(boxes, x, z);
-        else if (rng() > 0.55 && !treeOverhangsTrain(x, z) && !treeBlockedByDoor(x, z, zones)) addTree(boxes, cols, x, z, 0);
-        if (lampI % 6 === 0 && !lampBlockedByDoor(x, z + 1.4, zones)) addBin(boxes, cols, x, z + 1.4, lampI);
+        if (lampI % 2 === 0 && !inBusRoad(x, z) && !lampBlockedByDoor(x, z, zones)) addLamp(boxes, x, z);
+        else if (lampI % 2 !== 0 && rng() > 0.55 && !inBusRoad(x, z) && !treeOverhangsTrain(x, z) && !treeBlockedByDoor(x, z, zones)) addTree(boxes, cols, x, z, 0);
+        if (lampI % 6 === 0 && !inBusRoad(x, z + 1.4) && !lampBlockedByDoor(x, z + 1.4, zones)) addBin(boxes, cols, x, z + 1.4, lampI);
         // Wooden benches + planters on the sidewalk, offset along the
         // street from the lamp/bin slot so nothing overlaps; door-guarded
         // like the lamps so one never lands in a door walk-up.
-        if (lampI % 12 === 3 && !lampBlockedByDoor(x, z + 4, zones)) addBench(boxes, cols, x, z + 4, false);
-        if (lampI % 12 === 9 && !lampBlockedByDoor(x, z - 4, zones)) addPlanter(boxes, cols, x, z - 4);
+        if (lampI % 12 === 3 && !inBusRoad(x, z + 4) && !lampBlockedByDoor(x, z + 4, zones)) addBench(boxes, cols, x, z + 4, false);
+        if (lampI % 12 === 9 && !inBusRoad(x, z - 4) && !lampBlockedByDoor(x, z - 4, zones)) addPlanter(boxes, cols, x, z - 4);
       }
     }
   }
@@ -1651,12 +1667,12 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng, zones: DoorZone
         if (CENTERS.some((c) => Math.abs(x - c) < 10)) continue;
         if (Math.abs(x) < 32 && Math.abs(z) < 32) continue;
         if (inMega(x, z)) continue;
-        if (rng() > 0.5 && !lampBlockedByDoor(x, z, zones)) addLamp(boxes, x, z);
-        if (rng() > 0.72 && !treeOverhangsTrain(x, z) && !treeBlockedByDoor(x, z, zones)) addTree(boxes, cols, x, z, 0);
-        if (((x + 170) / 16) % 6 === 0 && !lampBlockedByDoor(x + 1.4, z, zones)) addBin(boxes, cols, x + 1.4, z, (x + 170) / 16);
+        if (rng() > 0.5 && !inBusRoad(x, z) && !lampBlockedByDoor(x, z, zones)) addLamp(boxes, x, z);
+        if (rng() > 0.72 && !inBusRoad(x, z) && !treeOverhangsTrain(x, z) && !treeBlockedByDoor(x, z, zones)) addTree(boxes, cols, x, z, 0);
+        if (((x + 170) / 16) % 6 === 0 && !inBusRoad(x + 1.4, z) && !lampBlockedByDoor(x + 1.4, z, zones)) addBin(boxes, cols, x + 1.4, z, (x + 170) / 16);
         const slot = (x + 170) / 16;
-        if (slot % 12 === 3 && !lampBlockedByDoor(x + 4, z, zones)) addBench(boxes, cols, x + 4, z, true);
-        if (slot % 12 === 9 && !lampBlockedByDoor(x - 4, z, zones)) addPlanter(boxes, cols, x - 4, z);
+        if (slot % 12 === 3 && !inBusRoad(x + 4, z) && !lampBlockedByDoor(x + 4, z, zones)) addBench(boxes, cols, x + 4, z, true);
+        if (slot % 12 === 9 && !inBusRoad(x - 4, z) && !lampBlockedByDoor(x - 4, z, zones)) addPlanter(boxes, cols, x - 4, z);
       }
     }
   }

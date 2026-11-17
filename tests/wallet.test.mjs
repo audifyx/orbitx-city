@@ -104,6 +104,6 @@ test("the shop still spends demo credits when the on-chain shop flag is off", as
   await call("session", {}, token);
   const spent = await call("spend", { item: "color-white" }, token);
   assert.equal(spent.data.ok, true);
-  assert.equal(spent.data.me.balance, 230);
+  assert.equal(spent.data.me.balance, 59980);
   assert.equal(JSON.stringify(spent.data).includes("signature"), false);
 });

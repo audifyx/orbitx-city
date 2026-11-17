@@ -61,29 +61,67 @@ function makeShip(body: Material, glass: Material, hot: Material) {
   const g = new Group();
   const box = new BoxGeometry(1, 1, 1);
   const hull = new Mesh(box, body);
-  hull.scale.set(4.4, 0.7, 1.7);
+  hull.scale.set(4.6, 0.68, 1.75);
+  const belly = new Mesh(box, body);
+  belly.scale.set(3.6, 0.24, 1.35);
+  belly.position.set(-0.1, -0.4, 0);
+  const hoverCore = new Mesh(box, hot);
+  hoverCore.scale.set(1.8, 0.08, 0.85);
+  hoverCore.position.set(-0.1, -0.53, 0);
   const cabin = new Mesh(box, glass);
-  cabin.scale.set(2.2, 0.62, 1.25);
-  cabin.position.set(-0.2, 0.62, 0);
+  cabin.scale.set(2.35, 0.62, 1.28);
+  cabin.position.set(0.05, 0.58, 0);
+  const canopySpine = new Mesh(box, body);
+  canopySpine.scale.set(2.4, 0.1, 0.14);
+  canopySpine.position.set(0.05, 0.9, 0);
   const wingL = new Mesh(box, body);
-  wingL.scale.set(1.5, 0.18, 2.6);
-  wingL.position.set(-0.4, 0, 0);
-  const wingR = wingL.clone();
-  wingR.position.x = 0.4;
-  const engine = new Mesh(box, hot);
-  engine.scale.set(0.55, 0.4, 0.55);
-  engine.position.set(-2.15, 0, 0);
+  wingL.scale.set(1.65, 0.16, 3.1);
+  wingL.position.set(-0.35, -0.02, 0);
+  const wingTipL = new Mesh(box, hot);
+  wingTipL.scale.set(1.1, 0.38, 0.12);
+  wingTipL.position.set(-0.5, 0.14, 1.56);
+  const wingTipR = new Mesh(box, hot);
+  wingTipR.scale.set(1.1, 0.38, 0.12);
+  wingTipR.position.set(-0.5, 0.14, -1.56);
+  const tailFinL = new Mesh(box, body);
+  tailFinL.scale.set(0.85, 0.72, 0.12);
+  tailFinL.position.set(-1.85, 0.55, 0.58);
+  const tailFinR = new Mesh(box, body);
+  tailFinR.scale.set(0.85, 0.72, 0.12);
+  tailFinR.position.set(-1.85, 0.55, -0.58);
+  const engineL = new Mesh(box, hot);
+  engineL.scale.set(0.75, 0.36, 0.48);
+  engineL.position.set(-2.28, 0.04, 0.52);
+  const engineR = new Mesh(box, hot);
+  engineR.scale.set(0.75, 0.36, 0.48);
+  engineR.position.set(-2.28, 0.04, -0.52);
   const nose = new Mesh(box, hot);
-  nose.scale.set(0.35, 0.28, 0.7);
-  nose.position.set(2.15, 0.1, 0);
-  // Gold pinstripes along the hull sides.
+  nose.scale.set(0.45, 0.26, 0.88);
+  nose.position.set(2.32, 0.06, 0);
+  // Gold/cyan pinstripes along the hull sides.
   const stripeL = new Mesh(box, hot);
-  stripeL.scale.set(4.0, 0.1, 0.06);
-  stripeL.position.set(0, 0.28, 0.88);
+  stripeL.scale.set(4.2, 0.1, 0.06);
+  stripeL.position.set(0, 0.24, 0.9);
   const stripeR = new Mesh(box, hot);
-  stripeR.scale.set(4.0, 0.1, 0.06);
-  stripeR.position.set(0, 0.28, -0.88);
-  g.add(hull, cabin, wingL, wingR, engine, nose, stripeL, stripeR);
+  stripeR.scale.set(4.2, 0.1, 0.06);
+  stripeR.position.set(0, 0.24, -0.9);
+  g.add(
+    hull,
+    belly,
+    hoverCore,
+    cabin,
+    canopySpine,
+    wingL,
+    wingTipL,
+    wingTipR,
+    tailFinL,
+    tailFinR,
+    engineL,
+    engineR,
+    nose,
+    stripeL,
+    stripeR,
+  );
   return g;
 }
 
@@ -94,16 +132,41 @@ function makeTrain(body: Material, glass: Material, hot: Material, dark: Materia
     const car = new Group();
     const shell = new Mesh(box, i === 0 ? body : dark);
     shell.scale.set(6.2, 2.15, 2.35);
+    const skirt = new Mesh(box, dark);
+    skirt.scale.set(6.0, 0.38, 2.42);
+    skirt.position.y = -1.05;
     const stripe = new Mesh(box, glass);
-    stripe.scale.set(5.4, 0.7, 2.5);
-    stripe.position.y = 0.25;
+    stripe.scale.set(5.5, 0.74, 2.48);
+    stripe.position.y = 0.26;
+    const accentBand = new Mesh(box, hot);
+    accentBand.scale.set(6.24, 0.11, 2.42);
+    accentBand.position.y = -0.22;
+    // Window mullions + sliding door frames along each car side.
+    for (const mx of [-1.85, -0.65, 0.65, 1.85]) {
+      const mullion = new Mesh(box, dark);
+      mullion.scale.set(0.16, 0.78, 2.52);
+      mullion.position.set(mx, 0.26, 0);
+      car.add(mullion);
+    }
     const roof = new Mesh(box, dark);
     roof.scale.set(6.4, 0.32, 2.55);
     roof.position.y = 1.2;
+    const hvac = new Mesh(box, body);
+    hvac.scale.set(2.2, 0.22, 1.35);
+    hvac.position.set(0, 1.44, 0);
     const light = new Mesh(box, hot);
-    light.scale.set(0.25, 0.28, 1.4);
-    light.position.set(3.15, 0.15, 0);
-    car.add(shell, stripe, roof, light);
+    light.scale.set(0.28, 0.3, 1.55);
+    light.position.set(3.15, 0.12, 0);
+    const tailLight = new Mesh(box, hot);
+    tailLight.scale.set(0.18, 0.22, 1.4);
+    tailLight.position.set(-3.14, 0.12, 0);
+    car.add(shell, skirt, stripe, accentBand, roof, hvac, light, tailLight);
+    if (i < 2) {
+      const coupler = new Mesh(box, dark);
+      coupler.scale.set(0.95, 1.65, 1.85);
+      coupler.position.set(3.55, -0.05, 0);
+      car.add(coupler);
+    }
     car.position.x = (i - 1) * 7.1;
     g.add(car);
   }
@@ -118,6 +181,7 @@ export interface Game {
   // flyover (see INTRO_KEYS below). The React overlay owns the timer
   // and the title cards; the engine only moves the camera.
   setIntro: (on: boolean) => void;
+  seekIntro?: (t: number, paused?: boolean) => void;
 }
 
 export function createGame(
@@ -236,6 +300,7 @@ export function createGame(
           vec3 glowCol = mix(vec3(1.0, 0.42, 0.12), vec3(1.0, 0.95, 0.85), uDay);
           col += sunCol * sunDisk * 1.5;
           col += glowCol * glow * 0.5;
+          float cloudVal = 0.0;
           if (h > 0.02) {
             vec2 uv = dir.xz / max(h, 0.15);
             float c = fbm(uv * 0.45 + vec2(3.7, 1.3));
@@ -243,10 +308,26 @@ export function createGame(
             float cloud = smoothstep(0.52, 0.78, c * 0.65 + c2 * 0.35);
             cloud *= smoothstep(0.02, 0.22, h);
             cloud *= 1.0 - smoothstep(0.6, 0.95, h) * 0.45;
+            cloudVal = cloud;
             vec3 cloudCol = mix(vec3(1.0, 0.60, 0.34), vec3(1.0, 1.0, 1.0), uDay);
             col = mix(col, cloudCol, cloud * 0.6);
           }
-          col = mix(col, vec3(0.03, 0.05, 0.12), uNight);
+          // Night sky gradient + stars + moon glow.
+          vec3 nightZenith = vec3(0.015, 0.024, 0.065);
+          vec3 nightHor = vec3(0.055, 0.105, 0.21);
+          vec3 nightCol = mix(nightHor, nightZenith, smoothstep(0.0, 0.75, max(0.0, h)));
+          if (h > 0.06 && uNight > 0.05) {
+            vec2 suv = floor(dir.xz / (h + 0.35) * 190.0);
+            float sh = hash21(suv);
+            float star = step(0.9945, sh) * (0.55 + 0.45 * hash21(suv + 17.3)) * (1.0 - cloudVal * 0.85);
+            nightCol += vec3(0.82, 0.92, 1.0) * star * smoothstep(0.06, 0.28, h);
+          }
+          vec3 moonDir = normalize(vec3(-0.55, 0.48, -0.42));
+          float moonDisk = pow(max(dot(dir, moonDir), 0.0), 220.0);
+          float moonHalo = pow(max(dot(dir, moonDir), 0.0), 12.0);
+          nightCol += vec3(0.78, 0.92, 1.0) * (moonDisk * 1.1 + moonHalo * 0.16);
+          nightCol = mix(nightCol, vec3(0.08, 0.13, 0.24), cloudVal * 0.35);
+          col = mix(col, nightCol, uNight);
           gl_FragColor = vec4(col, 1.0);
         }
       `,
@@ -271,12 +352,6 @@ export function createGame(
   let rail: RailPoint[] = [];
   let railDist: number[] = [];
   let railLen = 1;
-  // Loop-train running state: each train keeps its own distance along
-  // the loop, speed, and dwell timer. The station stop is the rail
-  // distance closest to the Loop Station platform (0, 30, 110); a train
-  // brakes into it, dwells 6s so players can board / step off, then
-  // rolls on. The two trains start half a loop apart and follow the same
-  // position-based profile, so they keep their spacing.
   let trainDist: number[] = [0, 0];
   let trainSpeed: number[] = [18, 18];
   let trainDwell: number[] = [0, 0];
@@ -291,34 +366,60 @@ export function createGame(
   let mode: PlayMode = "orbit";
   let playing = false;
 
-  // Intro flyover (home rebrand): a scripted 30s camera path through the
-  // real city — high aerial over the south bridge approach, a sweep west
-  // over Empire Span, a low pass over the plaza, a rise past the OrbitX
-  // Tower, then a pull-back that lands exactly on the slow orbit circle
-  // (190, 78, 10, looking at the tower) so the handoff is seamless.
-  // Positions are in world units; the base city is at the origin, NY at
-  // x -800, LA at x +800, Florida at z +900.
+  // Intro flyover: a 5-act 30s cinematic trailer tour across the entire
+  // multi-state world — Act 1 (0-6s) sweeps low over the Plaza fountain and
+  // climbs the OrbitX Tower atrium & crown; Act 2 (6-12s) soars across the
+  // Empire Span to New York, Los Angeles, and Florida; Act 3 (12-18s) glides
+  // down through the furnished avenues, homes, and storefronts; Act 4 (18-24s)
+  // showcases the electric neon skyline alongside the elevated Loop Train and
+  // hover ships; Act 5 (24-30s) pulls back into the hero orbit circle
+  // (190, 78, 10 -> looking at 0, 26, 20) for a seamless handoff.
   const INTRO_LEN = 30;
-  const INTRO_KEYS: Array<{ t: number; pos: [number, number, number]; look: [number, number, number] }> = [
-    { t: 0, pos: [0, 150, 560], look: [0, 10, 0] },
-    { t: 6, pos: [-300, 95, 300], look: [0, 25, 0] },
-    { t: 12, pos: [180, 55, -180], look: [0, 10, 20] },
-    { t: 18, pos: [40, 30, 90], look: [0, 45, 0] },
-    { t: 24, pos: [-90, 70, 190], look: [0, 20, 0] },
-    { t: 30, pos: [190, 78, 10], look: [0, 26, 20] },
+  interface IntroKey {
+    t: number;
+    pos: [number, number, number];
+    look: [number, number, number];
+    fov: number;
+    roll: number;
+    cut?: boolean;
+  }
+  const INTRO_KEYS: IntroKey[] = [
+    // Act 1 (0..6s): Plaza fountain low sweep -> climbing the OrbitX Tower crown
+    { t: 0, pos: [0, 11, 44], look: [0, 14, -12], fov: 58, roll: 0 },
+    { t: 2.8, pos: [-26, 28, 36], look: [0, 28, -14], fov: 54, roll: -0.045 },
+    { t: 6.0, pos: [46, 68, 72], look: [0, 34, -10], fov: 50, roll: 0.035 },
+    // Act 2 (6..12s): Empire Span & New York -> Los Angeles & Florida coast
+    { t: 6.01, pos: [-340, 58, 88], look: [-680, 36, -15], fov: 58, roll: -0.04, cut: true },
+    { t: 9.0, pos: [-620, 74, 155], look: [-780, 34, -35], fov: 52, roll: 0.03 },
+    { t: 9.01, pos: [480, 56, 230], look: [760, 28, 20], fov: 58, roll: -0.035, cut: true },
+    { t: 12.0, pos: [190, 66, 520], look: [0, 24, 860], fov: 54, roll: 0.025 },
+    // Act 3 (12..18s): Living economy — low street canyon & neighborhood homes pass
+    { t: 12.01, pos: [148, 20, 92], look: [36, 12, 52], fov: 64, roll: -0.03, cut: true },
+    { t: 15.0, pos: [54, 14, 56], look: [-24, 12, 36], fov: 60, roll: 0.025 },
+    { t: 18.0, pos: [-52, 18, 66], look: [0, 18, 8], fov: 56, roll: -0.02 },
+    // Act 4 (18..24s): Own It All — neon night pass along the Loop Train & HQ
+    { t: 18.01, pos: [-96, 33, 126], look: [0, 28, 32], fov: 56, roll: 0.04, cut: true },
+    { t: 21.0, pos: [14, 34, 118], look: [0, 32, -14], fov: 52, roll: -0.03 },
+    { t: 24.0, pos: [108, 46, 74], look: [-8, 30, 0], fov: 54, roll: 0.02 },
+    // Act 5 (24..30s): Grand finale pullback to the exact orbit camera pose
+    { t: 24.01, pos: [118, 52, 82], look: [0, 28, 12], fov: 56, roll: 0.02 },
+    { t: 27.0, pos: [164, 68, 54], look: [0, 27, 16], fov: 60, roll: 0.01 },
+    { t: 30.0, pos: [190, 78, 10], look: [0, 26, 20], fov: 62, roll: 0 },
   ];
   let introOn = false;
+  let introPaused = false;
   let introT = 0;
-  // Smoothstep between two intro keyframes (position + look target).
-  function introPose(t: number, out: { pos: Vector3; look: Vector3 }) {
+  let orbitClockOffset = 0;
+  // Smoothstep between two intro keyframes (position + look target + fov + roll).
+  function introPose(t: number, out: { pos: Vector3; look: Vector3; fov: number; roll: number }) {
     const clamped = Math.max(0, Math.min(INTRO_LEN, t));
     let i = 0;
     while (i < INTRO_KEYS.length - 2 && INTRO_KEYS[i + 1].t <= clamped) i++;
     const a = INTRO_KEYS[i];
     const b = INTRO_KEYS[i + 1];
-    const span = Math.max(0.001, b.t - a.t);
+    const span = Math.max(0.0001, b.t - a.t);
     const raw = Math.max(0, Math.min(1, (clamped - a.t) / span));
-    const e = raw * raw * (3 - 2 * raw);
+    const e = b.cut ? 1 : raw * raw * (3 - 2 * raw);
     out.pos.set(
       a.pos[0] + (b.pos[0] - a.pos[0]) * e,
       a.pos[1] + (b.pos[1] - a.pos[1]) * e,
@@ -329,9 +430,10 @@ export function createGame(
       a.look[1] + (b.look[1] - a.look[1]) * e,
       a.look[2] + (b.look[2] - a.look[2]) * e,
     );
+    out.fov = a.fov + (b.fov - a.fov) * e;
+    out.roll = a.roll + (b.roll - a.roll) * e;
   }
-  const introPos = new Vector3();
-  const introLook = new Vector3();
+  const introState = { pos: new Vector3(), look: new Vector3(), fov: 62, roll: 0 };
 
   const player: Body = {
     x: 0,
@@ -1099,21 +1201,52 @@ export function createGame(
     sky.position.copy(camera.position);
     const clockName = runtime.timeOfDay();
     const skyMat = sky.material as ShaderMaterial;
-    skyMat.uniforms.uNight.value = clockName === "night" ? 1 : 0;
-    skyMat.uniforms.uDay.value = clockName === "day" ? 1 : 0;
-    // Light intensities come from the graphics module so the preset and the
-    // day/night cycle agree (sunset values are unchanged; day/night are
-    // slightly richer than the old literals, and fill now varies too).
-    applyDayNightLighting({ sun, hemi, fill, ambient }, clockName, graphicsQuality);
-    if (clockName === "night") {
-      baseFog.color.setHex(0x0c1220);
-      setPrettyNight(1);
-    } else if (clockName === "day") {
-      baseFog.color.setHex(0xb7d4ea);
-      setPrettyNight(0.15);
+    if (mode === "orbit" && introOn) {
+      // Dynamic time-of-day showcase during the 30s splash flyover:
+      // 0..6s: Golden Sunset over the Plaza & OrbitX Tower
+      // 6..13s: Crisp Daylight across NY, LA & FL
+      // 13..18s: Golden Dusk along the downtown avenues
+      // 18..24.5s: Electric Neon Night alongside the Loop Train & skyline
+      // 24.5..30s: Smooth blend back to the user's selected timeOfDay
+      let introDay = 0;
+      let introNight = 0;
+      if (introT >= 5.5 && introT < 14) {
+        introDay = introT < 7 ? (introT - 5.5) / 1.5 : introT > 12 ? 1 - (introT - 12) / 2 : 0.92;
+      }
+      if (introT >= 17.5 && introT < 25.5) {
+        introNight = introT < 19.2 ? (introT - 17.5) / 1.7 : introT > 23.8 ? 1 - (introT - 23.8) / 1.7 : 0.88;
+      }
+      skyMat.uniforms.uDay.value = Math.max(0, Math.min(1, introDay));
+      skyMat.uniforms.uNight.value = Math.max(0, Math.min(1, introNight));
+      const introClock = introNight > 0.45 ? "night" : introDay > 0.45 ? "day" : "sunset";
+      applyDayNightLighting({ sun, hemi, fill, ambient }, introClock, graphicsQuality);
+      if (introClock === "night") {
+        baseFog.color.setHex(0x0c1220);
+        setPrettyNight(0.95);
+      } else if (introClock === "day") {
+        baseFog.color.setHex(0xb7d4ea);
+        setPrettyNight(0.2);
+      } else {
+        baseFog.color.setHex(0xf09158);
+        setPrettyNight(0.6);
+      }
     } else {
-      baseFog.color.setHex(0xf09158);
-      setPrettyNight(0.5);
+      skyMat.uniforms.uNight.value = clockName === "night" ? 1 : 0;
+      skyMat.uniforms.uDay.value = clockName === "day" ? 1 : 0;
+      // Light intensities come from the graphics module so the preset and the
+      // day/night cycle agree (sunset values are unchanged; day/night are
+      // slightly richer than the old literals, and fill now varies too).
+      applyDayNightLighting({ sun, hemi, fill, ambient }, clockName, graphicsQuality);
+      if (clockName === "night") {
+        baseFog.color.setHex(0x0c1220);
+        setPrettyNight(1);
+      } else if (clockName === "day") {
+        baseFog.color.setHex(0xb7d4ea);
+        setPrettyNight(0.15);
+      } else {
+        baseFog.color.setHex(0xf09158);
+        setPrettyNight(0.5);
+      }
     }
     scene.fog = runtime.indoors() ? null : baseFog;
     const tookCamera = runtime.after(dt, player, camera, { orbit: mode === "orbit", fountain, trains: trainPoses });
@@ -1121,17 +1254,30 @@ export function createGame(
       if (introOn) {
         // Intro flyover: the scripted path runs 30s, then holds the final
         // frame (the slow-orbit circle) until the overlay dismisses it.
-        introT = Math.min(INTRO_LEN, introT + dt);
-        introPose(introT, { pos: introPos, look: introLook });
-        camera.position.copy(introPos);
-        camera.up.set(0, 1, 0);
-        camera.lookAt(introLook);
+        if (!introPaused) introT = Math.min(INTRO_LEN, introT + dt);
+        introPose(introT, introState);
+        camera.position.copy(introState.pos);
+        if (Math.abs(camera.fov - introState.fov) > 0.05) {
+          camera.fov = introState.fov;
+          camera.updateProjectionMatrix();
+        }
+        camera.up.set(Math.sin(introState.roll), Math.cos(introState.roll), 0);
+        camera.lookAt(introState.look);
       } else {
-        const t = clock * 0.07;
+        if (Math.abs(camera.fov - 62) > 0.05) {
+          camera.fov = 62;
+          camera.updateProjectionMatrix();
+        }
+        camera.up.set(0, 1, 0);
+        const t = (clock - orbitClockOffset) * 0.07 + Math.PI / 2;
         camera.position.set(Math.sin(t) * 190, 78, Math.cos(t) * 132 + 10);
         camera.lookAt(0, 26, 20);
       }
     } else if (!tookCamera) {
+      if (Math.abs(camera.fov - 62) > 0.05) {
+        camera.fov = 62;
+        camera.updateProjectionMatrix();
+      }
       const cp = Math.cos(player.pitch);
       const sp = Math.sin(player.pitch);
       const sy = Math.sin(player.yaw);
@@ -1253,7 +1399,23 @@ export function createGame(
     },
     setIntro(on: boolean) {
       introOn = on;
-      if (on) introT = 0;
+      introPaused = false;
+      if (on) {
+        introT = 0;
+        (window as unknown as { __ORBITX_INTRO_SEEK?: (t: number, paused?: boolean) => void }).__ORBITX_INTRO_SEEK = (
+          t: number,
+          paused?: boolean,
+        ) => {
+          introT = Math.max(0, Math.min(INTRO_LEN, t));
+          if (typeof paused === "boolean") introPaused = paused;
+        };
+      } else {
+        orbitClockOffset = clock;
+      }
+    },
+    seekIntro(t: number, paused?: boolean) {
+      introT = Math.max(0, Math.min(INTRO_LEN, t));
+      if (typeof paused === "boolean") introPaused = paused;
     },
     runtime,
   };

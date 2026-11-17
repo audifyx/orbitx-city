@@ -48,27 +48,16 @@ function paintFacade(style: number) {
   canvas.height = 512;
   const ctx = canvas.getContext("2d");
   if (!ctx) return { map: new CanvasTexture(canvas), glow: new CanvasTexture(canvas) };
-  // One canvas = a 10m x 14m module, 8 window rows. The old canvas put a
-  // fake storefront (gold band + awning + glass doors) at the bottom of
-  // EVERY tile — on a tall building (repeat.y > 1) that storefront
-  // repeated up the tower, floating 14m and 28m in the air. The real
-  // storefront is 3D now (gold band + awning + real glass openings in
-  // hollow()/addStorefront), so the canvas carries only the upper facade
-  // + a string-course band at its foot, which reads as a deliberate
-  // horizontal course at every tile boundary instead of a floating shop.
-  // The old brick style was also a flat #8a4a34 slab with 1px lines —
-  // the "plain straight red building" the user called out — so every
-  // style now has real per-unit colour variation, sills, lintels and
-  // floor lines.
+  // One canvas = a 10m x 14m module, 8 window rows. The real storefront is
+  // 3D (gold band + awning + real glass openings in hollow()/addStorefront),
+  // so the canvas carries the upper facade + a string-course band at its foot.
   const s = style % 6;
-  // Windows drawn on the map, recorded for the glow canvas (same rects,
-  // so the night glow lines up with the actual windows).
   const wins: Array<{ x: number; y: number; w: number; h: number; lit: number }> = [];
   const ROWS = 8;
   const rowY = (r: number) => 18 + r * 54;
   if (s === 0) {
     // Glass curtain wall: dark blue glass bands + thin mullions, per-pane
-    // tint variation + a floor slab line under each band.
+    // tint variation, interior blind/ceiling detail + floor slab lines.
     ctx.fillStyle = "#0d1b26";
     ctx.fillRect(0, 0, 256, 512);
     for (let row = 0; row < ROWS; row++) {
@@ -78,14 +67,29 @@ function paintFacade(style: number) {
         const v = cellHash(row, col, 0);
         ctx.fillStyle = v < 0.25 ? "#1d4258" : v < 0.6 ? "#16324a" : "#12293d";
         ctx.fillRect(px, y, 28, 36);
-        ctx.fillStyle = "rgba(126,246,255,0.55)";
-        ctx.fillRect(px + 2, y + 4, 24, 4);
+        // Interior office ceiling strip + blind slats on lit panes
+        if (v < 0.68) {
+          ctx.fillStyle = "rgba(180,248,255,0.42)";
+          ctx.fillRect(px + 3, y + 3, 22, 3);
+          if (v > 0.32) {
+            ctx.fillStyle = "rgba(12,26,38,0.35)";
+            for (let by = y + 8; by < y + 24; by += 4) ctx.fillRect(px + 2, by, 24, 1.5);
+          }
+        }
+        ctx.fillStyle = "rgba(126,246,255,0.58)";
+        ctx.fillRect(px + 2, y + 4, 24, 3);
+        ctx.fillStyle = "rgba(255,255,255,0.14)";
+        ctx.fillRect(px + 3, y + 8, 6, 24);
         ctx.fillStyle = "#0a141d";
         ctx.fillRect(px + 28, y, 2, 36);
+        ctx.fillStyle = "#2b3d4f";
+        ctx.fillRect(px, y + 18, 28, 1.5);
         wins.push({ x: px, y, w: 28, h: 36, lit: v < 0.7 ? 1 : 0.4 });
       }
       ctx.fillStyle = "#0a141d";
       ctx.fillRect(0, y + 44, 256, 3);
+      ctx.fillStyle = "#24384a";
+      ctx.fillRect(0, y + 42, 256, 2);
     }
     ctx.fillStyle = "#0a141d";
     ctx.fillRect(0, 452, 256, 60);
@@ -93,8 +97,8 @@ function paintFacade(style: number) {
     ctx.fillRect(0, 452, 256, 3);
   } else if (s === 1) {
     // Warm brick residential: REAL brick courses (8px courses, 16px
-    // bricks, staggered, each brick a varied terracotta/tan) + small
-    // warm-lit windows with stone sills and lintels. Never one flat red.
+    // bricks, staggered, each brick a varied terracotta/tan) + warm-lit
+    // sash windows with stone keystones, sills, lintels and corner quoins.
     const BRICK = ["#8a4a34", "#9a5540", "#7a3f2c", "#a05a3a", "#b07a52", "#6e3a28", "#96502f", "#c07a4a"];
     ctx.fillStyle = "#5e3222";
     ctx.fillRect(0, 0, 256, 512);
@@ -107,10 +111,16 @@ function paintFacade(style: number) {
         const x = off + c * brickW;
         ctx.fillStyle = BRICK[Math.floor(cellHash(r, c, 1) * BRICK.length)];
         ctx.fillRect(x + 1, y + 1, brickW - 2, courseH - 2);
-        ctx.fillStyle = "rgba(255,255,255,0.10)";
+        ctx.fillStyle = "rgba(255,255,255,0.11)";
         ctx.fillRect(x + 1, y + 1, brickW - 2, 2);
-        ctx.fillStyle = "rgba(0,0,0,0.18)";
+        ctx.fillStyle = "rgba(0,0,0,0.20)";
         ctx.fillRect(x + 1, y + courseH - 3, brickW - 2, 2);
+      }
+      // Corner ashlar quoin blocks on alternating double-courses
+      if (Math.floor(r / 2) % 2 === 0) {
+        ctx.fillStyle = "#d8cfb8";
+        ctx.fillRect(0, y, 10, courseH - 1);
+        ctx.fillRect(246, y, 10, courseH - 1);
       }
     }
     for (let row = 0; row < ROWS; row++) {
@@ -122,15 +132,23 @@ function paintFacade(style: number) {
         ctx.fillRect(x - 3, y - 3, 34, 38);
         ctx.fillStyle = lit < 0.55 ? "#ffd9a0" : lit < 0.8 ? "#c98d4e" : "#3a2a1a";
         ctx.fillRect(x, y, 28, 32);
+        if (lit < 0.55) {
+          ctx.fillStyle = "rgba(120,70,40,0.48)";
+          ctx.fillRect(x + 2, y + 2, 9, 28);
+          ctx.fillRect(x + 19, y + 2, 7, 14);
+        }
+        // Double-hung sash muntin crossbars
         ctx.fillStyle = "#2a1a12";
         ctx.fillRect(x + 13, y, 2, 32);
-        if (lit < 0.55) {
-          ctx.fillStyle = "rgba(120,70,40,0.5)";
-          ctx.fillRect(x + 2, y + 2, 10, 28);
-        }
+        ctx.fillRect(x, y + 15, 28, 2);
+        ctx.fillStyle = "rgba(244,247,251,0.55)";
+        ctx.fillRect(x + 1, y + 15, 26, 1);
+        // Stone sill + lintel with raised central keystone
         ctx.fillStyle = "#d8cfb8";
-        ctx.fillRect(x - 4, y + 32, 36, 4);
+        ctx.fillRect(x - 5, y + 32, 38, 4);
         ctx.fillRect(x - 3, y - 8, 34, 5);
+        ctx.fillStyle = "#ece4d0";
+        ctx.fillRect(x + 10, y - 10, 8, 7);
         wins.push({ x, y, w: 28, h: 32, lit: lit < 0.55 ? 1 : lit < 0.8 ? 0.6 : 0.15 });
       }
     }
@@ -139,18 +157,25 @@ function paintFacade(style: number) {
     ctx.fillStyle = "#8a7a5e";
     for (let x = 0; x < 256; x += 64) ctx.fillRect(x, 452, 2, 60);
     ctx.fillStyle = "#e8e0cc";
-    ctx.fillRect(0, 452, 256, 3);
+    ctx.fillRect(0, 452, 256, 4);
   } else if (s === 2) {
-    // Concrete ribbon windows: light slabs with per-panel tone + joints,
-    // full-width dark bands, sill + floor slab lines.
+    // Concrete ribbon windows: architectural precast panels with tie-rod
+    // dimples, full-width dark bands, sub-mullions, sill + floor slab lines.
     ctx.fillStyle = "#b8bcc0";
     ctx.fillRect(0, 0, 256, 512);
     for (let p = 0; p < 4; p++) {
       const v = cellHash(0, p, 2);
-      ctx.fillStyle = v < 0.5 ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
+      ctx.fillStyle = v < 0.5 ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
       ctx.fillRect(p * 64, 0, 64, 452);
       ctx.fillStyle = "#9aa0a6";
       ctx.fillRect(p * 64, 0, 2, 452);
+      // Precast tie-rod holes
+      ctx.fillStyle = "rgba(60,66,74,0.45)";
+      for (let row = 0; row < ROWS; row++) {
+        const py = rowY(row) + 36;
+        ctx.fillRect(p * 64 + 10, py, 3, 3);
+        ctx.fillRect(p * 64 + 50, py, 3, 3);
+      }
     }
     for (let row = 0; row < ROWS; row++) {
       const y = rowY(row);
@@ -158,23 +183,30 @@ function paintFacade(style: number) {
       ctx.fillRect(10, y, 236, 28);
       ctx.fillStyle = "#3d4a55";
       ctx.fillRect(14, y + 4, 228, 5);
-      ctx.fillStyle = "rgba(215,221,232,0.5)";
+      ctx.fillStyle = "rgba(215,221,232,0.55)";
       ctx.fillRect(14, y + 12, 228, 2);
-      ctx.fillStyle = "#232a30";
-      for (let m = 1; m < 8; m++) ctx.fillRect(10 + m * 30, y, 2, 28);
+      for (let m = 0; m < 8; m++) {
+        const mv = cellHash(row, m, 22);
+        if (mv < 0.65) {
+          ctx.fillStyle = "rgba(191,230,255,0.32)";
+          ctx.fillRect(12 + m * 29, y + 6, 24, 16);
+        }
+      }
+      ctx.fillStyle = "#181d22";
+      for (let m = 1; m < 8; m++) ctx.fillRect(10 + m * 30, y, 2.5, 28);
       ctx.fillStyle = "#d7dde8";
-      ctx.fillRect(10, y + 28, 236, 3);
+      ctx.fillRect(8, y + 28, 240, 4);
       ctx.fillStyle = "#9aa0a6";
       ctx.fillRect(0, y + 46, 256, 4);
-      wins.push({ x: 10, y, w: 236, h: 28, lit: 0.7 });
+      wins.push({ x: 10, y, w: 236, h: 28, lit: 0.72 });
     }
     ctx.fillStyle = "#8b9096";
     ctx.fillRect(0, 452, 256, 60);
     ctx.fillStyle = "#d7dde8";
-    ctx.fillRect(0, 452, 256, 3);
+    ctx.fillRect(0, 452, 256, 4);
   } else if (s === 3) {
-    // Cream stone modern: stone coursing + pilasters with capitals,
-    // dark windows with sills.
+    // Cream stone modern: limestone coursing + fluted pilasters with capitals,
+    // dentil cornice, casement windows with transoms and sills.
     ctx.fillStyle = "#e8e0cc";
     ctx.fillRect(0, 0, 256, 512);
     ctx.fillStyle = "#d8cfb8";
@@ -191,6 +223,9 @@ function paintFacade(style: number) {
       ctx.fillRect(col * 64 - 8, 0, 16, 6);
       ctx.fillRect(col * 64 - 8, 446, 16, 6);
     }
+    // Classical dentil band at top of stone module
+    ctx.fillStyle = "#c4b896";
+    for (let dx = 4; dx < 256; dx += 12) ctx.fillRect(dx, 8, 6, 5);
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < 4; col++) {
         const x = 20 + col * 60;
@@ -198,30 +233,37 @@ function paintFacade(style: number) {
         const lit = cellHash(row, col, 3);
         ctx.fillStyle = "#1d2733";
         ctx.fillRect(x - 2, y - 2, 40, 42);
-        ctx.fillStyle = lit < 0.5 ? "#8a97a8" : "#5a6a7a";
+        ctx.fillStyle = lit < 0.5 ? "#ffdba8" : "#5a6a7a";
         ctx.fillRect(x, y, 36, 38);
-        ctx.fillStyle = "rgba(232,224,204,0.7)";
+        ctx.fillStyle = "rgba(232,224,204,0.75)";
         ctx.fillRect(x + 3, y + 3, 30, 5);
+        // French casement vertical + transom bars
         ctx.fillStyle = "#1d2733";
         ctx.fillRect(x + 17, y, 2, 38);
-        ctx.fillStyle = "#e8e0cc";
-        ctx.fillRect(x - 2, y + 38, 40, 4);
-        wins.push({ x, y, w: 36, h: 38, lit: lit < 0.5 ? 0.8 : 0.4 });
+        ctx.fillRect(x, y + 11, 36, 2);
+        // Molded stone header + sill
+        ctx.fillStyle = "#cfc4a8";
+        ctx.fillRect(x - 4, y - 6, 44, 4);
+        ctx.fillStyle = "#f2ece0";
+        ctx.fillRect(x - 3, y + 38, 42, 4);
+        wins.push({ x, y, w: 36, h: 38, lit: lit < 0.5 ? 0.85 : 0.4 });
       }
     }
     ctx.fillStyle = "#cfc4a8";
     ctx.fillRect(0, 452, 256, 60);
     ctx.fillStyle = "#e8e0cc";
-    ctx.fillRect(0, 452, 256, 3);
+    ctx.fillRect(0, 452, 256, 4);
   } else if (s === 4) {
     // Neon commercial: dark base, gold sign band, big glowing panes,
-    // gold floor lines.
+    // spandrel louver grilles + gold/cyan floor lines.
     ctx.fillStyle = "#0c0f16";
     ctx.fillRect(0, 0, 256, 512);
     ctx.fillStyle = "#e0b33a";
     ctx.fillRect(0, 8, 256, 30);
     ctx.fillStyle = "#10141c";
     ctx.fillRect(24, 17, 208, 12);
+    ctx.fillStyle = "#7ef6ff";
+    ctx.fillRect(28, 21, 200, 4);
     for (let row = 0; row < ROWS; row++) {
       const y = 52 + row * 50;
       for (let col = 0; col < 3; col++) {
@@ -233,7 +275,9 @@ function paintFacade(style: number) {
         ctx.globalAlpha = 0.85;
         ctx.fillRect(x + 4, y + 4, 48, 28);
         ctx.globalAlpha = 1;
-        ctx.fillStyle = "rgba(255,255,255,0.65)";
+        ctx.fillStyle = "#0c0f16";
+        ctx.fillRect(x + 27, y + 4, 2, 28);
+        ctx.fillStyle = "rgba(255,255,255,0.68)";
         ctx.fillRect(x + 8, y + 10, 40, 3);
         wins.push({ x: x + 4, y: y + 4, w: 48, h: 28, lit: lit < 0.5 ? 1 : 0.6 });
       }
@@ -245,10 +289,12 @@ function paintFacade(style: number) {
     ctx.fillStyle = "#e0b33a";
     ctx.fillRect(0, 452, 256, 3);
   } else {
-    // Dark OrbitX identity: cyan windows with white frames, gold floor
-    // lines, cyan accent line at the top.
+    // Dark OrbitX identity: cyan windows with white frames, brushed panel
+    // seams, gold floor lines, cyan accent line at the top.
     ctx.fillStyle = "#10141c";
     ctx.fillRect(0, 0, 256, 512);
+    ctx.fillStyle = "#1a202c";
+    for (let px = 64; px < 256; px += 64) ctx.fillRect(px - 1, 0, 2, 452);
     ctx.fillStyle = "#9befff";
     ctx.fillRect(0, 8, 256, 3);
     for (let row = 0; row < ROWS; row++) {
@@ -263,7 +309,11 @@ function paintFacade(style: number) {
           ctx.globalAlpha = 0.85;
           ctx.fillRect(x + 4, y + 4, 36, 22);
           ctx.globalAlpha = 1;
+          ctx.fillStyle = "rgba(255,255,255,0.5)";
+          ctx.fillRect(x + 6, y + 7, 32, 2);
         }
+        ctx.fillStyle = "#10141c";
+        ctx.fillRect(x + 21, y + 4, 2, 22);
         ctx.strokeStyle = "#f4f7fb";
         ctx.lineWidth = 2;
         ctx.strokeRect(x, y, 44, 34);
@@ -281,11 +331,7 @@ function paintFacade(style: number) {
   map.colorSpace = SRGBColorSpace;
   map.wrapS = RepeatWrapping;
   map.wrapT = RepeatWrapping;
-  map.anisotropy = 4;
-  // Emissive map: the recorded windows glow (warm for brick/cream, cyan
-  // for the rest), so the night glow lines up with the actual windows
-  // instead of a fixed 4-col grid that never matched the brick 3-col
-  // layout or the ribbon bands.
+  map.anisotropy = 8;
   const glowCanvas = document.createElement("canvas");
   glowCanvas.width = 256;
   glowCanvas.height = 512;
@@ -302,6 +348,7 @@ function paintFacade(style: number) {
     glow.colorSpace = SRGBColorSpace;
     glow.wrapS = RepeatWrapping;
     glow.wrapT = RepeatWrapping;
+    glow.anisotropy = 4;
   }
   return { map, glow };
 }
@@ -310,10 +357,99 @@ const paints = [0, 1, 2, 3, 4, 5].map((style) => paintFacade(style));
 
 const STYLE_EMISSIVE = [0x9af6ff, 0xffc27a, 0xbfe6ff, 0xffc27a, 0x9af6ff, 0x9af6ff];
 
-// Shared roof / trim materials (one instance per colour, not per facade).
-const ROOF_MATS = [0x232830, 0x8a4a34, 0x3a4a5c, 0xe0b33a].map(
-  (color) => new MeshStandardMaterial({ color, roughness: 0.65, metalness: 0.15 }),
-);
+// Procedural tileable roof textures: slate shingles, terracotta clay barrel
+// tiles, standing-seam architectural steel, and gold standing-seam crown.
+function paintRoofTex(kind: number): CanvasTexture | undefined {
+  if (typeof document === "undefined") return undefined;
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return undefined;
+  if (kind === 0) {
+    // Dark architectural slate shingles
+    const SLATE = ["#1e232b", "#232830", "#282e38", "#1a1f26", "#2c333e"];
+    ctx.fillStyle = "#161a20";
+    ctx.fillRect(0, 0, 256, 256);
+    const ch = 16;
+    const sw = 32;
+    for (let r = 0; r < 16; r++) {
+      const y = r * ch;
+      const off = r % 2 === 0 ? 0 : sw / 2;
+      for (let c = -1; c <= 8; c++) {
+        const x = off + c * sw;
+        ctx.fillStyle = SLATE[Math.floor(cellHash(r, c, 31) * SLATE.length)];
+        ctx.fillRect(x + 1, y + 1, sw - 2, ch - 2);
+        ctx.fillStyle = "rgba(255,255,255,0.08)";
+        ctx.fillRect(x + 1, y + 1, sw - 2, 2);
+        ctx.fillStyle = "rgba(0,0,0,0.32)";
+        ctx.fillRect(x + 1, y + ch - 3, sw - 2, 2);
+      }
+    }
+  } else if (kind === 1) {
+    // Terracotta clay barrel tiles
+    const CLAY = ["#8a4a34", "#9e563d", "#7c3f2b", "#ac5e42", "#924f38"];
+    ctx.fillStyle = "#5c2d1e";
+    ctx.fillRect(0, 0, 256, 256);
+    const ch = 22;
+    const bw = 20;
+    for (let r = 0; r <= 12; r++) {
+      const y = r * ch;
+      for (let c = 0; c <= 13; c++) {
+        const x = c * bw;
+        ctx.fillStyle = CLAY[Math.floor(cellHash(r, c, 32) * CLAY.length)];
+        ctx.fillRect(x + 1, y + 1, bw - 2, ch - 2);
+        ctx.fillStyle = "rgba(255,220,190,0.18)";
+        ctx.fillRect(x + 5, y + 1, 6, ch - 3);
+        ctx.fillStyle = "rgba(0,0,0,0.28)";
+        ctx.fillRect(x + bw - 4, y + 1, 3, ch - 2);
+        ctx.fillRect(x + 1, y + ch - 3, bw - 2, 2);
+      }
+    }
+  } else if (kind === 2) {
+    // Standing-seam architectural steel roof
+    ctx.fillStyle = "#3a4a5c";
+    ctx.fillRect(0, 0, 256, 256);
+    for (let x = 0; x < 256; x += 16) {
+      ctx.fillStyle = x % 32 === 0 ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
+      ctx.fillRect(x, 0, 16, 256);
+      ctx.fillStyle = "#24303d";
+      ctx.fillRect(x, 0, 2, 256);
+      ctx.fillStyle = "rgba(220,235,255,0.18)";
+      ctx.fillRect(x + 2, 0, 1.5, 256);
+    }
+    ctx.fillStyle = "rgba(20,28,36,0.28)";
+    for (let y = 0; y < 256; y += 64) ctx.fillRect(0, y, 256, 2);
+  } else {
+    // Gold anodized standing-seam crown roof
+    ctx.fillStyle = "#e0b33a";
+    ctx.fillRect(0, 0, 256, 256);
+    for (let x = 0; x < 256; x += 16) {
+      ctx.fillStyle = "#9e7818";
+      ctx.fillRect(x, 0, 2, 256);
+      ctx.fillStyle = "rgba(255,248,210,0.32)";
+      ctx.fillRect(x + 2, 0, 2, 256);
+    }
+  }
+  const tex = new CanvasTexture(canvas);
+  tex.colorSpace = SRGBColorSpace;
+  tex.wrapS = RepeatWrapping;
+  tex.wrapT = RepeatWrapping;
+  tex.repeat.set(3, 3);
+  tex.anisotropy = 8;
+  return tex;
+}
+
+// Shared roof / trim materials (one instance per colour, with procedural tile/seam maps).
+const ROOF_MATS = [0x232830, 0x8a4a34, 0x3a4a5c, 0xe0b33a].map((color, idx) => {
+  const tex = paintRoofTex(idx);
+  return new MeshStandardMaterial({
+    color: tex ? 0xffffff : color,
+    map: tex,
+    roughness: idx >= 2 ? 0.45 : 0.62,
+    metalness: idx === 3 ? 0.55 : idx === 2 ? 0.38 : 0.15,
+  });
+});
 // ---- glazing pass: real glass for the office towers + homes. ----
 // Warm-lit home windows + cool curtain glass for the towers. Both register
 // in nightMats so the lit interior reads after dark (same day/night drive
@@ -435,17 +571,11 @@ const GOLD_MAT = new MeshStandardMaterial({
 });
 const WHITE_MAT = new MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.45, metalness: 0.1 });
 const WOOD_MAT = new MeshStandardMaterial({ color: 0x7a5a3a, roughness: 0.8, metalness: 0.05 });
-// Real surfaces on the visible facade panels (2026-11-17, textures
-// upgrade): the voxel-box MATERIALS got real textures, but the pretty
-// facade panels are the surface the player actually sees — without a map
-// they read as flat beige/white. Stucco on the walls, wood grain on the
-// trim. The maps are near-white / brown, so the material colours still
-// dominate; in node textureFor returns undefined and the mats stay flat.
+const STONE_TRIM_MAT = new MeshStandardMaterial({ color: 0xd5dae2, roughness: 0.62, metalness: 0.1 });
+const FOLIAGE_MAT = new MeshStandardMaterial({ color: 0x37b24a, roughness: 0.75, metalness: 0.05 });
 {
   const stucco = textureFor("stucco");
   if (stucco) {
-    // The map carries the real colour — the material must not tint it
-    // (map x colour would double-darken the brown wood especially).
     WHITE_MAT.color.set(0xffffff);
     WHITE_MAT.map = stucco;
   }
@@ -454,8 +584,42 @@ const WOOD_MAT = new MeshStandardMaterial({ color: 0x7a5a3a, roughness: 0.8, met
     WOOD_MAT.color.set(0xffffff);
     WOOD_MAT.map = wood;
   }
+  const stone = textureFor("stone");
+  if (stone) {
+    STONE_TRIM_MAT.color.set(0xffffff);
+    STONE_TRIM_MAT.map = stone;
+  }
+  const foliage = textureFor("foliage");
+  if (foliage) {
+    FOLIAGE_MAT.color.set(0xffffff);
+    FOLIAGE_MAT.map = foliage;
+  }
 }
-const DARK_MAT = new MeshStandardMaterial({ color: 0x141820, roughness: 0.7, metalness: 0.2 });
+const DARK_MAT = new MeshStandardMaterial({ color: 0x141820, roughness: 0.65, metalness: 0.25 });
+const METAL_MAT = new MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.55, metalness: 0.45 });
+const POLE_MAT = new MeshStandardMaterial({ color: 0x232a38, roughness: 0.5, metalness: 0.6 });
+const DOOR_SLAB_MAT = new MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.62, metalness: 0.12 });
+const LANTERN_MAT = new MeshStandardMaterial({
+  color: 0xffe4b0,
+  emissive: 0xffb347,
+  emissiveIntensity: 1.35,
+  roughness: 0.2,
+  metalness: 0.1,
+});
+const CYAN_BEACON_MAT = new MeshStandardMaterial({
+  color: 0x9af6ff,
+  emissive: 0x1ad8ff,
+  emissiveIntensity: 2.2,
+  roughness: 0.2,
+});
+nightMats.push({ mat: LANTERN_MAT, day: 0.85, night: 2.3 });
+nightMats.push({ mat: CYAN_BEACON_MAT, day: 1.2, night: 2.6 });
+
+const SHUTTER_MATS = [
+  new MeshStandardMaterial({ color: 0x1d3248, roughness: 0.6, metalness: 0.15 }),
+  new MeshStandardMaterial({ color: 0x1f4232, roughness: 0.6, metalness: 0.15 }),
+  new MeshStandardMaterial({ color: 0x522620, roughness: 0.6, metalness: 0.15 }),
+];
 
 // Shop-interior goods (world-quality upgrade 2026-11-13): bright, slightly
 // emissive so they read through the tinted storefront glass.
@@ -465,6 +629,22 @@ const GOODS_MATS = [
   new MeshStandardMaterial({ color: 0x37b24a, roughness: 0.5, metalness: 0.1, emissive: 0x0f3a16, emissiveIntensity: 0.5 }),
   new MeshStandardMaterial({ color: 0xe0b33a, roughness: 0.5, metalness: 0.1, emissive: 0x6a5208, emissiveIntensity: 0.5 }),
 ];
+
+type BoxTuple = [number, number, number, number, number, number];
+function addMergedBoxes(group: Group, boxes: BoxTuple[], mat: MeshStandardMaterial, castShadow = false) {
+  if (boxes.length === 0) return;
+  const geos = boxes.map(([px, py, pz, sx, sy, sz]) => {
+    const g = new BoxGeometry(sx, sy, sz);
+    g.translate(px, py, pz);
+    return g;
+  });
+  const merged = mergeGeometries(geos) ?? geos[0];
+  const mesh = new Mesh(merged, mat);
+  mesh.castShadow = castShadow;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  for (const g of geos) if (g !== merged) g.dispose();
+}
 
 function facadeMaterial(style: number, w: number, h: number) {
   const src = paints[style % paints.length];
@@ -505,15 +685,6 @@ function addWall(
 }
 
 // ---- glazing pass on the hollow shell ----
-// The walls are built as solid runs around openings (the door gap + real
-// window holes on the ground floor). A window opening is a real hole: the
-// glass pane sits centred in the wall thickness, so from the street you
-// see the lit interior through it, and from inside you see out — while the
-// colliders (pushWallColliders, untouched) still block walking through.
-// Upper floors of office towers get proud glass curtain bands instead of
-// holes: one wide pane + rails per face per row.
-// `glaze` is true for facades that opted into the pass (facade.glass).
-
 interface WallOpening {
   a0: number;
   a1: number;
@@ -529,60 +700,84 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
   const cx = x + w / 2;
   const cz = z + d / 2;
   const midY = h / 2;
-  // Closed real doors (2026-11-12): the door face is a FULL solid wall,
-  // and a wood door slab + white frame + gold handle sits in it. Entry is
-  // E at the door anchor — the old 4-wide open gap is gone.
-  // The ONE exception is the pass-through face (a building astride a
-  // road/bridge line): it keeps the 4-wide gap so a car can drive through.
   const gap = 4;
-  const doorMat = new MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.65, metalness: 0.1 });
-  const frameMat = new MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.4, metalness: 0.15 });
-  const handleMat = new MeshStandardMaterial({ color: 0xe0b33a, roughness: 0.3, metalness: 0.7, emissive: 0x6a5208, emissiveIntensity: 0.4 });
+
   const addDoor = (alongX: boolean) => {
     const px = alongX ? cx : door === "w" ? x + t / 2 : x + w - t / 2;
     const pz = alongX ? (door === "n" ? z + t / 2 : z + d - t / 2) : cz;
-    const slab = new Mesh(box, doorMat);
+    const outSign = door === "n" || door === "w" ? -1 : 1;
+    const outPlane = alongX
+      ? (door === "n" ? z : z + d) + outSign * 0.08
+      : (door === "w" ? x : x + w) + outSign * 0.08;
+
+    const slab = new Mesh(box, DOOR_SLAB_MAT);
     slab.position.set(px, 1.45, pz);
     slab.scale.set(alongX ? 3.4 : 0.5, 2.9, alongX ? 0.5 : 3.4);
     slab.castShadow = true;
     slab.receiveShadow = true;
     group.add(slab);
-    for (const off of [-1.85, 1.85]) {
-      const post = new Mesh(box, frameMat);
-      post.position.set(alongX ? cx + off : px, 1.55, alongX ? pz : cz + off);
-      post.scale.set(alongX ? 0.35 : 0.5, 3.1, alongX ? 0.5 : 0.35);
-      post.castShadow = true;
-      group.add(post);
+
+    // Door frame jambs, lintel, threshold + transom frame merged in WHITE_MAT
+    const hasTransom = h >= 4.2 && !(facade.storefront && facade.face === door);
+    const frameBoxes: BoxTuple[] = [
+      [alongX ? cx - 1.85 : px, 1.55, alongX ? pz : cz - 1.85, alongX ? 0.35 : 0.52, 3.1, alongX ? 0.52 : 0.35],
+      [alongX ? cx + 1.85 : px, 1.55, alongX ? pz : cz + 1.85, alongX ? 0.35 : 0.52, 3.1, alongX ? 0.52 : 0.35],
+      [alongX ? cx : px, 3.12, alongX ? pz : cz, alongX ? 4.3 : 0.54, 0.26, alongX ? 0.54 : 4.3],
+      [alongX ? cx : outPlane, 0.06, alongX ? outPlane : cz, alongX ? 4.1 : 0.32, 0.12, alongX ? 0.32 : 4.1],
+    ];
+    if (hasTransom) {
+      frameBoxes.push([
+        alongX ? cx : outPlane,
+        3.68,
+        alongX ? outPlane : cz,
+        alongX ? 3.8 : 0.22,
+        0.16,
+        alongX ? 0.22 : 3.8,
+      ]);
+      // Illuminated transom glass above the door lintel
+      glassPane(
+        group,
+        WINDOW_GLASS_MAT,
+        alongX ? cx : outPlane,
+        3.42,
+        alongX ? outPlane : cz,
+        alongX ? 3.4 : 0.12,
+        0.4,
+        alongX ? 0.12 : 3.4,
+      );
     }
-    const lintel = new Mesh(box, frameMat);
-    lintel.position.set(alongX ? cx : px, 3.12, alongX ? pz : cz);
-    lintel.scale.set(alongX ? 4.3 : 0.5, 0.26, alongX ? 0.5 : 4.3);
-    group.add(lintel);
-    for (const side of [-0.26, 0.26]) {
-      const handle = new Mesh(box, handleMat);
-      if (alongX) handle.position.set(cx + 1.2, 1.15, pz + side);
-      else handle.position.set(px + side, 1.15, cz + 1.2);
-      handle.scale.set(0.16, 0.16, 0.16);
-      group.add(handle);
+    addMergedBoxes(group, frameBoxes, WHITE_MAT, true);
+
+    // Gold handles, brass kickplate & twin warm entrance sconces
+    const goldBoxes: BoxTuple[] = [
+      [alongX ? cx + 1.2 : px - 0.26, 1.15, alongX ? pz - 0.26 : cz + 1.2, 0.16, 0.16, 0.16],
+      [alongX ? cx + 1.2 : px + 0.26, 1.15, alongX ? pz + 0.26 : cz + 1.2, 0.16, 0.16, 0.16],
+      [alongX ? cx : outPlane, 0.18, alongX ? outPlane : cz, alongX ? 3.2 : 0.08, 0.22, alongX ? 0.08 : 3.2],
+    ];
+    addMergedBoxes(group, goldBoxes, GOLD_MAT, false);
+
+    // Warm wall lanterns flanking the entrance door (outside the 4-wide door gap)
+    const lanternBoxes: BoxTuple[] = [];
+    const bracketBoxes: BoxTuple[] = [];
+    for (const lOff of [-2.28, 2.28]) {
+      const lx = alongX ? cx + lOff : outPlane + outSign * 0.05;
+      const lz = alongX ? outPlane + outSign * 0.05 : cz + lOff;
+      lanternBoxes.push([lx, 2.25, lz, 0.24, 0.34, 0.24]);
+      bracketBoxes.push([lx, 2.46, lz, 0.3, 0.08, 0.3]);
+      bracketBoxes.push([lx, 2.04, lz, 0.2, 0.08, 0.2]);
     }
+    addMergedBoxes(group, lanternBoxes, LANTERN_MAT, false);
+    addMergedBoxes(group, bracketBoxes, DARK_MAT, false);
   };
-  // (gapOn/place are gone: the pass-through gap is now a buildWall
-  // opening below, so the wall is built around it with windows kept
-  // clear — same 4-wide car lane, no separate wall code.)
+
   const glass = glaze ? facade.glass : undefined;
   const glassWall = !!facade.glassWall;
-  // Visible exterior plane, outward from the facade rect edge. 0 for the
-  // pretty shell itself; voxel-shell towers (district office uppers) stick
-  // their cream voxel wall 0.3 proud, so their curtain bands sit 0.36 out
-  // and they get no wall holes (the voxel wall would hide them).
   const proud = facade.glassProud ?? 0;
 
   const winW = glass === "curtain" ? 2.6 : glassWall ? 3.4 : 2.2;
   const winY0 = glassWall ? 0.8 : 1.0;
   const winY1 = glassWall ? 2.8 : 2.6;
 
-  // Ranges on one face the windows must not overlap: the door gap, and
-  // the storefront glass zone on the storefront face.
   const blockedFor = (face: Face, span: number, origin: number): Array<[number, number]> => {
     const blocked: Array<[number, number]> = [];
     if (door === face) {
@@ -590,8 +785,6 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
       blocked.push([c - gap / 2, c + gap / 2]);
     }
     if (passThrough === face) {
-      // Car lane through a tower astride a road/bridge line: same 4-wide
-      // gap as the door, so no window may overlap it.
       const c = origin + span / 2;
       blocked.push([c - gap / 2, c + gap / 2]);
     }
@@ -603,31 +796,47 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
     return blocked;
   };
 
-  // Ground-floor window openings for one face.
-  // "home": two windows flanking the door, street face only.
-  // "curtain": windows spaced ~6.5 apart on every face.
+  // Ground-floor window openings for one face:
+  // - Homes get front windows flanking the door AND side/rear windows on non-door faces.
+  // - Curtain-wall towers get windows spaced ~6.5u on every face.
+  // - Other enterable buildings get ground-floor windows on non-storefront faces.
   const windowsFor = (face: Face, span: number, origin: number): WallOpening[] => {
-    if (!glass || proud > 0) return [];
+    if (proud > 0) return [];
     const blocked = blockedFor(face, span, origin);
     const overlaps = (a0: number, a1: number) =>
       blocked.some(([b0, b1]) => a0 < b1 - 0.2 && a1 > b0 + 0.2);
     if (glass === "home") {
-      if (face !== door) return [];
       const out: WallOpening[] = [];
-      const c = origin + span / 2;
-      const gap0 = c - gap / 2;
-      const gap1 = c + gap / 2;
-      for (const [s0, s1] of [
-        [origin, gap0],
-        [gap1, origin + span],
-      ] as const) {
-        if (s1 - s0 < winW + 1.2) continue;
-        const wc = (s0 + s1) / 2;
-        out.push({ a0: wc - winW / 2, a1: wc + winW / 2, y0: winY0, y1: winY1 });
+      if (face === door) {
+        const c = origin + span / 2;
+        const gap0 = c - gap / 2;
+        const gap1 = c + gap / 2;
+        for (const [s0, s1] of [
+          [origin, gap0],
+          [gap1, origin + span],
+        ] as const) {
+          if (s1 - s0 < winW + 1.2) continue;
+          const wc = (s0 + s1) / 2;
+          out.push({ a0: wc - winW / 2, a1: wc + winW / 2, y0: winY0, y1: winY1 });
+        }
+      } else {
+        // Side and rear home windows so all 4 walls of every home have real windows
+        const sideW = 1.9;
+        const count = span >= 11 ? 2 : 1;
+        for (let i = 0; i < count; i++) {
+          const wc = origin + (span * (i + 1)) / (count + 1);
+          const a0 = wc - sideW / 2;
+          const a1 = wc + sideW / 2;
+          if (a0 < origin + 0.8 || a1 > origin + span - 0.8) continue;
+          if (overlaps(a0, a1)) continue;
+          out.push({ a0, a1, y0: 1.1, y1: 2.5 });
+        }
       }
       return out;
     }
-    const n = Math.max(1, Math.floor((span - 1) / 6.5));
+    if (!glass && facade.storefront && facade.face === face) return [];
+    const spacing = glass === "curtain" ? 6.5 : 7.5;
+    const n = Math.max(1, Math.floor((span - 1) / spacing));
     const slot = span / n;
     const out: WallOpening[] = [];
     for (let i = 0; i < n; i++) {
@@ -641,9 +850,6 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
     return out;
   };
 
-  // One wall, built as solid runs around its openings, with glass + frame
-  // in each window opening. `fixed` is the rect-edge coordinate of the
-  // face (z for n/s, x for e/w).
   const buildWall = (face: Face, alongX: boolean, fixed: number) => {
     const span = alongX ? w : d;
     const origin = alongX ? x : z;
@@ -652,19 +858,9 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
       const c = origin + span / 2;
       openings.push({ a0: c - gap / 2, a1: c + gap / 2, y0: 0, y1: 3, door: true });
     } else if (passThrough === face) {
-      // Car lane through a tower astride a road/bridge line (water batch):
-      // same 4-wide open gap as the door. door: true only means "no glass
-      // in this opening" — no door slab is added for it (addDoor runs only
-      // on the door face, below).
       const c = origin + span / 2;
       openings.push({ a0: c - gap / 2, a1: c + gap / 2, y0: 0, y1: 3, door: true });
     }
-    // Storefront display windows (world-quality upgrade 2026-11-13): the
-    // AI demo's shop is see-through glass with shelves inside; the old
-    // wall was solid here with a decorative pane on top. Real glass
-    // openings flank the door (or one full pane when the door is on
-    // another face), so the interior shows through. The glass + frame
-    // land via the openings loop below, like any window.
     if (facade.storefront && facade.face === face) {
       const c = origin + span / 2;
       const paneW = Math.min(span * 0.72, 12);
@@ -681,7 +877,6 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
     }
     for (const op of windowsFor(face, span, origin)) openings.push(op);
     openings.sort((a, b) => a.a0 - b.a0);
-    // Wall centre plane (inward from the rect edge) and outer face plane.
     const wallC =
       face === "n" ? fixed + t / 2 : face === "s" ? fixed - t / 2 : face === "w" ? fixed + t / 2 : fixed - t / 2;
     const outer =
@@ -713,7 +908,6 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
       cursor = op.a1;
     }
     solid(cursor, origin + span);
-    // Glass + frame in each window opening (never the door).
     for (const op of openings) {
       if (op.door) continue;
       const mid = (op.a0 + op.a1) / 2;
@@ -737,17 +931,11 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
   buildWall("w", false, x);
   buildWall("e", false, x + w);
 
-  // Closed real door (life-sim): the door face's gap gets the wood slab +
-  // white frame + gold handle, so the door stays shut. Entry is E at the
-  // door anchor. The pass-through face keeps its open 4-wide gap (the
-  // buildWall opening has door: true so no glass lands in it).
   if (door === "n" || door === "s") addDoor(true);
   else addDoor(false);
 
   // ---- glass curtain bands on the upper floors (office towers only) ----
   if (glass === "curtain") {
-    // Voxel-shell towers start above the lobby roof (y 9.8); hollow-shell
-    // towers get a clerestory band first (y 5.8). A row every 4 units.
     const startY = proud > 0 ? 9.8 : 5.8;
     const bandMat = CURTAIN_GLASS_MAT;
     for (let y = startY; y + 0.9 < h - 0.4; y += 4) {
@@ -756,8 +944,6 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
         const span = alongX ? w : d;
         const origin = alongX ? x : z;
         const centre = origin + span / 2;
-        // Segments along the face; the lift balcony slot on the upper
-        // tower's east face splits its band in two.
         let segments: Array<[number, number]> = [[origin + 0.5, origin + span - 0.5]];
         if (facade.glassSkip && facade.glassSkip.face === face) {
           const s0 = centre + facade.glassSkip.from;
@@ -790,16 +976,9 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
     }
   }
 
-  const roofMat = new MeshStandardMaterial({ color: 0x141820, roughness: 0.7, metalness: 0.2 });
-  addWall(group, cx, h + 0.2, cz, w, 0.4, d, roofMat);
+  addWall(group, cx, h + 0.2, cz, w, 0.4, d, DARK_MAT);
 
   // ---- shop interior (world-quality upgrade 2026-11-13) ----
-  // The AI demo's shop shows colourful shelves through the glass; the old
-  // shell was empty behind a decorative pane. Two low display counters
-  // flank the centre door lane (never in it — the door stays clear),
-  // goods on top, and a tall back shelf against the rear wall. Inside the
-  // hollow shell: no collider, no door-zone impact, and it renders at
-  // every quality so the user's phone sees it too.
   if (facade.storefront) {
     const sFace = facade.face;
     const sAlongX = sFace === "n" || sFace === "s";
@@ -832,8 +1011,6 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
         }
       }
     }
-    // Tall back shelf against the rear wall — skipped when the door is on
-    // that face, so nothing ever sits behind a door.
     const rearFace = sFace === "n" ? "s" : sFace === "s" ? "n" : sFace === "w" ? "e" : "w";
     if (door !== rearFace) {
       const bsx = sAlongX ? 4 : 0.8;
@@ -895,62 +1072,72 @@ function orbitWord() {
   return group;
 }
 
-// Rooftop kit replacing the old floating cap box: parapet rim, AC units,
-// antenna with a cyan beacon. The 4 rim runs share one material, so they
-// merge into ONE mesh, and the 2 AC units into one — the kit was 8 meshes
-// per flat roof; now 4 (rim, AC, antenna, beacon). That matters now that
-// the kit runs at low quality too (building-quality pass, 2026-11-17).
-function addRoofKit(group: Group, x: number, z: number, w: number, d: number, h: number) {
-  const rimMat = new MeshStandardMaterial({ color: 0x141820, roughness: 0.7, metalness: 0.2 });
-  const acMat = new MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.6, metalness: 0.4 });
-  const rim = 0.25;
-  const rimRuns: Array<[number, number, number, number, number, number]> = [
-    [x + w / 2, h + rim / 2, z + rim / 2, w, rim, rim],
-    [x + w / 2, h + rim / 2, z + d - rim / 2, w, rim, rim],
-    [x + rim / 2, h + rim / 2, z + d / 2, rim, rim, d],
-    [x + w - rim / 2, h + rim / 2, z + d / 2, rim, rim, d],
+// Rooftop kit: parapet rim + coping stones, detailed HVAC units with fan
+// cowls & ductwork, rooftop stairwell penthouse or skylight/water tower,
+// and communication mast with cyan aviation beacon.
+function addRoofKit(group: Group, x: number, z: number, w: number, d: number, h: number, style = 0) {
+  const rim = 0.28;
+  const rimRuns: BoxTuple[] = [
+    [x + w / 2, h + rim / 2, z + rim / 2, w + 0.12, rim, rim],
+    [x + w / 2, h + rim / 2, z + d - rim / 2, w + 0.12, rim, rim],
+    [x + rim / 2, h + rim / 2, z + d / 2, rim, rim, d + 0.12],
+    [x + w - rim / 2, h + rim / 2, z + d / 2, rim, rim, d + 0.12],
+    // HVAC dark fan cowls
+    [x + w * 0.22, h + 0.86, z + d * 0.24, 0.75, 0.14, 0.75],
+    [x + w * 0.72, h + 0.86, z + d * 0.7, 0.75, 0.14, 0.75],
   ];
-  const rimGeos = rimRuns.map(([px, py, pz, sx, sy, sz]) => {
-    const g = new BoxGeometry(sx, sy, sz);
-    g.translate(px, py, pz);
-    return g;
-  });
-  const rimMesh = new Mesh(mergeGeometries(rimGeos) ?? rimGeos[0], rimMat);
-  group.add(rimMesh);
-  for (const g of rimGeos) if (g !== (rimMesh.geometry as BufferGeometry)) g.dispose();
-  const acGeos = (
-    [
-      [x + w * 0.22, z + d * 0.24],
-      [x + w * 0.72, z + d * 0.7],
-    ] as const
-  ).map(([ax, az]) => {
-    const g = new BoxGeometry(1.4, 0.8, 1.2);
-    g.translate(ax, h + 0.4, az);
-    return g;
-  });
-  const acMesh = new Mesh(mergeGeometries(acGeos) ?? acGeos[0], acMat);
-  acMesh.castShadow = true;
-  group.add(acMesh);
-  for (const g of acGeos) if (g !== (acMesh.geometry as BufferGeometry)) g.dispose();
-  const antenna = new Mesh(box, new MeshStandardMaterial({ color: 0x232a38, roughness: 0.5, metalness: 0.6 }));
+  addMergedBoxes(group, rimRuns, DARK_MAT, false);
+
+  const acRuns: BoxTuple[] = [
+    [x + w * 0.22, h + 0.4, z + d * 0.24, 1.45, 0.8, 1.25],
+    [x + w * 0.72, h + 0.4, z + d * 0.7, 1.45, 0.8, 1.25],
+    // Connecting ventilation duct run
+    [x + w * 0.47, h + 0.26, z + d * 0.24, Math.max(1.2, w * 0.42), 0.34, 0.42],
+  ];
+  if (w >= 13 && d >= 13) {
+    // Rooftop access stairwell bulkhead / elevator overrun
+    acRuns.push([x + w * 0.68, h + 1.05, z + d * 0.32, 2.2, 2.1, 2.4]);
+  }
+  addMergedBoxes(group, acRuns, METAL_MAT, true);
+
+  // Classic rooftop timber water tower on taller brick/stone buildings, or
+  // solar skylight array on larger modern roofs
+  if ((style === 1 || style === 3) && w >= 14 && d >= 14 && h >= 12) {
+    const wx = x + w * 0.28;
+    const wz = z + d * 0.68;
+    const legs: BoxTuple[] = [
+      [wx - 0.65, h + 0.9, wz - 0.65, 0.16, 1.8, 0.16],
+      [wx + 0.65, h + 0.9, wz - 0.65, 0.16, 1.8, 0.16],
+      [wx - 0.65, h + 0.9, wz + 0.65, 0.16, 1.8, 0.16],
+      [wx + 0.65, h + 0.9, wz + 0.65, 0.16, 1.8, 0.16],
+      [wx, h + 1.75, wz, 1.7, 0.14, 1.7],
+    ];
+    addMergedBoxes(group, legs, DARK_MAT, false);
+    const tank = new Mesh(column, WOOD_MAT);
+    tank.position.set(wx, h + 2.8, wz);
+    tank.scale.set(2.2, 2.0, 2.2);
+    tank.castShadow = true;
+    group.add(tank);
+    const roof = new Mesh(new ConeGeometry(1.05, 0.9, 8), ROOF_MATS[0]);
+    roof.position.set(wx, h + 4.25, wz);
+    group.add(roof);
+  } else if (w >= 14 && d >= 14) {
+    glassPane(group, CURTAIN_GLASS_MAT, x + w * 0.35, h + 0.32, z + d * 0.68, 2.8, 0.18, 2.2);
+  }
+
+  const antenna = new Mesh(box, POLE_MAT);
   antenna.position.set(x + w * 0.85, h + 1.4, z + d * 0.2);
   antenna.scale.set(0.14, 2.8, 0.14);
   group.add(antenna);
-  const beacon = new Mesh(
-    box,
-    new MeshStandardMaterial({ color: 0x9af6ff, emissive: 0x1ad8ff, emissiveIntensity: 2.2, roughness: 0.2 }),
-  );
+  const beacon = new Mesh(box, CYAN_BEACON_MAT);
   beacon.position.set(x + w * 0.85, h + 2.9, z + d * 0.2);
   beacon.scale.set(0.35, 0.35, 0.35);
   group.add(beacon);
 }
 
 // ---- real-architecture kit: pitched roofs, porches, chimneys, storefronts,
-// stepped towers, side wings. One prism/mesh per feature, shared materials.
+// stepped towers, side wings, and 3D facade relief.
 
-// A gable roof: a triangular prism (extruded triangle) on the walls, with a
-// small overhang. Ridge runs along X when dir is n/s, along Z when e/w.
-// Returns the ridge height.
 function addGableRoof(
   group: Group,
   x: number,
@@ -977,21 +1164,42 @@ function addGableRoof(
   const cx = x + w / 2;
   const cz = z + d / 2;
   if (alongX) {
-    // Extrusion (local Z) becomes world X after the 90-degree turn.
     mesh.rotation.y = Math.PI / 2;
     mesh.position.set(cx - ridgeLen / 2, h - 0.05, cz);
   } else {
-    // No rotation: the triangle is already symmetric about local x = 0,
-    // so the mesh origin sits on the building centre. (The old code put
-    // cx - span / 2 here, shifting the whole roof half a span west and
-    // leaving the east half of the building roofless.)
     mesh.position.set(cx, h - 0.05, cz - ridgeLen / 2);
   }
   group.add(mesh);
+
+  // 3D ridge beam cap, eave fascia boards & gable-end attic vents
+  const trimBoxes: BoxTuple[] = [
+    // Ridge beam cap
+    alongX
+      ? [cx, h + rise - 0.04, cz, ridgeLen + 0.16, 0.22, 0.26]
+      : [cx, h + rise - 0.04, cz, 0.26, 0.22, ridgeLen + 0.16],
+    // Eave fascia boards along both sides
+    alongX
+      ? [cx, h + 0.04, cz - span / 2, ridgeLen, 0.2, 0.14]
+      : [cx - span / 2, h + 0.04, cz, 0.14, 0.2, ridgeLen],
+    alongX
+      ? [cx, h + 0.04, cz + span / 2, ridgeLen, 0.2, 0.14]
+      : [cx + span / 2, h + 0.04, cz, 0.14, 0.2, ridgeLen],
+  ];
+  if (rise >= 1.4) {
+    const ventY = h + rise * 0.52;
+    for (const side of [-1, 1]) {
+      if (alongX) {
+        trimBoxes.push([cx + side * (ridgeLen / 2 - 0.02), ventY, cz, 0.14, 0.62, 0.62]);
+      } else {
+        trimBoxes.push([cx, ventY, cz + side * (ridgeLen / 2 - 0.02), 0.62, 0.62, 0.14]);
+      }
+    }
+  }
+  addMergedBoxes(group, trimBoxes, WHITE_MAT, false);
   return rise;
 }
 
-// A hip roof: a four-sided pyramid whose base matches the walls.
+// A hip roof: a four-sided pyramid whose base matches the walls, plus eave fascia & apex finial.
 function addHipRoof(
   group: Group,
   x: number,
@@ -1005,60 +1213,109 @@ function addHipRoof(
   const mesh = new Mesh(new ConeGeometry(1, 1, 4), ROOF_MATS[matIdx % ROOF_MATS.length]);
   mesh.rotation.y = Math.PI / 4;
   mesh.scale.set((w + 0.8) / Math.SQRT2, rise, (d + 0.8) / Math.SQRT2);
-  mesh.position.set(x + w / 2, h + rise / 2 - 0.05, z + d / 2);
+  const cx = x + w / 2;
+  const cz = z + d / 2;
+  mesh.position.set(cx, h + rise / 2 - 0.05, cz);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   group.add(mesh);
+
+  const trimBoxes: BoxTuple[] = [
+    [cx, h + 0.04, z - 0.36, w + 0.8, 0.18, 0.12],
+    [cx, h + 0.04, z + d + 0.36, w + 0.8, 0.18, 0.12],
+    [x - 0.36, h + 0.04, cz, 0.12, 0.18, d + 0.8],
+    [x + w + 0.36, h + 0.04, cz, 0.12, 0.18, d + 0.8],
+    [cx, h + rise + 0.12, cz, 0.32, 0.36, 0.32],
+  ];
+  addMergedBoxes(group, trimBoxes, WHITE_MAT, false);
   return rise;
 }
 
-// A front porch: slab, canopy, and two posts over the door.
+// A front porch: deck slab + front step, sloped canopy, Classical posts with
+// plinths/capitals, side balustrades (keeping the front approach 100% open),
+// and a warm porch ceiling lantern.
 function addPorch(group: Group, f: Facade) {
   const slab = porchSlab(f);
-  const slabMesh = new Mesh(box, WOOD_MAT);
-  slabMesh.position.set(slab.x, 0.09, slab.z);
-  slabMesh.scale.set(slab.w, 0.18, slab.d);
-  slabMesh.receiveShadow = true;
-  group.add(slabMesh);
+  const alongX = f.face === "n" || f.face === "s";
+  const outSign = f.face === "n" || f.face === "w" ? -1 : 1;
+
+  const woodBoxes: BoxTuple[] = [
+    [slab.x, 0.09, slab.z, slab.w, 0.18, slab.d],
+    // Welcoming front porch step strip on the outward edge
+    alongX
+      ? [slab.x, 0.045, slab.z + outSign * (slab.d / 2 + 0.18), slab.w * 0.75, 0.09, 0.36]
+      : [slab.x + outSign * (slab.w / 2 + 0.18), 0.045, slab.z, 0.36, 0.09, slab.d * 0.75],
+  ];
+  addMergedBoxes(group, woodBoxes, WOOD_MAT, false);
+
   const canopy = new Mesh(box, ROOF_MATS[(f.roofMat ?? 0) % ROOF_MATS.length]);
   canopy.position.set(slab.x, 3.05, slab.z);
-  canopy.scale.set(slab.w + 0.4, 0.14, slab.d + 0.4);
+  canopy.scale.set(slab.w + 0.45, 0.16, slab.d + 0.45);
   canopy.castShadow = true;
   group.add(canopy);
-  // The two posts share one material, so they merge into one mesh.
-  const postGeos = porchPosts(f).map((p) => {
-    const g = new BoxGeometry(0.24, 2.9, 0.24);
-    g.translate(p.x, 1.6, p.z);
-    return g;
-  });
-  const posts = new Mesh(mergeGeometries(postGeos) ?? postGeos[0], WHITE_MAT);
-  posts.castShadow = true;
-  group.add(posts);
-  for (const g of postGeos) if (g !== (posts.geometry as BufferGeometry)) g.dispose();
+
+  const whiteBoxes: BoxTuple[] = [
+    // Canopy fascia trim
+    [slab.x, 2.94, slab.z, slab.w + 0.5, 0.1, slab.d + 0.5],
+  ];
+  for (const p of porchPosts(f)) {
+    whiteBoxes.push([p.x, 1.6, p.z, 0.24, 2.9, 0.24]);
+    whiteBoxes.push([p.x, 0.28, p.z, 0.36, 0.26, 0.36]);
+    whiteBoxes.push([p.x, 2.84, p.z, 0.36, 0.18, 0.36]);
+  }
+  // Side porch railings on the left/right edges of the porch slab (never across the front)
+  for (const side of [-1, 1]) {
+    if (alongX) {
+      const rx = slab.x + side * (slab.w / 2 - 0.12);
+      whiteBoxes.push([rx, 0.82, slab.z, 0.12, 0.08, slab.d - 0.24]);
+      whiteBoxes.push([rx, 0.24, slab.z, 0.12, 0.06, slab.d - 0.24]);
+      for (const bz of [-slab.d * 0.22, 0, slab.d * 0.22]) {
+        whiteBoxes.push([rx, 0.53, slab.z + bz, 0.08, 0.54, 0.08]);
+      }
+    } else {
+      const rz = slab.z + side * (slab.d / 2 - 0.12);
+      whiteBoxes.push([slab.x, 0.82, rz, slab.w - 0.24, 0.08, 0.12]);
+      whiteBoxes.push([slab.x, 0.24, rz, slab.w - 0.24, 0.06, 0.12]);
+      for (const bx of [-slab.w * 0.22, 0, slab.w * 0.22]) {
+        whiteBoxes.push([slab.x + bx, 0.53, rz, 0.08, 0.54, 0.08]);
+      }
+    }
+  }
+  addMergedBoxes(group, whiteBoxes, WHITE_MAT, true);
+
+  // Warm porch ceiling lantern
+  const lantern = new Mesh(box, LANTERN_MAT);
+  lantern.position.set(slab.x, 2.82, slab.z);
+  lantern.scale.set(0.28, 0.22, 0.28);
+  group.add(lantern);
 }
 
-// A chimney riding the ridge (gable) or the apex (hip), proud of the roof.
+// A chimney riding the ridge (gable) or the apex (hip), proud of the roof, with flue pots.
 function addChimney(group: Group, f: Facade, rise: number) {
   const cx = f.x + f.w / 2;
   const cz = f.z + f.d / 2;
-  const mesh = new Mesh(box, ROOF_MATS[0]);
-  mesh.castShadow = true;
-  if (f.roof === "hip") {
-    mesh.position.set(cx, f.h + rise - 0.4, cz);
-  } else if (f.roofDir === "n" || f.roofDir === "s") {
-    mesh.position.set(f.x + f.w * 0.25, f.h + rise - 0.3, cz);
-  } else {
-    mesh.position.set(cx, f.h + rise - 0.3, f.z + f.d * 0.25);
+  let chX = cx;
+  const chY = f.h + rise - (f.roof === "hip" ? 0.4 : 0.3);
+  let chZ = cz;
+  if (f.roof !== "hip") {
+    if (f.roofDir === "n" || f.roofDir === "s") chX = f.x + f.w * 0.25;
+    else chZ = f.z + f.d * 0.25;
   }
-  mesh.scale.set(0.9, 2.4, 0.9);
+  const mesh = new Mesh(box, ROOF_MATS[1]);
+  mesh.castShadow = true;
+  mesh.position.set(chX, chY, chZ);
+  mesh.scale.set(0.95, 2.4, 0.95);
   group.add(mesh);
-  const cap = new Mesh(box, GOLD_MAT);
-  cap.position.set(mesh.position.x, mesh.position.y + 1.3, mesh.position.z);
-  cap.scale.set(1.15, 0.22, 1.15);
-  group.add(cap);
+
+  const capBoxes: BoxTuple[] = [
+    [chX, chY + 1.28, chZ, 1.18, 0.2, 1.18],
+    [chX - 0.22, chY + 1.52, chZ, 0.24, 0.32, 0.24],
+    [chX + 0.22, chY + 1.52, chZ, 0.24, 0.32, 0.24],
+  ];
+  addMergedBoxes(group, capBoxes, GOLD_MAT, false);
 }
 
-// A real shop front: glass panes + a gold sign band + a sloped awning.
+// A real shop front: glass panes + a gold sign band with dark recessed plaque + sloped awning with valance & tie rods.
 function addStorefront(group: Group, f: Facade) {
   const face = f.face;
   const alongX = face === "n" || face === "s";
@@ -1066,27 +1323,35 @@ function addStorefront(group: Group, f: Facade) {
   const paneW = Math.min(span * 0.72, 12);
   const cx = f.x + f.w / 2;
   const cz = f.z + f.d / 2;
-  // The glass is the REAL opening in the wall now (hollow() cuts display
-  // windows into the storefront face) — the old proud pane on top of a
-  // solid wall hid the interior. Only the gold sign band + awning stay.
+  const outSign = face === "n" || face === "w" ? -1 : 1;
+  const wallPlane = face === "n" ? f.z : face === "s" ? f.z + f.d : face === "w" ? f.x : f.x + f.w;
+
   const band = new Mesh(box, GOLD_MAT);
-  if (face === "n") {
-    band.position.set(cx, 3.65, f.z - 0.16);
-    band.scale.set(paneW, 0.9, 0.24);
-  } else if (face === "s") {
-    band.position.set(cx, 3.65, f.z + f.d + 0.16);
-    band.scale.set(paneW, 0.9, 0.24);
-  } else if (face === "w") {
-    band.position.set(f.x - 0.16, 3.65, cz);
-    band.scale.set(0.24, 0.9, paneW);
+  if (alongX) {
+    band.position.set(cx, 3.65, wallPlane + outSign * 0.16);
+    band.scale.set(paneW + 0.2, 0.92, 0.24);
   } else {
-    band.position.set(f.x + f.w + 0.16, 3.65, cz);
-    band.scale.set(0.24, 0.9, paneW);
+    band.position.set(wallPlane + outSign * 0.16, 3.65, cz);
+    band.scale.set(0.24, 0.92, paneW + 0.2);
   }
   group.add(band);
+
+  // Recessed dark sign backing + vertical display window mullions
+  const darkBoxes: BoxTuple[] = [
+    alongX
+      ? [cx, 3.65, wallPlane + outSign * 0.25, paneW - 0.5, 0.56, 0.1]
+      : [wallPlane + outSign * 0.25, 3.65, cz, 0.1, 0.56, paneW - 0.5],
+    // Storefront window bulkhead kickplate at sidewalk level
+    alongX
+      ? [cx - paneW * 0.34, 0.18, wallPlane + outSign * 0.08, paneW * 0.28, 0.34, 0.16]
+      : [wallPlane + outSign * 0.08, 0.18, cz - paneW * 0.34, 0.16, 0.34, paneW * 0.28],
+    alongX
+      ? [cx + paneW * 0.34, 0.18, wallPlane + outSign * 0.08, paneW * 0.28, 0.34, 0.16]
+      : [wallPlane + outSign * 0.08, 0.18, cz + paneW * 0.34, 0.16, 0.34, paneW * 0.28],
+  ];
   if (f.awning) {
+    const depth = 1.55;
     const awn = new Mesh(box, GOLD_MAT);
-    const depth = 1.5;
     if (face === "n") {
       awn.position.set(cx, 4.15, f.z - depth / 2 - 0.1);
       awn.scale.set(paneW + 1, 0.1, depth);
@@ -1106,7 +1371,197 @@ function addStorefront(group: Group, f: Facade) {
     }
     awn.castShadow = true;
     group.add(awn);
+
+    // Front awning valance drop strip + side steel tie-rod brackets
+    const valPos = wallPlane + outSign * (depth + 0.04);
+    const valBoxes: BoxTuple[] = [
+      alongX
+        ? [cx, 3.78, valPos, paneW + 1, 0.22, 0.08]
+        : [valPos, 3.78, cz, 0.08, 0.22, paneW + 1],
+    ];
+    addMergedBoxes(group, valBoxes, WHITE_MAT, false);
+    for (const s of [-1, 1]) {
+      const off = s * (paneW * 0.44);
+      darkBoxes.push(
+        alongX
+          ? [cx + off, 4.35, wallPlane + outSign * 0.65, 0.08, 0.08, 1.2]
+          : [wallPlane + outSign * 0.65, 4.35, cz + off, 1.2, 0.08, 0.08],
+      );
+    }
   }
+  addMergedBoxes(group, darkBoxes, DARK_MAT, false);
+}
+
+// Full 3D architectural relief for every building:
+// 1. Stone/dark water-table foundation plinth around all 4 walls (split around doors).
+// 2. 3D corner pilasters / quoins with base & capital blocks.
+// 3. Horizontal floor belt courses wrapping the facade.
+// 4. Residential home window shutters, under-window flower planter boxes, and upper-floor windows.
+// 5. Mid/high-rise protruding window sills & wrought-iron Juliet balconies.
+function addArchitecturalDetails(group: Group, f: Facade) {
+  if (f.tiers) return;
+  const { x, z, w, d, h, door, passThrough } = f;
+  const cx = x + w / 2;
+  const cz = z + d / 2;
+  const gap = 4.2;
+  const isClassic = f.style === 1 || f.style === 3 || f.glass === "home" || !!f.porch;
+  const trimMat = isClassic ? STONE_TRIM_MAT : DARK_MAT;
+
+  const trimBoxes: BoxTuple[] = [];
+  const darkBoxes: BoxTuple[] = [];
+  const woodBoxes: BoxTuple[] = [];
+  const foliageBoxes: BoxTuple[] = [];
+
+  // 1. Foundation water-table plinth (y = 0..0.38) around all 4 walls, keeping door & passThrough gaps flush
+  const plinthH = 0.38;
+  const plinthT = 0.16;
+  const addPlinthRun = (face: Face, alongX: boolean, fixed: number) => {
+    const span = alongX ? w : d;
+    const origin = alongX ? x : z;
+    const hasGap = door === face || passThrough === face;
+    const runs: Array<[number, number]> = hasGap
+      ? [
+          [origin, origin + span / 2 - gap / 2],
+          [origin + span / 2 + gap / 2, origin + span],
+        ]
+      : [[origin, origin + span]];
+    for (const [a0, a1] of runs) {
+      if (a1 - a0 < 0.2) continue;
+      const mid = (a0 + a1) / 2;
+      const len = a1 - a0;
+      if (alongX) {
+        trimBoxes.push([mid, plinthH / 2, fixed, len, plinthH, plinthT]);
+      } else {
+        trimBoxes.push([fixed, plinthH / 2, mid, plinthT, plinthH, len]);
+      }
+    }
+  };
+  addPlinthRun("n", true, z - 0.06);
+  addPlinthRun("s", true, z + d + 0.06);
+  addPlinthRun("w", false, x - 0.06);
+  addPlinthRun("e", false, x + w + 0.06);
+
+  // 2. 4 Corner pilasters / quoins running full height
+  const pilW = 0.34;
+  for (const px of [x + 0.04, x + w - 0.04]) {
+    for (const pz of [z + 0.04, z + d - 0.04]) {
+      trimBoxes.push([px, h / 2, pz, pilW, h, pilW]);
+      trimBoxes.push([px, 0.32, pz, pilW + 0.12, 0.64, pilW + 0.12]);
+      trimBoxes.push([px, h - 0.22, pz, pilW + 0.14, 0.44, pilW + 0.14]);
+    }
+  }
+
+  // 3. Horizontal belt courses wrapping all 4 faces
+  const beltStart = f.storefront || f.porch ? 4.55 : 3.95;
+  for (let by = beltStart; by < h - 1.4; by += 7.0) {
+    trimBoxes.push([cx, by, z - 0.06, w + 0.22, 0.2, 0.14]);
+    trimBoxes.push([cx, by, z + d + 0.06, w + 0.22, 0.2, 0.14]);
+    trimBoxes.push([x - 0.06, by, cz, 0.14, 0.2, d + 0.22]);
+    trimBoxes.push([x + w + 0.06, by, cz, 0.14, 0.2, d + 0.22]);
+  }
+
+  // 4. Residential home details: louvered shutters, flower planter boxes & upper-storey windows
+  if (f.glass === "home" || f.porch) {
+    const hFace: Face = door || f.face;
+    const alongX = hFace === "n" || hFace === "s";
+    const span = alongX ? w : d;
+    const origin = alongX ? x : z;
+    const outSign = hFace === "n" || hFace === "w" ? -1 : 1;
+    const wallPlane = hFace === "n" ? z : hFace === "s" ? z + d : hFace === "w" ? x : x + w;
+    const outPlane = wallPlane + outSign * 0.09;
+    const c = origin + span / 2;
+    const winW = 2.2;
+    const shutterBoxes: BoxTuple[] = [];
+    const shutterMat = SHUTTER_MATS[Math.abs(Math.round(x + z)) % SHUTTER_MATS.length];
+
+    for (const [s0, s1] of [
+      [origin, c - 2.0],
+      [c + 2.0, origin + span],
+    ] as const) {
+      if (s1 - s0 < winW + 1.2) continue;
+      const wc = (s0 + s1) / 2;
+      // Pair of louvered shutters flanking each front window
+      for (const side of [-1, 1]) {
+        const sc = wc + side * (winW / 2 + 0.26);
+        shutterBoxes.push(
+          alongX
+            ? [sc, 1.8, outPlane, 0.34, 1.65, 0.08]
+            : [outPlane, 1.8, sc, 0.08, 1.65, 0.34],
+        );
+      }
+      // Under-window wood planter trough + lush green foliage box
+      const boxPlane = wallPlane + outSign * 0.2;
+      woodBoxes.push(
+        alongX
+          ? [wc, 0.72, boxPlane, winW + 0.3, 0.26, 0.32]
+          : [boxPlane, 0.72, wc, 0.32, 0.26, winW + 0.3],
+      );
+      foliageBoxes.push(
+        alongX
+          ? [wc, 0.92, boxPlane, winW + 0.2, 0.22, 0.26]
+          : [boxPlane, 0.92, wc, 0.26, 0.22, winW + 0.2],
+      );
+    }
+
+    // Upper-storey bedroom windows on 2-storey homes (h >= 6.2)
+    if (h >= 6.2) {
+      const uy = 4.65;
+      const uCount = span >= 10 ? 3 : 2;
+      for (let i = 0; i < uCount; i++) {
+        const uwc = origin + (span * (i + 1)) / (uCount + 1);
+        if (alongX) {
+          glassPane(group, WINDOW_GLASS_MAT, uwc, uy, outPlane, 1.7, 1.35, 0.08);
+          frameMesh(group, 1.8, 1.45, uwc, uy, outPlane + outSign * 0.02, faceRotY(hFace));
+          for (const side of [-1, 1]) {
+            shutterBoxes.push([uwc + side * 1.12, uy, outPlane, 0.3, 1.45, 0.08]);
+          }
+        } else {
+          glassPane(group, WINDOW_GLASS_MAT, outPlane, uy, uwc, 0.08, 1.35, 1.7);
+          frameMesh(group, 1.8, 1.45, outPlane + outSign * 0.02, uy, uwc, faceRotY(hFace));
+          for (const side of [-1, 1]) {
+            shutterBoxes.push([outPlane, uy, uwc + side * 1.12, 0.08, 1.45, 0.3]);
+          }
+        }
+      }
+    }
+    addMergedBoxes(group, shutterBoxes, shutterMat, false);
+  }
+
+  // 5. Mid/high-rise 3D Juliet balconies & window lintels on street-facing walls (h >= 9.5)
+  if (h >= 9.5 && f.glass !== "curtain") {
+    const bFace = f.face;
+    const alongX = bFace === "n" || bFace === "s";
+    const span = alongX ? w : d;
+    const origin = alongX ? x : z;
+    const outSign = bFace === "n" || bFace === "w" ? -1 : 1;
+    const wallPlane = bFace === "n" ? z : bFace === "s" ? z + d : bFace === "w" ? x : x + w;
+    const cols = Math.max(2, Math.min(4, Math.floor(span / 5.5)));
+    for (let by = 6.2; by < h - 2.2; by += 7.0) {
+      for (let cIdx = 0; cIdx < cols; cIdx++) {
+        const bc = origin + (span * (cIdx + 1)) / (cols + 1);
+        const slabP = wallPlane + outSign * 0.24;
+        const railP = wallPlane + outSign * 0.42;
+        if (alongX) {
+          trimBoxes.push([bc, by, slabP, 2.3, 0.16, 0.48]);
+          darkBoxes.push([bc, by + 0.48, railP, 2.2, 0.08, 0.08]);
+          darkBoxes.push([bc - 1.05, by + 0.28, slabP, 0.08, 0.44, 0.42]);
+          darkBoxes.push([bc + 1.05, by + 0.28, slabP, 0.08, 0.44, 0.42]);
+          darkBoxes.push([bc, by + 0.28, railP, 0.08, 0.44, 0.08]);
+        } else {
+          trimBoxes.push([slabP, by, bc, 0.48, 0.16, 2.3]);
+          darkBoxes.push([railP, by + 0.48, bc, 0.08, 0.08, 2.2]);
+          darkBoxes.push([slabP, by + 0.28, bc - 1.05, 0.42, 0.44, 0.08]);
+          darkBoxes.push([slabP, by + 0.28, bc + 1.05, 0.42, 0.44, 0.08]);
+          darkBoxes.push([railP, by + 0.28, bc, 0.08, 0.44, 0.08]);
+        }
+      }
+    }
+  }
+
+  addMergedBoxes(group, trimBoxes, trimMat, false);
+  addMergedBoxes(group, darkBoxes, DARK_MAT, false);
+  addMergedBoxes(group, woodBoxes, WOOD_MAT, false);
+  addMergedBoxes(group, foliageBoxes, FOLIAGE_MAT, false);
 }
 
 // Gold trim band at the top of the walls.
@@ -1142,6 +1597,7 @@ function addTiers(group: Group, f: Facade, material: MeshStandardMaterial) {
   const cx = f.x + f.w / 2;
   const cz = f.z + f.d / 2;
   let y = 0;
+  const finBoxes: BoxTuple[] = [];
   tiers.forEach((tier, index) => {
     const mesh = new Mesh(box, material);
     mesh.position.set(cx, y + tier.h / 2, cz);
@@ -1150,13 +1606,24 @@ function addTiers(group: Group, f: Facade, material: MeshStandardMaterial) {
     mesh.receiveShadow = true;
     group.add(mesh);
     if (index > 0) {
-      const trim = new Mesh(box, GOLD_MAT);
-      trim.position.set(cx, y, cz);
-      trim.scale.set(tier.w + 0.3, 0.35, tier.d + 0.3);
-      group.add(trim);
+      finBoxes.push([cx, y, cz, tier.w + 0.35, 0.35, tier.d + 0.35]);
+    }
+    // Corner pilasters on each stepped tier
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        finBoxes.push([
+          cx + sx * (tier.w / 2 + 0.04),
+          y + tier.h / 2,
+          cz + sz * (tier.d / 2 + 0.04),
+          0.28,
+          tier.h,
+          0.28,
+        ]);
+      }
     }
     y += tier.h;
   });
+  addMergedBoxes(group, finBoxes, GOLD_MAT, false);
 }
 
 // A side annex (L-shaped footprint) with its own small roof.
@@ -1189,7 +1656,7 @@ function addRoof(group: Group, f: Facade): number {
   if (f.roof === "gable")
     return addGableRoof(group, f.x, f.z, f.w, f.d, f.h, f.roofDir ?? f.face, f.roofMat ?? 0);
   if (f.roof === "hip") return addHipRoof(group, f.x, f.z, f.w, f.d, f.h, f.roofMat ?? 0);
-  if (!f.crown) addRoofKit(group, f.x, f.z, f.w, f.d, f.h);
+  if (!f.crown) addRoofKit(group, f.x, f.z, f.w, f.d, f.h, f.style);
   return 0;
 }
 
@@ -1202,27 +1669,36 @@ function solidTower(facade: Facade) {
     { w: 13, d: 11, h: 10 },
     { w: 10, d: 8, h: 8 },
   ];
-  const goldTrimMat = new MeshStandardMaterial({ color: 0xe0b33a, roughness: 0.35, metalness: 0.7, emissive: 0x6a5208, emissiveIntensity: 0.4 });
   let y = 0;
+  const goldFinBoxes: BoxTuple[] = [];
+  const cyanFinBoxes: BoxTuple[] = [];
   tiers.forEach((tier, index) => {
-    // Alternate the OrbitX dark identity style with the glass curtain wall.
     const material = facadeMaterial(index % 2 === 0 ? 5 : 0, tier.w, tier.h);
+    const cz = -3 - tier.d / 2;
     const mesh = new Mesh(box, material);
-    mesh.position.set(0, y + tier.h / 2, -3 - tier.d / 2);
+    mesh.position.set(0, y + tier.h / 2, cz);
     mesh.scale.set(tier.w, tier.h, tier.d);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);
     if (index > 0) {
-      const trim = new Mesh(box, goldTrimMat);
-      trim.position.set(0, y, -3 - tier.d / 2);
-      trim.scale.set(tier.w + 0.3, 0.35, tier.d + 0.3);
-      group.add(trim);
+      goldFinBoxes.push([0, y, cz, tier.w + 0.4, 0.38, tier.d + 0.4]);
+    }
+    // Illuminated corner vertical fins & setback beacon nodes on every tier
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const fx = sx * (tier.w / 2 + 0.08);
+        const fz = cz + sz * (tier.d / 2 + 0.08);
+        goldFinBoxes.push([fx, y + tier.h / 2, fz, 0.32, tier.h, 0.32]);
+        cyanFinBoxes.push([fx, y + tier.h - 0.3, fz, 0.44, 0.32, 0.44]);
+      }
     }
     y += tier.h;
   });
-  // Real glass atrium, proud of the tier-1 front face (the old hidden
-  // cylinder inside the solid tiers was invisible from every angle).
+  addMergedBoxes(group, goldFinBoxes, GOLD_MAT, false);
+  addMergedBoxes(group, cyanFinBoxes, CYAN_BEACON_MAT, false);
+
+  // Real glass atrium, proud of the tier-1 front face
   const atrium = new Mesh(
     box,
     new MeshStandardMaterial({
@@ -1238,33 +1714,30 @@ function solidTower(facade: Facade) {
   atrium.position.set(0, 5, -3 + 0.75);
   atrium.scale.set(8, 10, 1.5);
   group.add(atrium);
-  // Closed real door in front of the glass atrium (2026-11-12): a wood
-  // slab + white frame + gold handles, centred on the porch face. Entry
-  // is E at the tower door anchor — the lobby behind it is furnished.
-  const towerDoorMat = new MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.65, metalness: 0.1 });
-  const towerFrameMat = new MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.4, metalness: 0.15 });
-  const towerHandleMat = new MeshStandardMaterial({ color: 0xe0b33a, roughness: 0.3, metalness: 0.7, emissive: 0x6a5208, emissiveIntensity: 0.4 });
-  const towerSlab = new Mesh(box, towerDoorMat);
+
+  // Closed real door in front of the glass atrium
+  const towerSlab = new Mesh(box, DOOR_SLAB_MAT);
   towerSlab.position.set(0, 1.45, -1.4);
   towerSlab.scale.set(3.4, 2.9, 0.16);
   towerSlab.castShadow = true;
   group.add(towerSlab);
   for (const off of [-1.85, 1.85]) {
-    const post = new Mesh(box, towerFrameMat);
+    const post = new Mesh(box, WHITE_MAT);
     post.position.set(off, 1.55, -1.4);
     post.scale.set(0.35, 3.1, 0.2);
     group.add(post);
   }
-  const towerLintel = new Mesh(box, towerFrameMat);
+  const towerLintel = new Mesh(box, WHITE_MAT);
   towerLintel.position.set(0, 3.12, -1.4);
   towerLintel.scale.set(4.3, 0.26, 0.2);
   group.add(towerLintel);
   for (const side of [-0.18, 0.18]) {
-    const handle = new Mesh(box, towerHandleMat);
+    const handle = new Mesh(box, GOLD_MAT);
     handle.position.set(1.2, 1.15, -1.4 + side);
     handle.scale.set(0.16, 0.16, 0.16);
     group.add(handle);
   }
+
   const top = tiers[tiers.length - 1];
   const roofY = y + 1.35;
   const front = orbitWord();
@@ -1274,14 +1747,20 @@ function solidTower(facade: Facade) {
   back.position.set(0, roofY, -3 - top.d - 0.4);
   back.rotation.y = Math.PI;
   group.add(back);
+
+  const colTrimBoxes: BoxTuple[] = [];
   for (const x of [-8, -4, 4, 8]) {
-    const col = new Mesh(column, new MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.4, metalness: 0.15 }));
+    const col = new Mesh(column, WHITE_MAT);
     col.scale.set(1, 6.2, 1);
     col.position.set(x, 3.1, -1.2);
     col.castShadow = true;
     group.add(col);
+    colTrimBoxes.push([x, 0.22, -1.2, 1.05, 0.44, 1.05]);
+    colTrimBoxes.push([x, 5.95, -1.2, 1.05, 0.36, 1.05]);
   }
-  const canopy = new Mesh(box, new MeshStandardMaterial({ color: 0x141820, roughness: 0.5, metalness: 0.3 }));
+  addMergedBoxes(group, colTrimBoxes, GOLD_MAT, false);
+
+  const canopy = new Mesh(box, DARK_MAT);
   canopy.scale.set(18, 0.35, 4);
   canopy.position.set(0, 6.2, -1.4);
   group.add(canopy);
@@ -1292,15 +1771,12 @@ function solidTower(facade: Facade) {
   lip.scale.set(18.4, 0.12, 0.25);
   lip.position.set(0, 6.45, 0.4);
   group.add(lip);
-  // Beacon pole + cyan beacon on top.
-  const pole = new Mesh(box, new MeshStandardMaterial({ color: 0x232a38, roughness: 0.5, metalness: 0.6 }));
+
+  const pole = new Mesh(box, POLE_MAT);
   pole.position.set(0, y + 1.6, -3 - top.d / 2);
   pole.scale.set(0.2, 3.2, 0.2);
   group.add(pole);
-  const beacon = new Mesh(
-    box,
-    new MeshStandardMaterial({ color: 0x9af6ff, emissive: 0x1ad8ff, emissiveIntensity: 2.4, roughness: 0.2 }),
-  );
+  const beacon = new Mesh(box, CYAN_BEACON_MAT);
   beacon.position.set(0, y + 3.4, -3 - top.d / 2);
   beacon.scale.set(0.5, 0.5, 0.5);
   group.add(beacon);
@@ -1318,27 +1794,12 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
       if (facade.id.startsWith("home-")) glassStats.homes++;
       else glassStats.offices++;
     }
-    // The central tower is the only facade that renders as the stepped
-    // solid tower. The mall and HQ are hero too but have their own
-    // enterable exteriors — previously all three rendered the same tower
-    // mesh three times, stacked on the same spot.
     if (facade.hero && facade.id === "tower") {
       root.add(solidTower(facade));
       continue;
     }
-    // Real look at EVERY quality (2026-11-17, building-quality pass):
-    // the old low path used a flat dark `plain` material and skipped
-    // every roof / porch / storefront / trim, so on a phone — touch
-    // defaults to low — every building was a flat solid-colour box with
-    // no roof and no detail. The facade canvases are 6 shared textures
-    // (painted once at load), so a textured material costs no extra
-    // texture memory and no extra draw calls: same meshes, real
-    // surfaces. Low keeps its real perf wins — shadows off (engine)
-    // and pixel-ratio cap 1 — those are what make low cheap, not flat
-    // materials.
     const material = facadeMaterial(facade.style, facade.w, facade.h);
     if (facade.tiers) {
-      // Stepped tower: the tiers ARE the building; no single flat box.
       addTiers(root, facade, material);
       const top = facade.tiers[facade.tiers.length - 1];
       addRoofKit(
@@ -1348,25 +1809,22 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
         top.w,
         top.d,
         facade.h,
+        facade.style,
       );
       if (facade.wing) addWing(root, facade, material);
       continue;
     }
     if (facade.enterable && facade.door) {
-      // Glazing is visual only: the colliders are untouched, so the walls
-      // still block walking through except at the door. It runs at every
-      // quality — touch defaults to low, and the glass is the point of the
-      // pass, so it must show on the user's phone too.
       root.add(hollow(facade, material, !!facade.glass));
     } else {
       const mesh = new Mesh(box, material);
       mesh.position.set(facade.x + facade.w / 2, facade.h / 2, facade.z + facade.d / 2);
-      // A hair proud of the voxel shell plane so the overlay never z-fights it.
       mesh.scale.set(facade.w + 0.08, facade.h, facade.d + 0.08);
       mesh.castShadow = quality !== "low";
       mesh.receiveShadow = quality !== "low";
       root.add(mesh);
     }
+    addArchitecturalDetails(root, facade);
     const rise = addRoof(root, facade);
     if (facade.porch) addPorch(root, facade);
     if (facade.chimney) addChimney(root, facade, rise);
