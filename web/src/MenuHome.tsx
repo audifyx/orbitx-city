@@ -70,7 +70,7 @@ export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogi
       />
       <div className="menu-hero">
         <p className="menu-kicker">ORBITX · LAUNCHES DEC 5, 2026</p>
-        <h1 className="menu-title">ORBITX CITY</h1>
+        <h1 className="menu-title"><img src="/logo/logo-lockup.svg" alt="ORBITX CITY" className="menu-logo" /></h1>
         <p className="menu-sub">A voxel city you can own. Twelve characters. Twenty jobs. One economy — City Sol.</p>
         {gate === "login" ? (
           <div className="menu-auth">

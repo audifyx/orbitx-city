@@ -1,9 +1,9 @@
 // OrbitX City service worker — app-shell cache, network-first API.
 // RULE: bump CACHE on every push that changes the shell (game.js, index.html,
 // CSS, icons) — otherwise phones keep serving the old bundle from this cache.
-// v12 (2026-11-17, shop items): 30 real shop items, Inventory tab, wardrobe
-// fixes — on top of hud-move v11. Never go backwards.
-const CACHE = "orbitx-city-v12";
+// v13 (2026-11-17, new logo): fresh logo set — X-towers mark + lockup,
+// new PWA icons + favicon; on top of shop-items v12. Never go backwards.
+const CACHE = "orbitx-city-v13";
 const PRECACHE = [
   "/",
   "/index.html",
@@ -14,6 +14,9 @@ const PRECACHE = [
   "/icons/icon-512.png",
   "/icons/icon-512-maskable.png",
   "/icons/apple-touch-icon.png",
+  "/icons/favicon-32.png",
+  "/logo/logo-lockup.svg",
+  "/logo/mark.svg",
 ];
 
 self.addEventListener("install", (event) => {

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 200" role="img" aria-label="ORBITX CITY">
+  <!-- OrbitX City lockup: mark + wordmark. Black / white / gold only. -->
+  <rect width="680" height="200" fill="#000000"/>
+  <g>
+    <circle cx="100" cy="100" r="86" fill="none" stroke="#e0b33a" stroke-width="6"/>
+    <polygon points="48,162 66,178 152,38 134,22" fill="#e0b33a"/>
+    <polygon points="152,162 134,178 48,38 66,22" fill="#f2c94c"/>
+    <g fill="#e0b33a">
+      <rect x="84" y="170" width="6" height="12"/>
+      <rect x="91" y="162" width="6" height="20"/>
+      <rect x="98" y="172" width="6" height="10"/>
+      <rect x="105" y="158" width="6" height="24"/>
+      <rect x="112" y="166" width="6" height="16"/>
+    </g>
+  </g>
+  <text x="228" y="94" font-family="Arial, Helvetica, sans-serif" font-size="62" font-weight="900" letter-spacing="6" fill="#ffffff">ORBITX</text>
+  <text x="232" y="154" font-family="Arial, Helvetica, sans-serif" font-size="36" font-weight="800" letter-spacing="26" fill="#e0b33a">CITY</text>
+</svg>

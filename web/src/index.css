@@ -205,6 +205,12 @@ body,
   display: inline-block;
 }
 
+.menu-logo {
+  width: min(560px, 88vw);
+  height: auto;
+  display: block;
+}
+
 .menu-sub {
   margin: 16px auto 22px;
   max-width: 560px;
@@ -2132,6 +2138,15 @@ body.touch .touch-ui {
   font-size: 14px;
   color: #ffffff;
   text-shadow: 0 1px 3px #000000;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.intro-logo {
+  height: 22px;
+  width: 22px;
+  flex: none;
 }
 .intro-skip {
   pointer-events: auto;
@@ -2273,6 +2288,15 @@ body.touch .touch-ui {
   color: #ffffff;
   text-shadow: 0 1px 3px #000000;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu-word-mark {
+  height: 26px;
+  width: 26px;
+  flex: none;
 }
 .menu-word span { color: #e0b33a; }
 .menu-nav {

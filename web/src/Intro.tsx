@@ -71,7 +71,7 @@ export function IntroScene({ onDone }: { onDone: () => void }) {
   return (
     <section className="intro" aria-label="Introducing OrbitX City">
       <div className="intro-top">
-        <span className="intro-word">ORBITX CITY</span>
+        <span className="intro-word"><img src="/logo/mark.svg" alt="" className="intro-logo" />ORBITX CITY</span>
         <button type="button" className="intro-skip" onClick={() => onDoneRef.current()}>
           SKIP →
         </button>
