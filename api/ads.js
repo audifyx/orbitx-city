@@ -34,7 +34,7 @@
 // DEVNET ONLY until the user flips SOLANA_NETWORK. No mainnet code path is
 // enabled here — the network comes from wallet.js networkName().
 
-import { attachBurnToSwap, buildSwap, getQuote, signVersionedTransaction, orbitxMint } from "./jupiter.js";
+import { attachBurnToSwap, buildSwap, getQuote, signVersionedTransaction, orbitxMint, versionedMessage } from "./jupiter.js";
 import {
   TOKEN_PROGRAM_ID,
   audit,
@@ -42,14 +42,16 @@ import {
   getSignatureStatus,
   getTokenAccounts,
   getTransactionMeta,
+  messageHash,
   openSecret,
   sendSignedTx,
   signLegacyMessage,
   solanaRpc,
   tokenProgramForMint,
+  verifySignedTx,
   walletRow,
 } from "./wallet.js";
-import { b58encode as encode58 } from "./live.js";
+import { b58decode, b58encode as encode58 } from "./live.js";
 
 const LAMPORTS_PER_SOL = 1e9;
 const DAY_MS = 86400000;
@@ -595,64 +597,90 @@ export async function advanceAdOrder(ctx, order, player) {
   return order;
 }
 
-export async function adBuy(ctx, player, body) {
-  if (!player.authUser) return fail("Create an account to book a billboard. Guests keep City Sol only.");
+// Shared preparation for BOTH ad-buy paths: validate, price, cap-check,
+// quote, build the Jupiter swap, and append the Token-2022 burn —
+// everything up to the signature. The LEGACY path (adBuy) then signs with
+// the server-held wallet key; the ON-DEVICE path (adCompose/adSubmit)
+// returns the unsigned transaction so the device's PIN-unlocked wallet
+// signs it instead. The server never sees the device key.
+//
+// Returns { order, composed, burnRaw } when a fresh unsigned transaction
+// is ready, { reuse: true, order } when the idempotency key already
+// started/finished this booking (no second payment), or
+// { error, status } when nothing could be prepared.
+async function prepareAdBuy(ctx, player, body, owner, resumeComposed) {
   const idem = String(body.idempotencyKey || "").slice(0, 80);
-  if (!idem) return fail("Missing a confirm id. Open the billboard sheet again.", 400);
+  if (!idem) return { error: "Missing a confirm id. Open the billboard sheet again.", status: 400 };
   const existing = await loadOrderByKey(ctx, idem);
   let reuse = null;
   if (existing) {
     if (existing.status === "swapping" || existing.status === "burning") {
       await advanceAdOrder(ctx, existing, player);
-      return { ok: true, order: publicOrder(existing), message: "This booking was already started. No second payment was made." };
+      return { reuse: true, order: existing };
     }
-    if (existing.status === "swap-failed") {
+    if (existing.status === "composed") {
+      if (resumeComposed && existing.meta.unsignedTx) {
+        return {
+          order: existing,
+          composed: existing.meta.unsignedTx,
+          burnRaw: String(existing.meta.burnRaw || "0"),
+          resumed: true,
+        };
+      }
+      if (resumeComposed && !existing.meta.unsignedTx) {
+        // No stored transaction to sign: re-run the whole buy+burn on
+        // the same order and the same idempotency key.
+        reuse = existing;
+      } else {
+        // The legacy path never re-runs a device-composed order: its fee
+        // payer is the device address, so a server-key signature would
+        // be invalid. The device flow resumes it instead.
+        return { reuse: true, order: existing };
+      }
+    } else if (existing.status === "swap-failed") {
       // The first attempt never landed, so nothing was bought or burned.
       // One more click re-runs the whole buy+burn on the same order and
       // the same idempotency key.
       reuse = existing;
     } else {
-      return { ok: true, order: publicOrder(existing), message: "This booking was already started. No second payment was made." };
+      return { reuse: true, order: existing };
     }
   }
   const board = String(body.board || body.id || "").slice(0, 40);
   const days = Number(body.days);
   if (!AD_BOARDS.includes(board) || !AD_USD_PRICE[days]) {
-    return fail("Pick a billboard and 1, 7, or 30 days.");
+    return { error: "Pick a billboard and 1, 7, or 30 days.", status: 400 };
   }
   const project = String(body.project || player.name || "").slice(0, 32);
   const text = String(body.text || "").slice(0, 32);
   const hit = denied(project, text);
-  if (hit) return fail(`That text is not allowed on a billboard ("${hit}").`);
+  if (hit) return { error: `That text is not allowed on a billboard ("${hit}").`, status: 400 };
   const taken = await boardAvailability(ctx, board, player.id);
-  if (taken) return fail(`${taken.takenBy} has ${board} until ${taken.end}. Pick another board.`);
+  if (taken) return { error: `${taken.takenBy} has ${board} until ${taken.end}. Pick another board.`, status: 400 };
   if (hitLimit(`adbuy:${player.authUser}`, AD_BUYS_PER_HOUR, 60 * 60 * 1000)) {
-    return fail("Too many billboard buys this hour. Wait and try again.", 429);
+    return { error: "Too many billboard buys this hour. Wait and try again.", status: 429 };
   }
   let price;
   try {
     price = await priceLamports(board, days);
   } catch (err) {
-    return fail(err.message || "The SOL price could not be read. Nothing was bought.", 502);
+    return { error: err.message || "The SOL price could not be read. Nothing was bought.", status: 502 };
   }
   if (price > AD_MAX_SOL_LAMPORTS) {
-    return fail(`That booking is over the ${AD_MAX_SOL_LAMPORTS / LAMPORTS_PER_SOL} SOL per-buy cap.`);
+    return { error: `That booking is over the ${AD_MAX_SOL_LAMPORTS / LAMPORTS_PER_SOL} SOL per-buy cap.`, status: 400 };
   }
   if (adSpendToday(player.authUser) + price > AD_DAILY_SOL_CAP_LAMPORTS) {
-    return fail("That booking is over the daily ad cap.", 400);
+    return { error: "That booking is over the daily ad cap.", status: 400 };
   }
-  const row = await walletRow(player.authUser);
-  if (!row) return fail("This account has no in-app wallet yet.");
-  const owner = row.public_key;
   let balance = 0;
   try {
     const raw = await solanaRpc("getBalance", [owner]);
     balance = typeof raw === "number" ? raw : raw?.value || 0;
   } catch (err) {
-    return fail(`The SOL balance was not read (${err.message || "RPC"}). Nothing was bought.`, 502);
+    return { error: `The SOL balance was not read (${err.message || "RPC"}). Nothing was bought.`, status: 502 };
   }
   if (balance < price + FEE_BUFFER_LAMPORTS) {
-    return fail(`Not enough SOL in the in-app wallet. This board costs $${priceUsd(board, days).toFixed(2)} (about ${price / LAMPORTS_PER_SOL} SOL) plus a small fee buffer.`);
+    return { error: `Not enough SOL in the in-app wallet. This board costs $${priceUsd(board, days).toFixed(2)} (about ${price / LAMPORTS_PER_SOL} SOL) plus a small fee buffer.`, status: 400 };
   }
   let preBalances = {};
   try {
@@ -707,7 +735,7 @@ export async function adBuy(ctx, player, body) {
     order.status = "swap-failed";
     order.error = err.message || "The quote failed.";
     await persistOrder(ctx, order);
-    return fail(order.error, 502);
+    return { error: order.error, status: 502 };
   }
   let swap;
   try {
@@ -716,11 +744,12 @@ export async function adBuy(ctx, player, body) {
     order.status = "swap-failed";
     order.error = err.message || "The swap could not be built.";
     await persistOrder(ctx, order);
-    return fail(order.error, 502);
+    return { error: order.error, status: 502 };
   }
   // ONE transaction, ONE signature: append the Token-2022 burn for the
   // quote's guaranteed minimum output to Jupiter's swap transaction.
-  // The wallet signs the composed transaction once, below.
+  // The wallet signs the composed transaction once — either the
+  // server-held key (adBuy) or the device's PIN-unlocked key (adSubmit).
   let composed;
   let burnRaw = "0";
   try {
@@ -728,12 +757,29 @@ export async function adBuy(ctx, player, body) {
     if (BigInt(burnRaw) <= 0n) throw new Error("Jupiter quoted no ORBITX output to burn.");
     composed = await attachBurnToSwap(swap.swapTransaction, { owner, mint: orbitxMint(), burnRaw });
     order.meta.burnRaw = burnRaw;
+    order.meta.unsignedTx = composed;
+    order.meta.messageHash = messageHash(versionedMessage(composed));
   } catch (err) {
     order.status = "swap-failed";
     order.error = `The buy+burn transaction could not be composed (${err.message || "compose"}). Nothing was signed.`;
     await persistOrder(ctx, order);
-    return fail(order.error, 502);
+    return { error: order.error, status: 502 };
   }
+  order.status = "composed";
+  await persistOrder(ctx, order);
+  return { order, composed, burnRaw };
+}
+
+export async function adBuy(ctx, player, body) {
+  if (!player.authUser) return fail("Create an account to book a billboard. Guests keep City Sol only.");
+  const row = await walletRow(player.authUser);
+  if (!row) return fail("This account has no in-app wallet yet.");
+  const prepared = await prepareAdBuy(ctx, player, body, row.public_key, false);
+  if (prepared.error) return fail(prepared.error, prepared.status || 400);
+  if (prepared.reuse) {
+    return { ok: true, order: publicOrder(prepared.order), message: "This booking was already started. No second payment was made." };
+  }
+  const { order, composed, burnRaw } = prepared;
   let signed;
   try {
     const secret = openSecret(row);
@@ -762,11 +808,87 @@ export async function adBuy(ctx, player, body) {
   order.orbitxAmount = burnRaw; // guaranteed burn; measured on confirm
   order.status = "swapping";
   await persistOrder(ctx, order);
-  await audit(player.authUser, "ad-swap", `${board} ${days}d buy+burn sent (${price / LAMPORTS_PER_SOL} SOL, one tx)`);
+  await audit(player.authUser, "ad-swap", `${order.board} ${order.days}d buy+burn sent (${order.solLamports / LAMPORTS_PER_SOL} SOL, one tx)`);
   return {
     ok: true,
     order: publicOrder(order),
-    message: `One transaction sent for ${board} — it buys the ORBITX and burns it in the same signature. The city is watching it confirm.`,
+    message: `One transaction sent for ${order.board} — it buys the ORBITX and burns it in the same signature. The city is watching it confirm.`,
+  };
+}
+
+// ON-DEVICE wallet ad buy, step 1: compose the same buy+burn transaction
+// prepareAdBuy builds, but do NOT sign it here — return it unsigned so
+// the device's PIN-unlocked wallet signs it in the browser (adSubmit).
+// The address comes from the device; the session already ties the order
+// to the account, and adSubmit verifies the signature is from that
+// address before anything is broadcast.
+export async function adCompose(ctx, player, body) {
+  if (!player.authUser) return fail("Create an account to book a billboard. Guests keep City Sol only.");
+  const owner = String(body.address || "").trim();
+  const decoded = b58decode(owner);
+  if (!decoded || decoded.length !== 32) return fail("That on-device wallet address is not valid.", 400);
+  const prepared = await prepareAdBuy(ctx, player, body, owner, true);
+  if (prepared.error) return fail(prepared.error, prepared.status || 400);
+  if (prepared.reuse) {
+    return { ok: true, order: publicOrder(prepared.order), message: "This booking was already started. No second payment was made." };
+  }
+  return {
+    ok: true,
+    order: publicOrder(prepared.order),
+    unsignedTx: prepared.composed,
+    priceSol: Number(prepared.order.solLamports || 0) / LAMPORTS_PER_SOL,
+    message: "Sign this transaction with your on-device wallet to pay.",
+  };
+}
+
+// ON-DEVICE wallet ad buy, step 2: the device signed the composed
+// transaction — verify it is EXACTLY this booking's transaction, signed
+// by the booking's wallet, then broadcast it. A valid signature on any
+// other transaction is refused: the message hash must match the one
+// recorded at compose time, so a substituted transaction can never claim
+// this booking's burn.
+export async function adSubmit(ctx, player, body) {
+  if (!player.authUser) return fail("Create an account to book a billboard. Guests keep City Sol only.");
+  const order = await loadOrder(ctx, String(body.orderId || ""));
+  if (!order) return fail("That booking was not found.", 404);
+  if (order.userId !== player.authUser) return fail("That booking is not yours.", 403);
+  if (order.status !== "composed") {
+    if (["swapping", "burning"].includes(order.status)) await advanceAdOrder(ctx, order, player);
+    return { ok: true, order: publicOrder(order), message: "This booking does not need another signature." };
+  }
+  const signedTx = String(body.signedTx || "");
+  if (!signedTx) return fail("No signed transaction was sent.", 400);
+  let submittedHash = "";
+  try {
+    submittedHash = messageHash(versionedMessage(signedTx));
+  } catch {
+    return fail("That signed transaction could not be read.", 400);
+  }
+  if (!order.meta.messageHash || submittedHash !== order.meta.messageHash) {
+    return fail("That signature is not for this booking. Compose it again.", 400);
+  }
+  const verified = verifySignedTx(signedTx, order.meta.owner);
+  if (!verified.ok) return fail(verified.message || "That signature does not verify.", 400);
+  let swapSig = "";
+  try {
+    swapSig = await sendSignedTx(signedTx);
+  } catch (err) {
+    order.status = "swap-failed";
+    order.error = `The transaction was not accepted (${err.message || "RPC"}).`;
+    await persistOrder(ctx, order);
+    return fail(order.error, 502);
+  }
+  order.swapSignature = swapSig || verified.signature;
+  order.burnSignature = order.swapSignature; // same transaction
+  order.orbitxAmount = String(order.meta.burnRaw || "0"); // guaranteed burn; measured on confirm
+  order.status = "swapping";
+  order.error = "";
+  await persistOrder(ctx, order);
+  await audit(player.authUser, "ad-swap", `${order.board} ${order.days}d buy+burn sent from the on-device wallet (${order.solLamports / LAMPORTS_PER_SOL} SOL, one tx)`);
+  return {
+    ok: true,
+    order: publicOrder(order),
+    message: `One transaction sent for ${order.board} — it buys the ORBITX and burns it in the same signature. The city is watching it confirm.`,
   };
 }
 

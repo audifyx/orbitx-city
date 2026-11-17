@@ -1,7 +1,7 @@
 // In-app Solana wallets. Keys are generated on the server and encrypted at rest.
 // The secret leaves the server only on an explicit export. Shop purchases stay on demo credits.
 
-import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, randomBytes, sign } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createPrivateKey, createPublicKey, randomBytes, sign, verify } from "node:crypto";
 import { b58decode, b58encode } from "./live.js";
 
 const SYSTEM = b58decode("11111111111111111111111111111111");
@@ -193,6 +193,146 @@ export async function solanaRpc(method, params) {
 
 async function rpc(method, params) {
   return solanaRpc(method, params);
+}
+
+/** Read SOL + ORBITX for ANY address (no secret involved). This is what
+ * the on-device wallet uses: the address is public, so the balance read
+ * needs no account and no server-held key. */
+export async function publicBalance(address) {
+  const raw = b58decode(String(address || ""));
+  if (!raw || raw.length !== 32) return { ok: false, status: 400, message: "That is not a Solana address." };
+  const network = networkName();
+  const base = { ok: true, network, address: String(address), sol: null, orbitx: null, holder: false, note: "" };
+  try {
+    const rawBal = await rpc("getBalance", [String(address)]);
+    const lamports = typeof rawBal === "number" ? rawBal : rawBal?.value;
+    if (typeof lamports !== "number" || !Number.isFinite(lamports)) {
+      base.note = "SOL balance was not read (unexpected RPC result). Nothing was invented.";
+    } else {
+      base.sol = lamports / 1e9;
+    }
+  } catch (err) {
+    base.note = `SOL balance was not read (${err.message || "RPC"}). Nothing was invented.`;
+  }
+  const mint = process.env.ORBITX_MINT || "";
+  if (!mint) {
+    base.note = [base.note, "ORBITX_MINT is not set, so no token balance was read."].filter(Boolean).join(" ");
+    return base;
+  }
+  try {
+    const result = await rpc("getTokenAccountsByOwner", [String(address), { mint }, { encoding: "jsonParsed" }]);
+    let amount = 0;
+    for (const item of result?.value || []) amount += Number(item.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0);
+    base.orbitx = amount;
+    base.holder = amount >= Number(process.env.ORBITX_HOLDER_MIN || 1);
+  } catch (err) {
+    base.note = [base.note, `$ORBITX balance was not read (${err.message || "RPC"}).`].filter(Boolean).join(" ");
+  }
+  return base;
+}
+
+export async function latestBlockhash() {
+  const latest = await rpc("getLatestBlockhash", [{ commitment: "confirmed" }]);
+  const blockhash = latest?.value?.blockhash || latest?.blockhash || "";
+  if (!blockhash) throw new Error("The RPC did not return a blockhash.");
+  return blockhash;
+}
+
+function readVarint(bytes, offset) {
+  let value = 0;
+  let shift = 0;
+  let at = offset;
+  while (true) {
+    const byte = bytes[at++];
+    value |= (byte & 0x7f) << shift;
+    if (!(byte & 0x80)) break;
+    shift += 7;
+    if (shift > 28) throw new Error("Varint too long.");
+  }
+  return { value, next: at };
+}
+
+/**
+ * Verify a client-signed transaction WITHOUT holding any key: the first
+ * account key in the message must be the claimed signer (the fee payer),
+ * and signature slot 0 must verify against the message bytes with that
+ * key. Works for legacy messages and versioned (v0) messages — a v0
+ * message carries a 0x80 version prefix before its 3-byte header, a
+ * legacy message starts with the header; either way a varint
+ * account-key count follows, then the keys.
+ * Returns { ok, signature } or { ok: false, message }.
+ */
+export function verifySignedTx(signedTxB64, address) {
+  const raw = b58decode(String(address || ""));
+  if (!raw || raw.length !== 32) return { ok: false, message: "That is not a Solana address." };
+  let bytes;
+  try {
+    bytes = Buffer.from(String(signedTxB64 || ""), "base64");
+  } catch {
+    return { ok: false, message: "That transaction could not be read." };
+  }
+  if (!bytes.length) return { ok: false, message: "That transaction is empty." };
+  let sigCount;
+  let sigStart;
+  try {
+    ({ value: sigCount, next: sigStart } = readVarint(bytes, 0));
+  } catch {
+    return { ok: false, message: "That transaction could not be read." };
+  }
+  if (sigCount < 1) return { ok: false, message: "That transaction has no signature." };
+  const message = bytes.subarray(sigStart + sigCount * 64);
+  if (!message.length) return { ok: false, message: "That transaction has no message to verify." };
+  const sig = bytes.subarray(sigStart, sigStart + 64);
+  // The first account key in the message must be the claimed signer (the
+  // fee payer). A versioned (v0) message starts with a 0x80 version
+  // prefix byte before the 3-byte header; a legacy message starts with
+  // the header itself. (The signature itself covers the full message
+  // bytes, prefix included, exactly as the signer produced it.)
+  const keysAt = (message[0] & 0x80) !== 0 ? 4 : 3;
+  let count;
+  let at;
+  try {
+    ({ value: count, next: at } = readVarint(message, keysAt));
+  } catch {
+    return { ok: false, message: "That transaction could not be read." };
+  }
+  if (count < 1 || message.length < at + 32) return { ok: false, message: "That transaction has no signer." };
+  const firstKey = message.subarray(at, at + 32);
+  if (!Buffer.from(firstKey).equals(raw)) return { ok: false, message: "That signature is not from this wallet." };
+  const spki = Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), raw]);
+  let good = false;
+  try {
+    good = verify(null, message, createPublicKey({ key: spki, format: "der", type: "spki" }), sig);
+  } catch {
+    good = false;
+  }
+  if (!good) return { ok: false, message: "That signature does not verify." };
+  return { ok: true, signature: b58encode(sig) };
+}
+
+/**
+ * Broadcast relay for device-signed transactions: verify the signature
+ * against the claimed signer, then send. The server holds no key and
+ * signs nothing — it only broadcasts what the device already signed.
+ * Rate-limited per address (8/hour), like the server-signed send path.
+ */
+export async function submitSignedTx(signedTxB64, address) {
+  const verified = verifySignedTx(signedTxB64, address);
+  if (!verified.ok) return { ok: false, status: 400, message: verified.message };
+  if (hitLimit(`submit:${address}`, 8, HOUR)) {
+    return { ok: false, status: 429, message: "Too many sends this hour. Wait and try again." };
+  }
+  let signature = "";
+  try {
+    signature = await sendSignedTx(String(signedTxB64));
+  } catch (err) {
+    return { ok: false, status: 502, message: `The transaction was not accepted (${err.message || "RPC"}).` };
+  }
+  return { ok: true, message: `Sent on ${networkName()}.`, signature: signature || verified.signature };
+}
+
+export function messageHash(messageBytes) {
+  return createHash("sha256").update(Buffer.from(messageBytes)).digest("hex");
 }
 
 async function qrSvg(text) {

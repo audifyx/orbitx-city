@@ -3,9 +3,9 @@ import { neon } from "@neondatabase/serverless";
 import { createClient } from "@supabase/supabase-js";
 import { Redis } from "@upstash/redis";
 import { ensureDaily, handleLive, noteEarn } from "./live.js";
-import { adBuy, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus } from "./ads.js";
+import { adBuy, adCompose, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus, adSubmit } from "./ads.js";
 import { authMode, checkReauth, handleAuthOp, looksLikeAccountToken, supabasePublic, verifyAccessToken } from "./auth.js";
-import { chainShopEnabled, confirmSend, ensureWallet, exportWallet, networkName, quoteSend, walletView } from "./wallet.js";
+import { audit, chainShopEnabled, confirmSend, ensureWallet, exportWallet, latestBlockhash, networkName, publicBalance, quoteSend, submitSignedTx, walletView } from "./wallet.js";
 import { AccessToken } from "livekit-server-sdk";
 
 const START_BALANCE = 60000;
@@ -5675,6 +5675,26 @@ export async function POST(request) {
   if (op === "wallet-link") {
     return json({ ok: false, message: "External wallet connect is not used. Each account has an in-app wallet." }, 410);
   }
+  // On-device wallet (PIN-encrypted, key never leaves the device): the
+  // address is public, so balance reads, the blockhash, and the broadcast
+  // relay work for guests too — no account, no server-held key. The relay
+  // only broadcasts a transaction this device already signed.
+  if (op === "wallet-balance") {
+    const bal = await publicBalance(String(body.address || ""));
+    return json(bal, bal.status || 200);
+  }
+  if (op === "wallet-blockhash") {
+    try {
+      return json({ ok: true, blockhash: await latestBlockhash() });
+    } catch (err) {
+      return json({ ok: false, message: `The RPC did not return a blockhash (${err.message || "RPC"}). Nothing was signed.` }, 502);
+    }
+  }
+  if (op === "wallet-submit") {
+    const out = await submitSignedTx(String(body.signedTx || ""), String(body.address || ""));
+    if (out.ok) await audit(player.authUser || player.id, "relay-submit", `Device-signed tx broadcast (${String(body.address || "").slice(0, 8)}…)`);
+    return json(out, out.status || 200);
+  }
 
   // The HUD reads the save's balance: the save is the money authority.
   // A heartbeat loads and reconciles but never mints a save.
@@ -5938,6 +5958,17 @@ export async function POST(request) {
   if (op === "ad-retry-burn") return adReply(await adRetryBurn(adCtx, player, body));
   if (op === "ad-remove") return adReply(await adRemove(adCtx, player, body));
   if (op === "ad-orders") return adReply(await adOrdersFor(adCtx, player));
+  // On-device wallet ad buy: compose (unsigned tx for the device to sign)
+  // then submit (device-signed tx, verified + broadcast). Same billboard,
+  // same 100% buy + burn — only the signer moves onto the device.
+  if (op === "ad-compose") {
+    if (!player.authUser) return json({ ok: false, message: "Create an account to book a billboard. Guests keep City Sol only." }, 400);
+    return adReply(await adCompose(adCtx, player, body));
+  }
+  if (op === "ad-submit") {
+    if (!player.authUser) return json({ ok: false, message: "Create an account to book a billboard. Guests keep City Sol only." }, 400);
+    return adReply(await adSubmit(adCtx, player, body));
+  }
   if (op === "book") return adReply(await adBuy(adCtx, player, body));
 
   const radioReply = async (result) => {
