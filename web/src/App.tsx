@@ -11,7 +11,7 @@ import { CharacterSelect } from "./Roster";
 import { MenuHome } from "./MenuHome";
 import { IntroScene } from "./Intro";
 import { AboutPage, MenuFooter, MenuHeader, PrivacyPage, SettingsPage, TermsPage, type HomePage } from "./HomePages";
-import { accountToken, signOutAccount, type Account } from "./auth";
+import { accountToken, ensureFreshAccountToken, refreshAccountToken, signOutAccount, type Account } from "./auth";
 import { DecorBar, EmoteWheel, FeaturePanel, PhoneExtra, RaceBanner, SpectateBar, featureTitle } from "./Features";
 import { EMPTY_LEADERS, EMPTY_RACE } from "./game/life";
 import { CAR_SHOP, FLY_CONTROLS, VEHICLE_COLORS, getVehicle } from "./game/vehicles";
@@ -236,15 +236,28 @@ function buildMyPropertyRows(data: { server: number; lots: string[]; offices: My
 // Same bearer pattern as the game world's own API calls: account token
 // first, guest player token (localStorage "orbitx-token") second.
 async function callCity(op: string, extra: Record<string, unknown> = {}) {
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  const token = accountToken() || localStorage.getItem("orbitx-token") || "";
-  if (token) headers.authorization = `Bearer ${token}`;
-  const response = await fetch("/api/city", {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ op, ...extra }),
-  });
-  return (await response.json()) as Record<string, unknown>;
+  // Session fix: refresh the ~1h access token before it dies mid-play
+  // (cheap `exp` check when fresh), and on a 401 retry once after a
+  // forced refresh. Same as world.call / runtime cityOp.
+  await ensureFreshAccountToken();
+  const send = async (override?: string) => {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    const token = override || accountToken() || localStorage.getItem("orbitx-token") || "";
+    if (token) headers.authorization = `Bearer ${token}`;
+    const response = await fetch("/api/city", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ op, ...extra }),
+    });
+    return { response, data: (await response.json()) as Record<string, unknown> };
+  };
+  const firstToken = accountToken();
+  let { response, data } = await send();
+  if (!response.ok && response.status === 401 && firstToken) {
+    const fresh = await refreshAccountToken();
+    if (fresh && fresh !== firstToken) ({ response, data } = await send(fresh));
+  }
+  return data;
 }
 
 const EMPTY: Snap = {
@@ -4887,6 +4900,9 @@ export function StatsPage() {
     setLoading(true);
     setError("");
     try {
+      // Session fix: refresh the ~1h token before it dies, so a stale
+      // snapshot does not read as "Not found" on this admin-only page.
+      await ensureFreshAccountToken();
       const token = accountToken();
       const headers: Record<string, string> = { "content-type": "application/json" };
       if (token) headers.authorization = `Bearer ${token}`;

@@ -1,4 +1,4 @@
-import { accountToken, readAccount } from "../auth";
+import { accountToken, ensureFreshAccountToken, readAccount, refreshAccountToken } from "../auth";
 import { connectLive } from "./live";
 import type { OwnedVehicle, GarageUpgrades } from "./vehicles";
 import type { OwnedHome } from "./homes";
@@ -807,15 +807,32 @@ class CityWorld {
       }
     }
     const headers: Record<string, string> = { "content-type": "application/json" };
+    // Session fix: the stored access token is a ~1h JWT. Refresh it
+    // BEFORE it dies (cheap `exp` check when fresh, no network) so the
+    // 250ms sync / 1s digest never start sending an expired token.
+    await ensureFreshAccountToken();
     const access = accountToken();
     if (access) headers.authorization = `Bearer ${access}`;
     else if (auth === true && this.token) headers.authorization = `Bearer ${this.token}`;
-    const response = await fetch("/api/city", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ op, ...extra }),
-    });
-    const data = (await response.json()) as Record<string, unknown>;
+    const send = async (override?: string) => {
+      const attemptHeaders = { ...headers };
+      if (override) attemptHeaders.authorization = `Bearer ${override}`;
+      const response = await fetch("/api/city", {
+        method: "POST",
+        headers: attemptHeaders,
+        body: JSON.stringify({ op, ...extra }),
+      });
+      return { response, data: (await response.json()) as Record<string, unknown> };
+    };
+    let { response, data } = await send();
+    if (!response.ok && response.status === 401 && access) {
+      // The token expired between the check and the call, or the tab was
+      // backgrounded past expiry: one forced refresh + one retry, then
+      // the original error stands (a dead refresh token genuinely
+      // needs a re-login — the server decides that, not the client).
+      const fresh = await refreshAccountToken();
+      if (fresh && fresh !== access) ({ response, data } = await send(fresh));
+    }
     if (!response.ok || data.ok === false) throw new Error(String(data.message || "City server said no."));
     return data;
   }

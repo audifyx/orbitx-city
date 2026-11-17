@@ -1,3 +1,5 @@
+import { jwtExpiryMs, tokenNeedsRefresh } from "./tokenExpiry";
+
 const KEY = "orbitx-account";
 
 export type Account = {
@@ -46,13 +48,153 @@ export async function loadAuthConfig(): Promise<AuthConfig> {
   return config;
 }
 
-async function browser() {
+// Auth config without throwing: the session watchdog and the pre-call
+// refresh check run on the hot path (every 250ms sync) and must never
+// break play when /api is unreachable — they just fall back to the
+// stored token, exactly like before this fix.
+async function supabaseConfig(): Promise<AuthConfig | null> {
+  try {
+    return await loadAuthConfig();
+  } catch {
+    return null;
+  }
+}
+
+type SupabaseBrowserClient = Awaited<ReturnType<typeof import("@supabase/supabase-js").createClient>>;
+
+// ONE Supabase client for the whole page. Before this fix browser()
+// built a fresh client per call and threw it away, so no client instance
+// ever lived long enough to run supabase-js's auto-refresh — and the
+// refreshed token only ever landed in Supabase's own storage key, never
+// in the `orbitx-account` snapshot the game actually sends. A singleton
+// keeps auto-refresh alive and gives onAuthStateChange one place to
+// rewrite the snapshot from.
+let browserClient: SupabaseBrowserClient | null = null;
+let authListenerStarted = false;
+let watchdogStarted = false;
+let refreshInFlight: Promise<string> | null = null;
+let lastRefreshAt = 0;
+let lastRefreshOk: boolean | null = null;
+
+async function browser(): Promise<SupabaseBrowserClient | null> {
   const cfg = await loadAuthConfig();
   if (cfg.mode !== "supabase" || !cfg.url || !cfg.anon) return null;
+  if (browserClient) return browserClient;
   const { createClient } = await import("@supabase/supabase-js");
-  return createClient(cfg.url, cfg.anon, {
-    auth: { persistSession: true, detectSessionInUrl: true, flowType: "pkce" },
+  const client = createClient(cfg.url, cfg.anon, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "pkce" },
   });
+  browserClient = client;
+  if (!authListenerStarted) {
+    authListenerStarted = true;
+    // TOKEN_REFRESHED / SIGNED_IN carry the fresh access token: rewrite
+    // the snapshot every API call reads. SIGNED_OUT is deliberately
+    // ignored here — a failed refresh must not kick a playing user to
+    // the login screen; the server's 401 stays the authority, and the
+    // menu sign-in flow is unchanged. signOutAccount() clears the
+    // snapshot explicitly.
+    client.auth.onAuthStateChange((event, session) => {
+      if (event !== "TOKEN_REFRESHED" && event !== "SIGNED_IN") return;
+      const account = fromSession(session);
+      if (account) {
+        saveAccount(account);
+        lastRefreshAt = Date.now();
+        lastRefreshOk = true;
+      }
+    });
+  }
+  startSessionWatchdog();
+  return client;
+}
+
+// Session watchdog: refresh the access token on a timer and whenever the
+// tab comes back to the foreground (mobile browsers throttle background
+// timers, so a phone left locked past the 1h token expiry must refresh
+// on return, not on the next failed API call). Started once, from the
+// first browser() call. Never clears the account and never throws.
+function startSessionWatchdog() {
+  if (watchdogStarted || typeof window === "undefined") return;
+  watchdogStarted = true;
+  window.setInterval(() => void ensureFreshAccountToken().catch(() => {}), 60 * 1000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) void ensureFreshAccountToken().catch(() => {});
+  });
+  window.addEventListener("online", () => void ensureFreshAccountToken().catch(() => {}));
+}
+
+/** Force a refresh of the stored session via the refresh token and save the fresh access token. Returns the current (possibly still stale) token when no refresh is possible — never throws, never signs the player out. */
+export async function refreshAccountToken(): Promise<string> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    try {
+      const cfg = await supabaseConfig();
+      if (cfg?.mode !== "supabase") return readAccount()?.token || "";
+      const client = await browser();
+      if (!client) return readAccount()?.token || "";
+      // refreshSession() with no args reads the stored session; getSession()
+      // also refreshes an expired access token, so it is the fallback when
+      // the direct refresh errors but a session still exists.
+      let session: Parameters<typeof fromSession>[0] = null;
+      const { data, error } = await client.auth.refreshSession();
+      session = data?.session ?? null;
+      if (error || !session) {
+        const { data: again } = await client.auth.getSession();
+        session = again?.session ?? null;
+      }
+      const account = fromSession(session);
+      if (account) {
+        saveAccount(account);
+        lastRefreshAt = Date.now();
+        lastRefreshOk = true;
+        return account.token;
+      }
+      lastRefreshOk = false;
+      return readAccount()?.token || "";
+    } catch {
+      lastRefreshOk = false;
+      return readAccount()?.token || "";
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
+/**
+ * Make sure the token the game is about to send is still valid.
+ * Supabase access tokens live ~1h: if the stored one expires within 5
+ * minutes (or already expired — e.g. the tab was backgrounded past
+ * expiry), refresh it now and save the fresh snapshot. Cheap when the
+ * token is fresh (a JWT `exp` decode, no network). No-op in mock mode
+ * (mock tokens live 7 days) and when nobody is signed in.
+ */
+export async function ensureFreshAccountToken(): Promise<string> {
+  const stored = readAccount();
+  if (!stored) return "";
+  if (!tokenNeedsRefresh(stored.token)) return stored.token;
+  return refreshAccountToken();
+}
+
+/** Debug/verification handle for the session fix: token expiry, whether a refresh is due, and the last refresh outcome. Read-only; the game never calls it. */
+export function getSessionStatus() {
+  const stored = readAccount();
+  const exp = stored ? jwtExpiryMs(stored.token) : null;
+  return {
+    mode: config?.mode ?? "unknown",
+    hasAccount: !!stored,
+    tokenExpiresInMs: exp === null ? null : exp - Date.now(),
+    needsRefresh: stored ? tokenNeedsRefresh(stored.token) : false,
+    lastRefreshAt,
+    lastRefreshOk,
+  };
+}
+
+if (typeof window !== "undefined") {
+  (window as unknown as { __orbitxSession?: unknown }).__orbitxSession = {
+    status: getSessionStatus,
+    refresh: refreshAccountToken,
+    ensureFresh: ensureFreshAccountToken,
+  };
 }
 
 function fromSession(session: { access_token?: string; user?: { id: string; email?: string; user_metadata?: Record<string, string>; app_metadata?: { provider?: string } } } | null): Account | null {

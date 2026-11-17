@@ -69,7 +69,7 @@ import { burnAmount, earn, loadWallet, saveWallet, spend } from "./economy";
 import { createNet, type ChatLine, type NetAdapter, type NetState } from "./net";
 import { allLooks, clothesFromOwned, dressPerson, loadLooks, lookById, lookName, looksReady, type Clothes } from "./avatar";
 import { GOLD, MATERIALS } from "./materials";
-import { accountToken, readAccount } from "../auth";
+import { accountToken, ensureFreshAccountToken, readAccount, refreshAccountToken } from "../auth";
 import { world, type CityMe } from "./world";
 import { wardrobeFromOwned, setEquippedOwned, removeFitOwned, encodeFitEntry, WARDROBE_CATALOG, WARDROBE_KINDS, type SavedFit, type StoreId, type WardrobeKind, type WardrobeSlots } from "./wardrobe";
 import {
@@ -5869,15 +5869,30 @@ export function createRuntime(scene: Scene) {
   }
 
   async function cityOp(op: string, extra: Record<string, unknown> = {}) {
+    // Session fix: refresh the ~1h access token before it dies mid-play
+    // (cheap `exp` check when fresh), and on a 401 retry once after a
+    // forced refresh — same as world.call. A dead refresh token still
+    // surfaces the server's error, so re-login is only ever demanded
+    // when the session genuinely cannot be renewed.
+    await ensureFreshAccountToken();
     const headers: Record<string, string> = { "content-type": "application/json" };
     const token = accountToken() || world.token || localStorage.getItem("orbitx-token") || "";
     if (token) headers.authorization = `Bearer ${token}`;
-    const response = await fetch("/api/city", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ op, ...extra }),
-    });
-    const data = (await response.json()) as Record<string, unknown>;
+    const send = async (override?: string) => {
+      const attemptHeaders = { ...headers };
+      if (override) attemptHeaders.authorization = `Bearer ${override}`;
+      const response = await fetch("/api/city", {
+        method: "POST",
+        headers: attemptHeaders,
+        body: JSON.stringify({ op, ...extra }),
+      });
+      return { response, data: (await response.json()) as Record<string, unknown> };
+    };
+    let { response, data } = await send();
+    if (!response.ok && response.status === 401 && accountToken()) {
+      const fresh = await refreshAccountToken();
+      if (fresh && fresh !== token) ({ response, data } = await send(fresh));
+    }
     if (!response.ok || data.ok === false) throw new Error(String(data.message || "City server said no."));
     return data;
   }
