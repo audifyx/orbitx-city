@@ -10,3 +10,4 @@ dist/
 world/out/
 .DS_Store
 tsconfig.tsbuildinfo
+rig/
