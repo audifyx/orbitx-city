@@ -710,6 +710,8 @@ export interface Snap {
   localOrbitx: number | null;
   meId: string;
   jobStreak: number;
+  /** Total City Sol earned from jobs (and other pay) — the leaderboard reads it. */
+  earned: number;
   business: { kind: string; started: number; lastCollect: number } | null;
   spectator: boolean;
   hideHud: boolean;
@@ -3277,6 +3279,7 @@ export function createRuntime(scene: Scene) {
       localOrbitx: localBalance.orbitx,
       meId: world.id,
       jobStreak: world.me?.jobStreak ?? 0,
+      earned: world.me?.earned ?? 0,
       business: world.me?.business ?? null,
       spectator,
       hideHud,
@@ -10689,13 +10692,26 @@ export function createRuntime(scene: Scene) {
       riderOn = false;
       // Clock in: the shift starts now, at this job's hourly rate, with
       // its tasks on the map. The server records the same shift
-      // (job-start) — online it is the authority for task pay.
+      // (job-start) — online it is the authority for task pay, and
+      // job-task / earn both refuse with no server shift. So a clock-in
+      // that never lands must roll the local shift back — otherwise the
+      // player works a shift that pays nothing and only finds out at
+      // clock-out.
       jobStartedAt = Date.now();
       jobHourlyRate = jobHourlyRateFor(id, world.me?.jobStreak ?? 0);
       jobTasksTotal = jobTaskCountFor(id);
       jobTaskPaid = 0;
       jobTaskSynced = 0;
-      void world.jobStart(id);
+      world.jobStart(id).then((data) => {
+        if (data.me) applySaveMe(data.me);
+      }).catch(() => {
+        if (job !== id) return;
+        job = "";
+        phase = 0;
+        resetShift();
+        say("Clock-in didn't reach the city — try clocking in again.");
+        publish();
+      });
       say(`${jobTitle(id)} — clocked in at ${jobHourlyRate} City Sol/hr. ${jobTasksTotal} task${jobTasksTotal === 1 ? "" : "s"} on the map.`);
       publish();
     },

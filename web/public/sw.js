@@ -1,11 +1,10 @@
 // OrbitX City service worker — app-shell cache, network-first API.
 // RULE: bump CACHE on every push that changes the shell (game.js, index.html,
 // CSS, icons) — otherwise phones keep serving the old bundle from this cache.
-// v14 (2026-11-17): walk-fix (real walk cycle, smooth step-ups, avatar
-// z-fight fixes) + homes (scroll fix, full Home Editor, themes, daily rent)
-// + real-economy (office SOL leases, ads buy+burn); on top of logo/car-spawn
-// v13. Never go backwards.
-const CACHE = "orbitx-city-v14";
+// v15 (2026-11-17): economy — Leaderboards panel, snap earned, startJob
+// clock-in rollback; on top of push-10 v14 (walk-fix + homes + real-economy)
+// and logo/car-spawn v13. Never go backwards.
+const CACHE = "orbitx-city-v15";
 const PRECACHE = [
   "/",
   "/index.html",

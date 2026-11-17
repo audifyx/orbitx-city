@@ -181,3 +181,43 @@ test("a bought HQ stays owned on the next digest, even when the in-memory copy w
   assert.equal(after.lots.find((lot) => lot.id === "hq-0")?.ownerId, "ada");
   assert.equal(after.lots.find((lot) => lot.id === "hq-0")?.ownerName, "Ada");
 });
+
+// The leaderboard panel reads the digest: it must rank the players the
+// server knows — richest by balance, top earners by earned, most burned
+// by burned, and fastest racers by best time (street + hover together,
+// fastest first). An empty board returns four empty lists, never an error.
+test("the digest ranks leaders by balance, earned, burned, and fastest race time", async () => {
+  const ctx = ctxFor();
+  const ada = player("ada");
+  ada.balance = 5000;
+  ada.earned = 300;
+  ada.burned = 100;
+  ada.bestRace = 12000;
+  const bea = player("bea");
+  bea.balance = 8000;
+  bea.earned = 100;
+  bea.burned = 50;
+  bea.bestHover = 9000;
+  ctx.store.players.set("ada", ada);
+  ctx.store.players.set("bea", bea);
+  const view = await handleLive(ctx, ada, "digest", {});
+  assert.equal(view.ok, true);
+  assert.deepEqual(view.leaders.rich.map((row) => row.name), ["Bea", "Ada"]);
+  assert.equal(view.leaders.rich[0].value, "8000 City Sol");
+  assert.deepEqual(view.leaders.earners.map((row) => row.name), ["Ada", "Bea"]);
+  assert.equal(view.leaders.earners[0].value, "300 earned");
+  assert.deepEqual(view.leaders.burned.map((row) => row.name), ["Ada", "Bea"]);
+  assert.equal(view.leaders.burned[0].value, "100 burned");
+  // Fastest first: Bea's 9.00s hover beats Ada's 12.00s street race.
+  assert.deepEqual(view.leaders.race.map((row) => row.name), ["Bea", "Ada"]);
+  assert.equal(view.leaders.race[0].value, "hover 9.00s");
+  assert.equal(view.leaders.race[1].value, "street 12.00s");
+});
+
+test("the digest returns empty leader lists when nobody has scored yet", async () => {
+  const ctx = ctxFor();
+  const ada = player("ada");
+  const view = await handleLive(ctx, ada, "digest", {});
+  assert.equal(view.ok, true);
+  assert.deepEqual(view.leaders, { rich: [], earners: [], burned: [], race: [] });
+});

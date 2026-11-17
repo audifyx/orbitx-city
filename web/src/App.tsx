@@ -399,6 +399,7 @@ const EMPTY: Snap = {
   localOrbitx: null,
   meId: "",
   jobStreak: 0,
+  earned: 0,
   business: null,
   spectator: false,
   hideHud: false,
@@ -1649,6 +1650,7 @@ export default function App() {
           <button type="button" onClick={() => openShop("clothes")}>Shop</button>
           <button type="button" onClick={() => openShop("grocery")}>Grocery</button>
           <button type="button" onClick={() => open("jobs")}>Jobs</button>
+          <button type="button" onClick={() => open("leaders")}>Leaders</button>
           <button type="button" onClick={() => open("ads")}>Ads</button>
           <button type="button" onClick={() => open("radio")}>Radio</button>
           <button type="button" onClick={() => open("voice")}>Voice</button>
@@ -1806,6 +1808,7 @@ export default function App() {
               <strong>
                 {panel === "shop" && "OrbitX shop"}
                 {panel === "wardrobe" && "Wardrobe"}                {panel === "jobs" && "Jobs"}
+                {panel === "leaders" && "Leaderboards"}
                 {panel === "ads" && "Book a billboard"}
                 {panel === "radio" && "Radio"}
                 {panel === "voice" && "Voice chat"}
@@ -2553,6 +2556,39 @@ export default function App() {
                     </article>
                   </>
                 )}
+              </div>
+            )}
+            {panel === "leaders" && (
+              <div className="list">
+                <p>Top players in the city, ranked live from the server — richest, top earners, most burned, and fastest racers.</p>
+                <p>
+                  <b>Your totals:</b> {snap.balance} City Sol · {snap.earned} earned · {snap.jobStreak} shift{snap.jobStreak === 1 ? "" : "s"} worked
+                </p>
+                {([
+                  ["Richest", snap.leaders.rich],
+                  ["Top earners", snap.leaders.earners],
+                  ["Most burned", snap.leaders.burned],
+                  ["Fastest racers", snap.leaders.race],
+                ] as [string, { name: string; value: string }[]][]).map(([title, rows]) => (
+                  <div key={title}>
+                    <h3>{title}</h3>
+                    {rows.length === 0 ? (
+                      <p>No one on the board yet — be the first.</p>
+                    ) : (
+                      rows.map((row, i) => (
+                        <article key={`${title}-${row.name}-${i}`}>
+                          <div>
+                            <b>
+                              {i + 1}. {row.name}
+                              {row.name === (snap.name || "Guest") ? " — you" : ""}
+                            </b>
+                            <span>{row.value}</span>
+                          </div>
+                        </article>
+                      ))
+                    )}
+                  </div>
+                ))}
               </div>
             )}
             {panel === "ads" && (
