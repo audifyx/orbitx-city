@@ -204,9 +204,9 @@ export const HOME_YARDS: Record<string, { label: string; price: number; yard: nu
 export const HOME_THEMES: Record<string, { label: string; price: number; wall: string; floor: string; light: string; exterior: string; roof: string; yard: string }> = {
   classic: { label: "Classic", price: 0, wall: "cream", floor: "wood", light: "warm", exterior: "default", roof: "standard", yard: "none" },
   "orbitx-gold": { label: "OrbitX Gold", price: 400, wall: "gold", floor: "gold", light: "gold", exterior: "gold", roof: "gold", yard: "deck" },
-  beach: { label: "Beach House", price: 250, wall: "cyan", floor: "white", light: "white", exterior: "beach", roof: "standard", yard: "deck" },
-  neon: { label: "Neon Nights", price: 350, wall: "black", floor: "black", light: "pink", exterior: "neon", roof: "neon", yard: "patio" },
-  midnight: { label: "Midnight", price: 300, wall: "black", floor: "wood", light: "blue", exterior: "midnight", roof: "standard", yard: "garden" },
+  beach: { label: "Beach House", price: 250, wall: "cream", floor: "wood", light: "warm", exterior: "beach", roof: "standard", yard: "patio" },
+  neon: { label: "Neon Nights", price: 350, wall: "black", floor: "black", light: "cyan", exterior: "neon", roof: "neon", yard: "none" },
+  midnight: { label: "Midnight", price: 300, wall: "black", floor: "marble", light: "cool", exterior: "midnight", roof: "standard", yard: "garden" },
 };
 
 /** Office themes — same presets, applied to a claimed office suite. */

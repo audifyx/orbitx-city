@@ -9,6 +9,8 @@ import { audit, chainShopEnabled, confirmSend, ensureWallet, exportWallet, lates
 import { AccessToken } from "livekit-server-sdk";
 
 const START_BALANCE = 60000;
+// Em dash, used in server messages ("Restyled the outside — Gold trim").
+const E = "\u2014";
 const BURN_RATE = 0.25;
 const PRESENCE_MS = 25000;
 const JOB_MS = 4000;
@@ -2768,7 +2770,7 @@ async function readOfficeClaims(serverId) {
   if (client) {
     let query = client
       .from("office_claims")
-      .select("suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at");
+      .select("suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at, theme");
     if (isServerId(serverId)) query = query.eq("server_id", serverId);
     const { data, error } = await query;
     if (!error && data) return data.map(officeClaimRow);
@@ -2778,8 +2780,8 @@ async function readOfficeClaims(serverId) {
   if (sql) {
     await ensureSchema();
     const rows = isServerId(serverId)
-      ? await sql`SELECT suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at FROM office_claims WHERE server_id = ${serverId}`
-      : await sql`SELECT suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at FROM office_claims`;
+      ? await sql`SELECT suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at, theme FROM office_claims WHERE server_id = ${serverId}`
+      : await sql`SELECT suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at, theme FROM office_claims`;
     return rows.map(officeClaimRow);
   }
   const cache = redis();

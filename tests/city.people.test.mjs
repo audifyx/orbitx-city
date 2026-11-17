@@ -144,15 +144,15 @@ test("people: party costs 50 City Sol, Friends show up, then it ends", async () 
   assert.equal(ended.me.balance, before - 50, "ending a party is free");
 });
 
-test("people: rent out a home, collect weekly rent, end the lease", async () => {
+test("people: rent out a home, collect daily rent, end the lease", async () => {
   const { token, id } = await guest("Landlord");
   await buyTwoHomes(token);
 
   const rented = await call("people-rent-out", { home: "home-ny-02", server: 1 }, token);
   assert.equal(rented.ok, true, rented.message);
-  // 5% of 2090 = 104.5, rounded to the nearest 10 = 100 City Sol/week.
-  assert.equal(rented.rentals[0].weeklyRent, 100);
-  assert.equal(rented.rentals[0].weeksDue, 0, "first payout is 7 days out");
+  // 5% of 2090 a day = 104.5/7 = 14.93, rounded to the nearest 5 = 15 City Sol/day.
+  assert.equal(rented.rentals[0].dailyRent, 15);
+  assert.equal(rented.rentals[0].daysDue, 0, "first payout is tomorrow");
   assert.equal(rented.rentals[0].tenant.length > 0, true);
 
   const again = await call("people-rent-out", { home: "home-ny-02", server: 1 }, token);
@@ -166,26 +166,26 @@ test("people: rent out a home, collect weekly rent, end the lease", async () => 
   assert.equal(early.ok, true);
   assert.equal(early.collected, 0, "nothing due yet");
 
-  // Age the lease 15 days: floor(15/7)+1 = 3 weeks due.
+  // Age the lease 10 days: floor(10/1)+1 = 11 days due.
   const save = saveFor(id, 1);
-  save.homes.rentals["home-ny-02"].nextRentAt = Date.now() - 15 * 86400000;
+  save.homes.rentals["home-ny-02"].nextRentAt = Date.now() - 10 * 86400000;
   const before = save.balance;
   const collected = await call("people-collect-rent", { server: 1 }, token);
   assert.equal(collected.ok, true, collected.message);
-  assert.equal(collected.collected, 300, "3 weeks x 100 City Sol");
-  assert.equal(collected.me.balance, before + 300);
-  assert.equal(collected.rentals[0].collected, 300);
-  assert.equal(collected.rentals[0].weeksDue, 0, "next payout pushed out");
+  assert.equal(collected.collected, 165, "11 days x 15 City Sol");
+  assert.equal(collected.me.balance, before + 165);
+  assert.equal(collected.rentals[0].collected, 165);
+  assert.equal(collected.rentals[0].daysDue, 0, "next payout pushed out");
 
-  // End the lease with 8 days owed: 2 weeks x 100 — the regression test
-  // for the first draft, which paid the week COUNT (2 City Sol) instead.
+  // End the lease with 8 days owed: 9 days x 15 — the regression test
+  // for the first draft, which paid the DAY COUNT (9 City Sol) instead.
   const save2 = saveFor(id, 1);
   save2.homes.rentals["home-ny-02"].nextRentAt = Date.now() - 8 * 86400000;
   const beforeEnd = save2.balance;
   const ended = await call("people-end-rent", { home: "home-ny-02", server: 1 }, token);
   assert.equal(ended.ok, true, ended.message);
-  assert.equal(ended.collected, 200, "2 weeks owed, paid in full on move-out");
-  assert.equal(ended.me.balance, beforeEnd + 200);
+  assert.equal(ended.collected, 135, "9 days owed, paid in full on move-out");
+  assert.equal(ended.me.balance, beforeEnd + 135);
   assert.equal(ended.rentals.length, 0, "lease gone");
 
   // The home is liveable again: rent it out a second time.
