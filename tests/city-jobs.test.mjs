@@ -72,10 +72,12 @@ test("jobs: task pay lands per task, in order, and earn pays only the remainder"
   const extra = await call("job-task", { job: "courier", task: 2 }, token);
   assert.equal(extra.ok, false);
   // Finishing the shift settles the remainder — 0, already paid in full.
+  // A fresh save is Rested (energy >= 70), so earn adds the pre-existing
+  // +10% rested bonus on the full pay: round(45 * 1.1) - 45 = 5.
   ageShift(id);
   const earned = await call("earn", { job: "courier" }, token);
   assert.equal(earned.ok, true, earned.message);
-  assert.equal(earned.me.balance, 60045, "no double pay: shift total is exactly the rate");
+  assert.equal(earned.me.balance, 60050, "no double pay: 45 task pay + 5 rested bonus");
   assert.equal(earned.me.jobStreak, 1, "a finished shift bumps the streak");
   assert.equal(saveFor(id, 1).job, null);
 });
@@ -89,7 +91,8 @@ test("jobs: earn still pays in full when no task pay landed (mini-games, old cli
   ageShift(id);
   const earned = await call("earn", { job: "coinhunt" }, token);
   assert.equal(earned.ok, true, earned.message);
-  assert.equal(earned.me.balance, 60040);
+  // 40 base + 4 rested bonus (fresh saves are Rested, +10% on earn).
+  assert.equal(earned.me.balance, 60044);
   assert.equal(earned.me.jobStreak, 1);
 });
 
@@ -145,9 +148,10 @@ test("jobs: the hourly rate scales with the streak", async () => {
   assert.equal(next.ok, true);
   assert.equal(saveFor(id, 1).job.hourlyRate, 47);
   // Task split at the new rate: floor(47 / 2) = 23, then 24.
+  // Balance: first shift paid 45 task pay + 5 rested bonus = 60050.
   const first = await call("job-task", { job: "courier", task: 0 }, token);
   assert.equal(first.taskPay, 23);
   const second = await call("job-task", { job: "courier", task: 1 }, token);
   assert.equal(second.taskPay, 24);
-  assert.equal(second.me.balance, 60045 + 47);
+  assert.equal(second.me.balance, 60050 + 47);
 });
