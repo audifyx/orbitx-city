@@ -10185,7 +10185,6 @@ export function createRuntime(scene: Scene) {
         say("Not clocked in to a job.");
         return;
       }
-      const id = job;
       const done = jobTasksTotal > 0 ? Math.min(phase, jobTasksTotal) : 0;
       // Flush any finished task's pay before settling, so the clock-out
       // message reports the true earnings.
