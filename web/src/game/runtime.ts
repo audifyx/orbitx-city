@@ -190,6 +190,40 @@ export interface TrainPose {
 
 export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "missions" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats";
 
+// UNIFIED SHOP: the Shop panel's five category tabs. "grocery" is a tab
+// now, not a panel — the grocery store in the world opens the Shop on
+// it, and the old standalone Grocery panel is gone.
+export type ShopTab = "clothes" | "cars" | "homes" | "grocery" | "items";
+
+/** Owned state the server returns with shop-catalog / shop-buy. */
+export interface ShopSnapshot {
+  balance: number;
+  burned: number;
+  owned: string[];
+  vehicles: { id: string; color: string }[];
+  activeVehicle: string | null;
+  homes: string[];
+  food: Record<string, number>;
+  hunger: number;
+  furnitureOwned: string[];
+  garage: { slots: number; workshop: boolean; showroom: boolean };
+}
+
+/** The server-authoritative shop catalog + owned snapshot. */
+export interface ShopCatalogData {
+  ok: boolean;
+  message?: string;
+  shop: ShopSnapshot;
+  catalog: {
+    clothes: { id: string; price: number; kind: string; value: string; slot: string | null }[];
+    cars: { id: string; price: number; name: string; colors: string[] }[];
+    homes: { id: string; price: number }[];
+    food: FoodCatalogItem[];
+    furniture: { id: string; name: string; price: number }[];
+  };
+  me?: unknown;
+}
+
 // --- NOTIFICATIONS: in-game pop-ups (toasts) + the Alerts history.
 // A toast is a short card that slides in, shows for ~5s, and can be
 // tapped away. The Alerts panel keeps the history so nothing important
@@ -474,6 +508,12 @@ export interface Snap {
   /** Bumps each time a store venue opens the Shop on its tab, so opening
    * the same store twice still switches the tab (App syncs on this). */
   shopStoreNonce: number;
+  /** Which category tab the Shop opens on (clothes/cars/homes/grocery/
+   * items). The grocery store in the world opens the Shop on "grocery". */
+  shopTab: ShopTab;
+  /** Bumps each time the world opens the Shop on a tab, so opening the
+   * same tab twice still switches it (App syncs on this). */
+  shopTabNonce: number;
   /** Riding the OrbitX Line train (board at a station, E to get off). */
   ridingTrain: boolean;
   /** Transport panel: live status of the three rideable vehicles, so the
@@ -1615,6 +1655,11 @@ export function createRuntime(scene: Scene) {
   // shopStoreNonce before opening the panel; App syncs on the nonce.
   let panelStore: StoreId | "classics" = "thrift";
   let shopStoreNonce = 0;
+  // UNIFIED SHOP: which category tab the Shop opens on. A world entry
+  // point (shop counter, grocery store, mall shopfront) sets shopTab +
+  // bumps shopTabNonce before opening the panel; App syncs on the nonce.
+  let shopTab: ShopTab = "clothes";
+  let shopTabNonce = 0;
   const CAMS = ["shoulder", "far", "selfie", "first"] as const;
   type CamMode = (typeof CAMS)[number];
   function storedCam(): CamMode {
@@ -2851,6 +2896,8 @@ export function createRuntime(scene: Scene) {
       fits: wardrobe.fits,
       shopStore: panelStore,
       shopStoreNonce,
+      shopTab,
+      shopTabNonce,
       color: wallet.color,
       hat: wallet.hat,
       car: wallet.car,
@@ -4082,10 +4129,18 @@ export function createRuntime(scene: Scene) {
     // only when nothing nearer answers E.
     const zone = zoneAt(body);
     if (zone && nearService(body, zone)) {
-      if (zone.kind === "shop") panel = "shop";
-      else if (zone.kind === "grocery") {
+      if (zone.kind === "shop") {
+        // The shop counter opens the Shop on its Clothes tab.
+        shopTab = "clothes";
+        shopTabNonce += 1;
+        panel = "shop";
+      } else if (zone.kind === "grocery") {
+        // GROCERY moved into the Shop: the grocery store opens the
+        // Shop on its Grocery tab (the standalone panel is gone).
         void loadFood();
-        panel = "grocery";
+        shopTab = "grocery";
+        shopTabNonce += 1;
+        panel = "shop";
       } else if (zone.kind === "garage") panel = "garage";
       else if (zone.kind === "carshop") panel = "garage";
       else if (isDeptKind(zone.kind as string)) openEmergency(zone.kind as string, zone.name);
@@ -4167,6 +4222,9 @@ export function createRuntime(scene: Scene) {
         if (store) {
           panelStore = store;
           shopStoreNonce += 1;
+          // A mall shopfront opens the Shop on its Clothes tab.
+          shopTab = "clothes";
+          shopTabNonce += 1;
           panel = "shop";
           say(anchor.name);
           publish();
@@ -9473,6 +9531,79 @@ export function createRuntime(scene: Scene) {
     return result.message;
   }
 
+  // UNIFIED SHOP — one buy call for every category (clothes / cars /
+  // homes / grocery / furniture), City Sol only. Online it goes through
+  // the server's shop-buy op (the price authority) and applies the
+  // returned snapshot (balance + owned + vehicles + food); offline it
+  // delegates to the proven per-category offline paths (furniture is
+  // online-only, same as before). Returns the message plus the
+  // refreshed shop snapshot (null offline — the caller re-reads the
+  // catalog instead).
+  async function shopCatalog(): Promise<ShopCatalogData | { ok: false; message: string }> {
+    if (!world.online || !currentUniverse) return { ok: false, message: "Pick a universe on the menu first." };
+    try {
+      const data = await cityOp("shop-catalog", { server: serverId() });
+      return data as unknown as ShopCatalogData;
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : "The city refused the catalog." };
+    }
+  }
+
+  async function shopBuy(
+    category: string,
+    id: string,
+    opts: { color?: string; qty?: number } = {},
+  ): Promise<{ ok: boolean; message: string; shop: ShopSnapshot | null }> {
+    if (world.online) {
+      if (!currentUniverse) {
+        const message = "Pick a universe on the menu first.";
+        say(message);
+        triggerHaptic("error");
+        return { ok: false, message, shop: null };
+      }
+      try {
+        const data = await cityOp("shop-buy", { server: serverId(), category, id, color: opts.color, qty: opts.qty });
+        if (data.me) applySaveMe(data.me);
+        applyFoodData(data);
+        // Grants that change the avatar / active car need the local
+        // apply too, mirroring buy() / buyCar().
+        if (category === "clothes") {
+          const item = SHOP_CATALOG.find((entry) => entry.id === id);
+          if (item) equip(item);
+        }
+        if (category === "car") spawnActiveCar();
+        const message = String(data.message || "Bought.");
+        triggerHaptic("success");
+        say(message);
+        notify("MONEY", message, "money");
+        if (category === "clothes") void attemptMission();
+        publish();
+        return { ok: true, message, shop: (data.shop as ShopSnapshot | undefined) ?? null };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "The city refused the purchase.";
+        say(message);
+        triggerHaptic("error");
+        publish();
+        return { ok: false, message, shop: null };
+      }
+    }
+    // Offline: the same per-category paths the panels used before.
+    // Furniture stays online-only — the panel says so, as before.
+    if (category === "furniture") {
+      const message = "Sign in to buy furniture.";
+      say(message);
+      return { ok: false, message, shop: null };
+    }
+    let message: string;
+    if (category === "clothes") message = await buy(id);
+    else if (category === "car") message = await buyCar(id, opts.color || "black");
+    else if (category === "home") message = await buyHome(id);
+    else if (category === "food") message = await buyFood(id, opts.qty ?? 1);
+    else return { ok: false, message: "Unknown shop category.", shop: null };
+    const ok = !/Not enough|Unknown|refused|Sign in|Pick a universe|garage is full|already own/i.test(message);
+    return { ok, message, shop: null };
+  }
+
   function equip(item: ShopCatalogItem) {
     if (item.kind === "color") wallet.color = item.value;
     if (item.kind === "hat") wallet.hat = item.value;
@@ -9769,6 +9900,8 @@ export function createRuntime(scene: Scene) {
       return () => listeners.delete(fn);
     },
     buy,
+    shopBuy,
+    shopCatalog,
     buyFood,
     eatFood,
     eatBestFood,

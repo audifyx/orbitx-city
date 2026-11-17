@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
-import type { AdOrder, CityStats, MyPropertyClaim, PanelName, RadioTrack, Runtime, Snap } from "./game/runtime";
+import type { AdOrder, CityStats, MyPropertyClaim, PanelName, RadioTrack, Runtime, ShopCatalogData, ShopTab, Snap } from "./game/runtime";
 import { EMPTY_CITY_PEOPLE, FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/runtime";
 import { PROXIMITY_RANGE, PROXIMITY_ROOM } from "./game/voice";
 import { allLooks, loadLooks, lookName } from "./game/avatar";
@@ -66,7 +66,7 @@ import {
   type DistrictOfficeDirectoryRow,
 } from "./game/emergency";
 import { stateById, stateOfficeSuites } from "./game/states";
-import { homeById, homePrice, type OwnedHome } from "./game/homes";
+import { HOMES, homeById, homePrice, type OwnedHome } from "./game/homes";
 import {
   CRAZY_DECOR_INFO,
   CRAZY_PLANT_INFO,
@@ -293,6 +293,8 @@ const EMPTY: Snap = {
   fits: [],
   shopStore: "thrift",
   shopStoreNonce: 0,
+  shopTab: "clothes",
+  shopTabNonce: 0,
   color: "white",
   hat: "none",
   car: "black",
@@ -764,13 +766,6 @@ export default function App() {
     gameRef.current?.runtime.loadMissions();
   }, [panel]);
 
-  // Keep the grocery fresh while the Grocery panel is open — the catalog,
-  // inventory and hunger all come from the server, never local.
-  useEffect(() => {
-    if (panel !== "grocery") return;
-    gameRef.current?.runtime.loadFood();
-  }, [panel]);
-
   // Config-fetch failure guard (menu): if /config/characters.json fails,
   // avatar.ts silently falls back to a one-character roster (TJR). Show
   // that visibly on the menu instead of letting the player wonder where
@@ -1029,6 +1024,18 @@ export default function App() {
   const [fitName, setFitName] = useState("");
   const [fitMsg, setFitMsg] = useState("");
 
+  // UNIFIED SHOP: which category tab the Shop shows, the server catalog
+  // + owned snapshot, the last buy message, and the per-car paint picked
+  // in the Cars tab / the state filter in the Homes tab. Menu buttons and
+  // world entry points open the Shop on a tab via openShop(); the
+  // runtime's shopTabNonce syncs the tab when the world opens the Shop.
+  const [shopTab, setShopTab] = useState<ShopTab>("clothes");
+  const [shopData, setShopData] = useState<ShopCatalogData | null>(null);
+  const [shopMsg, setShopMsg] = useState("");
+  const [shopBusy, setShopBusy] = useState(false);
+  const [shopCarColors, setShopCarColors] = useState<Record<string, string>>({});
+  const [shopHomeState, setShopHomeState] = useState<"all" | "ny" | "la" | "fl">("all");
+
   // A store venue in the world (Mega Mall shopfront) opens the Shop on
   // that store's tab — the runtime bumps shopStoreNonce so opening the
   // same store twice in a row still switches the tab. Tab clicks are
@@ -1038,6 +1045,53 @@ export default function App() {
     setShopStore(snap.shopStore);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snap.shopStoreNonce]);
+
+  // UNIFIED SHOP: the world opens the Shop on a tab (shop counter →
+  // Clothes, grocery store → Grocery, mall shopfront → Clothes) — sync
+  // the tab when the runtime's nonce bumps, same as the store tabs.
+  useEffect(() => {
+    setShopTab(snap.shopTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snap.shopTabNonce]);
+
+  // UNIFIED SHOP: fetch the server catalog + owned snapshot whenever the
+  // Shop opens, so prices and owned flags are server-fresh.
+  useEffect(() => {
+    if (panel !== "shop") return;
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    void rt.shopCatalog().then((res) => {
+      if (res.ok) setShopData(res as ShopCatalogData);
+    });
+  }, [panel]);
+
+  // Keep the grocery fresh while the Shop's Grocery tab is open — the
+  // catalog, inventory and hunger all come from the server, never local.
+  useEffect(() => {
+    if (panel !== "shop" || shopTab !== "grocery") return;
+    gameRef.current?.runtime.loadFood();
+  }, [panel, shopTab]);
+
+  // One shop buy through the unified op: the message shows in the panel
+  // and the returned snapshot refreshes the owned flags + balance.
+  const runShopBuy = async (category: string, id: string, opts?: { color?: string; qty?: number }) => {
+    const rt = gameRef.current?.runtime;
+    if (!rt || shopBusy) return;
+    setShopBusy(true);
+    try {
+      const res = await rt.shopBuy(category, id, opts);
+      setShopMsg(res.message);
+      if (res.shop) setShopData((prev) => (prev ? { ...prev, shop: res.shop! } : prev));
+    } finally {
+      setShopBusy(false);
+    }
+  };
+
+  // Open the Shop on a category tab (menu buttons + in-panel links).
+  const openShop = (tab: ShopTab) => {
+    setShopTab(tab);
+    open("shop");
+  };
 
   const buyItem = (id: string) => {
     void gameRef.current?.runtime.buy(id);
@@ -1317,8 +1371,8 @@ export default function App() {
       {!menu && snap.prompt && !snap.hideHud ? <p className="prompt">{snap.prompt}</p> : null}
       {!menu && !snap.hideHud && (
         <div className="actions">
-          <button type="button" onClick={() => open("shop")}>Shop</button>
-          <button type="button" onClick={() => open("grocery")}>Grocery</button>
+          <button type="button" onClick={() => openShop("clothes")}>Shop</button>
+          <button type="button" onClick={() => openShop("grocery")}>Grocery</button>
           <button type="button" onClick={() => open("jobs")}>Jobs</button>
           <button type="button" onClick={() => open("missions")}>Missions</button>
           <button type="button" onClick={() => open("ads")}>Ads</button>
@@ -1400,8 +1454,8 @@ export default function App() {
             ) : null}
             <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.cycleCamera(); }}>Camera</button>
             <button type="button" onClick={() => { triggerHaptic("tap"); open("chat"); }}>Chat</button>
-            <button type="button" onClick={() => { triggerHaptic("tap"); open("shop"); }}>Shop</button>
-            <button type="button" onClick={() => { triggerHaptic("tap"); open("grocery"); }}>Grocery</button>
+            <button type="button" onClick={() => { triggerHaptic("tap"); openShop("clothes"); }}>Shop</button>
+            <button type="button" onClick={() => { triggerHaptic("tap"); openShop("grocery"); }}>Grocery</button>
             <button
               type="button"
               onPointerDown={(event) => {
@@ -1467,7 +1521,7 @@ export default function App() {
             <header>
               <strong>
                 {panel === "shop" && "OrbitX shop"}
-                {panel === "grocery" && "OrbitX Grocery"}                {panel === "wardrobe" && "Wardrobe"}                {panel === "jobs" && "Jobs"}
+                {panel === "wardrobe" && "Wardrobe"}                {panel === "jobs" && "Jobs"}
                 {panel === "missions" && "Missions"}
                 {panel === "ads" && "Book a billboard"}
                 {panel === "radio" && "Radio"}
@@ -1499,7 +1553,18 @@ export default function App() {
             {panel !== "radio" && <p className="demo">Shop, jobs, property, and the arcade use City Sol only. They are not the in-app Solana wallet and cannot be cashed out.</p>}
             {panel === "shop" && (
               <div className="list">
-                <p>Balance {snap.balance} · Burned total {snap.burned}</p>
+                <p>Balance {shopData?.shop.balance ?? snap.balance} City Sol · Burned total {snap.burned}</p>
+                {shopMsg ? <p>{shopMsg}</p> : null}
+                <p className="muted">One shop, everything in the city — clothes, cars, homes, groceries and furniture. All City Sol, all yours to keep.</p>
+                <div className="days">
+                  {(["clothes", "cars", "homes", "grocery", "items"] as ShopTab[]).map((tab) => (
+                    <button key={tab} type="button" className={shopTab === tab ? "on" : ""} onClick={() => setShopTab(tab)}>
+                      {tab === "clothes" ? "Clothes" : tab === "cars" ? "Cars" : tab === "homes" ? "Homes" : tab === "grocery" ? "Grocery" : "Items"}
+                    </button>
+                  ))}
+                </div>
+                {shopTab === "clothes" && (
+                  <>
                 <p className="muted">Three clothing stores, three price tiers — thrift is cheap, streetwear is mid, designer is serious. Same kind of piece, different store, different price — and the designer one looks better. Each store has its own shopfront in the Mega Mall — walk up and press E to open it right there.</p>
                 <div className="days">
                   {STORES.map((store) => (
@@ -1610,13 +1675,183 @@ export default function App() {
                     );
                   })()
                 )}
+                {wardrobeSections()}
+                  </>
+                )}
+                {shopTab === "cars" && (
+                  <>
+                    <h3>Cars — OrbitX Motors, in the Shop</h3>
+                    <p className="muted">Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits {garageCap(snap.garage)} cars — {(shopData?.shop.vehicles ?? snap.vehicles).length} parked.</p>
+                    {garageMsg ? <p>{garageMsg}</p> : null}
+                    {CAR_SHOP.map((section) => (
+                      <div key={section.title}>
+                        <h3>{section.title}</h3>
+                        <p className="muted">{section.blurb}</p>
+                        {section.ids.map((id) => {
+                          const v = getVehicle(id);
+                          if (!v) return null;
+                          const ownedVehicles = shopData?.shop.vehicles ?? snap.vehicles;
+                          const ownedEntry = ownedVehicles.find((car) => car.id === id);
+                          const active = snap.activeVehicle === id;
+                          const price = shopData?.catalog.cars.find((entry) => entry.id === id)?.price ?? v.price;
+                          const serverColors = shopData?.catalog.cars.find((entry) => entry.id === id)?.colors;
+                          const colorNames = serverColors?.length ? serverColors : Object.keys(VEHICLE_COLORS);
+                          const color = shopCarColors[id] ?? (ownedEntry && colorNames.includes(ownedEntry.color) ? ownedEntry.color : colorNames[0] ?? "black");
+                          const balance = shopData?.shop.balance ?? snap.balance;
+                          const afford = balance >= price;
+                          const garageFull = ownedVehicles.length >= garageCap(snap.garage) && !ownedEntry;
+                          return (
+                            <article key={id}>
+                              <div>
+                                <b>{v.name}</b>
+                                <span>{v.brand} — {v.blurb}</span>
+                                <span>Speed {v.stats.speed}/10 · Accel {v.stats.accel}/10 · Handling {v.stats.handling}/10 · {v.stats.seats} seats · {price} City Sol</span>
+                                {v.fly ? <span>{snap.touch ? FLY_CONTROLS.touchNote : FLY_CONTROLS.note}</span> : null}
+                                {v.kind === "skateboard" ? <span>Push W to go — no reverse.</span> : null}
+                                <span className="days">
+                                  {colorNames.map((name) => {
+                                    const hex = (VEHICLE_COLORS as Record<string, number>)[name] ?? 0x888888;
+                                    return (
+                                      <button
+                                        key={name}
+                                        type="button"
+                                        className={color === name ? "on" : ""}
+                                        style={{
+                                          background: `#${hex.toString(16).padStart(6, "0")}`,
+                                          color: ((hex >> 16) & 255) * 0.299 + ((hex >> 8) & 255) * 0.587 + (hex & 255) * 0.114 > 140 ? "#000" : "#fff",
+                                        }}
+                                        onClick={() => setShopCarColors((prev) => ({ ...prev, [id]: name }))}
+                                      >
+                                        {name}
+                                      </button>
+                                    );
+                                  })}
+                                </span>
+                              </div>
+                              {active ? (
+                                <button type="button" disabled>Selected</button>
+                              ) : ownedEntry ? (
+                                <button type="button" disabled={shopBusy} onClick={() => void runShopBuy("car", id, { color })}>
+                                  Drive
+                                </button>
+                              ) : (
+                                <button type="button" disabled={shopBusy || !afford || garageFull} onClick={() => void runShopBuy("car", id, { color })}>
+                                  {garageFull ? "Garage full" : afford ? `Buy — ${price} City Sol` : "Not enough City Sol"}
+                                </button>
+                              )}
+                            </article>
+                          );
+                        })}
+                      </div>
+                    ))}
+                    <div>
+                      <h3>Garage upgrades</h3>
+                      <p className="muted">Your garage fits {garageCap(snap.garage)} cars — {snap.vehicles.length} parked. Upgrades stay on {snap.universe ? snap.universe.name : "this universe"}.</p>
+                      <article>
+                        <div>
+                          <b>Parking</b>
+                          <span>+2 slots per tier, max 9 cars</span>
+                        </div>
+                        {(() => {
+                          const next = garageUpgradePrice("slots", snap.garage);
+                          return (
+                            <button type="button" disabled={garageBusy || next == null || snap.balance < next} onClick={() => void doUpgradeGarage("slots")}>
+                              {next == null ? "Maxed out" : `+2 slots — ${next} City Sol`}
+                            </button>
+                          );
+                        })()}
+                      </article>
+                      <article>
+                        <div>
+                          <b>Workshop</b>
+                          <span>25% off wash + repair · unlocks Stage 3 engine + Race tires · tune at your home garage</span>
+                        </div>
+                        <button type="button" disabled={garageBusy || snap.garage.workshop || snap.balance < GARAGE_WORKSHOP_PRICE} onClick={() => void doUpgradeGarage("workshop")}>
+                          {snap.garage.workshop ? "Installed" : `Install — ${GARAGE_WORKSHOP_PRICE} City Sol`}
+                        </button>
+                      </article>
+                      <article>
+                        <div>
+                          <b>Showroom</b>
+                          <span>Your whole collection on display at OrbitX Motors, lit up on the apron</span>
+                        </div>
+                        <button type="button" disabled={garageBusy || snap.garage.showroom || snap.balance < GARAGE_SHOWROOM_PRICE} onClick={() => void doUpgradeGarage("showroom")}>
+                          {snap.garage.showroom ? "Installed" : `Install — ${GARAGE_SHOWROOM_PRICE} City Sol`}
+                        </button>
+                      </article>
+                    </div>
+                  </>
+                )}
+                {shopTab === "homes" && (
+                  <>
+                    <h3>Homes — buy your place</h3>
+                    <p className="muted">150 homes across New York, Los Angeles and Florida. A home is yours on this universe — buying here makes it your home server. City Sol only — no burn.</p>
+                    <div className="days">
+                      {(["all", "ny", "la", "fl"] as const).map((state) => (
+                        <button key={state} type="button" className={shopHomeState === state ? "on" : ""} onClick={() => setShopHomeState(state)}>
+                          {state === "all" ? "All homes" : state === "ny" ? "New York" : state === "la" ? "Los Angeles" : "Florida"}
+                        </button>
+                      ))}
+                    </div>
+                    {HOMES.filter((home) => shopHomeState === "all" || home.state === shopHomeState).map((home) => {
+                      const price = shopData?.catalog.homes.find((entry) => entry.id === home.id)?.price ?? home.price;
+                      const owned = (shopData?.shop.homes ?? []).includes(home.id);
+                      const afford = (shopData?.shop.balance ?? snap.balance) >= price;
+                      const stateName = home.state === "ny" ? "New York" : home.state === "la" ? "Los Angeles" : "Florida";
+                      return (
+                        <article key={home.id}>
+                          <div>
+                            <b>{home.name}</b>
+                            <span>{stateName} · {home.district} · {home.archetype} · {price} City Sol</span>
+                          </div>
+                          <button type="button" disabled={shopBusy || owned || !afford} onClick={() => void runShopBuy("home", home.id)}>
+                            {owned ? "Owned" : afford ? `Buy — ${price} City Sol` : "Not enough City Sol"}
+                          </button>
+                        </article>
+                      );
+                    })}
+                  </>
+                )}
+                {shopTab === "grocery" && (
+                  <>
+                    <h3>Grocery — OrbitX Grocery</h3>
+                    <p>Balance {(shopData?.shop.balance ?? snap.balance)} City Sol · Hunger {snap.hunger}/100{snap.hunger <= 0 ? " — Hungry: walking is slower until you eat." : ""}</p>
+                    {snap.foodMsg ? <p>{snap.foodMsg}</p> : null}
+                    {!snap.foodLoaded ? <p>Loading the shelves…</p> : null}
+                    {snap.foodCatalog.map((item) => {
+                      const owned = snap.food[item.id] || 0;
+                      return (
+                        <article key={item.id}>
+                          <div>
+                            <b>{item.name}</b>
+                            <span>{item.price} City Sol · restores {item.hunger} hunger</span>
+                            {owned > 0 ? <span>You own {owned}</span> : null}
+                          </div>
+                          <div className="row-btns">
+                            {owned > 0 ? (
+                              <button type="button" onClick={() => gameRef.current?.runtime.eatFood(item.id)}>
+                                Eat
+                              </button>
+                            ) : null}
+                            <button type="button" disabled={shopBusy} onClick={() => void runShopBuy("food", item.id)}>
+                              Buy
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                    <p className="muted">Food is City Sol only. Hunger drains slowly while you play — eat to stay full. At 0 hunger you only walk slower; nothing else happens.</p>
+                  </>
+                )}
+                {shopTab === "items" && (
+                  <>
                 <h3>Furniture — for your own home</h3>
                 <p className="muted">
                   Buy it here, then stand inside a home you own and press X (Edit Home) to place it where you want it. City Sol only — no burn.
                   Sell a piece back for half price from here, as long as it is not placed.
                 </p>
                 {FURNITURE_CATALOG.map((item) => {
-                  const ownedCount = snap.furnitureOwned.filter((id) => id === item.id).length;
+                  const ownedCount = (shopData?.shop.furnitureOwned ?? snap.furnitureOwned).filter((id) => id === item.id).length;
                   return (
                     <article key={item.id}>
                       <div>
@@ -1625,7 +1860,8 @@ export default function App() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => gameRef.current?.runtime.buyFurniture(item.id)}
+                        disabled={shopBusy}
+                        onClick={() => void runShopBuy("furniture", item.id)}
                       >
                         Buy
                       </button>
@@ -1640,7 +1876,8 @@ export default function App() {
                     </article>
                   );
                 })}
-                {wardrobeSections()}
+                  </>
+                )}
               </div>
             )}
             {panel === "wardrobe" && (
@@ -1648,38 +1885,6 @@ export default function App() {
                 <p className="muted">Your closet — change clothes here, no buying. New pieces live at the three stores in the Mega Mall — Second Orbit (thrift), ORBITX Supply (streetwear), AURUM Boutique (designer).</p>
                 <button type="button" onClick={() => open("shop")}>Go to the shops</button>
                 {wardrobeSections()}              </div>
-            )}
-            {panel === "grocery" && (
-              <div className="list">
-                <p>Balance {snap.balance} City Sol · Hunger {snap.hunger}/100{snap.hunger <= 0 ? " — Hungry: walking is slower until you eat." : ""}</p>
-                {snap.foodMsg ? <p>{snap.foodMsg}</p> : null}
-                {!snap.foodLoaded ? <p>Loading the shelves…</p> : null}
-                {snap.foodCatalog.map((item) => {
-                  const owned = snap.food[item.id] || 0;
-                  return (
-                    <article key={item.id}>
-                      <div>
-                        <b>{item.name}</b>
-                        <span>{item.price} City Sol · restores {item.hunger} hunger</span>
-                        {owned > 0 ? <span>You own {owned}</span> : null}
-                      </div>
-                      <div className="row-btns">
-                        {owned > 0 ? (
-                          <button type="button" onClick={() => gameRef.current?.runtime.eatFood(item.id)}>
-                            Eat
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => gameRef.current?.runtime.buyFood(item.id)}
-                        >
-                          Buy
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-                <p className="muted">Food is City Sol only. Hunger drains slowly while you play — eat to stay full. At 0 hunger you only walk slower; nothing else happens.</p>              </div>
             )}
             {/* FOOD: restaurant menu — order at the counter, eat there.
                 Restores hunger and leaves you Satisfied: job pay +10%
