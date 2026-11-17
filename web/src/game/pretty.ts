@@ -31,53 +31,15 @@ export function setPrettyNight(f: number) {
   }
 }
 
-function glowRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  color: string,
-  alpha: number,
-) {
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = color;
-  ctx.fillRect(x, y, w, h);
-  ctx.globalAlpha = 1;
-}
-
-function storefront(ctx: CanvasRenderingContext2D, base: string, glass: string) {
-  ctx.fillStyle = base;
-  ctx.fillRect(0, 442, 256, 70);
-  // Gold signage band.
-  ctx.fillStyle = "#e0b33a";
-  ctx.fillRect(0, 442, 256, 12);
-  ctx.fillStyle = "#10141c";
-  ctx.fillRect(20, 445, 216, 6);
-  // Striped awning.
-  for (let i = 0; i < 8; i++) {
-    ctx.fillStyle = i % 2 === 0 ? "#e0b33a" : "#f4f7fb";
-    ctx.fillRect(i * 32, 454, 32, 12);
-  }
-  // Big glass panes + a door with gold handles (second pane).
-  for (let i = 0; i < 4; i++) {
-    const x = 10 + i * 62;
-    ctx.fillStyle = "#0b1c26";
-    ctx.fillRect(x - 2, 468, 52, 38);
-    const paneGrad = ctx.createLinearGradient(0, 470, 0, 506);
-    paneGrad.addColorStop(0, glass);
-    paneGrad.addColorStop(1, "#ffca7a");
-    ctx.fillStyle = paneGrad;
-    ctx.fillRect(x, 470, 48, 34);
-    ctx.fillStyle = "rgba(126,246,255,0.5)";
-    ctx.fillRect(x + 4, 474, 40, 5);
-    if (i === 1) {
-      ctx.fillStyle = "#e0b33a";
-      ctx.fillRect(x + 18, 482, 3, 18);
-      ctx.fillRect(x + 28, 482, 3, 18);
-    }
-    glowRect(ctx, x, 470, 48, 34, "#ffca7a", 0.65);
-  }
+// Deterministic per-cell variation for the facade canvases (no rng
+// needed — the 6 canvases are painted once at load and shared by every
+// building of the style).
+function cellHash(a: number, b: number, c: number): number {
+  let h = (a * 374761393 + b * 668265263 + c * 974634211) | 0;
+  h = (h ^ (h >> 13)) | 0;
+  h = Math.imul(h, 1274126177);
+  h = (h ^ (h >> 16)) >>> 0;
+  return h / 4294967296;
 }
 
 function paintFacade(style: number) {
@@ -86,128 +48,244 @@ function paintFacade(style: number) {
   canvas.height = 512;
   const ctx = canvas.getContext("2d");
   if (!ctx) return { map: new CanvasTexture(canvas), glow: new CanvasTexture(canvas) };
-  // Per-style base + window drawing. One canvas = a 10m x 14m module.
+  // One canvas = a 10m x 14m module, 8 window rows. The old canvas put a
+  // fake storefront (gold band + awning + glass doors) at the bottom of
+  // EVERY tile — on a tall building (repeat.y > 1) that storefront
+  // repeated up the tower, floating 14m and 28m in the air. The real
+  // storefront is 3D now (gold band + awning + real glass openings in
+  // hollow()/addStorefront), so the canvas carries only the upper facade
+  // + a string-course band at its foot, which reads as a deliberate
+  // horizontal course at every tile boundary instead of a floating shop.
+  // The old brick style was also a flat #8a4a34 slab with 1px lines —
+  // the "plain straight red building" the user called out — so every
+  // style now has real per-unit colour variation, sills, lintels and
+  // floor lines.
   const s = style % 6;
+  // Windows drawn on the map, recorded for the glow canvas (same rects,
+  // so the night glow lines up with the actual windows).
+  const wins: Array<{ x: number; y: number; w: number; h: number; lit: number }> = [];
+  const ROWS = 8;
+  const rowY = (r: number) => 18 + r * 54;
   if (s === 0) {
-    // Glass curtain wall: dark blue glass bands + thin mullions.
+    // Glass curtain wall: dark blue glass bands + thin mullions, per-pane
+    // tint variation + a floor slab line under each band.
     ctx.fillStyle = "#0d1b26";
     ctx.fillRect(0, 0, 256, 512);
-    for (let row = 0; row < 7; row++) {
-      const y = 28 + row * 54;
-      ctx.fillStyle = "#16324a";
-      ctx.fillRect(8, y, 240, 36);
-      ctx.fillStyle = "rgba(126,246,255,0.55)";
-      ctx.fillRect(12, y + 4, 232, 4);
+    for (let row = 0; row < ROWS; row++) {
+      const y = rowY(row);
+      for (let col = 0; col < 8; col++) {
+        const px = 8 + col * 30;
+        const v = cellHash(row, col, 0);
+        ctx.fillStyle = v < 0.25 ? "#1d4258" : v < 0.6 ? "#16324a" : "#12293d";
+        ctx.fillRect(px, y, 28, 36);
+        ctx.fillStyle = "rgba(126,246,255,0.55)";
+        ctx.fillRect(px + 2, y + 4, 24, 4);
+        ctx.fillStyle = "#0a141d";
+        ctx.fillRect(px + 28, y, 2, 36);
+        wins.push({ x: px, y, w: 28, h: 36, lit: v < 0.7 ? 1 : 0.4 });
+      }
       ctx.fillStyle = "#0a141d";
-      for (let col = 0; col <= 7; col++) ctx.fillRect(8 + col * 32, y, 2, 36);
+      ctx.fillRect(0, y + 44, 256, 3);
     }
-    storefront(ctx, "#0a141d", "#16324a");
+    ctx.fillStyle = "#0a141d";
+    ctx.fillRect(0, 452, 256, 60);
+    ctx.fillStyle = "#e0b33a";
+    ctx.fillRect(0, 452, 256, 3);
   } else if (s === 1) {
-    // Warm brick residential: terracotta courses, small warm-lit windows.
-    ctx.fillStyle = "#8a4a34";
+    // Warm brick residential: REAL brick courses (8px courses, 16px
+    // bricks, staggered, each brick a varied terracotta/tan) + small
+    // warm-lit windows with stone sills and lintels. Never one flat red.
+    const BRICK = ["#8a4a34", "#9a5540", "#7a3f2c", "#a05a3a", "#b07a52", "#6e3a28", "#96502f", "#c07a4a"];
+    ctx.fillStyle = "#5e3222";
     ctx.fillRect(0, 0, 256, 512);
-    ctx.fillStyle = "#6e3a28";
-    for (let y = 12; y < 442; y += 12) ctx.fillRect(0, y, 256, 1);
-    for (let row = 0; row < 7; row++) {
+    const courseH = 8;
+    const brickW = 16;
+    for (let r = 0; r * courseH < 452; r++) {
+      const y = r * courseH;
+      const off = r % 2 === 0 ? 0 : brickW / 2;
+      for (let c = -1; c <= 256 / brickW; c++) {
+        const x = off + c * brickW;
+        ctx.fillStyle = BRICK[Math.floor(cellHash(r, c, 1) * BRICK.length)];
+        ctx.fillRect(x + 1, y + 1, brickW - 2, courseH - 2);
+        ctx.fillStyle = "rgba(255,255,255,0.10)";
+        ctx.fillRect(x + 1, y + 1, brickW - 2, 2);
+        ctx.fillStyle = "rgba(0,0,0,0.18)";
+        ctx.fillRect(x + 1, y + courseH - 3, brickW - 2, 2);
+      }
+    }
+    for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < 3; col++) {
         const x = 22 + col * 74;
-        const y = 30 + row * 54;
+        const y = rowY(row);
+        const lit = cellHash(row, col, 11);
         ctx.fillStyle = "#2a1a12";
         ctx.fillRect(x - 3, y - 3, 34, 38);
-        ctx.fillStyle = row % 2 === 0 ? "#ffd9a0" : "#c98d4e";
+        ctx.fillStyle = lit < 0.55 ? "#ffd9a0" : lit < 0.8 ? "#c98d4e" : "#3a2a1a";
         ctx.fillRect(x, y, 28, 32);
         ctx.fillStyle = "#2a1a12";
         ctx.fillRect(x + 13, y, 2, 32);
+        if (lit < 0.55) {
+          ctx.fillStyle = "rgba(120,70,40,0.5)";
+          ctx.fillRect(x + 2, y + 2, 10, 28);
+        }
+        ctx.fillStyle = "#d8cfb8";
+        ctx.fillRect(x - 4, y + 32, 36, 4);
+        ctx.fillRect(x - 3, y - 8, 34, 5);
+        wins.push({ x, y, w: 28, h: 32, lit: lit < 0.55 ? 1 : lit < 0.8 ? 0.6 : 0.15 });
       }
     }
-    storefront(ctx, "#6e3a28", "#ffd9a0");
+    ctx.fillStyle = "#b8a88a";
+    ctx.fillRect(0, 452, 256, 60);
+    ctx.fillStyle = "#8a7a5e";
+    for (let x = 0; x < 256; x += 64) ctx.fillRect(x, 452, 2, 60);
+    ctx.fillStyle = "#e8e0cc";
+    ctx.fillRect(0, 452, 256, 3);
   } else if (s === 2) {
-    // Concrete ribbon windows: light slabs, full-width dark bands.
+    // Concrete ribbon windows: light slabs with per-panel tone + joints,
+    // full-width dark bands, sill + floor slab lines.
     ctx.fillStyle = "#b8bcc0";
     ctx.fillRect(0, 0, 256, 512);
-    ctx.fillStyle = "#9aa0a6";
-    for (let y = 0; y < 442; y += 54) ctx.fillRect(0, y + 50, 256, 4);
-    for (let row = 0; row < 7; row++) {
-      const y = 30 + row * 54;
-      ctx.fillStyle = "#232a30";
-      ctx.fillRect(10, y, 236, 30);
-      ctx.fillStyle = "#3d4a55";
-      ctx.fillRect(14, y + 4, 228, 6);
-      ctx.fillStyle = "#d7dde8";
-      ctx.fillRect(10, y + 30, 236, 3);
+    for (let p = 0; p < 4; p++) {
+      const v = cellHash(0, p, 2);
+      ctx.fillStyle = v < 0.5 ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
+      ctx.fillRect(p * 64, 0, 64, 452);
+      ctx.fillStyle = "#9aa0a6";
+      ctx.fillRect(p * 64, 0, 2, 452);
     }
-    storefront(ctx, "#8b9096", "#9fc4d6");
+    for (let row = 0; row < ROWS; row++) {
+      const y = rowY(row);
+      ctx.fillStyle = "#232a30";
+      ctx.fillRect(10, y, 236, 28);
+      ctx.fillStyle = "#3d4a55";
+      ctx.fillRect(14, y + 4, 228, 5);
+      ctx.fillStyle = "rgba(215,221,232,0.5)";
+      ctx.fillRect(14, y + 12, 228, 2);
+      ctx.fillStyle = "#232a30";
+      for (let m = 1; m < 8; m++) ctx.fillRect(10 + m * 30, y, 2, 28);
+      ctx.fillStyle = "#d7dde8";
+      ctx.fillRect(10, y + 28, 236, 3);
+      ctx.fillStyle = "#9aa0a6";
+      ctx.fillRect(0, y + 46, 256, 4);
+      wins.push({ x: 10, y, w: 236, h: 28, lit: 0.7 });
+    }
+    ctx.fillStyle = "#8b9096";
+    ctx.fillRect(0, 452, 256, 60);
+    ctx.fillStyle = "#d7dde8";
+    ctx.fillRect(0, 452, 256, 3);
   } else if (s === 3) {
-    // Cream stone modern: light base, pilasters, dark windows.
+    // Cream stone modern: stone coursing + pilasters with capitals,
+    // dark windows with sills.
     ctx.fillStyle = "#e8e0cc";
     ctx.fillRect(0, 0, 256, 512);
     ctx.fillStyle = "#d8cfb8";
-    for (let col = 0; col <= 4; col++) ctx.fillRect(col * 64 - 6, 0, 12, 442);
-    for (let row = 0; row < 7; row++) {
+    for (let y = 18; y < 452; y += 18) ctx.fillRect(0, y, 256, 1);
+    for (let r = 0; r < 26; r++) {
+      const y = r * 18;
+      const off = r % 2 === 0 ? 0 : 32;
+      for (let x = off; x < 256; x += 64) ctx.fillRect(x, y, 1, 18);
+    }
+    for (let col = 0; col <= 4; col++) {
+      ctx.fillStyle = "#d8cfb8";
+      ctx.fillRect(col * 64 - 6, 0, 12, 452);
+      ctx.fillStyle = "#c4b896";
+      ctx.fillRect(col * 64 - 8, 0, 16, 6);
+      ctx.fillRect(col * 64 - 8, 446, 16, 6);
+    }
+    for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < 4; col++) {
         const x = 20 + col * 60;
-        const y = 28 + row * 54;
+        const y = rowY(row);
+        const lit = cellHash(row, col, 3);
         ctx.fillStyle = "#1d2733";
-        ctx.fillRect(x, y, 36, 40);
-        ctx.fillStyle = "#8a97a8";
+        ctx.fillRect(x - 2, y - 2, 40, 42);
+        ctx.fillStyle = lit < 0.5 ? "#8a97a8" : "#5a6a7a";
+        ctx.fillRect(x, y, 36, 38);
+        ctx.fillStyle = "rgba(232,224,204,0.7)";
         ctx.fillRect(x + 3, y + 3, 30, 5);
+        ctx.fillStyle = "#1d2733";
+        ctx.fillRect(x + 17, y, 2, 38);
         ctx.fillStyle = "#e8e0cc";
-        ctx.fillRect(x, y + 40, 36, 3);
+        ctx.fillRect(x - 2, y + 38, 40, 4);
+        wins.push({ x, y, w: 36, h: 38, lit: lit < 0.5 ? 0.8 : 0.4 });
       }
     }
-    storefront(ctx, "#cfc4a8", "#2a3540");
+    ctx.fillStyle = "#cfc4a8";
+    ctx.fillRect(0, 452, 256, 60);
+    ctx.fillStyle = "#e8e0cc";
+    ctx.fillRect(0, 452, 256, 3);
   } else if (s === 4) {
-    // Neon commercial: dark base, big glowing panes, gold signage band.
+    // Neon commercial: dark base, gold sign band, big glowing panes,
+    // gold floor lines.
     ctx.fillStyle = "#0c0f16";
     ctx.fillRect(0, 0, 256, 512);
     ctx.fillStyle = "#e0b33a";
-    ctx.fillRect(0, 8, 256, 32);
+    ctx.fillRect(0, 8, 256, 30);
     ctx.fillStyle = "#10141c";
-    ctx.fillRect(24, 18, 208, 12);
-    for (let row = 0; row < 6; row++) {
+    ctx.fillRect(24, 17, 208, 12);
+    for (let row = 0; row < ROWS; row++) {
+      const y = 52 + row * 50;
       for (let col = 0; col < 3; col++) {
         const x = 16 + col * 80;
-        const y = 56 + row * 58;
+        const lit = cellHash(row, col, 4);
         ctx.fillStyle = "#12303f";
-        ctx.fillRect(x, y, 56, 44);
-        ctx.fillStyle = row % 2 === 0 ? "#7ef6ff" : "#2fa8cc";
+        ctx.fillRect(x, y, 56, 40);
+        ctx.fillStyle = lit < 0.5 ? "#7ef6ff" : lit < 0.8 ? "#2fa8cc" : "#1a5a70";
         ctx.globalAlpha = 0.85;
-        ctx.fillRect(x + 4, y + 4, 48, 30);
+        ctx.fillRect(x + 4, y + 4, 48, 28);
         ctx.globalAlpha = 1;
-      }
-    }
-    storefront(ctx, "#0a0d13", "#12303f");
-  } else {
-    // Dark OrbitX identity: cyan windows, gold floor lines.
-    ctx.fillStyle = "#10141c";
-    ctx.fillRect(0, 0, 256, 512);
-    for (let row = 0; row < 7; row++) {
-      for (let col = 0; col < 4; col++) {
-        const x = 18 + col * 60;
-        const y = 28 + row * 54;
-        ctx.fillStyle = "#12343f";
-        ctx.fillRect(x, y, 44, 36);
-        ctx.fillStyle = row % 2 === 0 ? "#7ef6ff" : "#49c8e8";
-        ctx.globalAlpha = 0.85;
-        ctx.fillRect(x + 4, y + 4, 36, 22);
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = "#f4f7fb";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, 44, 36);
+        ctx.fillStyle = "rgba(255,255,255,0.65)";
+        ctx.fillRect(x + 8, y + 10, 40, 3);
+        wins.push({ x: x + 4, y: y + 4, w: 48, h: 28, lit: lit < 0.5 ? 1 : 0.6 });
       }
       ctx.fillStyle = "#e0b33a";
-      ctx.fillRect(0, 24 + row * 54, 256, 2);
+      ctx.fillRect(0, y + 46, 256, 2);
     }
+    ctx.fillStyle = "#0a0d13";
+    ctx.fillRect(0, 452, 256, 60);
+    ctx.fillStyle = "#e0b33a";
+    ctx.fillRect(0, 452, 256, 3);
+  } else {
+    // Dark OrbitX identity: cyan windows with white frames, gold floor
+    // lines, cyan accent line at the top.
+    ctx.fillStyle = "#10141c";
+    ctx.fillRect(0, 0, 256, 512);
     ctx.fillStyle = "#9befff";
-    ctx.fillRect(0, 418, 256, 8);
-    storefront(ctx, "#0a0d13", "#12303f");
+    ctx.fillRect(0, 8, 256, 3);
+    for (let row = 0; row < ROWS; row++) {
+      const y = rowY(row);
+      for (let col = 0; col < 4; col++) {
+        const x = 18 + col * 60;
+        const lit = cellHash(row, col, 5);
+        ctx.fillStyle = "#12343f";
+        ctx.fillRect(x, y, 44, 34);
+        if (lit < 0.7) {
+          ctx.fillStyle = lit < 0.35 ? "#7ef6ff" : "#49c8e8";
+          ctx.globalAlpha = 0.85;
+          ctx.fillRect(x + 4, y + 4, 36, 22);
+          ctx.globalAlpha = 1;
+        }
+        ctx.strokeStyle = "#f4f7fb";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, 44, 34);
+        wins.push({ x: x + 4, y: y + 4, w: 36, h: 22, lit: lit < 0.35 ? 1 : lit < 0.7 ? 0.7 : 0.1 });
+      }
+      ctx.fillStyle = "#e0b33a";
+      ctx.fillRect(0, y + 46, 256, 2);
+    }
+    ctx.fillStyle = "#0a0d13";
+    ctx.fillRect(0, 452, 256, 60);
+    ctx.fillStyle = "#e0b33a";
+    ctx.fillRect(0, 452, 256, 3);
   }
   const map = new CanvasTexture(canvas);
   map.colorSpace = SRGBColorSpace;
   map.wrapS = RepeatWrapping;
   map.wrapT = RepeatWrapping;
   map.anisotropy = 4;
-  // Emissive map: the windows glow (warm for brick/cream, cyan for the rest).
+  // Emissive map: the recorded windows glow (warm for brick/cream, cyan
+  // for the rest), so the night glow lines up with the actual windows
+  // instead of a fixed 4-col grid that never matched the brick 3-col
+  // layout or the ribbon bands.
   const glowCanvas = document.createElement("canvas");
   glowCanvas.width = 256;
   glowCanvas.height = 512;
@@ -216,14 +294,10 @@ function paintFacade(style: number) {
   if (g) {
     g.clearRect(0, 0, 256, 512);
     g.fillStyle = s === 1 || s === 3 ? "#ffc27a" : s === 2 ? "#bfe6ff" : "#7ef6ff";
-    for (let row = 0; row < 7; row++) {
-      for (let col = 0; col < 4; col++) {
-        g.globalAlpha = row % 2 === 0 ? 1 : 0.45;
-        g.fillRect(22 + col * 60, 32 + row * 54, 36, 22);
-      }
+    for (const w of wins) {
+      g.globalAlpha = w.lit;
+      g.fillRect(w.x, w.y, w.w, w.h);
     }
-    g.globalAlpha = 0.65;
-    g.fillRect(10, 470, 236, 34);
     g.globalAlpha = 1;
     glow.colorSpace = SRGBColorSpace;
     glow.wrapS = RepeatWrapping;
