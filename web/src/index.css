@@ -1739,9 +1739,16 @@ body.touch .touch-ui {
     font-size: 14px;
   }
 
+  /* Homes list (and every long panel list) on touch: the docked
+     minimap sits over the panel's bottom-right corner (z-index 8 over
+     the panel's 6) — ~132px map + vitals + Eat, ~230px tall. Without
+     this the last rows of a long list (the Homes tab's bottom homes)
+     sit under the map and can never be seen or tapped. The extra
+     bottom padding is scrollable room, so the last item can be scrolled
+     up clear of the map. */
   .panel {
     max-height: calc(100dvh - 16px);
-    padding: 12px 12px 28px;
+    padding: 12px 12px 260px;
   }
 
   .roster {

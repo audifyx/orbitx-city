@@ -3777,24 +3777,25 @@ async function buyHome(player, save, body) {
 // state lives inside the EXISTING player_saves.homes JSON (the same TEXT
 // column buyHome already writes), next to homeServer/homes:
 //
-//   save.homes.rentals: { [homeId]: { tenant, weeklyRent, nextRentAt, startedAt, collected } }
+//   save.homes.rentals: { [homeId]: { tenant, dailyRent, nextRentAt, startedAt, collected } }
+//   (older saves carry weeklyRent instead — read as dailyRent = weeklyRent / 7, rounded; see peopleRentalPublic)
 //   save.homes.people:  { [npcName]: { talks, lastTalkAt } }          // relationships
 //   save.homes.party:   { homeId, startedAt, endsAt, cost, guests: [name] } | null
 //   save.homes.guests:  { [name]: { kind: "npc"|"friend", homeId, until, party?: bool } }
 //
 // Relationships are per (player, server) — same scope as homes. `daily`
 // was NOT used: ensureDaily() rebuilds it every new day, which would wipe
-// friendships overnight. Rent is 5% of the home price per week, first
-// payout 7 days after rent-out, at most 4 unpaid weeks accrue (same cap
-// pattern as the lot-rent arrears in live.js). A party costs 50 City Sol
-// and lasts 10 minutes; a guest visit lasts 10 minutes.
-const PEOPLE_WEEK_MS = 7 * 86400000;
+// friendships overnight. Rent is 5% of the home price per week, PAID
+// DAILY (first payout 1 day after rent-out, at most 14 unpaid days
+// accrue — same cap pattern as the lot-rent arrears in live.js). A party
+// costs 50 City Sol and lasts 10 minutes; a guest visit lasts 10 minutes.
+const PEOPLE_DAY_MS = 86400000;
 const PEOPLE_TALK_COOLDOWN_MS = 5000;
 const PEOPLE_GUEST_MS = 10 * 60 * 1000;
 const PEOPLE_PARTY_MS = 10 * 60 * 1000;
 const PEOPLE_PARTY_COST = 50;
 const PEOPLE_MAX_PARTY_GUESTS = 5;
-const PEOPLE_MAX_UNPAID_WEEKS = 4;
+const PEOPLE_MAX_UNPAID_DAYS = 14;
 // Tenants are fictional renters (not the 14 talkable NPCs — those keep
 // their patrols). The tenant for a home is deterministic from its id.
 const PEOPLE_TENANTS = ["Alex", "Sam", "Jordan", "Casey", "Morgan", "Riley", "Taylor", "Jamie", "Robin", "Avery"];
@@ -3836,9 +3837,10 @@ function peopleRelLabel(level) {
   return PEOPLE_REL_STEPS[Math.min(level, PEOPLE_REL_STEPS.length - 1)].label;
 }
 
-/** Weekly rent for a home: 5% of its price, rounded to the nearest 10. */
-function peopleWeeklyRent(price) {
-  return Math.max(10, Math.round((Number(price || 0) * 0.05) / 10) * 10);
+/** Daily rent for a home: 5% of its price a week, paid daily — the
+ * weekly amount split over 7 days, rounded to the nearest 5 (min 10). */
+function peopleDailyRent(price) {
+  return Math.max(10, Math.round((Number(price || 0) * 0.05) / 7 / 5) * 5);
 }
 
 function peopleTenantFor(homeId) {
@@ -3891,24 +3893,32 @@ function peopleRelationship(npc, rec) {
   };
 }
 
-/** Whole weeks of rent owed right now (0 when nothing is due yet). */
+/** Whole days of rent owed right now (0 when nothing is due yet). */
 function peopleRentalDue(rental, now = Date.now()) {
   const next = Number(rental?.nextRentAt || 0);
   if (!next || now < next) return 0;
-  return Math.min(PEOPLE_MAX_UNPAID_WEEKS, Math.floor((now - next) / PEOPLE_WEEK_MS) + 1);
+  return Math.min(PEOPLE_MAX_UNPAID_DAYS, Math.floor((now - next) / PEOPLE_DAY_MS) + 1);
+}
+
+/** Daily rent for a stored rental — new saves carry dailyRent; older
+ * saves carry weeklyRent, read as a seventh of it (same rounding). */
+function peopleDailyRentOf(rental) {
+  if (Number(rental?.dailyRent || 0) > 0) return Number(rental.dailyRent);
+  return Math.max(10, Math.round(Number(rental?.weeklyRent || 0) / 7 / 5) * 5);
 }
 
 function peopleRentalPublic(homeId, rental, now = Date.now()) {
-  const weeksDue = peopleRentalDue(rental, now);
+  const daysDue = peopleRentalDue(rental, now);
+  const dailyRent = peopleDailyRentOf(rental);
   return {
     homeId,
     tenant: String(rental?.tenant || ""),
-    weeklyRent: Number(rental?.weeklyRent || 0),
+    dailyRent,
     nextRentAt: Number(rental?.nextRentAt || 0),
     startedAt: Number(rental?.startedAt || 0),
     collected: Number(rental?.collected || 0),
-    weeksDue,
-    due: weeksDue * Number(rental?.weeklyRent || 0),
+    daysDue,
+    due: daysDue * dailyRent,
   };
 }
 
@@ -4192,11 +4202,11 @@ async function peopleRentOut(player, save, body) {
   if (homes.party?.homeId === homeId) {
     return { ok: false, message: "A party is going at that home — rent it out after the party ends.", status: 400 };
   }
-  const weeklyRent = peopleWeeklyRent(owned.price || HOME_PRICES[homeId]);
+  const dailyRent = peopleDailyRent(owned.price || HOME_PRICES[homeId]);
   homes.rentals[homeId] = {
     tenant: peopleTenantFor(homeId),
-    weeklyRent,
-    nextRentAt: now + PEOPLE_WEEK_MS,
+    dailyRent,
+    nextRentAt: now + PEOPLE_DAY_MS,
     startedAt: now,
     collected: 0,
   };
@@ -4205,7 +4215,7 @@ async function peopleRentOut(player, save, body) {
   return {
     ok: true,
     ...peopleStatusFor(save, now),
-    message: `Rented out to ${homes.rentals[homeId].tenant} — ${weeklyRent} City Sol a week, first payout in 7 days.`,
+    message: `Rented out to ${homes.rentals[homeId].tenant} — ${dailyRent} City Sol a day, first payout tomorrow.`,
     me: publicPlayer(save),
   };
 }
@@ -4220,11 +4230,11 @@ async function peopleEndRent(player, save, body) {
   const rental = homes.rentals[homeId];
   if (!rental) return { ok: false, message: "That home is not rented out.", status: 400 };
   // Ending a lease settles what the tenant owes first — the money is yours.
-  // peopleRentalDue returns WEEKS owed, not money: multiply by the weekly
+  // peopleRentalDue returns DAYS owed, not money: multiply by the daily
   // rent (the first draft added the week count itself to the balance).
-  const weeks = peopleRentalDue(rental, now);
-  const due = weeks * Number(rental.weeklyRent || 0);
-  if (weeks > 0) {
+  const days = peopleRentalDue(rental, now);
+  const due = days * peopleDailyRentOf(rental);
+  if (days > 0) {
     save.balance += due;
     rental.collected = Number(rental.collected || 0) + due;
   }
@@ -4238,7 +4248,7 @@ async function peopleEndRent(player, save, body) {
     ...peopleStatusFor(save, now),
     collected: due,
     message: due > 0
-      ? `Lease ended — ${tenant} moved out and paid ${due} City Sol owed (${weeks} week${weeks === 1 ? "" : "s"}).`
+      ? `Lease ended — ${tenant} moved out and paid ${due} City Sol owed (${days} day${days === 1 ? "" : "s"}).`
       : `Lease ended — ${tenant} moved out. The home is yours again.`,
     me: publicPlayer(save),
   };
@@ -4251,13 +4261,13 @@ async function peopleCollectRent(player, save) {
   let collected = 0;
   const paid = [];
   for (const [homeId, rental] of Object.entries(homes.rentals)) {
-    const weeks = peopleRentalDue(rental, now);
-    if (!weeks) continue;
-    const due = weeks * Number(rental.weeklyRent || 0);
-    rental.nextRentAt = Number(rental.nextRentAt || 0) + weeks * PEOPLE_WEEK_MS;
+    const days = peopleRentalDue(rental, now);
+    if (!days) continue;
+    const due = days * peopleDailyRentOf(rental);
+    rental.nextRentAt = Number(rental.nextRentAt || 0) + days * PEOPLE_DAY_MS;
     rental.collected = Number(rental.collected || 0) + due;
     collected += due;
-    paid.push({ homeId, tenant: rental.tenant, weeks, amount: due });
+    paid.push({ homeId, tenant: rental.tenant, days, amount: due });
   }
   if (!collected) {
     const next = Object.values(homes.rentals).map((r) => Number(r.nextRentAt || 0)).filter(Boolean);
@@ -4267,7 +4277,7 @@ async function peopleCollectRent(player, save) {
       ok: true,
       ...peopleStatusFor(save, now),
       collected: 0,
-      message: next.length ? `No rent due yet — next payout in ${days} day${days === 1 ? "" : "s"}.` : "Nothing rented out — rent out a home you own to earn weekly City Sol.",
+      message: next.length ? `No rent due yet — next payout in ${days} day${days === 1 ? "" : "s"}.` : "Nothing rented out — rent out a home you own to earn daily City Sol.",
       me: publicPlayer(save),
     };
   }
