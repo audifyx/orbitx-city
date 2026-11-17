@@ -110,7 +110,7 @@ import {
   type OwnedVehicle,
   type VehicleMods,
 } from "./vehicles";
-import { ensureWalker, animateWalk, makeCameraSmoother } from "./movement";
+import { ensureWalker, animateWalk, resetWalkPose, makeCameraSmoother } from "./movement";
 import { triggerHaptic, isHapticsEnabled, setHapticsEnabled } from "./haptics";
 import { emergencyJobById, jobObjective, jobTargetFor, jobTaskCountFor } from "./emergency";
 import {
@@ -7074,10 +7074,17 @@ export function createRuntime(scene: Scene) {
         person.position.y = lift;
       }
       // Walk cycle from the remote's real displacement this frame.
+      // A >5u jump in one frame is a teleport/respawn, not walking —
+      // snap the walker neutral instead of flailing the legs at the
+      // capped speed (walk-fix 2026-11-17).
       if (!remote.state.car) {
-        const remoteSpeed = Math.min(30, Math.hypot(remote.group.position.x - remote.prevX, remote.group.position.z - remote.prevZ) / Math.max(dt, 0.001));
+        const remoteJump = Math.hypot(remote.group.position.x - remote.prevX, remote.group.position.z - remote.prevZ);
         const remoteWalker = ensureWalker(person);
-        if (remoteWalker) animateWalk(remoteWalker, remoteSpeed, dt, remoteSpeed > 0.05, false);
+        if (remoteWalker) {
+          if (remoteJump > 5) resetWalkPose(remoteWalker);
+          const remoteSpeed = remoteJump > 5 ? 0 : Math.min(30, remoteJump / Math.max(dt, 0.001));
+          animateWalk(remoteWalker, remoteSpeed, dt, remoteSpeed > 0.05, false);
+        }
       }
       remote.prevX = remote.group.position.x;
       remote.prevZ = remote.group.position.z;
@@ -7092,12 +7099,17 @@ export function createRuntime(scene: Scene) {
       // the legs must stop when a wall stops the player). ensureWalker runs
       // every frame because dressPerson wipes pivots on a re-dress.
       // animateWalk runs AFTER position.set, so its bob/lean survive.
-      const horizontalSpeed = prevLocal.set
+      // A >5u jump in one frame is a teleport (Ride, job target, respawn),
+      // not walking — snap the walker neutral instead of letting the
+      // capped speed (30) flail the legs for a frame (walk-fix 2026-11-17).
+      const teleported = prevLocal.set && Math.hypot(body.x - prevLocal.x, body.z - prevLocal.z) > 5;
+      const horizontalSpeed = prevLocal.set && !teleported
         ? Math.min(30, Math.hypot(body.x - prevLocal.x, body.z - prevLocal.z) / Math.max(dt, 0.001))
         : 0;
       prevLocal = { x: body.x, z: body.z, set: true };
       const localWalker = ensureWalker(localBody);
       if (localWalker && !driving) {
+        if (teleported) resetWalkPose(localWalker);
         const stickMoving = Math.hypot(stickX, stickY) > 0.15;
         // Blocked against a wall: stick held but no displacement — bump.
         if (playing && stickMoving && horizontalSpeed < 0.05 && body.onGround) triggerHaptic("bump");

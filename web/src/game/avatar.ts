@@ -233,6 +233,9 @@ export function dressPerson(
   // the leg pivots (shoes must swing with the legs, not float static).
   const clothes: Clothes = shop.clothes ?? {};
   group.userData.clothes = clothes;
+  // ...and the wardrobe slots, so the walker can hang wardrobe shoes
+  // and the bought watch on the swinging limbs too (walk-fix 2026-11-17).
+  group.userData.wardrobe = shop.wardrobe;
   for (const child of [...group.children]) {
     if (child.name === "ring" || child.name === "tag") continue;
     group.remove(child);
@@ -263,9 +266,11 @@ export function dressPerson(
       ? PANTS_COLORS[clothes.pants] ?? "#1a1c22"
       : "#1a1c22";
   // Chest stripe: a suit's tie, a jacket's open-front inner shirt, else
-  // the look's accent.
+  // the look's accent. Pushed 0.015 proud of the torso front (z 0.175,
+  // front 0.215 vs torso 0.20) — at 0.16 the stripe's front face was
+  // exactly coplanar with the torso's and flickered (walk-fix 2026-11-17).
   const chestStripe = outfitStyle?.tie ?? (shirtStyle?.layer === "jacket" ? shirtStyle.inner ?? accent : accent);
-  add(group, legsColor, 0, 0.28, 0, 0.5, 0.42, 0.34);
+  add(group, legsColor, 0, 0.3, 0, 0.5, 0.46, 0.34);
   // Wardrobe shoes: two visible shoes at the feet (the legs box above
   // ends at y 0.07; the shoes sit on the ground under it).
   if (shop.wardrobe?.shoes && SHOE_COLORS[shop.wardrobe.shoes]) {
@@ -274,7 +279,7 @@ export function dressPerson(
     add(group, shoeColor, 0.13, 0.05, 0.03, 0.22, 0.1, 0.32);
   }
   add(group, torsoColor, 0, 0.9, 0, 0.66, 0.78, 0.4);
-  add(group, chestStripe, 0, 1.05, 0.16, 0.28, 0.42, 0.08);
+  add(group, chestStripe, 0, 1.05, 0.175, 0.28, 0.42, 0.08);
   // Belt at the waist (dark, gold buckle) + a collar band at the neck
   // (accent colour) — the outfit read as one flat slab before; now it
   // has a waist and a neckline. Skipped for dresses (the skirt covers
@@ -339,8 +344,11 @@ export function dressPerson(
     add(group, hair, -0.2, 1.4, -0.04, 0.1, 0.5, 0.12);
     add(group, hair, 0.2, 1.4, -0.04, 0.1, 0.5, 0.12);
     add(group, hair, 0, 1.4, -0.2, 0.12, 0.5, 0.1);
-    add(group, hair, -0.1, 1.45, 0.14, 0.09, 0.4, 0.09);
-    add(group, hair, 0.1, 1.45, 0.14, 0.09, 0.4, 0.09);
+    // Front locks sit proud of the face (z 0.2, front 0.245 vs head
+    // 0.20) — at 0.14 they were buried inside the head and invisible
+    // from the front (walk-fix 2026-11-17).
+    add(group, hair, -0.1, 1.45, 0.2, 0.09, 0.4, 0.09);
+    add(group, hair, 0.1, 1.45, 0.2, 0.09, 0.4, 0.09);
   } else if (style === "bun") {
     add(group, hair, 0, 1.8, 0, 0.42, 0.1, 0.42);
     add(group, hair, 0, 1.98, 0, 0.16, 0.18, 0.16);
@@ -363,9 +371,11 @@ export function dressPerson(
     add(group, hair, -0.18, 1.7, 0.08, 0.16, 0.16, 0.16);
     add(group, hair, 0.18, 1.7, 0.08, 0.16, 0.16, 0.16);
   } else if (style === "side") {
-    // Short hair swept to one side (Hsaka).
+    // Short hair swept to one side (Hsaka). Pushed 0.03 proud of the
+    // head front (z 0.13, front 0.23 vs head 0.20) — at 0.1 the front
+    // face was exactly coplanar with the head's and flickered.
     add(group, hair, 0.04, 1.84, 0, 0.4, 0.12, 0.42);
-    add(group, hair, -0.16, 1.76, 0.1, 0.16, 0.1, 0.2);
+    add(group, hair, -0.16, 1.76, 0.13, 0.16, 0.1, 0.2);
   } else if (style === "buzz") {
     add(group, hair, 0, 1.8, 0, 0.42, 0.1, 0.42);
   }
@@ -439,19 +449,19 @@ export function dressPerson(
   if (wGlasses === "shades") {
     add(group, "#12141a", 0, 1.6, 0.2, 0.34, 0.1, 0.06);
   } else if (wGlasses === "readers") {
-    add(group, "#22262e", -0.1, 1.6, 0.18, 0.1, 0.06, 0.03);
-    add(group, "#22262e", 0.1, 1.6, 0.18, 0.1, 0.06, 0.03);
-    add(group, "#22262e", 0, 1.6, 0.18, 0.05, 0.02, 0.02);
-    add(group, "#22262e", 0, 1.66, 0.18, 0.26, 0.02, 0.02);
-    add(group, "#22262e", -0.16, 1.6, 0.18, 0.02, 0.08, 0.02);
-    add(group, "#22262e", 0.16, 1.6, 0.18, 0.02, 0.08, 0.02);
+    add(group, "#22262e", -0.1, 1.6, 0.21, 0.1, 0.06, 0.03);
+    add(group, "#22262e", 0.1, 1.6, 0.21, 0.1, 0.06, 0.03);
+    add(group, "#22262e", 0, 1.6, 0.21, 0.05, 0.02, 0.02);
+    add(group, "#22262e", 0, 1.66, 0.21, 0.26, 0.02, 0.02);
+    add(group, "#22262e", -0.16, 1.6, 0.21, 0.02, 0.08, 0.02);
+    add(group, "#22262e", 0.16, 1.6, 0.21, 0.02, 0.08, 0.02);
   } else if (wGlasses === "round") {
     // Gold-rim rounds with light lenses.
-    add(group, "#e0b33a", -0.1, 1.6, 0.18, 0.13, 0.1, 0.03);
-    add(group, "#e0b33a", 0.1, 1.6, 0.18, 0.13, 0.1, 0.03);
-    add(group, "#dbe7ef", -0.1, 1.6, 0.19, 0.09, 0.07, 0.02);
-    add(group, "#dbe7ef", 0.1, 1.6, 0.19, 0.09, 0.07, 0.02);
-    add(group, "#e0b33a", 0, 1.6, 0.18, 0.05, 0.02, 0.02);
+    add(group, "#e0b33a", -0.1, 1.6, 0.21, 0.13, 0.1, 0.03);
+    add(group, "#e0b33a", 0.1, 1.6, 0.21, 0.13, 0.1, 0.03);
+    add(group, "#dbe7ef", -0.1, 1.6, 0.215, 0.09, 0.07, 0.02);
+    add(group, "#dbe7ef", 0.1, 1.6, 0.215, 0.09, 0.07, 0.02);
+    add(group, "#e0b33a", 0, 1.6, 0.21, 0.05, 0.02, 0.02);
   } else if (wGlasses === "visor") {
     const stripes = ["#ff3b30", "#ff9500", "#34c759", "#0a84ff", "#af52de"];
     stripes.forEach((color, i) => {
@@ -460,30 +470,30 @@ export function dressPerson(
   } else if (extra === "glasses") {
     if (look.id === "cobie") {
       // Cobie: dark Bitcoin shades from his avatar art (not light lenses).
-      add(group, "#12141a", -0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
-      add(group, "#12141a", 0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
-      add(group, "#12141a", 0, 1.6, 0.18, 0.06, 0.03, 0.03);
-      add(group, "#e0b33a", 0.1, 1.6, 0.21, 0.05, 0.05, 0.02);
+      add(group, "#12141a", -0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
+      add(group, "#12141a", 0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
+      add(group, "#12141a", 0, 1.6, 0.21, 0.06, 0.03, 0.03);
+      add(group, "#e0b33a", 0.1, 1.6, 0.235, 0.05, 0.05, 0.02);
     } else if (look.id === "hsaka") {
       // Hsaka: black frames + purple-tinted lenses.
-      add(group, "#8a5cf6", -0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
-      add(group, "#8a5cf6", 0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
-      add(group, "#111111", 0, 1.6, 0.18, 0.06, 0.03, 0.03);
-      add(group, "#111111", 0, 1.65, 0.18, 0.3, 0.03, 0.03);
-      add(group, "#111111", -0.17, 1.6, 0.18, 0.03, 0.1, 0.03);
-      add(group, "#111111", 0.17, 1.6, 0.18, 0.03, 0.1, 0.03);
+      add(group, "#8a5cf6", -0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
+      add(group, "#8a5cf6", 0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
+      add(group, "#111111", 0, 1.6, 0.21, 0.06, 0.03, 0.03);
+      add(group, "#111111", 0, 1.65, 0.21, 0.3, 0.03, 0.03);
+      add(group, "#111111", -0.17, 1.6, 0.21, 0.03, 0.1, 0.03);
+      add(group, "#111111", 0.17, 1.6, 0.21, 0.03, 0.1, 0.03);
     } else if (look.id === "murad") {
       // Murad: black-framed glasses, smoke lenses.
-      add(group, "#3a3f4a", -0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
-      add(group, "#3a3f4a", 0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
-      add(group, "#111111", 0, 1.6, 0.18, 0.06, 0.03, 0.03);
-      add(group, "#111111", 0, 1.65, 0.18, 0.3, 0.03, 0.03);
-      add(group, "#111111", -0.17, 1.6, 0.18, 0.03, 0.1, 0.03);
-      add(group, "#111111", 0.17, 1.6, 0.18, 0.03, 0.1, 0.03);
+      add(group, "#3a3f4a", -0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
+      add(group, "#3a3f4a", 0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
+      add(group, "#111111", 0, 1.6, 0.21, 0.06, 0.03, 0.03);
+      add(group, "#111111", 0, 1.65, 0.21, 0.3, 0.03, 0.03);
+      add(group, "#111111", -0.17, 1.6, 0.21, 0.03, 0.1, 0.03);
+      add(group, "#111111", 0.17, 1.6, 0.21, 0.03, 0.1, 0.03);
     } else {
-      add(group, "#dbe7ef", -0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
-      add(group, "#dbe7ef", 0.1, 1.6, 0.18, 0.12, 0.08, 0.04);
-      add(group, "#dbe7ef", 0, 1.6, 0.18, 0.06, 0.03, 0.03);
+      add(group, "#dbe7ef", -0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
+      add(group, "#dbe7ef", 0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
+      add(group, "#dbe7ef", 0, 1.6, 0.21, 0.06, 0.03, 0.03);
     }
   } else if (extra === "shades") {
     add(group, "#12141a", 0, 1.6, 0.2, 0.34, 0.1, 0.06);

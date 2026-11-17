@@ -42,6 +42,7 @@ import {
 } from "three";
 import type { Clothes, Look } from "./avatar";
 import { SHOES_COLORS } from "./avatar";
+import { SHOE_COLORS, WATCH_COLORS, type WardrobeSlots } from "./wardrobe";
 
 /** Handle returned by makeWalker/ensureWalker. Keep one per person. */
 export interface WalkerHandle {
@@ -192,12 +193,40 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
   legR.position.set(0.13, 0.5, 0);
   legR.add(makeLimb(legMaterial, 0.24, 0.5, 0.32, -0.25));
 
-  // Shoes from the clothes shop: a box on the bottom of each leg pivot
-  // so the shoe swings with the foot instead of floating static under
-  // the body. dressPerson stores the worn clothes on group.userData;
-  // a group with no clothes (NPCs, pre-dress bodies) gets no shoes.
-  const clothes = (group.userData as { clothes?: Clothes } | undefined)?.clothes;
-  const shoeColor = clothes?.shoes ? SHOES_COLORS[clothes.shoes] : undefined;
+  // Shoes: a box on the bottom of each leg pivot so the shoe swings
+  // with the foot instead of floating static under the body.
+  // dressPerson stores the worn clothes AND the wardrobe on
+  // group.userData. Two sources, one pair of feet:
+  //   - shop shoes (clothes.shoes) win — they are the worn item;
+  //   - else wardrobe shoes (wardrobe.shoes).
+  // dressPerson ALSO adds static wardrobe-shoe boxes at the feet — those
+  // must come off here, or the feet render twice: one swinging pair on
+  // the legs and one frozen pair on the ground (the "blocky glitch" on
+  // the feet). The Roster preview never gets a walker, so its static
+  // shoes stay — this removal only runs when a walker is attached.
+  const userData = group.userData as { clothes?: Clothes; wardrobe?: WardrobeSlots } | undefined;
+  const clothes = userData?.clothes;
+  const wardrobe = userData?.wardrobe;
+  for (const child of [...group.children]) {
+    if (!isMesh(child)) continue;
+    const p = child.position;
+    const s = child.scale;
+    if (
+      Math.abs(p.y - 0.05) < 0.01 &&
+      Math.abs(Math.abs(p.x) - 0.13) < 0.01 &&
+      Math.abs(p.z - 0.03) < 0.01 &&
+      Math.abs(s.x - 0.22) < 0.01 &&
+      Math.abs(s.y - 0.1) < 0.01 &&
+      Math.abs(s.z - 0.32) < 0.01
+    ) {
+      group.remove(child);
+    }
+  }
+  const shoeColor = clothes?.shoes
+    ? SHOES_COLORS[clothes.shoes]
+    : wardrobe?.shoes
+      ? SHOE_COLORS[wardrobe.shoes]
+      : undefined;
   if (shoeColor) {
     const shoeMat = outfitMaterial(shoeColor);
     for (const leg of [legL, legR]) {
@@ -231,12 +260,43 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
 
   group.add(legL, legR, armL, armR);
 
+  // Wardrobe watch: dressPerson adds it as a static box at the rest
+  // pose (-0.38, 0.72) — once the arm swings, the watch floats in the
+  // air where the wrist used to be. Take the static band + face off
+  // here and hang the watch on the left arm pivot instead, so it rides
+  // the wrist. (The static face's front was also exactly coplanar with
+  // the static band's front — a z-fight on the watch face; the arm
+  // version sits 0.01 proud.)
+  for (const child of [...group.children]) {
+    if (!isMesh(child)) continue;
+    const p = child.position;
+    const s = child.scale;
+    const isBand =
+      Math.abs(p.x + 0.38) < 0.01 && Math.abs(p.y - 0.72) < 0.01 && Math.abs(p.z) < 0.01 &&
+      Math.abs(s.x - 0.22) < 0.01 && Math.abs(s.y - 0.09) < 0.01 && Math.abs(s.z - 0.22) < 0.01;
+    const isFace =
+      Math.abs(p.x + 0.38) < 0.01 && Math.abs(p.y - 0.72) < 0.01 && Math.abs(p.z - 0.1) < 0.01 &&
+      Math.abs(s.x - 0.1) < 0.01 && Math.abs(s.y - 0.05) < 0.01 && Math.abs(s.z - 0.02) < 0.01;
+    if (isBand || isFace) group.remove(child);
+  }
+  const wardrobeWatch = wardrobe?.watch ? WATCH_COLORS[wardrobe.watch] : undefined;
+  if (wardrobeWatch) {
+    armL.add(makeLimb(outfitMaterial(wardrobeWatch), 0.22, 0.09, 0.22, -0.52));
+    const face = new Mesh(UNIT_BOX, outfitMaterial("#f4f6fa"));
+    face.scale.set(0.1, 0.05, 0.02);
+    face.position.set(0, -0.52, 0.11);
+    face.castShadow = true;
+    armL.add(face);
+  }
+
   // Character-specific arm details. dressPerson stores the character id
   // on the group (userData.lookId), so these ride on the arm pivots and
   // swing with the walk cycle instead of floating at the rest pose.
   const lookId = (group.userData as { lookId?: string } | undefined)?.lookId;
-  if (lookId === "tjr") {
+  if (lookId === "tjr" && !wardrobeWatch) {
     // TJR: watch + bracelet on the left wrist (from his verified photo).
+    // Skipped when the player wears a bought wardrobe watch — one watch
+    // per wrist, the bought one wins.
     armL.add(makeLimb(outfitMaterial("#e0b33a"), 0.18, 0.07, 0.2, -0.5));
   } else if (lookId === "gainzy") {
     // Gainzy: dragon tattoos on both arms (from his public avatar).
@@ -306,15 +366,25 @@ export function animateWalk(
   flying = false,
 ): void {
   const step = Math.min(dt, 0.05);
+  // Cadence (walk-fix 2026-11-17): the old phase rate (speed * 1.35)
+  // gave 2.2 steps/s at walk speed while the body covered 2.33u per
+  // step and the feet only 0.52u — the feet slid at 22% of body speed,
+  // which reads as moonwalking, not walking. At speed * 2.3 the cadence
+  // is ~3.8 steps/s and the feet cover ~42% of body travel per step:
+  // the 0.5-long box legs can never fully plant at 5.2 u/s, but the
+  // faster pump + bigger swing reads as a walk instead of a slide.
   const speedFactor = Math.min(Math.max(speed / 5.2, 0.2), 1.6);
-  const targetAmp = moving && !flying ? 0.55 * speedFactor : 0;
+  const targetAmp = moving && !flying ? Math.min(0.62 * speedFactor, 0.75) : 0;
   // Ease the amplitude so starts/stops don't snap the legs.
   handle.amp += (targetAmp - handle.amp) * Math.min(1, step * 10);
   if (handle.amp < 0.005) handle.amp = 0;
 
   if (moving && !flying) {
-    // ~7 rad/s at walk speed: one full cycle (left+right) per ~0.9 s.
-    handle.phase += step * speed * 1.35;
+    // Advance the phase on the real frame time (clamped to 0.1 s, not
+    // 0.05): on a hitchy phone frame the body still moves its full
+    // distance, so starving the phase would leave the legs behind and
+    // the feet sliding for a frame.
+    handle.phase += Math.min(dt, 0.1) * speed * 2.3;
   }
 
   const swing = Math.sin(handle.phase) * handle.amp;
@@ -331,15 +401,15 @@ export function animateWalk(
 
   // Bob: two bounces per cycle, strongest at mid-stride. Additive on top
   // of the position runtime.after() already set this frame.
-  const bob = Math.abs(Math.cos(handle.phase)) * 0.045 * (handle.amp / 0.55);
+  const bob = Math.abs(Math.cos(handle.phase)) * 0.045 * (handle.amp / 0.62);
   handle.group.position.y += bob;
 
   // Forward lean while moving, additive on top of applyEmote's rotation.
-  handle.group.rotation.x += 0.05 * (handle.amp / 0.55);
+  handle.group.rotation.x += 0.05 * (handle.amp / 0.62);
   // Torso sway: a gentle side-to-side lean that peaks at mid-stride,
   // so the whole body rolls with the walk instead of staying bolt
   // upright. Subtle (max ~1.4°) — it reads as a walk, not a tilt.
-  handle.group.rotation.z += Math.sin(handle.phase) * 0.025 * (handle.amp / 0.55);
+  handle.group.rotation.z += Math.sin(handle.phase) * 0.025 * (handle.amp / 0.62);
 }
 
 /** Snap a walker back to a neutral standing pose (teleports, emotes). */

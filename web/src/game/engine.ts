@@ -388,6 +388,14 @@ export function createGame(
     return top;
   }
 
+  // Smooth step-up (walk-fix 2026-11-17): the old code teleported the
+  // player +0.5 in one frame whenever a curb blocked them — curbs are
+  // only ~0.125 high, so every road/sidewalk crossing popped the player
+  // (and the camera) up four times the curb height, then gravity dropped
+  // them back. Now move() only *starts* a step (recording the real top
+  // of the obstacle) and tick() eases y up to it over ~0.1 s.
+  let stepEase: number | null = null;
+
   function move(dx: number, dy: number, dz: number) {
     if (dy !== 0) {
       const ny = player.y + dy;
@@ -399,26 +407,43 @@ export function createGame(
         player.y = ny;
         if (dy < 0) player.onGround = false;
       } else if (dy < 0) {
-        const floor = groundY(player.x, player.z, player.y);
-        if (!overlaps(player.x, floor, player.z)) player.y = floor;
-        player.vy = 0;
-        player.onGround = true;
+        if (stepEase != null) {
+          // Mid step-up: the ease in tick() owns y — don't snap back
+          // down to the old floor underneath the step.
+          player.vy = 0;
+          player.onGround = true;
+        } else {
+          const floor = groundY(player.x, player.z, player.y);
+          if (!overlaps(player.x, floor, player.z)) player.y = floor;
+          player.vy = 0;
+          player.onGround = true;
+        }
       } else {
         player.vy = 0;
       }
     }
     if (dx !== 0) {
       if (!overlaps(player.x + dx, player.y, player.z)) player.x += dx;
-      else if (!player.flying && !overlaps(player.x + dx, player.y + 0.5, player.z)) {
-        player.x += dx;
-        player.y += 0.5;
+      else if (!player.flying) {
+        // Step onto the obstacle's REAL top (a curb is ~0.125), not a
+        // flat +0.5 — and ease up to it instead of teleporting.
+        const top = groundY(player.x + dx, player.z, player.y + 0.55);
+        if (top > player.y + 0.02 && top - player.y <= 0.5 && !overlaps(player.x + dx, top, player.z)) {
+          player.x += dx;
+          stepEase = top;
+          player.vy = 0;
+        }
       }
     }
     if (dz !== 0) {
       if (!overlaps(player.x, player.y, player.z + dz)) player.z += dz;
-      else if (!player.flying && !overlaps(player.x, player.y + 0.5, player.z + dz)) {
-        player.z += dz;
-        player.y += 0.5;
+      else if (!player.flying) {
+        const top = groundY(player.x, player.z + dz, player.y + 0.55);
+        if (top > player.y + 0.02 && top - player.y <= 0.5 && !overlaps(player.x, top, player.z + dz)) {
+          player.z += dz;
+          stepEase = top;
+          player.vy = 0;
+        }
       }
     }
   }
@@ -488,11 +513,34 @@ export function createGame(
         if (space && player.onGround) {
           player.vy = 8.6;
           player.onGround = false;
+          stepEase = null;
         }
         player.vy = Math.max(-50, player.vy - 28 * dt);
         player.onGround = false;
         move((sin * f + cos * s) * speed * dt, player.vy * dt, (-cos * f + sin * s) * speed * dt);
         player.onGround = overlaps(player.x, player.y - 0.04, player.z) || player.y <= 0.001;
+      }
+    }
+    // Smooth step-up, continued: ease y up to the step top recorded by
+    // move() (~0.1 s) instead of the old instant +0.5 teleport.
+    if (stepEase != null) {
+      if (player.flying) {
+        stepEase = null;
+      } else {
+        // Walked off the step mid-ease (floor underfoot dropped below
+        // the step top)? Stop easing and let gravity settle the player
+        // instead of lifting them to a step they are no longer on.
+        const floorHere = groundY(player.x, player.z, player.y + 0.55);
+        if (floorHere < stepEase - 0.02) {
+          stepEase = null;
+        } else {
+          player.y += (stepEase - player.y) * Math.min(1, dt * 14);
+          player.vy = 0;
+          if (Math.abs(stepEase - player.y) < 0.02) {
+            player.y = stepEase;
+            stepEase = null;
+          }
+        }
       }
     }
     // Bridges are real decks now (states.ts) — walking or driving across
@@ -503,6 +551,7 @@ export function createGame(
       player.z = spawn.z;
       player.vy = 0;
       player.flying = false;
+      stepEase = null;
     }
     // The sun rides with the player so the ±150 shadow box stays crisp in
     // every state. Never widen the shadow box to cover the whole world —
