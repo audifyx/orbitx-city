@@ -355,7 +355,7 @@ export function buildRegionRoads(city: City, state: StateDef): void {
 export function buildRegionCore(city: City, state: StateDef): void {
   const { x: cx, z: cz } = REGION_CENTERS[state.id];
   const t = state.theme;
-  pushBox(city, cx, 0.08, cz, 58, 0.08, 58, "plaza");
+  pushBox(city, cx, 0.08, cz, 58, 0.08, 58, "plazaField");
   // Fountain: stone base + water + pillar.
   pushBox(city, cx, 0.5, cz, 8, 1, 8, "stone");
   pushBox(city, cx, 1.05, cz, 6, 0.3, 6, "water");
@@ -1282,7 +1282,7 @@ export function buildOfficeTower(city: City, state: StateDef): void {
     glass: "curtain",
   });
   pushWallColliders(city, lx0, lz0, lobbyW, lobbyD, lobbyH, "s");
-  pushBox(city, cx, 0.08, cz - 58, lobbyW - 2.4, 0.08, lobbyD - 2.4, "plaza");
+  pushBox(city, cx, 0.08, cz - 58, lobbyW - 2.4, 0.08, lobbyD - 2.4, "plazaField");
   // Front desk + accent band.
   pushBox(city, cx, 0.55, cz - 52, 8, 1.05, 1.2, "stone");
   pushCol(city, cx, 0.55, cz - 52, 8, 1.05, 1.2);
@@ -1419,7 +1419,7 @@ export function buildRegionGround(city: City, state: StateDef): void {
   // The region slab: same shape as the home-city slab (city.ts addRoads),
   // top at y=0, so every road, block, plaza and district crossing sits on
   // solid grass.
-  pushBox(city, cx, -0.55, cz, REGION_HALF * 2, 1.1, REGION_HALF * 2, "grass");
+  pushBox(city, cx, -0.55, cz, REGION_HALF * 2, 1.1, REGION_HALF * 2, "grassField");
   // Ground under the state-side bridge deck: the deck sticks out of
   // the region toward home, so extend the slab to the deck's outer end
   // (2 units of margin). The slab abuts the region slab exactly at the
@@ -1437,7 +1437,7 @@ export function buildRegionGround(city: City, state: StateDef): void {
   if (d.z0 >= r.z1) az0 = r.z1; // deck south of the region
   if (d.z1 <= r.z0) az1 = r.z0; // deck north of the region
   if (ax1 - ax0 <= 0 || az1 - az0 <= 0) return;
-  pushBox(city, (ax0 + ax1) / 2, -0.55, (az0 + az1) / 2, ax1 - ax0, 1.1, az1 - az0, "grass");
+  pushBox(city, (ax0 + ax1) / 2, -0.55, (az0 + az1) / 2, ax1 - ax0, 1.1, az1 - az0, "grassField");
 }
 
 // ---------------------------------------------------------------------------

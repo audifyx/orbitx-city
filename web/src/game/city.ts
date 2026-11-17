@@ -8,8 +8,11 @@ import { RESTAURANT_PLACES } from "./content";
 export type Mat =
   | "asphalt"
   | "sidewalk"
+  | "sidewalkField"
   | "plaza"
+  | "plazaField"
   | "grass"
+  | "grassField"
   | "hedge"
   | "leaves"
   | "leavesDark"
@@ -854,7 +857,7 @@ function hedgeRect(boxes: Box[], cols: Collider[], x0: number, z0: number, x1: n
 }
 
 function addPlaza(boxes: Box[], cols: Collider[]) {
-  put(boxes, 0, 0.035, 0, 58, 0.07, 58, "plaza");
+  put(boxes, 0, 0.035, 0, 58, 0.07, 58, "plazaField");
   disc(boxes, FOUNTAIN.x, 0.7, FOUNTAIN.z, 6.2, 1.15, "stone");
   disc(boxes, FOUNTAIN.x, 1.28, FOUNTAIN.z, 5.5, 0.28, "water", 4.15);
   disc(boxes, FOUNTAIN.x, 1.85, FOUNTAIN.z, 4, 1.05, "stone");
@@ -1372,8 +1375,12 @@ function rectHitsMega(x0: number, z0: number, x1: number, z1: number) {
 }
 
 function addRoads(boxes: Box[]) {
-  put(boxes, 0, -0.55, 0, 760, 1.1, 760, "grass");
-  put(boxes, 0, 0.02, 0, 400, 0.04, 400, "sidewalk");
+  // The big ground slabs get their own field materials (see materials.ts):
+  // one texture repeat cannot fit both a 760u slab and a 1u voxel, so the
+  // field materials carry a high repeat (tile ~= 8u) while the base
+  // materials stay at repeat 1-2 for small boxes.
+  put(boxes, 0, -0.55, 0, 760, 1.1, 760, "grassField");
+  put(boxes, 0, 0.02, 0, 400, 0.04, 400, "sidewalkField");
   // (No plaza slab here — addPlaza owns the 58x58 plaza slab. A second
   // identical slab here used to z-fight with it, top 0.070.)
 

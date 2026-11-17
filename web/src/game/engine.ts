@@ -192,14 +192,39 @@ export function createGame(
         varying vec3 vDir;
         uniform float uNight;
         uniform float uDay;
+        // Value-noise clouds (2026-11-17, textures upgrade): the old sky
+        // used sine-wave bands for clouds, which read as flat stripes, and
+        // day mode mixed the whole sky to ONE flat blue, killing the
+        // gradient. Real clouds are soft fbm billows, and day keeps a real
+        // gradient (deep blue zenith -> pale horizon) with white clouds.
+        float hash21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float vnoise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(mix(hash21(i), hash21(i + vec2(1.0, 0.0)), u.x),
+                     mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), u.x), u.y);
+        }
+        float fbm(vec2 p) {
+          float v = 0.0;
+          float a = 0.5;
+          for (int i = 0; i < 4; i++) {
+            v += a * vnoise(p);
+            p = p * 2.03 + vec2(11.3, 7.9);
+            a *= 0.5;
+          }
+          return v;
+        }
         void main() {
           vec3 dir = normalize(vDir);
           float h = dir.y;
-          vec3 zenith = vec3(0.13, 0.10, 0.28);
-          vec3 high = vec3(0.45, 0.20, 0.36);
-          vec3 mid = vec3(0.95, 0.42, 0.16);
-          vec3 hor = vec3(1.0, 0.70, 0.32);
-          vec3 below = vec3(0.42, 0.16, 0.09);
+          // Sunset palette, lerped toward a real day palette (gradient
+          // kept — deep blue zenith, pale horizon — never a flat blue).
+          vec3 zenith = mix(vec3(0.13, 0.10, 0.28), vec3(0.08, 0.32, 0.72), uDay);
+          vec3 high = mix(vec3(0.45, 0.20, 0.36), vec3(0.22, 0.52, 0.88), uDay);
+          vec3 mid = mix(vec3(0.95, 0.42, 0.16), vec3(0.52, 0.74, 0.95), uDay);
+          vec3 hor = mix(vec3(1.0, 0.70, 0.32), vec3(0.84, 0.91, 0.98), uDay);
+          vec3 below = mix(vec3(0.42, 0.16, 0.09), vec3(0.55, 0.68, 0.78), uDay);
           vec3 col = mix(below, hor, smoothstep(-0.2, 0.02, h));
           col = mix(col, mid, smoothstep(0.0, 0.16, h));
           col = mix(col, high, smoothstep(0.16, 0.48, h));
@@ -207,23 +232,21 @@ export function createGame(
           vec3 sunDir = normalize(vec3(0.72, 0.18, 0.28));
           float sunDisk = pow(max(dot(dir, sunDir), 0.0), 90.0);
           float glow = pow(max(dot(dir, sunDir), 0.0), 5.0);
-          col += vec3(1.0, 0.9, 0.55) * sunDisk * 1.5;
-          col += vec3(1.0, 0.42, 0.12) * glow * 0.5;
+          vec3 sunCol = mix(vec3(1.0, 0.9, 0.55), vec3(1.0, 1.0, 0.95), uDay);
+          vec3 glowCol = mix(vec3(1.0, 0.42, 0.12), vec3(1.0, 0.95, 0.85), uDay);
+          col += sunCol * sunDisk * 1.5;
+          col += glowCol * glow * 0.5;
           if (h > 0.02) {
-            vec2 uv = dir.xz / max(h, 0.12);
-            float w1 = sin(uv.x * 0.85 + uv.y * 0.35);
-            float w2 = sin(uv.x * 1.7 - uv.y * 1.15 + 1.7);
-            float cloud = smoothstep(0.25, 0.95, w1 * 0.65 + w2 * 0.35);
-            cloud *= smoothstep(0.02, 0.28, h);
-            vec3 cloudCol = mix(vec3(1.0, 0.58, 0.30), vec3(1.0, 0.90, 0.74), smoothstep(0.04, 0.5, h));
-            col = mix(col, cloudCol, cloud * 0.55);
+            vec2 uv = dir.xz / max(h, 0.15);
+            float c = fbm(uv * 0.45 + vec2(3.7, 1.3));
+            float c2 = fbm(uv * 1.15 + vec2(9.1, 4.7));
+            float cloud = smoothstep(0.52, 0.78, c * 0.65 + c2 * 0.35);
+            cloud *= smoothstep(0.02, 0.22, h);
+            cloud *= 1.0 - smoothstep(0.6, 0.95, h) * 0.45;
+            vec3 cloudCol = mix(vec3(1.0, 0.60, 0.34), vec3(1.0, 1.0, 1.0), uDay);
+            col = mix(col, cloudCol, cloud * 0.6);
           }
           col = mix(col, vec3(0.03, 0.05, 0.12), uNight);
-          // Day: a deeper, cleaner Miami / Vice City blue (was a paler
-          // 0.45,0.72,0.95). Kept at 0.9 so the procedural clouds still
-          // read white against it — at 1.0 they would tint blue and
-          // vanish into the sky.
-          col = mix(col, vec3(0.36, 0.66, 0.96), uDay * 0.9);
           gl_FragColor = vec4(col, 1.0);
         }
       `,
