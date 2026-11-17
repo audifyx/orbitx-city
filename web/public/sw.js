@@ -1,10 +1,9 @@
 // OrbitX City service worker — app-shell cache, network-first API.
 // RULE: bump CACHE on every push that changes the shell (game.js, index.html,
 // CSS, icons) — otherwise phones keep serving the old bundle from this cache.
-// v6 (2026-11-17, mega batch): unified shop, functional jobs, session fix,
-// on-device wallets, LiveKit universe fix, advanced profile — on top of
-// textures v5. Never go backwards.
-const CACHE = "orbitx-city-v11";
+// v12 (2026-11-17, shop items): 30 real shop items, Inventory tab, wardrobe
+// fixes — on top of hud-move v11. Never go backwards.
+const CACHE = "orbitx-city-v12";
 const PRECACHE = [
   "/",
   "/index.html",
