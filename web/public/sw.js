@@ -1,10 +1,11 @@
 // OrbitX City service worker — app-shell cache, network-first API.
 // RULE: bump CACHE on every push that changes the shell (game.js, index.html,
 // CSS, icons) — otherwise phones keep serving the old bundle from this cache.
-// v13 (2026-11-17): new logo set (X-towers mark + lockup, new PWA icons +
-// favicon) + bought cars spawn on the road in front of the player; on top of
-// shop-items v12. Never go backwards.
-const CACHE = "orbitx-city-v13";
+// v14 (2026-11-17): walk-fix (real walk cycle, smooth step-ups, avatar
+// z-fight fixes) + homes (scroll fix, full Home Editor, themes, daily rent)
+// + real-economy (office SOL leases, ads buy+burn); on top of logo/car-spawn
+// v13. Never go backwards.
+const CACHE = "orbitx-city-v14";
 const PRECACHE = [
   "/",
   "/index.html",
