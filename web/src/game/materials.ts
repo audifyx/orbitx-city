@@ -503,7 +503,10 @@ const TEX: Partial<Record<string, TexSpec>> = {
 };
 
 const texCache = new Map<string, CanvasTexture>();
-function textureFor(name: string): CanvasTexture | undefined {
+/** Shared texture getter (also used by pretty.ts for the visible facade
+ *  panels — the voxel-box MATERIALS are not the only building surface).
+ *  Returns undefined in node (no document), so callers must guard. */
+export function textureFor(name: string): CanvasTexture | undefined {
   const hit = texCache.get(name);
   if (hit) return hit;
   const spec = TEX[name];

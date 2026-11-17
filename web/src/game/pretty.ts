@@ -15,6 +15,7 @@ import {
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { Facade, Face } from "./city";
 import { porchPosts, porchSlab } from "./city";
+import { textureFor } from "./materials";
 
 export type QualityName = "low" | "medium" | "high";
 
@@ -360,6 +361,26 @@ const GOLD_MAT = new MeshStandardMaterial({
 });
 const WHITE_MAT = new MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.45, metalness: 0.1 });
 const WOOD_MAT = new MeshStandardMaterial({ color: 0x7a5a3a, roughness: 0.8, metalness: 0.05 });
+// Real surfaces on the visible facade panels (2026-11-17, textures
+// upgrade): the voxel-box MATERIALS got real textures, but the pretty
+// facade panels are the surface the player actually sees — without a map
+// they read as flat beige/white. Stucco on the walls, wood grain on the
+// trim. The maps are near-white / brown, so the material colours still
+// dominate; in node textureFor returns undefined and the mats stay flat.
+{
+  const stucco = textureFor("stucco");
+  if (stucco) {
+    // The map carries the real colour — the material must not tint it
+    // (map x colour would double-darken the brown wood especially).
+    WHITE_MAT.color.set(0xffffff);
+    WHITE_MAT.map = stucco;
+  }
+  const wood = textureFor("wood");
+  if (wood) {
+    WOOD_MAT.color.set(0xffffff);
+    WOOD_MAT.map = wood;
+  }
+}
 const DARK_MAT = new MeshStandardMaterial({ color: 0x141820, roughness: 0.7, metalness: 0.2 });
 
 // Shop-interior goods (world-quality upgrade 2026-11-13): bright, slightly
