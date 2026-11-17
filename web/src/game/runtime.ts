@@ -10569,6 +10569,7 @@ export function createRuntime(scene: Scene) {
     },
     setVolume(id: string, value: number) {
       volumeFor(id, value);
+      publish();
     },
     setVoiceFilter(id: string) {
       voiceFilterFor(id);
