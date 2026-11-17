@@ -573,9 +573,15 @@ const SPECS: Record<Mat, MatSpec> = {
   },
   cream: { color: 0xf4f0e6, tex: "brick" },
   red: {
+    // Real brick, not a flat slab: the brick texture carries varied
+    // terracotta/tan courses, so red window frames, carpets, goods and
+    // accents read as a material instead of a flat glowing red box (the
+    // user called out plain solid-red boxes). The emissive stays — small
+    // red accents still pop at night — but the surface is textured now.
     color: 0xff4b5c,
     emissive: 0xaa1830,
     emissiveIntensity: 0.7,
+    tex: "brick",
   },
   gold: {
     color: 0xe0b33a,

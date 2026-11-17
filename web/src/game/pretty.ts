@@ -822,31 +822,42 @@ function orbitWord() {
 }
 
 // Rooftop kit replacing the old floating cap box: parapet rim, AC units,
-// antenna with a cyan beacon.
+// antenna with a cyan beacon. The 4 rim runs share one material, so they
+// merge into ONE mesh, and the 2 AC units into one — the kit was 8 meshes
+// per flat roof; now 4 (rim, AC, antenna, beacon). That matters now that
+// the kit runs at low quality too (building-quality pass, 2026-11-17).
 function addRoofKit(group: Group, x: number, z: number, w: number, d: number, h: number) {
   const rimMat = new MeshStandardMaterial({ color: 0x141820, roughness: 0.7, metalness: 0.2 });
   const acMat = new MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.6, metalness: 0.4 });
   const rim = 0.25;
-  const mk = (px: number, pz: number, sx: number, sz: number, mat: MeshStandardMaterial) => {
-    const m = new Mesh(box, mat);
-    m.position.set(px, h + rim / 2, pz);
-    m.scale.set(sx, rim, sz);
-    group.add(m);
-  };
-  mk(x + w / 2, z + rim / 2, w, rim, rimMat);
-  mk(x + w / 2, z + d - rim / 2, w, rim, rimMat);
-  mk(x + rim / 2, z + d / 2, rim, d, rimMat);
-  mk(x + w - rim / 2, z + d / 2, rim, d, rimMat);
-  for (const [ax, az] of [
-    [x + w * 0.22, z + d * 0.24],
-    [x + w * 0.72, z + d * 0.7],
-  ] as const) {
-    const ac = new Mesh(box, acMat);
-    ac.position.set(ax, h + 0.4, az);
-    ac.scale.set(1.4, 0.8, 1.2);
-    ac.castShadow = true;
-    group.add(ac);
-  }
+  const rimRuns: Array<[number, number, number, number, number, number]> = [
+    [x + w / 2, h + rim / 2, z + rim / 2, w, rim, rim],
+    [x + w / 2, h + rim / 2, z + d - rim / 2, w, rim, rim],
+    [x + rim / 2, h + rim / 2, z + d / 2, rim, rim, d],
+    [x + w - rim / 2, h + rim / 2, z + d / 2, rim, rim, d],
+  ];
+  const rimGeos = rimRuns.map(([px, py, pz, sx, sy, sz]) => {
+    const g = new BoxGeometry(sx, sy, sz);
+    g.translate(px, py, pz);
+    return g;
+  });
+  const rimMesh = new Mesh(mergeGeometries(rimGeos) ?? rimGeos[0], rimMat);
+  group.add(rimMesh);
+  for (const g of rimGeos) if (g !== (rimMesh.geometry as BufferGeometry)) g.dispose();
+  const acGeos = (
+    [
+      [x + w * 0.22, z + d * 0.24],
+      [x + w * 0.72, z + d * 0.7],
+    ] as const
+  ).map(([ax, az]) => {
+    const g = new BoxGeometry(1.4, 0.8, 1.2);
+    g.translate(ax, h + 0.4, az);
+    return g;
+  });
+  const acMesh = new Mesh(mergeGeometries(acGeos) ?? acGeos[0], acMat);
+  acMesh.castShadow = true;
+  group.add(acMesh);
+  for (const g of acGeos) if (g !== (acMesh.geometry as BufferGeometry)) g.dispose();
   const antenna = new Mesh(box, new MeshStandardMaterial({ color: 0x232a38, roughness: 0.5, metalness: 0.6 }));
   antenna.position.set(x + w * 0.85, h + 1.4, z + d * 0.2);
   antenna.scale.set(0.14, 2.8, 0.14);
@@ -940,13 +951,16 @@ function addPorch(group: Group, f: Facade) {
   canopy.scale.set(slab.w + 0.4, 0.14, slab.d + 0.4);
   canopy.castShadow = true;
   group.add(canopy);
-  for (const p of porchPosts(f)) {
-    const post = new Mesh(box, WHITE_MAT);
-    post.position.set(p.x, 1.6, p.z);
-    post.scale.set(0.24, 2.9, 0.24);
-    post.castShadow = true;
-    group.add(post);
-  }
+  // The two posts share one material, so they merge into one mesh.
+  const postGeos = porchPosts(f).map((p) => {
+    const g = new BoxGeometry(0.24, 2.9, 0.24);
+    g.translate(p.x, 1.6, p.z);
+    return g;
+  });
+  const posts = new Mesh(mergeGeometries(postGeos) ?? postGeos[0], WHITE_MAT);
+  posts.castShadow = true;
+  group.add(posts);
+  for (const g of postGeos) if (g !== (posts.geometry as BufferGeometry)) g.dispose();
 }
 
 // A chimney riding the ridge (gable) or the apex (hip), proud of the roof.
@@ -1225,7 +1239,6 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
   const root = new Group();
   root.name = "pretty-city";
   resetGlassStats();
-  const plain = new MeshStandardMaterial({ color: 0x1c2430, roughness: 0.7, metalness: 0.2, emissive: 0x12343f, emissiveIntensity: 0.25 });
   for (const facade of facades) {
     if (facade.glass) {
       if (facade.id.startsWith("home-")) glassStats.homes++;
@@ -1239,8 +1252,18 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
       root.add(solidTower(facade));
       continue;
     }
-    const material = quality === "low" ? plain : facadeMaterial(facade.style, facade.w, facade.h);
-    if (quality !== "low" && facade.tiers) {
+    // Real look at EVERY quality (2026-11-17, building-quality pass):
+    // the old low path used a flat dark `plain` material and skipped
+    // every roof / porch / storefront / trim, so on a phone — touch
+    // defaults to low — every building was a flat solid-colour box with
+    // no roof and no detail. The facade canvases are 6 shared textures
+    // (painted once at load), so a textured material costs no extra
+    // texture memory and no extra draw calls: same meshes, real
+    // surfaces. Low keeps its real perf wins — shadows off (engine)
+    // and pixel-ratio cap 1 — those are what make low cheap, not flat
+    // materials.
+    const material = facadeMaterial(facade.style, facade.w, facade.h);
+    if (facade.tiers) {
       // Stepped tower: the tiers ARE the building; no single flat box.
       addTiers(root, facade, material);
       const top = facade.tiers[facade.tiers.length - 1];
@@ -1270,7 +1293,6 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
       mesh.receiveShadow = quality !== "low";
       root.add(mesh);
     }
-    if (quality === "low") continue;
     const rise = addRoof(root, facade);
     if (facade.porch) addPorch(root, facade);
     if (facade.chimney) addChimney(root, facade, rise);
