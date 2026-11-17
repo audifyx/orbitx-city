@@ -1269,14 +1269,20 @@ export default function App() {
 
   // INVENTORY (2026-11-17, shop-items): one tab that lists everything
   // the player owns — a bought item shows here the moment the buy
-  // lands. Reads the server-fresh shop snapshot (balance + owned +
-  // vehicles + homes + food + furniture) with the live snap as
-  // fallback, so the tab is never stale after a purchase.
+  // lands. Reads the LIVE snap first: snap.owned / snap.vehicles /
+  // snap.food / snap.furnitureOwned are refreshed by applyMe() after
+  // EVERY buy (spend op and shop-buy op) and by the 250ms sync, while
+  // the shop snapshot (shopData.shop) is only refreshed by a
+  // shop-catalog / shop-buy response — a Classics buy (runtime.buy ->
+  // spend op) never refreshes it, so preferring it here showed a stale
+  // list and a just-bought item never appeared. Homes only exist in
+  // the shop snapshot (no snap.homes), and homes are bought via
+  // shop-buy which DOES refresh it, so homes stay on shopData.
   const inventorySections = () => {
     const runtime = gameRef.current?.runtime;
     if (!runtime) return null;
     const shop = shopData?.shop;
-    const owned = shop?.owned ?? snap.owned;
+    const owned = snap.owned;
     const worn: Record<string, string> = {};
     for (const entry of owned) {
       if (!entry.startsWith("worn:")) continue;
@@ -1286,10 +1292,10 @@ export default function App() {
     const clothes = snap.shop.filter((item) => item.kind === "clothes" && owned.includes(item.id));
     const wardrobeOwned = WARDROBE_CATALOG.filter((item) => owned.includes(item.id));
     const extras = snap.shop.filter((item) => (item.kind === "color" || item.kind === "hat" || item.kind === "car" || item.kind === "trail") && owned.includes(item.id));
-    const vehicles = shop?.vehicles ?? snap.vehicles;
+    const vehicles = snap.vehicles;
     const homes = shop?.homes ?? [];
-    const food = shop?.food ?? snap.food;
-    const furniture = shop?.furnitureOwned ?? snap.furnitureOwned;
+    const food = snap.food;
+    const furniture = snap.furnitureOwned;
     const foodCount = Object.values(food).reduce((sum, n) => sum + (n || 0), 0);
     const empty = !clothes.length && !wardrobeOwned.length && !extras.length && !vehicles.length && !homes.length && foodCount === 0 && !furniture.length;
     if (empty) return <p className="muted">Nothing yet — buy something in the shop and it shows up here.</p>;
