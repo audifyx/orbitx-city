@@ -1,7 +1,7 @@
 // OrbitX City service worker — app-shell cache, network-first API.
 // RULE: bump CACHE on every push that changes the shell (game.js, index.html,
 // CSS, icons) — otherwise phones keep serving the old bundle from this cache.
-const CACHE = "orbitx-city-v2";
+const CACHE = "orbitx-city-v3";
 const PRECACHE = [
   "/",
   "/index.html",

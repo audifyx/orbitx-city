@@ -1337,6 +1337,37 @@ export default function App() {
             onLook={(dx, dy) => gameRef.current?.runtime.addLook(dx, dy)}
           />
           <Stick onChange={(x, y) => gameRef.current?.runtime.setStick(x, y)} />
+          {/* Touch bottom-right cluster: minimap + vitals + drive + pad
+              buttons in ONE column, so they can never overlap or run off
+              the edge. The minimap used to float free (draggable, stored
+              spot) and the pad grid sat under it — a stale stored spot
+              put the vitals on top of the pad buttons and cut text off
+              at the right edge. Now the minimap is docked at the top of
+              the column, vitals under it, Gas/Brake, then the pad grid. */}
+          <div className="touch-cluster">
+            <Minimap
+              me={snap.me}
+              people={snap.people}
+              seed={seed}
+              hunger={snap.hunger}
+              foodStamina={snap.foodStamina}
+              energy={snap.energy}
+              energyLabel={snap.energyLabel}
+              foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
+              onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
+              docked
+            />
+            {/* Driving controls (touch, while driving only): Gas and Brake
+                as big hold buttons above the pad grid, so the right thumb
+                holds the throttle while the left thumb steers with the
+                stick. The loop train uses the same Gas / Brake while the
+                player is in the driver's seat (a train has no steering). */}
+            {snap.driving || snap.drivingTrain ? (
+              <div className="drive-buttons">
+                <Hold label="Brake" onDown={() => gameRef.current?.runtime.hold("brake", true)} onUp={() => gameRef.current?.runtime.hold("brake", false)} />
+                <Hold label={snap.ridingBoard ? "Push" : "Gas"} onDown={() => { triggerHaptic("tap"); gameRef.current?.runtime.hold("gas", true); }} onUp={() => gameRef.current?.runtime.hold("gas", false)} />
+              </div>
+            ) : null}
           <div className="pad-buttons">
             {/* While driving a flying vehicle the pad relabels: Jump climbs
                 the car and Down brings it down — the player otherwise has
@@ -1380,26 +1411,12 @@ export default function App() {
             </button>
             <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.toggleSpectator(); }}>Clip</button>
           </div>
-          {/* Driving controls (touch, while driving only): Gas and Brake
-              as big hold buttons above the pad grid, so the right thumb
-              holds the throttle while the left thumb steers with the
-              stick — the stick alone had to do gas AND steer, and its
-              circular clamp capped a diagonal push at 0.707 on each.
-              The loop train uses the same Gas / Brake while the player
-              is in the driver's seat (a train has no steering). */}
-          {snap.driving || snap.drivingTrain ? (
-            <div className="drive-buttons">
-              <Hold label="Brake" onDown={() => gameRef.current?.runtime.hold("brake", true)} onUp={() => gameRef.current?.runtime.hold("brake", false)} />
-              <Hold label={snap.ridingBoard ? "Push" : "Gas"} onDown={() => { triggerHaptic("tap"); gameRef.current?.runtime.hold("gas", true); }} onUp={() => gameRef.current?.runtime.hold("gas", false)} />
-            </div>
-          ) : null}
+          </div>
         </div>
       ) : null}
-      {/* Minimap lives outside the HUD so it can be dragged anywhere and
-          does not bloat the HUD block. Same visibility as the HUD. It is
-          rendered after the touch controls so that, at the same z-index,
-          it paints above the stick / pad-buttons and stays draggable. */}
-      {!menu && !snap.hideHud && (
+      {/* Minimap on desktop: free and draggable, as before (touch uses the
+          docked minimap inside the touch cluster instead). */}
+      {!menu && !snap.hideHud && !snap.touch && (
         <Minimap
           me={snap.me}
           people={snap.people}
@@ -1411,6 +1428,25 @@ export default function App() {
           foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
           onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
         />
+      )}
+      {/* Minimap over an open panel (touch only): the touch UI hides
+          while a panel is open, but the map stays visible above the
+          panel — docked bottom-right, Eat still works. */}
+      {!menu && !snap.hideHud && snap.touch && panel && (
+        <div className="minimap-panel-dock">
+          <Minimap
+            me={snap.me}
+            people={snap.people}
+            seed={seed}
+            hunger={snap.hunger}
+            foodStamina={snap.foodStamina}
+            energy={snap.energy}
+            energyLabel={snap.energyLabel}
+            foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
+            onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
+            docked
+          />
+        </div>
       )}
       {panel ? (
         <section className="panel-wrap" id="panel">
@@ -4166,10 +4202,14 @@ function compassLabel(yaw: number): string {
   return cardinals[Math.round(compassDeg(yaw) / 45) % 8];
 }
 
-function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, foodCount, onEat }: {
+function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, foodCount, onEat, docked }: {
   me: Snap["me"]; people: Snap["people"]; seed: number;
   hunger: number; foodStamina: number; energy: number; energyLabel: string;
   foodCount: number; onEat: () => void;
+  // Docked (touch cluster / panel dock): no drag, no inline position —
+  // the parent (a fixed column or dock) places it, so it can never drift
+  // onto the pad buttons. Desktop keeps the draggable free minimap.
+  docked?: boolean;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   // Offscreen static layer (blocks, roads, venue labels, north marker).
@@ -4414,22 +4454,24 @@ function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, f
   };
   return (
     <div
-      className={`minimap-wrap${dragging ? " dragging" : ""}`}
-      style={{ left: disp.x, top: disp.y }}
-      aria-label="Minimap — drag the grip to move it"
-      title="Drag the grip to move the minimap"
+      className={`minimap-wrap${dragging ? " dragging" : ""}${docked ? " minimap-wrap--docked" : ""}`}
+      style={docked ? undefined : { left: disp.x, top: disp.y }}
+      aria-label={docked ? "Minimap" : "Minimap — drag the grip to move it"}
+      title={docked ? undefined : "Drag the grip to move the minimap"}
     >
-      <span
-        className="minimap-grip"
-        role="button"
-        aria-label="Drag to move the minimap"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-      >
-        ⋮⋮
-      </span>
+      {docked ? null : (
+        <span
+          className="minimap-grip"
+          role="button"
+          aria-label="Drag to move the minimap"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+        >
+          ⋮⋮
+        </span>
+      )}
       <canvas ref={ref} className="minimap" width={MINIMAP_SIZE} height={MINIMAP_SIZE} />
       {/* GTA-style vitals under the map: hunger (health) + stamina
           (armor) + energy, thin gold bars with a number. The Eat button

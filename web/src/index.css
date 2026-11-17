@@ -1302,43 +1302,156 @@ body.touch .touch-ui {
   color: #000;
 }
 
+/* Touch bottom-right cluster: minimap + vitals + drive + pad buttons in
+   ONE fixed column, so they can never overlap or run off the edge. The
+   old layout positioned the draggable minimap and the pad grid
+   independently — a stale stored minimap spot put the vitals on top of
+   the pad buttons and cut text off at the right edge. The cluster is one
+   unit now: map on top, vitals under it, drive buttons, then the pad
+   grid. Width is capped so it never reaches the movement stick
+   (100vw - 160px keeps a gap on any phone width). The container itself
+   is pointer-events: none so the gaps pass touches through to the
+   look-pad; the children re-enable events. */
+.touch-cluster {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  width: min(232px, calc(100vw - 160px));
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.touch-cluster > * {
+  pointer-events: auto;
+}
+
+/* Docked minimap (touch only): no drag, no inline position — it lives in
+   the cluster column (or in the panel dock) instead of floating free.
+   The wrap spans the cluster width so the vitals bars are long and
+   readable; the map canvas stays right-aligned above them. Touches pass
+   through the map to the look-pad below — only the Eat button takes
+   taps (it already sets pointer-events: auto on itself). */
+.minimap-wrap--docked {
+  position: static;
+  width: 134px;
+  pointer-events: none;
+}
+
+.minimap-wrap--docked .minimap-grip {
+  display: none;
+}
+
+.touch-cluster .minimap-wrap--docked {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.touch-cluster .minimap-wrap--docked .minimap-vitals {
+  width: 100%;
+  padding: 5px 0 0;
+}
+
+/* Inside the cluster the pad grid and drive buttons are static (the
+   cluster does the fixed positioning) and stretch to the cluster width.
+   Gas/Brake split the width evenly. */
+.touch-cluster .pad-buttons {
+  position: static;
+  width: 100%;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.touch-cluster .drive-buttons {
+  position: static;
+  width: 100%;
+}
+
+.touch-cluster .drive-buttons button {
+  flex: 1;
+  width: auto;
+}
+
+/* Minimap over an open panel (touch only): the touch UI hides while a
+   panel is open, but the map stays visible above the panel — docked
+   bottom-right, compact, Eat still works. */
+.minimap-panel-dock {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 8;
+  pointer-events: none;
+}
+
+.minimap-panel-dock .minimap-wrap--docked {
+  pointer-events: none;
+}
+
 @media (max-width: 720px) {
   h1 {
     font-size: 32px;
   }
 
-  /* Top actions: a thumb grid instead of a horizontal scroll strip,
-     so all 13 buttons are visible at once with no sideways scrolling.
-     Buttons are thumb-sized (44px). The bar is 3 rows (~152px) + safe-area,
-     so the HUD below it starts at safe-area + 160px. */
+  /* Top actions: ONE horizontally scrolling strip (one compact row,
+     ~52px tall), not a grid. The old 6-column grid covered a third of
+     the screen and hid the City Sol balance behind it. Every action is
+     still here — scroll left/right to reach the rest. The strip is the
+     only full-width top element; the HUD + top bar sit below it. */
   .actions {
     left: 0;
     right: 0;
     top: 0;
     max-width: none;
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 4px;
-    padding: 6px;
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 6px;
+    padding: 6px 8px;
     padding-top: max(6px, env(safe-area-inset-top));
     background: rgba(0, 0, 0, 0.72);
-    justify-content: stretch;
+    justify-content: flex-start;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .actions::-webkit-scrollbar {
+    display: none;
   }
 
   .actions button {
-    min-height: 44px;
-    padding: 6px 2px;
-    font-size: 11px;
-    letter-spacing: 0.02em;
-    line-height: 1.15;
-    white-space: normal;
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 6px 12px;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    line-height: normal;
+    white-space: nowrap;
     text-align: center;
   }
 
+  /* HUD + top bar sit just below the strip, side by side (HUD left,
+     balance right) — the strip used to cover the top bar, so the City
+     Sol balance was invisible on phones. box-sizing keeps the widths
+     honest (50vw + 40vw + margins fits a 390px phone). Text wraps,
+     never cut off. */
   .hud {
-    top: calc(env(safe-area-inset-top) + 160px);
-    max-width: calc(100vw - 16px);
+    top: calc(env(safe-area-inset-top) + 56px);
+    max-width: 50vw;
+    box-sizing: border-box;
     font-size: 13px;
+    overflow-wrap: break-word;
+  }
+
+  .topbar {
+    top: calc(env(safe-area-inset-top) + 52px);
+    max-width: 40vw;
+    box-sizing: border-box;
   }
 
   /* The "N in the city · cam · look" line is secondary while driving —
