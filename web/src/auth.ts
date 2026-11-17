@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { jwtExpiryMs, tokenNeedsRefresh } from "./tokenExpiry";
 
 const KEY = "orbitx-account";
@@ -60,8 +61,6 @@ async function supabaseConfig(): Promise<AuthConfig | null> {
   }
 }
 
-type SupabaseBrowserClient = Awaited<ReturnType<typeof import("@supabase/supabase-js").createClient>>;
-
 // ONE Supabase client for the whole page. Before this fix browser()
 // built a fresh client per call and threw it away, so no client instance
 // ever lived long enough to run supabase-js's auto-refresh — and the
@@ -69,14 +68,14 @@ type SupabaseBrowserClient = Awaited<ReturnType<typeof import("@supabase/supabas
 // in the `orbitx-account` snapshot the game actually sends. A singleton
 // keeps auto-refresh alive and gives onAuthStateChange one place to
 // rewrite the snapshot from.
-let browserClient: SupabaseBrowserClient | null = null;
+let browserClient: SupabaseClient | null = null;
 let authListenerStarted = false;
 let watchdogStarted = false;
 let refreshInFlight: Promise<string> | null = null;
 let lastRefreshAt = 0;
 let lastRefreshOk: boolean | null = null;
 
-async function browser(): Promise<SupabaseBrowserClient | null> {
+async function browser(): Promise<SupabaseClient | null> {
   const cfg = await loadAuthConfig();
   if (cfg.mode !== "supabase" || !cfg.url || !cfg.anon) return null;
   if (browserClient) return browserClient;
