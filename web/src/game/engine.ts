@@ -765,7 +765,11 @@ export function createGame(
   }
   function blockScroll(event: TouchEvent) {
     const target = event.target as HTMLElement | null;
-    if (target?.closest(".panel, .chat-log, input, textarea")) return;
+    // The top actions strip (.actions) is a horizontally scrolling
+    // overflow container — its touchmoves must NOT be preventDefaulted,
+    // or a real finger swipe can never pan it (the browser cancels the
+    // native scroll). Same allowlist as .panel / .chat-log.
+    if (target?.closest(".panel, .chat-log, .actions, input, textarea")) return;
     event.preventDefault();
   }
   function onResize() {

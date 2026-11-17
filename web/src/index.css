@@ -1651,6 +1651,13 @@ body.touch .touch-ui {
     justify-content: flex-start;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
+    /* The strip must actually swipe on a phone: pan-x tells the browser
+       a horizontal finger drag here is a scroll (not a camera drag), and
+       the right-edge fade is the visible cue that more buttons live past
+       the edge. Mask only, no layout change. */
+    touch-action: pan-x;
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 20px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 20px), transparent 100%);
   }
 
   .actions::-webkit-scrollbar {
@@ -1797,6 +1804,7 @@ body.touch .touch-ui {
     gap: 4px;
     padding: 4px 6px;
     padding-top: max(4px, env(safe-area-inset-top));
+    touch-action: pan-x;
   }
 
   .actions button {

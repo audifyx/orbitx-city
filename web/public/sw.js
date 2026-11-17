@@ -4,7 +4,7 @@
 // v6 (2026-11-17, mega batch): unified shop, functional jobs, session fix,
 // on-device wallets, LiveKit universe fix, advanced profile — on top of
 // textures v5. Never go backwards.
-const CACHE = "orbitx-city-v6";
+const CACHE = "orbitx-city-v7";
 const PRECACHE = [
   "/",
   "/index.html",
