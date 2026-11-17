@@ -3195,11 +3195,19 @@ export function createRuntime(scene: Scene) {
     // save-based fields from the server's profile-view, the same
     // source other players' profiles use. Balance never comes from
     // profile-view (it stays private there), so it stays on the seed.
-    if (world.online) {
-      const id = me?.id || world.id;
-      void world
-        .profileView(id)
-        .then((data) => {
+    // The HUD mounts before world.start() finishes, so the panel can
+    // open while the session is still coming up — wait for online
+    // instead of checking once, or the overlay never fires and the
+    // panel sits on the player-row 0s until it is reopened.
+    const id = me?.id || world.id;
+    const overlay = async () => {
+      for (let i = 0; i < 120 && !world.online; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      if (!world.online) return;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const data = await world.profileView(id);
           const p = (data as { profile?: Record<string, unknown> }).profile;
           if (!p || typeof p !== "object" || profileView?.id !== String(p.id || id) || !profileView?.self) return;
           profileView = {
@@ -3210,9 +3218,13 @@ export function createRuntime(scene: Scene) {
             homeServer: typeof p.homeServer === "number" ? p.homeServer : profileView.homeServer,
           };
           publish();
-        })
-        .catch(() => {});
-    }
+          return;
+        } catch {
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+      }
+    };
+    void overlay();
   }
 
   function jobTitle(id: string) {
