@@ -2709,7 +2709,9 @@ function publicOfficeClaim(row) {
     // signal — a project that paid real SOL is a verified project.
     paid: row.paid || "city",
     solLamports: Number(row.sol_lamports || 0),
-    burned: Math.floor(Number(row.orbitx_amount || "0") / 1e6),
+    // Burned ORBITX, 2 decimals — a floor would hide a sub-1-ORBITX
+    // burn (the badge omits the amount when burned is 0).
+    burned: Math.round((Number(row.orbitx_amount || "0") / 1e6) * 100) / 100,
     burnSignature: row.burn_signature || "",
     orderId: row.order_id || "",
     verified: row.paid === "sol",
