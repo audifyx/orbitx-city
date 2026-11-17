@@ -3980,14 +3980,15 @@ export default function App() {
               <div className="card menu-wide">
                 <h2>Pick your universe</h2>
                 <p className="muted">Your cars, homes, and offices live per universe. Travel between them is free — nothing follows you unless you carry it. Pick one before you play; you can travel in-world later.</p>
-                <div className="days">
+                <div className="universe-cards">
                   {(universes ?? fallbackUniverses()).map((u) => {
                     const friendsOn = friendsHere.filter((f) => f.server === u.id);
                     return (
                       <button
                         key={u.id}
                         type="button"
-                        className={universeSel === u.id ? "on" : ""}
+                        className={`universe-card${universeSel === u.id ? " on" : ""}`}
+                        data-universe={u.id}
                         disabled={isFull(u)}
                         onClick={() => {
                           triggerHaptic("tap");
@@ -3995,10 +3996,17 @@ export default function App() {
                           gameRef.current?.runtime.setUniverse(u.id);
                         }}
                       >
-                        {u.displayName} · {u.playerCount}/{u.cap}
-                        {u.isHome ? " · Home" : ""}
-                        {isFull(u) ? " · Full" : ""}
-                        {friendsOn.length ? ` · ${friendsOn.map((f) => f.name).join(", ")} ${friendsOn.length === 1 ? "is" : "are"} here` : ""}
+                        <span className="uni-emblem" aria-hidden="true">{u.name.slice(0, 1)}</span>
+                        <span className="uni-body">
+                          <b>{u.displayName}</b>
+                          <span className="uni-tag">{u.tagline}</span>
+                          <span className="uni-count">{u.playerCount}/{u.cap} players</span>
+                        </span>
+                        <span className="uni-badges">
+                          {u.isHome ? <i className="uni-home">Home</i> : null}
+                          {isFull(u) ? <i className="uni-full">Full</i> : null}
+                          {friendsOn.length ? <i className="uni-friends">{friendsOn.map((f) => f.name).join(", ")} {friendsOn.length === 1 ? "is" : "are"} here</i> : null}
+                        </span>
                       </button>
                     );
                   })}

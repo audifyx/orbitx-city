@@ -115,6 +115,23 @@ body,
   -webkit-overflow-scrolling: touch;
 }
 
+/* Menu section headings (universe picker, character select): cinematic
+   — a gold rule under the title, generous spacing, so the menu reads as
+   a title screen, not a form. */
+.card.menu-wide > h2 {
+  margin: 0 0 6px;
+  font-size: 28px;
+  letter-spacing: 0.08em;
+  color: #ffffff;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #e0b33a;
+}
+
+.card.menu-wide > .muted {
+  margin: 10px 0 16px;
+  line-height: 1.5;
+}
+
 .menu.menu-roster .card.menu-wide {
   max-height: none;
   margin: 8px auto;
@@ -432,7 +449,12 @@ body,
 .char-view {
   width: 100%;
   height: 280px;
-  background: #101820;
+  /* Soft gold glow behind the character so the preview reads as a
+     spotlight stage, not a flat dark box — the canvas is transparent,
+     so this shows through around the character. */
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 68%, rgba(224, 179, 58, 0.22), rgba(224, 179, 58, 0) 70%),
+    #101820;
   border: 1px solid #9fdfff;
   display: block;
 }
@@ -1119,6 +1141,174 @@ body {
   outline: 2px solid #9fdfff;
 }
 
+/* Universe picker: premium cards, not plain text rectangles. Each card
+   has its own accent (top bar + emblem) so the five universes read as
+   five places, not five labels. Text stays white on black / black on
+   gold — the accent is only the bar + emblem, never the text. The
+   selected card gets a gold outline + glow; a full universe is dimmed
+   and disabled. */
+.universe-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  text-align: left;
+}
+
+.universe-card {
+  position: relative;
+  margin: 0;
+  padding: 14px 14px 12px;
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #0a0e14;
+  border: 1px solid #2a3644;
+  color: #ffffff;
+  text-align: left;
+  letter-spacing: 0;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.universe-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 4px;
+  background: #e0b33a;
+}
+
+.universe-card[data-universe="1"]::before {
+  background: linear-gradient(90deg, #2dd4a8, #7ef6ff);
+}
+
+.universe-card[data-universe="2"]::before {
+  background: linear-gradient(90deg, #ff7a3c, #ffd23c);
+}
+
+.universe-card[data-universe="3"]::before {
+  background: linear-gradient(90deg, #a78bfa, #f0abfc);
+}
+
+.universe-card[data-universe="4"]::before {
+  background: linear-gradient(90deg, #ffe9a8, #e0b33a);
+}
+
+.universe-card[data-universe="5"]::before {
+  background: linear-gradient(90deg, #5aa9ff, #7ef6ff);
+}
+
+.universe-card .uni-emblem {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #101820;
+  border: 1px solid #e0b33a;
+  color: #e0b33a;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.universe-card[data-universe="1"] .uni-emblem {
+  border-color: #2dd4a8;
+  color: #2dd4a8;
+}
+
+.universe-card[data-universe="2"] .uni-emblem {
+  border-color: #ff7a3c;
+  color: #ff7a3c;
+}
+
+.universe-card[data-universe="3"] .uni-emblem {
+  border-color: #a78bfa;
+  color: #a78bfa;
+}
+
+.universe-card[data-universe="4"] .uni-emblem {
+  border-color: #ffe9a8;
+  color: #ffe9a8;
+}
+
+.universe-card[data-universe="5"] .uni-emblem {
+  border-color: #5aa9ff;
+  color: #5aa9ff;
+}
+
+.universe-card .uni-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.universe-card .uni-body b {
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+}
+
+.universe-card .uni-tag {
+  font-size: 12px;
+  font-weight: 400;
+  color: #c9d6e2;
+  line-height: 1.35;
+}
+
+.universe-card .uni-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e0b33a;
+}
+
+.universe-card .uni-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.universe-card .uni-badges i {
+  font-style: normal;
+  padding: 1px 7px;
+  background: rgba(224, 179, 58, 0.18);
+  border: 1px solid #e0b33a;
+  color: #ffd97a;
+}
+
+.universe-card .uni-badges .uni-full {
+  background: rgba(255, 90, 60, 0.18);
+  border-color: #ff5a3c;
+  color: #ff8a76;
+}
+
+.universe-card .uni-badges .uni-friends {
+  background: transparent;
+  border-color: #2a3644;
+  color: #c9d6e2;
+  font-weight: 400;
+}
+
+.universe-card.on {
+  outline: 2px solid #e0b33a;
+  border-color: #e0b33a;
+  box-shadow: 0 0 0 1px #e0b33a, 0 0 18px rgba(224, 179, 58, 0.35);
+}
+
+.universe-card:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .touch-ui {
   display: none;
 }
@@ -1506,21 +1696,42 @@ body.touch .touch-ui {
     grid-template-columns: 1fr;
   }
 
+  /* The character is the star on phone: a taller preview (320px) so the
+     closer camera has room to fill it. The thumbnail grid becomes ONE
+     horizontal strip — every card swipable, none cut off mid-row. The
+     old 2-column grid sprawled 6 rows down and the first row sat cut
+     off at the bottom of the screen. */
   .char-view {
-    height: 220px;
+    height: 320px;
   }
 
   .char-view-img {
-    height: 220px;
+    height: 320px;
   }
 
   .char-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 8px;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .char-grid::-webkit-scrollbar {
+    display: none;
+  }
+
+  .char-card {
+    flex: 0 0 auto;
+    width: 112px;
   }
 
   .char-card img,
   .char-blank {
-    height: 96px;
+    height: 112px;
   }
 
   .char-head h2 {

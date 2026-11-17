@@ -62,13 +62,24 @@ export function CharacterSelect({ seedText, setSeedText, webglMissing, busy, onP
       try {
         renderer.setSize(180, 220, false);
         const scene = new Scene();
+        // Closer framing than before (was 1.7/1.45/2.6) so the character
+        // fills the card instead of floating small in dark space. Same
+        // framing as the live preview.
         const camera = new PerspectiveCamera(36, 180 / 220, 0.1, 20);
-        camera.position.set(1.7, 1.45, 2.6);
-        camera.lookAt(0, 1.0, 0);
+        camera.position.set(1.5, 1.45, 2.5);
+        camera.lookAt(0, 0.95, 0);
         scene.add(new AmbientLight(0xffffff, 1.15));
         const sun = new DirectionalLight(0xfff1dc, 2.1);
         sun.position.set(3, 5, 2);
         scene.add(sun);
+        // Cool front-left fill + back rim so the character reads in 3D
+        // instead of flat front-lit (same rig as the live preview).
+        const fill = new DirectionalLight(0x9fdfff, 0.9);
+        fill.position.set(-3, 2, 2);
+        scene.add(fill);
+        const rim = new DirectionalLight(0xffffff, 1.0);
+        rim.position.set(0, 3, -3);
+        scene.add(rim);
         const next: Record<string, string> = {};
         for (const look of looks) {
           if (!live) return;
@@ -120,14 +131,24 @@ export function CharacterSelect({ seedText, setSeedText, webglMissing, busy, onP
     renderer.setSize(width, height, false);
     const scene = new Scene();
     // Wide enough framing that the whole character fits on phone aspect
-    // ratios (the old camera cropped the head off at ~1.6 aspect).
+    // ratios (the old camera cropped the head off at ~1.6 aspect), and
+    // CLOSE enough that the character is the star of the panel — the old
+    // camera (1.9/1.5/3.1) left the character small in a big dark box.
     const camera = new PerspectiveCamera(36, width / Math.max(1, height), 0.1, 20);
-    camera.position.set(1.9, 1.5, 3.1);
+    camera.position.set(1.5, 1.45, 2.5);
     camera.lookAt(0, 0.95, 0);
     scene.add(new AmbientLight(0xffffff, 1.15));
     const sun = new DirectionalLight(0xfff1dc, 2.1);
     sun.position.set(3, 5, 2);
     scene.add(sun);
+    // Cool front-left fill + back rim so the character reads in 3D
+    // instead of flat front-lit.
+    const fill = new DirectionalLight(0x9fdfff, 0.9);
+    fill.position.set(-3, 2, 2);
+    scene.add(fill);
+    const rim = new DirectionalLight(0xffffff, 1.0);
+    rim.position.set(0, 3, -3);
+    scene.add(rim);
     const actor = new Group();
     dressPerson(actor, look, { color: "white", hat: "none", owned: [], trustOwned: true });
     scene.add(actor);
