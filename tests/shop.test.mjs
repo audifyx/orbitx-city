@@ -157,3 +157,95 @@ test("shop-buy needs a server, like every other per-server op", async () => {
   assert.equal(res.ok, false);
   assert.match(res.message, /server/i);
 });
+
+// SHOP ITEMS (2026-11-17): every avatar colour has an item. The seven
+// colours are white / gold / cyan / sunset / black / red / silver —
+// each one must have a tee, a hoodie, pants and sneakers in the
+// catalog, at the server price, buyable, granting and persisting.
+const AVATAR_COLORS = ["white", "gold", "cyan", "sunset", "black", "red", "silver"];
+
+test("shop-catalog: every colour has a tee, hoodie, pants and sneakers", async () => {
+  const { token } = await guest("Rainbow");
+  const res = await call("shop-catalog", { server: 1 }, token);
+  assert.equal(res.ok, true, res.message);
+  const clothes = res.catalog.clothes;
+  // Pants come in three cuts — white is shorts, blue is jeans — the
+  // rest are plain pants. Every colour still has a pants item.
+  const pantsId = (color) =>
+    color === "white" ? "clothes-shorts-white" : color === "blue" ? "clothes-jeans-blue" : `clothes-pants-${color}`;
+  const colors = [...AVATAR_COLORS, "blue"];
+  for (const color of AVATAR_COLORS) {
+    for (const [slot, prefix] of [["shirt", "tee"], ["shirt", "hoodie"], ["shoes", "sneakers"]]) {
+      const id = `clothes-${prefix}-${color}`;
+      const item = clothes.find((entry) => entry.id === id);
+      assert.ok(item, `catalog has ${id}`);
+      assert.equal(item.slot, slot, `${id} is a ${slot}`);
+      assert.ok(item.price > 0, `${id} has a price`);
+    }
+  }
+  for (const color of colors) {
+    const id = pantsId(color);
+    const item = clothes.find((entry) => entry.id === id);
+    assert.ok(item, `catalog has ${id} (pants in ${color})`);
+    assert.equal(item.slot, "pants", `${id} is pants`);
+  }
+  // Outfits in more colours, and the sunset hover paint.
+  for (const id of ["clothes-tracksuit-red", "clothes-tracksuit-cyan", "clothes-tracksuit-white", "clothes-tracksuit-black", "clothes-dress-gold", "clothes-dress-white", "clothes-suit-gold", "car-sunset"]) {
+    assert.ok(clothes.find((entry) => entry.id === id), `catalog has ${id}`);
+  }
+});
+
+test("shop-buy new colour items: deducts, grants, equips, persists — and the bought item is in the owned snapshot", async () => {
+  const { token, id } = await guest("Colourful");
+  // A cyan tee: buy it, it must land in owned + the worn marker, and a
+  // fresh catalog read must still show it (the inventory tab reads this
+  // same snapshot).
+  const tee = await call("shop-buy", { category: "clothes", id: "clothes-tee-cyan", server: 1 }, token);
+  assert.equal(tee.ok, true, tee.message);
+  assert.equal(tee.shop.balance, 60000 - 30);
+  assert.ok(tee.shop.owned.includes("clothes-tee-cyan"));
+  assert.ok(tee.shop.owned.includes("worn:shirt:tee-cyan"));
+  const again = await call("shop-catalog", { server: 1 }, token);
+  assert.ok(again.shop.owned.includes("clothes-tee-cyan"), "the grant persists for the inventory tab");
+  assert.ok(again.shop.owned.includes("worn:shirt:tee-cyan"));
+  assert.equal(saveFor(id, 1).balance, 60000 - 30);
+
+  // A sunset hoodie in the same slot replaces the worn marker.
+  const hoodie = await call("shop-buy", { category: "clothes", id: "clothes-hoodie-sunset", server: 1 }, token);
+  assert.equal(hoodie.ok, true, hoodie.message);
+  assert.ok(hoodie.shop.owned.includes("worn:shirt:hoodie-sunset"));
+  assert.ok(!hoodie.shop.owned.includes("worn:shirt:tee-cyan"), "one worn shirt at a time");
+
+  // Pants + sneakers in other colours grant alongside the shirt.
+  const pants = await call("shop-buy", { category: "clothes", id: "clothes-pants-silver", server: 1 }, token);
+  assert.equal(pants.ok, true, pants.message);
+  assert.ok(pants.shop.owned.includes("worn:pants:pants-silver"));
+  const shoes = await call("shop-buy", { category: "clothes", id: "clothes-sneakers-black", server: 1 }, token);
+  assert.equal(shoes.ok, true, shoes.message);
+  assert.ok(shoes.shop.owned.includes("worn:shoes:sneakers-black"));
+  assert.equal(shoes.shop.balance, 60000 - 30 - 80 - 55 - 70);
+});
+
+test("shop-buy fixed items: red + silver suits grant, and the new hats grant", async () => {
+  const { token } = await guest("Fixed");
+  // The red and silver suits were sold but never changed the outfit
+  // (SHOP_COLORS had no entry); the grant itself must land in owned.
+  // (Suits/hats/trails all buy through the "clothes" category — the
+  // unified shop routes every CATALOG id through spendItem.)
+  const red = await call("shop-buy", { category: "clothes", id: "color-red", server: 1 }, token);
+  assert.equal(red.ok, true, red.message);
+  assert.ok(red.shop.owned.includes("color-red"));
+  const silver = await call("shop-buy", { category: "clothes", id: "color-silver", server: 1 }, token);
+  assert.equal(silver.ok, true, silver.message);
+  assert.ok(silver.shop.owned.includes("color-silver"));
+  // The tophat, headphones and visor were sold but rendered nothing.
+  for (const hat of ["hat-tophat", "hat-headphones", "hat-visor"]) {
+    const res = await call("shop-buy", { category: "clothes", id: hat, server: 1 }, token);
+    assert.equal(res.ok, true, `${hat}: ${res.message}`);
+    assert.ok(res.shop.owned.includes(hat), `${hat} is in owned`);
+  }
+  // The sunset hover paint grants like the other six hover colours.
+  const hover = await call("shop-buy", { category: "clothes", id: "car-sunset", server: 1 }, token);
+  assert.equal(hover.ok, true, hover.message);
+  assert.ok(hover.shop.owned.includes("car-sunset"));
+});
