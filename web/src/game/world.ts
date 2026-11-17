@@ -829,6 +829,30 @@ class CityWorld {
     return this.call("wallet-export", { confirm: "EXPORT", ...proof });
   }
 
+  // On-device wallet (PIN-encrypted, key never leaves this device):
+  // balance reads, the blockhash, and the broadcast relay take the
+  // public address only. ad-compose/ad-submit are the device-signed
+  // billboard flow — the server composes, the device signs.
+  async walletBalance(address: string) {
+    return this.call("wallet-balance", { address });
+  }
+
+  async walletBlockhash() {
+    return this.call("wallet-blockhash", {});
+  }
+
+  async walletSubmit(signedTx: string, address: string) {
+    return this.call("wallet-submit", { signedTx, address });
+  }
+
+  async adCompose(board: string, days: number, project: string, text: string, address: string, idempotencyKey = "") {
+    return this.call("ad-compose", { board, days, project, text, address, idempotencyKey });
+  }
+
+  async adSubmit(orderId: string, signedTx: string) {
+    return this.call("ad-submit", { orderId, signedTx });
+  }
+
   private async call(op: string, extra: Record<string, unknown>, auth: boolean | "account" = true) {
     // Fail closed on the server id: live.js 400s EVERY live op (including the
     // 1s digest) on an invalid explicit `server`. Only 1-5 may ever be sent;

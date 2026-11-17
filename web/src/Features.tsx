@@ -192,8 +192,17 @@ function Wallet({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   const [otp, setOtp] = useState("");
   const [secret, setSecret] = useState<{ secretBase58: string; phantom: number[] } | null>(null);
   const [note, setNote] = useState("");
+  // On-device wallet (PIN-encrypted, key never leaves this device).
+  const [pin, setPin] = useState("");
+  const [pinConfirm, setPinConfirm] = useState("");
+  const [localNote, setLocalNote] = useState("");
+  const [localForget, setLocalForget] = useState(false);
+  const [localDest, setLocalDest] = useState("");
+  const [localAmount, setLocalAmount] = useState("0.01");
+  const [localReview, setLocalReview] = useState<{ destination: string; amount: string } | null>(null);
   useEffect(() => {
     rt?.refreshWallet();
+    rt?.refreshLocalWallet();
   }, [rt]);
   useEffect(() => {
     if (!quote) return;
@@ -201,9 +210,122 @@ function Wallet({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   }, [quote]);
   const sol = snap.chainSol == null ? "not read" : `${snap.chainSol} SOL`;
   const token = snap.chainOrbitx == null ? "not read" : `${snap.chainOrbitx} $ORBITX`;
+  const localSol = snap.localSol == null ? "not read" : `${snap.localSol} SOL`;
+  const localToken = snap.localOrbitx == null ? "not read" : `${snap.localOrbitx} $ORBITX`;
   return (
     <div className="list" data-feature="wallet">
       <p className="play-money">Demo credits in the HUD are play money. This panel is the in-app Solana wallet. The shop does not spend it.</p>
+      <h3>On-device wallet</h3>
+      <p className="play-money">Made on this device and locked with your PIN. The key never leaves this phone — the server never sees it, and there is no export. Forget the PIN and the wallet is gone.</p>
+      {!snap.localAddress ? (
+        <>
+          <label>
+            Choose a PIN (4–8 digits)
+            <input id="local-pin-new" type="password" inputMode="numeric" autoComplete="new-password" value={pin} onChange={(event) => setPin(event.target.value)} />
+          </label>
+          <label>
+            Confirm PIN
+            <input id="local-pin-confirm" type="password" inputMode="numeric" autoComplete="new-password" value={pinConfirm} onChange={(event) => setPinConfirm(event.target.value)} />
+          </label>
+          <button
+            id="local-create"
+            type="button"
+            onClick={() => {
+              setLocalNote("");
+              if (pin !== pinConfirm) {
+                setLocalNote("The two PINs do not match.");
+                return;
+              }
+              void rt?.createLocalWallet(pin)?.then((res) => {
+                const row = res as { ok?: boolean; message?: string; address?: string };
+                if (row.ok === false) setLocalNote(String(row.message || "Could not create the wallet."));
+                else {
+                  setPin("");
+                  setPinConfirm("");
+                  setLocalNote("Wallet created on this device. Keep your PIN safe — there is no recovery.");
+                }
+              }).catch((err) => setLocalNote(err instanceof Error ? err.message : "Could not create the wallet."));
+            }}
+          >Create wallet on this device</button>
+        </>
+      ) : snap.localUnlocked ? (
+        <>
+          <p className="addr">{snap.localAddress}</p>
+          <p>{localSol} · {localToken}</p>
+          <p>Unlocked on this device. Billboards pay from this wallet — lock it when you step away.</p>
+          <button id="local-lock" type="button" onClick={() => { void rt?.lockLocalWallet(); }}>Lock wallet</button>
+          <h3>Send SOL</h3>
+          <label>
+            Destination
+            <input id="local-send-dest" value={localDest} onChange={(event) => setLocalDest(event.target.value)} />
+          </label>
+          <label>
+            Amount
+            <input id="local-send-amount" value={localAmount} onChange={(event) => setLocalAmount(event.target.value)} />
+          </label>
+          <button id="local-send-review" type="button" onClick={() => setLocalReview({ destination: localDest, amount: localAmount })}>Review send</button>
+          {localReview ? (
+            <div className="sheet" id="local-send-sheet">
+              <h3>Confirm</h3>
+              <p>{localReview.amount} SOL</p>
+              <p>To {localReview.destination}</p>
+              <p>From your on-device wallet. The server only broadcasts what this device signed.</p>
+              <button type="button" id="local-send-confirm" onClick={() => {
+                void rt?.sendLocalSol(localReview.destination, localReview.amount)?.then((res) => {
+                  const row = res as { ok?: boolean; message?: string };
+                  if (row.ok === false) setLocalNote(String(row.message || "Send failed."));
+                  else {
+                    setLocalReview(null);
+                    setLocalNote("Sent.");
+                  }
+                }).catch((err) => setLocalNote(err instanceof Error ? err.message : "Send failed."));
+              }}>Confirm</button>
+              <button type="button" onClick={() => setLocalReview(null)}>Back</button>
+            </div>
+          ) : null}
+          {localForget ? (
+            <div className="sheet" id="local-forget-confirm">
+              <p>Forgetting deletes the wallet from this device. The key is gone for good — there is no recovery.</p>
+              <button id="local-forget-yes" type="button" onClick={() => { void rt?.forgetLocalWallet(); setLocalForget(false); setLocalNote("Wallet forgotten on this device."); }}>Forget it</button>
+              <button type="button" onClick={() => setLocalForget(false)}>Keep it</button>
+            </div>
+          ) : (
+            <button id="local-forget" type="button" onClick={() => setLocalForget(true)}>Forget wallet</button>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="addr">{snap.localAddress}</p>
+          <p>Locked — enter your PIN to unlock.</p>
+          <label>
+            PIN
+            <input id="local-pin" type="password" inputMode="numeric" autoComplete="current-password" value={pin} onChange={(event) => setPin(event.target.value)} />
+          </label>
+          <button
+            id="local-unlock"
+            type="button"
+            onClick={() => {
+              setLocalNote("");
+              void rt?.unlockLocalWallet(pin)?.then((res) => {
+                const row = res as { ok?: boolean; message?: string };
+                if (row.ok === false) setLocalNote(String(row.message || "Wrong PIN."));
+                else setPin("");
+              }).catch((err) => setLocalNote(err instanceof Error ? err.message : "Could not unlock."));
+            }}
+          >Unlock</button>
+          {localForget ? (
+            <div className="sheet" id="local-forget-confirm">
+              <p>Forgetting deletes the wallet from this device. The key is gone for good — there is no recovery.</p>
+              <button id="local-forget-yes" type="button" onClick={() => { void rt?.forgetLocalWallet(); setLocalForget(false); setLocalNote("Wallet forgotten on this device."); }}>Forget it</button>
+              <button type="button" onClick={() => setLocalForget(false)}>Keep it</button>
+            </div>
+          ) : (
+            <button id="local-forget" type="button" onClick={() => setLocalForget(true)}>Forget wallet</button>
+          )}
+        </>
+      )}
+      {localNote ? <p id="local-wallet-note">{localNote}</p> : null}
+      <h3>Server wallet</h3>
       <p>
         <b>{snap.name || "Guest"}</b>
         {snap.account ? " · account" : " · guest"}

@@ -89,6 +89,7 @@ import {
   type CribState,
 } from "./game/crib";
 import { triggerHaptic } from "./game/haptics";
+import { shortAddress } from "./game/localWallet";
 import { STORES, WARDROBE_CATALOG, WARDROBE_KINDS, fitSummary, kindLabel, wardrobeItem, type SavedFit, type StoreId } from "./game/wardrobe";
 
 const HELP =
@@ -371,6 +372,10 @@ const EMPTY: Snap = {
   chainNetwork: "",
   chainHistory: [],
   chainQr: "",
+  localAddress: "",
+  localUnlocked: false,
+  localSol: null,
+  localOrbitx: null,
   meId: "",
   jobStreak: 0,
   business: null,
@@ -511,6 +516,8 @@ export default function App() {
   const [adOrders, setAdOrders] = useState<AdOrder[]>([]);
   const [adBusy, setAdBusy] = useState(false);
   const [adMsg, setAdMsg] = useState("");
+  // On-device wallet PIN for paying a billboard from the device wallet.
+  const [adPin, setAdPin] = useState("");
   // In-game radio: the playlist is shared, the sound is personal — a plain
   // audio element on this device, never broadcast to other players.
   const [radioTracks, setRadioTracks] = useState<RadioTrack[]>([]);
@@ -2295,7 +2302,29 @@ export default function App() {
                           setAdMsg(String((q as { message?: string }).message || "The quote failed."));
                         }
                       } else {
-                        const res = await rt.book(adId, adDays, adText);
+                        // On-device wallet funds the ad when one exists on
+                        // this phone (PIN-unlocked, signed on the device);
+                        // otherwise the legacy in-app wallet pays.
+                        let res;
+                        if (snap.localAddress) {
+                          if (!snap.localUnlocked) {
+                            if (!adPin) {
+                              setAdMsg("Enter your wallet PIN to pay from your on-device wallet.");
+                              setAdBusy(false);
+                              return;
+                            }
+                            const unlocked = await rt.unlockLocalWallet(adPin);
+                            if (!unlocked.ok) {
+                              setAdMsg(String(unlocked.message || "Wrong PIN."));
+                              setAdBusy(false);
+                              return;
+                            }
+                            setAdPin("");
+                          }
+                          res = await rt.bookLocal(adId, adDays, adText);
+                        } else {
+                          res = await rt.book(adId, adDays, adText);
+                        }
                         if (res.ok && res.order) {
                           setAdOrder(res.order);
                           setAdMsg(String(res.message || ""));
@@ -2330,15 +2359,28 @@ export default function App() {
                       ))}
                     </div>
                     {adQuoteData ? (
-                      <p>
-                        ${adQuoteData.priceUsd.toFixed(2)} buys ~{adQuoteData.estOrbitxUi} ORBITX ({adQuoteData.priceSol} SOL) and burns it all.
-                        100% buy + burn. No fee, no cut. Live until {adQuoteData.endsAt}.
-                      </p>
+                      <>
+                        <p>
+                          ${adQuoteData.priceUsd.toFixed(2)} buys ~{adQuoteData.estOrbitxUi} ORBITX ({adQuoteData.priceSol} SOL) and burns it all.
+                          100% buy + burn. No fee, no cut. Live until {adQuoteData.endsAt}.
+                        </p>
+                        {snap.localAddress ? (
+                          <p>Paying from your on-device wallet {shortAddress(snap.localAddress)} · {snap.localSol == null ? "balance not read" : `${snap.localSol} SOL`}.{snap.localUnlocked ? "" : " Enter your PIN below to pay."}</p>
+                        ) : (
+                          <p>Paying from your in-app wallet.</p>
+                        )}
+                      </>
                     ) : (
                       <p>Real billboards: pay SOL from your in-app wallet, the city buys ORBITX and burns it all. No fee, no cut.</p>
                     )}
+                    {adQuoteData && snap.localAddress && !snap.localUnlocked ? (
+                      <label>
+                        Wallet PIN
+                        <input id="ad-pin" type="password" inputMode="numeric" autoComplete="current-password" value={adPin} onChange={(event) => setAdPin(event.target.value)} />
+                      </label>
+                    ) : null}
                     {adMsg ? <p>{adMsg}</p> : null}
-                    <button type="submit" disabled={adBusy}>{adQuoteData ? "Confirm & pay from in-app wallet" : "Get price"}</button>
+                    <button type="submit" disabled={adBusy}>{adQuoteData ? (snap.localAddress ? "Confirm & pay from on-device wallet" : "Confirm & pay from in-app wallet") : "Get price"}</button>
                     {adQuoteData ? <button type="button" onClick={() => setAdQuoteData(null)}>Change board or days</button> : null}
                   </form>
                 )}

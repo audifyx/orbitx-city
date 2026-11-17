@@ -71,6 +71,20 @@ import { allLooks, clothesFromOwned, dressPerson, loadLooks, lookById, lookName,
 import { GOLD, MATERIALS } from "./materials";
 import { accountToken, ensureFreshAccountToken, readAccount, refreshAccountToken } from "../auth";
 import { world, type CityMe } from "./world";
+import {
+  buildSolTransferMessage,
+  createLocalWallet as createDeviceWallet,
+  forgetLocalWallet as forgetDeviceWallet,
+  hasLocalWallet,
+  isLocalWalletUnlocked,
+  localWalletAddress,
+  lockLocalWallet as lockDeviceWallet,
+  shortAddress,
+  signLegacyMessage,
+  signVersionedTx,
+  unlockLocalWallet as unlockDeviceWallet,
+  validAddress,
+} from "./localWallet";
 import { wardrobeFromOwned, setEquippedOwned, removeFitOwned, encodeFitEntry, WARDROBE_CATALOG, WARDROBE_KINDS, type SavedFit, type StoreId, type WardrobeKind, type WardrobeSlots } from "./wardrobe";
 import {
   accumulateWear,
@@ -649,6 +663,11 @@ export interface Snap {
   chainNetwork: string;
   chainHistory: { id: string; status: string; amount: string; destination: string; signature: string }[];
   chainQr: string;
+  // On-device wallet (PIN-encrypted, key never leaves this device).
+  localAddress: string;
+  localUnlocked: boolean;
+  localSol: number | null;
+  localOrbitx: number | null;
   meId: string;
   jobStreak: number;
   business: { kind: string; started: number; lastCollect: number } | null;
@@ -3051,6 +3070,10 @@ export function createRuntime(scene: Scene) {
       chainNetwork: world.chain?.network || "",
       chainHistory: world.chain?.history || [],
       chainQr: world.chain?.qr || "",
+      localAddress: localWalletAddress(),
+      localUnlocked: isLocalWalletUnlocked(),
+      localSol: localBalance.sol,
+      localOrbitx: localBalance.orbitx,
       meId: world.id,
       jobStreak: world.me?.jobStreak ?? 0,
       business: world.me?.business ?? null,
@@ -8065,6 +8088,120 @@ export function createRuntime(scene: Scene) {
     return { ok: true as const, message };
   }
 
+  // On-device wallet (PIN-encrypted, key never leaves this device).
+  // Last balance read for the device wallet; refreshLocalWallet keeps it
+  // fresh and publishes it into the snap (localSol / localOrbitx).
+  let localBalance: { sol: number | null; orbitx: number | null } = { sol: null, orbitx: null };
+
+  async function refreshLocalWallet() {
+    if (!hasLocalWallet()) {
+      localBalance = { sol: null, orbitx: null };
+      publish();
+      return;
+    }
+    try {
+      const bal = await world.walletBalance(localWalletAddress());
+      localBalance = {
+        sol: typeof bal.sol === "number" ? bal.sol : null,
+        orbitx: typeof bal.orbitx === "number" ? bal.orbitx : null,
+      };
+    } catch {
+      // Offline: keep the last balance shown, if any.
+    }
+    publish();
+  }
+
+  async function createLocalWallet(pin: string) {
+    try {
+      const { address } = await createDeviceWallet(pin);
+      say(`On-device wallet created: ${shortAddress(address)}. Keep your PIN safe — there is no recovery.`);
+      await refreshLocalWallet();
+      return { ok: true as const, address };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not create the wallet.";
+      say(message);
+      return { ok: false as const, message };
+    }
+  }
+
+  async function unlockLocalWallet(pin: string) {
+    try {
+      const ok = await unlockDeviceWallet(pin);
+      if (!ok) {
+        say("Wrong PIN.");
+        return { ok: false as const, message: "Wrong PIN." };
+      }
+      publish();
+      return { ok: true as const };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not unlock the wallet.";
+      say(message);
+      return { ok: false as const, message };
+    }
+  }
+
+  function lockLocalWallet() {
+    lockDeviceWallet();
+    publish();
+    return { ok: true as const };
+  }
+
+  function forgetLocalWallet() {
+    forgetDeviceWallet();
+    localBalance = { sol: null, orbitx: null };
+    publish();
+    return { ok: true as const };
+  }
+
+  // Send SOL from the on-device wallet: build + sign on this device, the
+  // server only broadcasts. Same 0–1 SOL per-send cap as the server path.
+  async function sendLocalSol(destination: string, amount: string) {
+    if (!isLocalWalletUnlocked()) return { ok: false as const, message: "Unlock your on-device wallet with your PIN first." };
+    if (!validAddress(destination)) return { ok: false as const, message: "That destination is not a Solana address." };
+    const sol = Number(amount);
+    if (!Number.isFinite(sol) || sol <= 0 || sol > 1) return { ok: false as const, message: "Amount must be between 0 and 1 SOL per confirm." };
+    try {
+      const { blockhash } = await world.walletBlockhash();
+      const message = buildSolTransferMessage(localWalletAddress(), destination, Math.round(sol * 1e9), String(blockhash || ""));
+      if (!message) throw new Error("Could not build that transfer.");
+      const signedTx = signLegacyMessage(message);
+      const done = await world.walletSubmit(signedTx, localWalletAddress());
+      const msg = String((done as { message?: string }).message || "Sent.");
+      say(msg);
+      await refreshLocalWallet();
+      return { ok: true as const, message: msg, signature: String((done as { signature?: string }).signature || "") };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Send failed.";
+      say(message);
+      return { ok: false as const, message };
+    }
+  }
+
+  // Real billboard paid from the ON-DEVICE wallet: the server composes
+  // the buy+burn transaction, this device signs it with the PIN-unlocked
+  // key, the server verifies + broadcasts. One click, one signature, one
+  // transaction — same as the legacy flow, only the signer moved.
+  async function bookLocal(id: string, days: number, project = wallet.name, text = "NEW CAMPAIGN") {
+    if (!world.online) return { ok: false as const, message: "Sign in to price a real billboard. Guests use City Sol only." };
+    if (!hasLocalWallet()) return { ok: false as const, message: "No on-device wallet yet — create one in the Wallet panel first." };
+    if (!isLocalWalletUnlocked()) return { ok: false as const, message: "Unlock your on-device wallet with your PIN first." };
+    try {
+      const data = await world.adCompose(id, days, project, text, localWalletAddress(), crypto.randomUUID());
+      const unsignedTx = String((data as { unsignedTx?: string }).unsignedTx || "");
+      if (!unsignedTx) throw new Error("The city did not return a transaction to sign.");
+      const signedTx = signVersionedTx(unsignedTx);
+      const done = await world.adSubmit(String((data.order as { id?: string } | undefined)?.id || ""), signedTx);
+      const message = String((done as { message?: string }).message || "Swap sent.");
+      say(message);
+      await refreshLocalWallet();
+      return { ok: true as const, message, order: (done as { order?: AdOrder }).order };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "The city refused the booking.";
+      say(message);
+      return { ok: false as const, message };
+    }
+  }
+
   async function quoteAd(id: string, days: number) {
     if (!world.online) return { ok: false as const, message: "Sign in to price a real billboard. Guests use City Sol only." };
     try {
@@ -10113,6 +10250,9 @@ export function createRuntime(scene: Scene) {
     openWardrobe,    book(id: string, days: number, text: string) {
       return book(id, days, wallet.name || "Demo project", text || "NEW CAMPAIGN");
     },
+    bookLocal(id: string, days: number, text: string) {
+      return bookLocal(id, days, wallet.name || "Demo project", text || "NEW CAMPAIGN");
+    },
     quoteAd,
     adStatus,
     adRetryBurn,
@@ -11065,6 +11205,25 @@ export function createRuntime(scene: Scene) {
     },
     exportKey(proof: { password?: string; otp?: string }) {
       return world.walletExport(proof);
+    },
+    // On-device wallet (PIN-encrypted, key never leaves this device).
+    refreshLocalWallet() {
+      return refreshLocalWallet();
+    },
+    createLocalWallet(pin: string) {
+      return createLocalWallet(pin);
+    },
+    unlockLocalWallet(pin: string) {
+      return unlockLocalWallet(pin);
+    },
+    lockLocalWallet() {
+      return lockLocalWallet();
+    },
+    forgetLocalWallet() {
+      return forgetLocalWallet();
+    },
+    sendLocalSol(destination: string, amount: string) {
+      return sendLocalSol(destination, amount);
     },
     toggleSpectator() {
       spectator = !spectator;
