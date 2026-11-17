@@ -114,11 +114,23 @@ export function clothesFromOwned(owned: string[]): Clothes {
 }
 
 const SHIRT_STYLES: Record<string, { color: string; layer?: "hood" | "jacket"; inner?: string }> = {
-  // Plain tees: just a torso colour.
+  // Plain tees: just a torso colour. One tee in every avatar colour
+  // (2026-11-17, shop-items) so every colour has an item.
   "tee-red": { color: "#e0392f" },
   "tee-gold": { color: "#e0b33a" },
-  // Hoodie: torso colour + a hood behind the head.
+  "tee-white": { color: "#f4f6fa" },
+  "tee-cyan": { color: "#7eefff" },
+  "tee-sunset": { color: "#ff7a3c" },
+  "tee-black": { color: "#16181f" },
+  "tee-silver": { color: "#c9ced6" },
+  // Hoodie: torso colour + a hood behind the head. One in every colour.
   "hoodie-black": { color: "#16181f", layer: "hood" },
+  "hoodie-white": { color: "#f4f6fa", layer: "hood" },
+  "hoodie-gold": { color: "#e0b33a", layer: "hood" },
+  "hoodie-cyan": { color: "#7eefff", layer: "hood" },
+  "hoodie-sunset": { color: "#ff7a3c", layer: "hood" },
+  "hoodie-red": { color: "#e0392f", layer: "hood" },
+  "hoodie-silver": { color: "#c9ced6", layer: "hood" },
   // Jackets: torso colour + an open front showing the inner shirt as
   // the chest stripe (replaces the look's accent stripe).
   "jacket-denim": { color: "#3a5f8a", layer: "jacket", inner: "#f4f6fa" },
@@ -129,6 +141,12 @@ const PANTS_COLORS: Record<string, string> = {
   "jeans-blue": "#3a5f8a",
   "pants-black": "#16181f",
   "shorts-white": "#f4f6fa",
+  // Pants in every avatar colour (2026-11-17, shop-items).
+  "pants-red": "#d43a2e",
+  "pants-gold": "#e0b33a",
+  "pants-cyan": "#7eefff",
+  "pants-sunset": "#ff7a3c",
+  "pants-silver": "#c9ced6",
 };
 
 /** Shoe colour by look key — the walker (movement.ts) hangs these on the
@@ -136,15 +154,31 @@ const PANTS_COLORS: Record<string, string> = {
 export const SHOES_COLORS: Record<string, string> = {
   "sneakers-white": "#f4f6fa",
   "boots-brown": "#6b4423",
+  // Sneakers in every avatar colour (2026-11-17, shop-items).
+  "sneakers-red": "#d43a2e",
+  "sneakers-gold": "#e0b33a",
+  "sneakers-cyan": "#7eefff",
+  "sneakers-sunset": "#ff7a3c",
+  "sneakers-black": "#16181f",
+  "sneakers-silver": "#c9ced6",
 };
 
 const OUTFIT_STYLES: Record<string, { torso: string; legs: string; skirt?: boolean; tie?: string }> = {
   // Suit: black top + bottom, gold tie as the chest stripe.
   "suit-black": { torso: "#16181f", legs: "#16181f", tie: "#e0b33a" },
+  // Gold suit: gold top + bottom, black tie.
+  "suit-gold": { torso: "#e0b33a", legs: "#e0b33a", tie: "#16181f" },
   // Dress: red top + skirt, bare (skin) legs under it.
   "dress-red": { torso: "#c1272d", legs: "skin", skirt: true },
+  "dress-gold": { torso: "#e0b33a", legs: "skin", skirt: true },
+  "dress-white": { torso: "#f4f6fa", legs: "skin", skirt: true },
   // Tracksuit: gold top + bottom.
   "tracksuit-gold": { torso: "#e0b33a", legs: "#e0b33a" },
+  // Tracksuits in every other colour (2026-11-17, shop-items).
+  "tracksuit-red": { torso: "#d43a2e", legs: "#d43a2e" },
+  "tracksuit-cyan": { torso: "#7eefff", legs: "#7eefff" },
+  "tracksuit-white": { torso: "#f4f6fa", legs: "#f4f6fa" },
+  "tracksuit-black": { torso: "#16181f", legs: "#16181f" },
 };
 
 const SHOP_COLORS: Record<string, string> = {
@@ -153,6 +187,10 @@ const SHOP_COLORS: Record<string, string> = {
   cyan: "#7eefff",
   sunset: "#ff7a3c",
   black: "#16181f",
+  // Red + silver suits were sold but never recoloured the outfit —
+  // SHOP_COLORS had no entry for them (2026-11-17, shop-items).
+  red: "#d43a2e",
+  silver: "#c9ced6",
 };
 
 const box = new BoxGeometry(1, 1, 1);
@@ -373,6 +411,23 @@ export function dressPerson(
     add(group, "#d8a04a", 0, 1.86, 0, 0.46, 0.18, 0.46);
     add(group, outfit, 0, 2.02, 0, 0.1, 0.24, 0.42);
     add(group, "#d8a04a", 0, 1.78, 0.24, 0.4, 0.06, 0.06);
+  } else if (hat === "tophat") {
+    // Top Hat: tall black cylinder + wide brim. (Sold but invisible
+    // before — no branch existed, 2026-11-17 shop-items.)
+    add(group, "#16181f", 0, 1.86, 0, 0.5, 0.06, 0.5);
+    add(group, "#16181f", 0, 2.08, 0, 0.3, 0.4, 0.3);
+    add(group, "#e0b33a", 0, 1.94, 0, 0.32, 0.06, 0.32);
+  } else if (hat === "headphones") {
+    // Headphones: band over the head + a cup on each ear. (Sold but
+    // invisible before, 2026-11-17 shop-items.)
+    add(group, "#16181f", 0, 1.98, 0, 0.5, 0.08, 0.4);
+    add(group, "#c1272d", -0.26, 1.72, 0, 0.1, 0.22, 0.2);
+    add(group, "#c1272d", 0.26, 1.72, 0, 0.1, 0.22, 0.2);
+  } else if (hat === "visor") {
+    // Sun visor: a wide brim with no crown, gold band. (Sold but
+    // invisible before, 2026-11-17 shop-items.)
+    add(group, "#16181f", 0, 1.8, 0.24, 0.4, 0.05, 0.2);
+    add(group, "#e0b33a", 0, 1.86, 0.1, 0.42, 0.05, 0.06);
   }
   const extra = look.accessories.extra;
   // Wardrobe glasses replace the character's own glasses/shades/visor;

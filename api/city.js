@@ -69,6 +69,44 @@ const CATALOG = {
   "clothes-dress-red": { price: 150, kind: "clothes", slot: "outfit", value: "dress-red" },
   "clothes-tracksuit-gold": { price: 100, kind: "clothes", slot: "outfit", value: "tracksuit-gold" },
   "clothes-sunglasses": { price: 50, kind: "clothes", slot: "glasses", value: "sunglasses" },
+  // --- Every colour has an item (2026-11-17, shop-items) ----------------
+  // Tees / hoodies / pants / sneakers in every avatar colour (white,
+  // gold, cyan, sunset, black, red, silver) so no colour is unbuyable.
+  // Values are the look keys the client renders in avatar.ts
+  // (SHIRT_STYLES / PANTS_COLORS / SHOES_COLORS / OUTFIT_STYLES) — a
+  // value with no render entry falls back to a dark default, so every
+  // value below has a matching entry there.
+  "clothes-tee-white": { price: 25, kind: "clothes", slot: "shirt", value: "tee-white" },
+  "clothes-tee-cyan": { price: 30, kind: "clothes", slot: "shirt", value: "tee-cyan" },
+  "clothes-tee-sunset": { price: 35, kind: "clothes", slot: "shirt", value: "tee-sunset" },
+  "clothes-tee-black": { price: 25, kind: "clothes", slot: "shirt", value: "tee-black" },
+  "clothes-tee-silver": { price: 30, kind: "clothes", slot: "shirt", value: "tee-silver" },
+  "clothes-hoodie-white": { price: 80, kind: "clothes", slot: "shirt", value: "hoodie-white" },
+  "clothes-hoodie-gold": { price: 80, kind: "clothes", slot: "shirt", value: "hoodie-gold" },
+  "clothes-hoodie-cyan": { price: 80, kind: "clothes", slot: "shirt", value: "hoodie-cyan" },
+  "clothes-hoodie-sunset": { price: 80, kind: "clothes", slot: "shirt", value: "hoodie-sunset" },
+  "clothes-hoodie-red": { price: 80, kind: "clothes", slot: "shirt", value: "hoodie-red" },
+  "clothes-hoodie-silver": { price: 80, kind: "clothes", slot: "shirt", value: "hoodie-silver" },
+  "clothes-pants-red": { price: 55, kind: "clothes", slot: "pants", value: "pants-red" },
+  "clothes-pants-gold": { price: 55, kind: "clothes", slot: "pants", value: "pants-gold" },
+  "clothes-pants-cyan": { price: 55, kind: "clothes", slot: "pants", value: "pants-cyan" },
+  "clothes-pants-sunset": { price: 55, kind: "clothes", slot: "pants", value: "pants-sunset" },
+  "clothes-pants-silver": { price: 55, kind: "clothes", slot: "pants", value: "pants-silver" },
+  "clothes-sneakers-red": { price: 70, kind: "clothes", slot: "shoes", value: "sneakers-red" },
+  "clothes-sneakers-gold": { price: 70, kind: "clothes", slot: "shoes", value: "sneakers-gold" },
+  "clothes-sneakers-cyan": { price: 70, kind: "clothes", slot: "shoes", value: "sneakers-cyan" },
+  "clothes-sneakers-sunset": { price: 70, kind: "clothes", slot: "shoes", value: "sneakers-sunset" },
+  "clothes-sneakers-black": { price: 70, kind: "clothes", slot: "shoes", value: "sneakers-black" },
+  "clothes-sneakers-silver": { price: 70, kind: "clothes", slot: "shoes", value: "sneakers-silver" },
+  "clothes-tracksuit-red": { price: 100, kind: "clothes", slot: "outfit", value: "tracksuit-red" },
+  "clothes-tracksuit-cyan": { price: 100, kind: "clothes", slot: "outfit", value: "tracksuit-cyan" },
+  "clothes-tracksuit-white": { price: 100, kind: "clothes", slot: "outfit", value: "tracksuit-white" },
+  "clothes-tracksuit-black": { price: 100, kind: "clothes", slot: "outfit", value: "tracksuit-black" },
+  "clothes-dress-gold": { price: 150, kind: "clothes", slot: "outfit", value: "dress-gold" },
+  "clothes-dress-white": { price: 150, kind: "clothes", slot: "outfit", value: "dress-white" },
+  "clothes-suit-gold": { price: 200, kind: "clothes", slot: "outfit", value: "suit-gold" },
+  // Hover paints: the sunset colour had no item (the other six did).
+  "car-sunset": { price: 35, kind: "car", value: "sunset" },
   // --- Wardrobe (style theme, 2026-11-12) ---------------------------------
   // Full wardrobe: outfits, shoes, chains, watches, glasses, hairstyles
   // sold across three stores — Thrift ("Second Orbit", 10-60), Streetwear
