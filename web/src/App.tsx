@@ -1403,6 +1403,33 @@ export default function App() {
           <button type="button" onClick={() => open("multiverse")}>Multiverse</button>
           <button type="button" onClick={() => open("events")}>Events</button>
           <button type="button" onClick={() => open("chat")}>Chat</button>
+          {/* Emote + Clip moved up from the bottom touch cluster (user:
+              "MOVE ALL OF THESE TO THE TOP HUD"). Emote keeps the exact
+              pointer-based wheel behavior from the pad: press + drag aims,
+              release commits. touch-action: none on this button so its
+              drag aims the wheel instead of scrolling the strip. */}
+          <button
+            type="button"
+            style={{ touchAction: "none" }}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              event.currentTarget.dataset.x = String(event.clientX);
+              event.currentTarget.dataset.y = String(event.clientY);
+              gameRef.current?.runtime.setWheel(true);
+            }}
+            onPointerMove={(event) => {
+              if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+              const x = Number(event.currentTarget.dataset.x || event.clientX);
+              const y = Number(event.currentTarget.dataset.y || event.clientY);
+              gameRef.current?.runtime.aimWheel(event.clientX - x, event.clientY - y);
+            }}
+            onPointerUp={() => gameRef.current?.runtime.commitWheel()}
+            onPointerCancel={() => gameRef.current?.runtime.commitWheel()}
+          >
+            Emote
+          </button>
+          <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.toggleSpectator(); }}>Clip</button>
           <button type="button" onClick={() => open("phone")}>Phone</button>
           {/* CITY STATS: admin-only. The button only exists for the
               signed-in audifyx@gmail.com account — everyone else never
@@ -1470,30 +1497,10 @@ export default function App() {
               <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.driveLoopTrain(); }}>Drive</button>
             ) : null}
             <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.cycleCamera(); }}>Camera</button>
-            <button type="button" onClick={() => { triggerHaptic("tap"); open("chat"); }}>Chat</button>
-            <button type="button" onClick={() => { triggerHaptic("tap"); openShop("clothes"); }}>Shop</button>
-            <button type="button" onClick={() => { triggerHaptic("tap"); openShop("grocery"); }}>Grocery</button>
-            <button
-              type="button"
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.currentTarget.setPointerCapture(event.pointerId);
-                event.currentTarget.dataset.x = String(event.clientX);
-                event.currentTarget.dataset.y = String(event.clientY);
-                gameRef.current?.runtime.setWheel(true);
-              }}
-              onPointerMove={(event) => {
-                if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-                const x = Number(event.currentTarget.dataset.x || event.clientX);
-                const y = Number(event.currentTarget.dataset.y || event.clientY);
-                gameRef.current?.runtime.aimWheel(event.clientX - x, event.clientY - y);
-              }}
-              onPointerUp={() => gameRef.current?.runtime.commitWheel()}
-              onPointerCancel={() => gameRef.current?.runtime.commitWheel()}
-            >
-              Emote
-            </button>
-            <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.toggleSpectator(); }}>Clip</button>
+            {/* Chat / Shop / Grocery / Emote / Clip used to live here — moved
+                to the top HUD strip (user: "MOVE ALL OF THESE TO THE TOP
+                HUD"). The pad now holds only Jump / Fly / Down / Use /
+                Camera (+ Drive while on the loop-train platform). */}
           </div>
           </div>
         </div>
