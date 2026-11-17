@@ -1564,6 +1564,7 @@ async function ensureSchema() {
     PRIMARY KEY (suite, server_id)
   )`;
   await sql`ALTER TABLE office_claims ADD COLUMN IF NOT EXISTS server_id INTEGER NOT NULL DEFAULT 1`;
+  await sql`ALTER TABLE office_claims ADD COLUMN IF NOT EXISTS theme TEXT NOT NULL DEFAULT ''`;
   // Re-key a pre-multiverse office_claims table (PK was suite alone).
   // Best effort, same as properties above.
   try {
@@ -2690,6 +2691,7 @@ function publicOfficeClaim(row) {
     until: row.until || row.end || "",
     price: Number(row.price),
     claimed_at: row.claimed_at || "",
+    theme: row.theme || "",
   };
 }
 
@@ -2707,6 +2709,7 @@ function officeClaimRow(row) {
     until: row.until || row.end || "",
     price: Number(row.price),
     claimed_at: row.claimed_at || "",
+    theme: row.theme || "",
   };
 }
 
@@ -2715,7 +2718,7 @@ async function saveOfficeClaim(claim) {
   // key is (suite, server_id) — the same suite can be claimed on every
   // universe independently.
   const serverId = Number(claim.server_id ?? claim.server ?? 1);
-  const row = { ...claim, server_id: serverId };
+  const row = { ...claim, server_id: serverId, theme: claim.theme || "" };
   delete row.server;
   const client = sb();
   if (client) {
@@ -2726,9 +2729,9 @@ async function saveOfficeClaim(claim) {
   const sql = db();
   if (sql) {
     await ensureSchema();
-    await sql`INSERT INTO office_claims (suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at)
-      VALUES (${row.suite}, ${row.server_id}, ${row.owner_id}, ${row.owner_name}, ${row.project}, ${row.logo}, ${row.site}, ${Number(row.term_days)}, ${row.start}, ${row.until}, ${Number(row.price)}, ${row.claimed_at})
-      ON CONFLICT (suite, server_id) DO UPDATE SET owner_id = EXCLUDED.owner_id, owner_name = EXCLUDED.owner_name, project = EXCLUDED.project, logo = EXCLUDED.logo, site = EXCLUDED.site, term_days = EXCLUDED.term_days, start = EXCLUDED.start, until = EXCLUDED.until, price = EXCLUDED.price, claimed_at = EXCLUDED.claimed_at`;
+    await sql`INSERT INTO office_claims (suite, server_id, owner_id, owner_name, project, logo, site, term_days, start, until, price, claimed_at, theme)
+      VALUES (${row.suite}, ${row.server_id}, ${row.owner_id}, ${row.owner_name}, ${row.project}, ${row.logo}, ${row.site}, ${Number(row.term_days)}, ${row.start}, ${row.until}, ${Number(row.price)}, ${row.claimed_at}, ${row.theme})
+      ON CONFLICT (suite, server_id) DO UPDATE SET owner_id = EXCLUDED.owner_id, owner_name = EXCLUDED.owner_name, project = EXCLUDED.project, logo = EXCLUDED.logo, site = EXCLUDED.site, term_days = EXCLUDED.term_days, start = EXCLUDED.start, until = EXCLUDED.until, price = EXCLUDED.price, claimed_at = EXCLUDED.claimed_at, theme = EXCLUDED.theme`;
     return;
   }
   const cache = redis();
@@ -2953,6 +2956,39 @@ async function releaseOffice(player, body) {
     ok: true,
     message: `${suite.name} released. The lease ends now — no refund for the days left.`,
     offices: await officeDirectory(server),
+  };
+}
+
+async function officeTheme(player, save, body) {
+  const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5).", status: 400 };
+  const suite = officeSuite(String(body.suite || ""));
+  if (!suite) return { ok: false, message: "Unknown suite.", status: 400 };
+  const theme = OFFICE_THEMES[String(body.theme || "")];
+  if (!theme) return { ok: false, message: "Unknown theme.", status: 400 };
+  const claims = await readOfficeClaims(server);
+  const claim = activeOfficeClaim(claims, suite.id, server);
+  if (!claim) return { ok: false, message: suite.name + " is not claimed.", status: 400 };
+  if (claim.owner_id !== player.id) {
+    return { ok: false, message: "Only " + claim.project + " can theme " + suite.name + ".", status: 400 };
+  }
+  if ((claim.theme || "default") === String(body.theme)) {
+    return { ok: false, message: suite.name + " already has the " + theme.name + " theme.", status: 400 };
+  }
+  if (save.balance < theme.price) {
+    return { ok: false, message: "Not enough City Sol " + E + " the " + theme.name + " theme is " + theme.price + ".", status: 400 };
+  }
+  save.balance -= theme.price;
+  noteSpent(save, theme.price);
+  claim.theme = String(body.theme);
+  await saveOfficeClaim(claim);
+  await saveSave(save);
+  await mirrorBalance(player, save);
+  return {
+    ok: true,
+    message: suite.name + " themed " + E + " " + theme.name + " for " + theme.price + " City Sol.",
+    offices: await officeDirectory(server),
+    me: publicPlayer(save),
   };
 }
 
@@ -4669,6 +4705,49 @@ const CRIB_LIGHTS = {
   gold: { name: "Gold lights", price: 70 },
   cyan: { name: "Aqua lights", price: 60 },
 };
+
+// --- HOME STYLE: the OUTSIDE of a home + one-tap themes -----------------
+// Exterior / roof / yard live in the same per-home crib object as the
+// interior decor (save.homes.homes[].crib.style) — no new DB
+// column. A theme sets the interior decor AND the exterior in one tap
+// for one flat price; a single exterior option costs its own price.
+const HOME_EXTERIORS = {
+  default: { name: "Classic facade", price: 0 },
+  gold: { name: "Gold facade", price: 150 },
+  beach: { name: "Beach pastel", price: 120 },
+  neon: { name: "Neon facade", price: 180 },
+  midnight: { name: "Midnight facade", price: 150 },
+};
+const HOME_ROOFS = {
+  standard: { name: "Standard roof", price: 0 },
+  gold: { name: "Gold trim roof", price: 120 },
+  neon: { name: "Neon edge roof", price: 150 },
+};
+const HOME_YARDS = {
+  none: { name: "No yard feature", price: 0 },
+  deck: { name: "Wood deck", price: 200 },
+  patio: { name: "Stone patio", price: 150 },
+  garden: { name: "Garden", price: 100 },
+};
+// A theme is one look for the whole home, inside + outside — the way a
+// project or community themes its place. Classic is the default look
+// (free to go back to); the others cost one flat price.
+const HOME_THEMES = {
+  classic: { name: "Classic", price: 0, wall: "cream", floor: "wood", light: "warm", exterior: "default", roof: "standard", yard: "none" },
+  "orbitx-gold": { name: "OrbitX Gold", price: 400, wall: "gold", floor: "gold", light: "gold", exterior: "gold", roof: "gold", yard: "deck" },
+  beach: { name: "Beach House", price: 250, wall: "cream", floor: "wood", light: "warm", exterior: "beach", roof: "standard", yard: "patio" },
+  neon: { name: "Neon Nights", price: 350, wall: "black", floor: "black", light: "cyan", exterior: "neon", roof: "neon", yard: "none" },
+  midnight: { name: "Midnight", price: 300, wall: "black", floor: "marble", light: "cool", exterior: "midnight", roof: "standard", yard: "garden" },
+};
+// Office themes use the same palette, so a project themes its home and
+// its office the same way. An office theme costs 200 City Sol.
+const OFFICE_THEMES = {
+  default: { name: "Classic", price: 0 },
+  gold: { name: "OrbitX Gold", price: 200 },
+  beach: { name: "Beach House", price: 200 },
+  neon: { name: "Neon Nights", price: 200 },
+  midnight: { name: "Midnight", price: 200 },
+};
 const CRIB_PET_HAPPY_MS = 6 * 3600000; // a fed pet stays happy 6h
 
 function cribBillAmount(price) {
@@ -4680,6 +4759,7 @@ function freshHomeCrib(price, now) {
   return {
     tier: 0,
     decor: { wall: "cream", floor: "wood", light: "warm" },
+    style: { exterior: "default", roof: "standard", yard: "none" },
     lightsOn: true,
     tvOn: false,
     bills: { dueAt: now + CRIB_WEEK_MS, amount, paidUntil: now + CRIB_WEEK_MS, lightsOff: false },
@@ -4737,6 +4817,11 @@ function sanitizeCribHome(entry, now) {
       wall: String(crib.decor?.wall || "cream"),
       floor: String(crib.decor?.floor || "wood"),
       light: String(crib.decor?.light || "warm"),
+    },
+    style: {
+      exterior: String(crib.style?.exterior || "default"),
+      roof: String(crib.style?.roof || "standard"),
+      yard: String(crib.style?.yard || "none"),
     },
     lightsOn: crib.lightsOn !== false,
     tvOn: !!crib.tvOn,
@@ -4943,6 +5028,54 @@ async function cribDecor(save, body) {
   entry.crib.decor = decor;
   await saveSave(save);
   return { ok: true, message: `Redecorated — ${changes.map(([, , opt]) => opt.name).join(", ")} for ${total} City Sol.`, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
+}
+
+async function homeStyle(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const entry = ownedCribHome(save, String(body.home || ""), server);
+  if (!entry) return { ok: false, message: "You don't own that home on this server.", status: 400 };
+  const style = entry.crib.style || { exterior: "default", roof: "standard", yard: "none" };
+  let total = 0;
+  const changes = [];
+  const tables = { exterior: HOME_EXTERIORS, roof: HOME_ROOFS, yard: HOME_YARDS };
+  for (const key of ["exterior", "roof", "yard"]) {
+    if (body[key] != null && String(body[key]) !== style[key]) {
+      const opt = tables[key][String(body[key])];
+      if (!opt) return { ok: false, message: "Unknown " + key + " style.", status: 400 };
+      total += opt.price;
+      changes.push([key, String(body[key]), opt]);
+    }
+  }
+  if (!changes.length) return { ok: false, message: "That is already how the outside of your home looks.", status: 400 };
+  if (save.balance < total) return { ok: false, message: "Not enough City Sol " + E + " that restyle is " + total + ".", status: 400 };
+  save.balance -= total;
+  noteSpent(save, total);
+  for (const [key, value] of changes) style[key] = value;
+  entry.crib.style = style;
+  await saveSave(save);
+  return { ok: true, message: "Restyled the outside " + E + " " + changes.map(([, , opt]) => opt.name).join(", ") + " for " + total + " City Sol.", crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
+}
+
+async function homeTheme(save, body) {
+  const server = parseServerId(body.server);
+  if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
+  const entry = ownedCribHome(save, String(body.home || ""), server);
+  if (!entry) return { ok: false, message: "You don't own that home on this server.", status: 400 };
+  const theme = HOME_THEMES[String(body.theme || "")];
+  if (!theme) return { ok: false, message: "Unknown theme.", status: 400 };
+  const decor = entry.crib.decor || { wall: "cream", floor: "wood", light: "warm" };
+  const style = entry.crib.style || { exterior: "default", roof: "standard", yard: "none" };
+  const already = decor.wall === theme.wall && decor.floor === theme.floor && decor.light === theme.light
+    && style.exterior === theme.exterior && style.roof === theme.roof && style.yard === theme.yard;
+  if (already) return { ok: false, message: "Your home already has the " + theme.name + " theme.", status: 400 };
+  if (save.balance < theme.price) return { ok: false, message: "Not enough City Sol " + E + " the " + theme.name + " theme is " + theme.price + ".", status: 400 };
+  save.balance -= theme.price;
+  noteSpent(save, theme.price);
+  entry.crib.decor = { wall: theme.wall, floor: theme.floor, light: theme.light };
+  entry.crib.style = { exterior: theme.exterior, roof: theme.roof, yard: theme.yard };
+  await saveSave(save);
+  return { ok: true, message: "Themed your home " + E + " " + theme.name + " — inside and out — for " + theme.price + " City Sol.", crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
 }
 
 async function cribLights(save, body) {
@@ -6046,6 +6179,12 @@ export async function POST(request) {
     return officeReply({ ok: true, offices: await officeDirectory(server) });
   }
   if (op === "office-release") return officeReply(await releaseOffice(player, body));
+  if (op === "office-theme") {
+    const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
+    if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
+    const save = await ensureSave(player, server);
+    return officeReply(await officeTheme(player, save, body), save);
+  }
   if (op === "office-status") {
     const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
@@ -6212,7 +6351,7 @@ export async function POST(request) {
   }
   // CRIB (home life) — bills, sleep/energy, pets, upgrades, decor,
   // TV / fridge / lights. All City Sol, all per (player, server).
-  if (op === "crib-status" || op === "crib-pay-bill" || op === "crib-sleep" || op === "crib-energy" || op === "crib-buy-pet" || op === "crib-feed-pet" || op === "crib-buy-food" || op === "crib-eat" || op === "crib-upgrade" || op === "crib-decor" || op === "crib-lights" || op === "crib-tv") {
+  if (op === "crib-status" || op === "crib-pay-bill" || op === "crib-sleep" || op === "crib-energy" || op === "crib-buy-pet" || op === "crib-feed-pet" || op === "crib-buy-food" || op === "crib-eat" || op === "crib-upgrade" || op === "crib-decor" || op === "crib-lights" || op === "crib-tv" || op === "home-style" || op === "home-theme") {
     const server = parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Pick a server (1-5) first." }, 400);
     const save = await ensureSave(player, server);
@@ -6228,6 +6367,8 @@ export async function POST(request) {
     else if (op === "crib-upgrade") result = await cribUpgrade(save, body);
     else if (op === "crib-decor") result = await cribDecor(save, body);
     else if (op === "crib-lights") result = await cribLights(save, body);
+    else if (op === "home-style") result = await homeStyle(save, body);
+    else if (op === "home-theme") result = await homeTheme(save, body);
     else result = await cribTv(save, body);
     if (result.ok) await mirrorBalance(player, save);
     return json(result, result.ok ? 200 : result.status || 400);
