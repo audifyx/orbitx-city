@@ -1430,6 +1430,7 @@ export default function App() {
               foodStamina={snap.foodStamina}
               energy={snap.energy}
               energyLabel={snap.energyLabel}
+              jobTarget={snap.jobTarget}
               foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
               onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
               docked
@@ -1520,6 +1521,7 @@ export default function App() {
             foodStamina={snap.foodStamina}
             energy={snap.energy}
             energyLabel={snap.energyLabel}
+            jobTarget={snap.jobTarget}
             foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
             onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
             docked
