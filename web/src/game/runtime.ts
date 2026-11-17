@@ -142,7 +142,7 @@ import {
   universeTravel,
   type UniverseId,
 } from "./multiverse";
-import { DOCKS } from "./states";
+import { DOCKS, REGION_CENTERS, REGION_ROAD_CENTERS, ROAD_HALF } from "./states";
 import { isWater, WATER_SURFACE_Y } from "./water";
 import {
   EMOTES,
@@ -2384,6 +2384,115 @@ export function createRuntime(scene: Scene) {
     return localVehicles.find((v) => v.id === localActiveVehicle) ?? { id: localActiveVehicle, color: wallet.car };
   }
 
+  // --- Bought cars spawn on the road in front of the player ---------------
+  // (2026-11-17, car-spawn): a bought car used to spawn at the OrbitX
+  // Motors forecourt (202, -69) and the player had to go fetch it. Now the
+  // buy spawns it directly in front of the player, on the road, facing
+  // the way the player faces — walk up and press E (7-unit enter radius).
+  // Roads are the city grid: home city + NY/LA/FL regions all share the
+  // same centreline spacing (36 apart, half-width 5).
+  const ROAD_GRIDS = [{ x: 0, z: 0 }, REGION_CENTERS.ny, REGION_CENTERS.la, REGION_CENTERS.fl];
+  const ROAD_GRID_HALF = 190;
+
+  function nearestRoadCenter(v: number): number {
+    let best = REGION_ROAD_CENTERS[0];
+    let bestD = Math.abs(v - best);
+    for (const c of REGION_ROAD_CENTERS) {
+      const d = Math.abs(v - c);
+      if (d < bestD) {
+        best = c;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  /** Slide a spawn spot along its road until no parked car is within 5. */
+  function nudgeCarSpotClear(spot: { x: number; z: number; yaw: number }): { x: number; z: number; yaw: number } {
+    const dx = Math.sin(spot.yaw);
+    const dz = -Math.cos(spot.yaw);
+    const clearAt = (x: number, z: number) => !cars.some((car) => Math.hypot(car.x - x, car.z - z) < 5);
+    if (clearAt(spot.x, spot.z)) return spot;
+    for (let step = 1; step <= 4; step++) {
+      const x = spot.x + dx * 6 * step;
+      const z = spot.z + dz * 6 * step;
+      if (clearAt(x, z)) return { x, z, yaw: spot.yaw };
+    }
+    for (let step = 1; step <= 4; step++) {
+      const x = spot.x - dx * 6 * step;
+      const z = spot.z - dz * 6 * step;
+      if (clearAt(x, z)) return { x, z, yaw: spot.yaw };
+    }
+    return spot; // Nowhere clear — take the spot anyway, never fail the buy.
+  }
+
+  /** The spot a just-bought car spawns at, or null for the old forecourt.
+   * 6 units ahead: inside the 7-unit E-to-enter radius, clear of the
+   * player's feet and of a car being driven (nose ~2.2 out). Indoors or
+   * mid-block, it snaps to the nearest road point in front of the player;
+   * with no road ahead anywhere, null falls back to the forecourt. */
+  function carSpawnSpot(body: Body | null): { x: number; z: number; yaw: number } | null {
+    if (!body) return null;
+    const fx = Math.sin(body.yaw);
+    const fz = -Math.cos(body.yaw);
+    const px = body.x;
+    const pz = body.z;
+    const fwdX = px + fx * 6;
+    const fwdZ = pz + fz * 6;
+    // 1) Already on a road: snap the forward point to that road's
+    // centreline, facing along the road the way the player faces.
+    for (const g of ROAD_GRIDS) {
+      const lx = fwdX - g.x;
+      const lz = fwdZ - g.z;
+      if (Math.abs(lx) > ROAD_GRID_HALF || Math.abs(lz) > ROAD_GRID_HALF) continue;
+      const cX = nearestRoadCenter(lx);
+      const cZ = nearestRoadCenter(lz);
+      const onNS = Math.abs(lx - cX) <= ROAD_HALF;
+      const onEW = Math.abs(lz - cZ) <= ROAD_HALF;
+      if (!onNS && !onEW) continue;
+      // Crossing: take the road whose direction is closer to the facing.
+      const useNS = onNS && (!onEW || Math.abs(fz) > Math.abs(fx));
+      const x = useNS ? g.x + cX : fwdX;
+      const z = useNS ? fwdZ : g.z + cZ;
+      const yaw = useNS ? (fz <= 0 ? 0 : Math.PI) : fx >= 0 ? Math.PI / 2 : -Math.PI / 2;
+      const spot = nudgeCarSpotClear({ x, z, yaw });
+      return isWater(spot.x, spot.z) ? null : spot;
+    }
+    // 2) Not on a road: cast the forward ray and take the nearest road
+    // line ahead (in front of the player, never behind). The grid spacing
+    // is 36, so a road ahead is never far inside a grid; beyond the cap
+    // the car falls back to the forecourt.
+    let best: { x: number; z: number; yaw: number; t: number } | null = null;
+    for (const g of ROAD_GRIDS) {
+      for (const c of REGION_ROAD_CENTERS) {
+        if (Math.abs(fx) > 1e-6) {
+          const t = (g.x + c - px) / fx;
+          if (t > 2 && t <= 60) {
+            const z = pz + fz * t;
+            if (Math.abs(z - g.z) <= ROAD_GRID_HALF && (!best || t < best.t)) {
+              best = { x: g.x + c, z, yaw: fz <= 0 ? 0 : Math.PI, t };
+            }
+          }
+        }
+        if (Math.abs(fz) > 1e-6) {
+          const t = (g.z + c - pz) / fz;
+          if (t > 2 && t <= 60) {
+            const x = px + fx * t;
+            if (Math.abs(x - g.x) <= ROAD_GRID_HALF && (!best || t < best.t)) {
+              best = { x, z: g.z + c, yaw: fx >= 0 ? Math.PI / 2 : -Math.PI / 2, t };
+            }
+          }
+        }
+      }
+    }
+    if (best) {
+      const spot = nudgeCarSpotClear(best);
+      return isWater(spot.x, spot.z) ? null : spot;
+    }
+    // 3) No road ahead anywhere — the forecourt, as before.
+    return null;
+  }
+
   function spawnActiveCar(spot?: { x: number; z: number; yaw: number }, atHomeId?: string | null) {
     // A spawn at a garage drive-out spot marks the car "out of a garage"
     // (its parked copy hides until it comes back); every other spawn —
@@ -2391,9 +2500,17 @@ export function createRuntime(scene: Scene) {
     activeCarHomeId = atHomeId ?? null;
     if (ownedCarIndex >= 0) {
       const old = cars[ownedCarIndex];
-      if (old) root.remove(old.group);
-      cars.splice(ownedCarIndex, 1);
-      ownedCarIndex = -1;
+      if (old && driving && carIndex === ownedCarIndex) {
+        // The player is driving the old car — never yank it out from
+        // under them. Re-id it so the new car takes the "shop-row" slot;
+        // the old car stays in the world, drivable, exactly where it is.
+        old.id = `parked-${old.vehicleId ?? "car"}`;
+        ownedCarIndex = -1;
+      } else {
+        if (old) root.remove(old.group);
+        cars.splice(ownedCarIndex, 1);
+        ownedCarIndex = -1;
+      }
     }
     const entry = activeVehicleEntry();
     if (!entry) {
@@ -8357,12 +8474,15 @@ export function createRuntime(scene: Scene) {
       try {
         const data = await world.buyCar(id, color, currentUniverse);
         applyMe();
-        spawnActiveCar();
+        // Boats ignore the spot — spawnActiveCar moors them at the dock.
+        const spot = v.kind === "boat" ? null : carSpawnSpot(lastBody);
+        spawnActiveCar(spot ?? undefined);
         triggerHaptic("success");
         publish();
-        say(String(data.message || "Bought."));
-        notify("MONEY", String(data.message || "Bought."), "money");
-        return String(data.message || "Bought.");
+        const boughtMsg = String(data.message || "Bought.");
+        say(spot ? `${boughtMsg} It's on the road in front of you.` : boughtMsg);
+        notify("MONEY", boughtMsg, "money");
+        return boughtMsg;
       } catch (err) {
         const message = err instanceof Error ? err.message : "The city refused the purchase.";
         say(message);
@@ -8374,9 +8494,10 @@ export function createRuntime(scene: Scene) {
     if (localVehicles.some((owned) => owned.id === id)) {
       localActiveVehicle = id;
       saveLocalVehicles();
-      spawnActiveCar();
+      const spot = v.kind === "boat" ? null : carSpawnSpot(lastBody);
+      spawnActiveCar(spot ?? undefined);
       publish();
-      say("Already yours. Equipped. Saved on this device only.");
+      say(spot ? "Already yours. Equipped — it's on the road in front of you. Saved on this device only." : "Already yours. Equipped. Saved on this device only.");
       return "Already yours. Equipped.";
     }
     if (wallet.balance < v.price) {
@@ -8390,10 +8511,11 @@ export function createRuntime(scene: Scene) {
     localVehicles = [...localVehicles, { id, color }];
     localActiveVehicle = id;
     saveLocalVehicles();
-    spawnActiveCar();
+    const spot = v.kind === "boat" ? null : carSpawnSpot(lastBody);
+    spawnActiveCar(spot ?? undefined);
     triggerHaptic("success");
     publish();
-    say(`Bought ${v.name} for ${v.price} City Sol. Saved on this device only.`);
+    say(spot ? `Bought ${v.name} for ${v.price} City Sol. It's on the road in front of you. Saved on this device only.` : `Bought ${v.name} for ${v.price} City Sol. Saved on this device only.`);
     notify("MONEY", `Bought ${v.name} for ${v.price} City Sol.`, "money");
     return `Bought ${v.name} for ${v.price} City Sol.`;
   }
@@ -9961,10 +10083,12 @@ export function createRuntime(scene: Scene) {
           const item = SHOP_CATALOG.find((entry) => entry.id === id);
           if (item) equip(item);
         }
-        if (category === "car") spawnActiveCar();
+        // Boats ignore the spot — spawnActiveCar moors them at the dock.
+        const carSpot = category === "car" && getVehicle(id)?.kind !== "boat" ? carSpawnSpot(lastBody) : null;
+        if (category === "car") spawnActiveCar(carSpot ?? undefined);
         const message = String(data.message || "Bought.");
         triggerHaptic("success");
-        say(message);
+        say(carSpot ? `${message} It's on the road in front of you.` : message);
         notify("MONEY", message, "money");
         if (category === "clothes") void attemptMission();
         publish();
