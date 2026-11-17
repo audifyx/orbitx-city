@@ -3,7 +3,7 @@ body,
 #root {
   height: 100%;
   margin: 0;
-  background: #140c09;
+  background: #020611;
   overflow: hidden;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
@@ -23,17 +23,17 @@ body,
   z-index: 3;
   display: grid;
   place-items: center;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.12) 42%, rgba(0, 0, 0, 0.28));
+  background: linear-gradient(to top, rgba(2, 6, 17, 0.72), rgba(7, 20, 46, 0.22) 42%, rgba(2, 6, 17, 0.45));
 }
 
 .card {
   width: min(460px, calc(100% - 32px));
-  background: #000000;
+  background: linear-gradient(180deg, #061024 0%, #02050d 100%);
   color: #ffffff;
   border: 2px solid #e0b33a;
   padding: 28px 26px 22px;
   text-align: center;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.78), 0 0 28px rgba(37, 99, 235, 0.25), inset 0 1px 0 rgba(96, 165, 250, 0.35);
 }
 
 .card.wide {
@@ -57,8 +57,8 @@ body,
 .roster-view {
   width: 200px;
   height: 250px;
-  background: #101820;
-  border: 1px solid #9fdfff;
+  background: #07142b;
+  border: 1px solid #60a5fa;
 }
 
 .roster h2 {
@@ -68,7 +68,7 @@ body,
 
 .tagline {
   margin: 4px 0 10px;
-  color: #d7f4ff;
+  color: #dbeafe;
 }
 
 .roster-nav,
@@ -92,7 +92,7 @@ body,
 }
 
 .roster button.on {
-  outline: 2px solid #7ef6ff;
+  outline: 2px solid #60a5fa;
 }
 
 /* ---- Brand-new menu + character select (2026-11-11) ---- */
@@ -145,9 +145,9 @@ body,
   position: sticky;
   bottom: 0;
   z-index: 3;
-  background: #000000;
+  background: #030917;
   padding: 10px 0 12px;
-  border-top: 1px solid #2a3644;
+  border-top: 1px solid #2563eb;
 }
 
 .char-playbar #play {
@@ -161,8 +161,8 @@ body,
   width: 100%;
   height: 280px;
   object-fit: contain;
-  background: #101820;
-  border: 1px solid #9fdfff;
+  background: #07142b;
+  border: 1px solid #60a5fa;
   display: block;
 }
 
@@ -239,17 +239,18 @@ body,
   margin-top: 0;
   padding: 14px 26px;
   font-size: 15px;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(7, 20, 46, 0.84);
   color: #ffffff;
-  border: 2px solid #ffffff;
+  border: 2px solid #60a5fa;
 }
 
 .menu-howto {
   margin: 18px auto 0;
   max-width: 620px;
   text-align: left;
-  background: #000000;
+  background: linear-gradient(180deg, #07142e 0%, #02050d 100%);
   border: 2px solid #e0b33a;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65), inset 0 0 18px rgba(37, 99, 235, 0.18);
   padding: 14px 18px;
 }
 
@@ -280,7 +281,7 @@ body,
   margin: 0 0 0 6px;
   padding: 0;
   background: none;
-  color: #7ef6ff;
+  color: #60a5fa;
   font-size: 14px;
   letter-spacing: 0;
   font-weight: 700;
@@ -307,8 +308,8 @@ body,
 
 /* What's in the city — the feature grid on the menu home. Reads the
    same FEATURE_HIGHLIGHTS registry as the intro, so the menu and the
-   splash can never drift apart. Clean dark cards, gold names, white
-   blurbs — black/white/gold, high contrast, no rainbow. */
+   splash can never drift apart. Clean dark blue/black cards, gold names,
+   white blurbs — blue/black/white/gold, high contrast, no rainbow. */
 .menu-features {
   margin: 28px auto 0;
   max-width: 860px;
@@ -331,8 +332,9 @@ body,
 }
 
 .menu-feature {
-  background: rgba(0, 0, 0, 0.72);
-  border: 1px solid rgba(224, 179, 58, 0.55);
+  background: rgba(6, 16, 38, 0.84);
+  border: 1px solid rgba(59, 130, 246, 0.55);
+  box-shadow: inset 0 1px 0 rgba(224, 179, 58, 0.35);
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
@@ -358,9 +360,9 @@ body,
 
 .menu-ticker {
   overflow: hidden;
-  border-top: 1px solid rgba(255, 255, 255, 0.25);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(0, 0, 0, 0.55);
+  border-top: 1px solid rgba(96, 165, 250, 0.45);
+  border-bottom: 1px solid rgba(224, 179, 58, 0.45);
+  background: rgba(4, 11, 26, 0.78);
   padding: 8px 0;
 }
 
@@ -396,17 +398,17 @@ body,
 
 .sky-b {
   flex: 1;
-  background-color: #0b1220;
-  background-image: radial-gradient(circle, rgba(224, 179, 58, 0.9) 1.5px, transparent 1.7px);
+  background-color: #071530;
+  background-image: radial-gradient(circle, rgba(224, 179, 58, 0.92) 1.5px, transparent 1.7px);
   background-size: 13px 17px;
-  border-top: 2px solid rgba(224, 179, 58, 0.65);
+  border-top: 2px solid #3b82f6;
 }
 
 .menu-foot {
   margin: 0;
   padding: 10px 0 14px;
   text-align: center;
-  color: #dedede;
+  color: #dbeafe;
   font-size: 12px;
 }
 
@@ -438,7 +440,7 @@ body,
 
 .char-head p {
   margin: 0;
-  color: #d7f4ff;
+  color: #dbeafe;
   font-size: 13px;
 }
 
@@ -455,13 +457,13 @@ body,
 .char-view {
   width: 100%;
   height: 280px;
-  /* Soft gold glow behind the character so the preview reads as a
+  /* Soft gold + royal blue glow behind the character so the preview reads as a
      spotlight stage, not a flat dark box — the canvas is transparent,
      so this shows through around the character. */
   background:
-    radial-gradient(ellipse 70% 55% at 50% 68%, rgba(224, 179, 58, 0.22), rgba(224, 179, 58, 0) 70%),
-    #101820;
-  border: 1px solid #9fdfff;
+    radial-gradient(ellipse 70% 55% at 50% 68%, rgba(224, 179, 58, 0.24), rgba(37, 99, 235, 0.22) 48%, rgba(7, 20, 43, 0) 74%),
+    #07142b;
+  border: 1px solid #60a5fa;
   display: block;
 }
 
@@ -506,8 +508,8 @@ body,
   margin: 0;
   padding: 8px 8px 10px;
   min-height: 0;
-  background: #101820;
-  border: 1px solid #2a3644;
+  background: #07142b;
+  border: 1px solid #1e3a8a;
   color: #ffffff;
   text-align: center;
   letter-spacing: 0;
@@ -518,7 +520,7 @@ body,
   height: 118px;
   object-fit: cover;
   display: block;
-  background: #101820;
+  background: #050e21;
 }
 
 .char-blank {
@@ -539,7 +541,7 @@ body,
   font-size: 11px;
   font-weight: 400;
   line-height: 1.35;
-  color: #c9d6e2;
+  color: #bfdbfe;
 }
 
 .char-card.on {
@@ -571,7 +573,7 @@ body,
   bottom: 16%;
   transform: translateX(-50%);
   margin: 0;
-  background: rgba(0, 0, 0, 0.78);
+  background: rgba(4, 12, 28, 0.88);
   color: #ffffff;
   border: 2px solid #e0b33a;
   padding: 10px 16px;
@@ -588,7 +590,7 @@ h1 {
 
 .tag {
   margin: 8px 0 18px;
-  color: #d7f4ff;
+  color: #dbeafe;
 }
 
 label {
@@ -601,9 +603,9 @@ label {
 }
 
 input {
-  background: #111111;
+  background: #050e21;
   color: #ffffff;
-  border: 1px solid #9fdfff;
+  border: 1px solid #60a5fa;
   padding: 8px 10px;
   width: 180px;
   font: inherit;
@@ -628,7 +630,7 @@ button:disabled {
 
 .help {
   margin: 16px 0 0;
-  color: #dedede;
+  color: #dbeafe;
   font-size: 13px;
   line-height: 1.45;
 }
@@ -698,9 +700,10 @@ body {
   gap: 2px;
   max-width: min(420px, 72vw);
   padding: 8px 10px;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(4, 12, 28, 0.84);
   color: #ffffff;
   border: 1px solid #e0b33a;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6), inset 0 0 12px rgba(37, 99, 235, 0.22);
   pointer-events: none;
   font-size: 14px;
 }
@@ -711,7 +714,7 @@ body {
 }
 
 /* CRIB: the energy meter — small, next to the balance. Black text on the
-   gold bar, white label on black, so the contrast rule holds either way. */
+   gold bar, white label on dark blue/black, so the contrast rule holds either way. */
 .hud .energy-chip {
   display: flex;
   flex-direction: column;
@@ -727,8 +730,8 @@ body {
 .hud .energy-bar {
   display: block;
   height: 6px;
-  background: #22262e;
-  border: 1px solid #555a66;
+  background: #0a1936;
+  border: 1px solid #3b82f6;
 }
 
 .hud .energy-bar i {
@@ -738,12 +741,12 @@ body {
 }
 
 .hud em {
-  color: #d7f4ff;
+  color: #93c5fd;
   font-style: normal;
 }
 
 .hud .quiet {
-  color: #c8c8c8;
+  color: #bfdbfe;
   font-size: 12px;
 }
 
@@ -763,7 +766,7 @@ body {
 .food-meter i {
   display: block;
   height: 5px;
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(59, 130, 246, 0.28);
 }
 
 .food-meter i b {
@@ -791,13 +794,13 @@ body {
   height: 132px;
   border: 2px solid #e0b33a;
   border-radius: 50%;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 2px 10px rgba(0, 0, 0, 0.5);
-  background: rgba(8, 12, 18, 0.72);
+  box-shadow: 0 0 0 1px #1d4ed8, 0 4px 14px rgba(0, 0, 0, 0.65);
+  background: rgba(5, 14, 32, 0.84);
 }
 
 /* GTA-style vitals under the minimap: hunger (health) + stamina
    (armor) + energy, thin gold bars with a number. White labels on
-   black, gold fill, red when hunger is low — never light-on-light. */
+   dark blue/black, gold fill, red when hunger is low — never light-on-light. */
 .minimap-vitals {
   display: flex;
   flex-direction: column;
@@ -834,8 +837,8 @@ body {
   display: block;
   flex: 1;
   height: 6px;
-  background: rgba(255, 255, 255, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(10, 25, 54, 0.8);
+  border: 1px solid rgba(96, 165, 250, 0.55);
 }
 
 .minimap-bar u {
@@ -862,8 +865,8 @@ body {
 }
 
 /* GTA VI-style top bar: City Sol + who's here, top-right above the
-   action buttons (Fortnite-style stats strip). Black bg, gold balance,
-   white quiet text — never light-on-light. */
+   action buttons (Fortnite-style stats strip). Obsidian-blue bg, gold balance,
+   ice-blue quiet text — never light-on-light. */
 .topbar {
   position: fixed;
   top: max(10px, env(safe-area-inset-top));
@@ -874,8 +877,9 @@ body {
   align-items: flex-end;
   gap: 1px;
   padding: 6px 10px;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(4, 12, 28, 0.84);
   border: 1px solid #e0b33a;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6), inset 0 0 12px rgba(37, 99, 235, 0.22);
   color: #ffffff;
   font-size: 13px;
   pointer-events: none;
@@ -889,11 +893,11 @@ body {
 }
 
 .topbar .quiet {
-  color: #c8c8c8;
+  color: #bfdbfe;
   font-size: 12px;
 }
 
-/* Compass pill, top-center (Fortnite-style heading). Black bg, white
+/* Compass pill, top-center (Fortnite-style heading). Obsidian-blue bg, white
    cardinal, gold degrees. */
 .compass {
   position: fixed;
@@ -905,8 +909,9 @@ body {
   align-items: center;
   gap: 6px;
   padding: 5px 12px;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(4, 12, 28, 0.84);
   border: 1px solid #e0b33a;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6), inset 0 0 12px rgba(37, 99, 235, 0.22);
   color: #ffffff;
   font-size: 13px;
   font-weight: 700;
@@ -965,7 +970,7 @@ body {
   right: 0;
   z-index: 1;
   padding: 8px 10px;
-  color: rgba(255, 255, 255, 0.75);
+  color: rgba(255, 255, 255, 0.82);
   font-size: 11px;
   line-height: 1;
   cursor: grab;
@@ -975,7 +980,7 @@ body {
 
 .phone h3 {
   margin: 10px 0 4px;
-  color: #7ef6ff;
+  color: #60a5fa;
   font-size: 14px;
 }
 
@@ -987,18 +992,17 @@ body {
   z-index: 4;
   margin: 0;
   padding: 6px 10px;
-  background: #000000;
+  background: #040c1e;
   color: #ffffff;
-  border: 1px solid #9fdfff;
+  border: 1px solid #60a5fa;
   pointer-events: none;
   max-width: calc(100% - 24px);
   text-align: center;
 }
 
 /* Action buttons, top-right under the top bar (the top bar is ~54px
-   tall, so the grid starts below it). Compact 2-row grid, black bg,
-   gold border, white text — every HUD function is still here, just
-   tighter. */
+   tall, so the grid starts below it). Compact 2-row grid, gold bg,
+   black text — every HUD function is still here, just tighter. */
 .actions {
   position: fixed;
   top: calc(max(10px, env(safe-area-inset-top)) + 62px);
@@ -1027,7 +1031,7 @@ body {
   z-index: 6;
   display: grid;
   place-items: center;
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(2, 6, 18, 0.58);
   padding: 12px;
 }
 
@@ -1037,9 +1041,10 @@ body {
   max-height: calc(100dvh - 24px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: #000000;
+  background: linear-gradient(180deg, #061024 0%, #02050d 100%);
   color: #ffffff;
   border: 2px solid #e0b33a;
+  box-shadow: 0 20px 64px rgba(0, 0, 0, 0.8), 0 0 24px rgba(37, 99, 235, 0.22);
   padding: 14px 14px 32px;
   touch-action: pan-y;
 }
@@ -1070,7 +1075,7 @@ body {
    reads as a list of labelled controls, not a wall of text. */
 .list article {
   padding: 8px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 1px solid rgba(96, 165, 250, 0.22);
 }
 
 .list article:last-child {
@@ -1088,7 +1093,7 @@ body {
 
 .mic-meter {
   height: 6px;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(59, 130, 246, 0.24);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -1141,10 +1146,10 @@ body {
 
 .list span,
 .panel p {
-  color: #dedede;
+  color: #dbeafe;
 }
 
-/* PROFILE (advanced): two-column stat grid — black cards, white
+/* PROFILE (advanced): two-column stat grid — midnight-blue cards, white
  * labels, gold values. Phone-first: two columns fit 390px with room
  * to spare; long values wrap instead of overflowing. */
 .profile-stats {
@@ -1154,8 +1159,8 @@ body {
 }
 
 .profile-stats .stat {
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: #0d0d0d;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  background: #07142b;
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
@@ -1166,7 +1171,7 @@ body {
 .profile-stats .stat b {
   font-size: 12px;
   font-weight: 600;
-  color: #dedede;
+  color: #dbeafe;
 }
 
 .profile-stats .stat strong {
@@ -1178,7 +1183,7 @@ body {
 
 .profile-stats .stat span {
   font-size: 11px;
-  color: #9a9a9a;
+  color: #93c5fd;
 }
 
 .profile-bio {
@@ -1191,9 +1196,9 @@ body {
 .list input,
 .chat-log {
   width: min(100%, 280px);
-  background: #111111;
+  background: #050e21;
   color: #ffffff;
-  border: 1px solid #9fdfff;
+  border: 1px solid #60a5fa;
 }
 
 .chat-log {
@@ -1215,15 +1220,15 @@ body {
 }
 
 .days button.on {
-  outline: 2px solid #9fdfff;
+  outline: 2px solid #60a5fa;
 }
 
 /* Universe picker: premium cards, not plain text rectangles. Each card
-   has its own accent (top bar + emblem) so the five universes read as
-   five places, not five labels. Text stays white on black / black on
-   gold — the accent is only the bar + emblem, never the text. The
-   selected card gets a gold outline + glow; a full universe is dimmed
-   and disabled. */
+   has its own Blue / White / Gold accent (top bar + emblem) so the five
+   universes read as five places, not five labels. Text stays white on
+   dark navy/black / black on gold — the accent is only the bar + emblem,
+   never the text. The selected card gets a gold outline + glow; a full
+   universe is dimmed and disabled. */
 .universe-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -1239,8 +1244,8 @@ body {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  background: #0a0e14;
-  border: 1px solid #2a3644;
+  background: #061229;
+  border: 1px solid #1e3a8a;
   color: #ffffff;
   text-align: left;
   letter-spacing: 0;
@@ -1259,23 +1264,23 @@ body {
 }
 
 .universe-card[data-universe="1"]::before {
-  background: linear-gradient(90deg, #2dd4a8, #7ef6ff);
+  background: linear-gradient(90deg, #1d4ed8, #60a5fa);
 }
 
 .universe-card[data-universe="2"]::before {
-  background: linear-gradient(90deg, #ff7a3c, #ffd23c);
+  background: linear-gradient(90deg, #d4af37, #ffe699);
 }
 
 .universe-card[data-universe="3"]::before {
-  background: linear-gradient(90deg, #a78bfa, #f0abfc);
+  background: linear-gradient(90deg, #2563eb, #ffffff);
 }
 
 .universe-card[data-universe="4"]::before {
-  background: linear-gradient(90deg, #ffe9a8, #e0b33a);
+  background: linear-gradient(90deg, #ffffff, #e0b33a);
 }
 
 .universe-card[data-universe="5"]::before {
-  background: linear-gradient(90deg, #5aa9ff, #7ef6ff);
+  background: linear-gradient(90deg, #3b82f6, #e0b33a);
 }
 
 .universe-card .uni-emblem {
@@ -1285,7 +1290,7 @@ body {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: #101820;
+  background: #030917;
   border: 1px solid #e0b33a;
   color: #e0b33a;
   font-size: 22px;
@@ -1294,28 +1299,28 @@ body {
 }
 
 .universe-card[data-universe="1"] .uni-emblem {
-  border-color: #2dd4a8;
-  color: #2dd4a8;
+  border-color: #60a5fa;
+  color: #60a5fa;
 }
 
 .universe-card[data-universe="2"] .uni-emblem {
-  border-color: #ff7a3c;
-  color: #ff7a3c;
+  border-color: #e0b33a;
+  color: #e0b33a;
 }
 
 .universe-card[data-universe="3"] .uni-emblem {
-  border-color: #a78bfa;
-  color: #a78bfa;
+  border-color: #93c5fd;
+  color: #ffffff;
 }
 
 .universe-card[data-universe="4"] .uni-emblem {
-  border-color: #ffe9a8;
-  color: #ffe9a8;
+  border-color: #ffe699;
+  color: #ffe699;
 }
 
 .universe-card[data-universe="5"] .uni-emblem {
-  border-color: #5aa9ff;
-  color: #5aa9ff;
+  border-color: #3b82f6;
+  color: #60a5fa;
 }
 
 .universe-card .uni-body {
@@ -1335,7 +1340,7 @@ body {
 .universe-card .uni-tag {
   font-size: 12px;
   font-weight: 400;
-  color: #c9d6e2;
+  color: #bfdbfe;
   line-height: 1.35;
 }
 
@@ -1369,9 +1374,9 @@ body {
 }
 
 .universe-card .uni-badges .uni-friends {
-  background: transparent;
-  border-color: #2a3644;
-  color: #c9d6e2;
+  background: rgba(37, 99, 235, 0.18);
+  border-color: #3b82f6;
+  color: #dbeafe;
   font-weight: 400;
 }
 
@@ -1413,7 +1418,8 @@ body.touch .touch-ui {
   height: 118px;
   border-radius: 50%;
   border: 2px solid #e0b33a;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(5, 15, 36, 0.62);
+  box-shadow: inset 0 0 14px rgba(59, 130, 246, 0.28);
   touch-action: none;
 }
 
@@ -1475,7 +1481,7 @@ body.touch .touch-ui {
   letter-spacing: 0.12em;
 }
 
-/* Hunger meter: gold bar on dark, red when low. The HUD is
+/* Hunger meter: gold bar on dark blue, red when low. The HUD is
    pointer-events: none, so the row re-enables events for the Eat
    quick-eat button (the only clickable thing in the HUD). */
 .hud .hunger {
@@ -1502,8 +1508,8 @@ body.touch .touch-ui {
   display: inline-block;
   width: 64px;
   height: 8px;
-  background: #333333;
-  border: 1px solid #9a9a9a;
+  background: #0a1936;
+  border: 1px solid #60a5fa;
   vertical-align: middle;
 }
 
@@ -1681,7 +1687,8 @@ body.touch .touch-ui {
     gap: 6px;
     padding: 6px 8px;
     padding-top: max(6px, env(safe-area-inset-top));
-    background: rgba(0, 0, 0, 0.72);
+    background: rgba(3, 9, 23, 0.86);
+    border-bottom: 1px solid rgba(59, 130, 246, 0.4);
     justify-content: flex-start;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
@@ -1910,9 +1917,9 @@ body.touch .touch-ui {
   transform: translateX(-50%);
   margin: 0;
   padding: 10px 18px;
-  border: 2px solid #7ef6ff;
-  background: rgba(4, 10, 16, 0.82);
-  color: #fff;
+  border: 2px solid #60a5fa;
+  background: rgba(4, 12, 28, 0.88);
+  color: #ffffff;
   font-size: 28px;
   letter-spacing: 0.04em;
 }
@@ -1984,17 +1991,18 @@ body.touch .touch-ui {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  border: 1px solid #7ef6ff;
+  border: 1px solid #60a5fa;
   display: grid;
   place-items: center;
   font-style: normal;
   color: #e0b33a;
-  background: #101820;
+  background: #07142b;
   object-fit: cover;
 }
 
 .sheet {
-  border: 1px solid #7ef6ff;
+  border: 1px solid #60a5fa;
+  background: #050e21;
   padding: 10px;
   margin-top: 8px;
   display: grid;
@@ -2015,7 +2023,7 @@ body.touch .touch-ui {
 }
 
 /* --- NOTIFICATIONS: pop-up toasts + the unread badge on the Alerts button.
- * White bg = black text, gold border, text badge (no emoji) — the HUD
+ * White bg = deep navy/black text, gold border, royal-blue/gold text badge (no emoji) — the HUD
  * style, high contrast on any background. Top-right on desktop, top-center
  * on phone so the thumb buttons stay clear. Tap a toast to dismiss it. */
 .toasts {
@@ -2038,11 +2046,11 @@ body.touch .touch-ui {
   width: 100%;
   padding: 10px 12px;
   text-align: left;
-  background: #fff;
-  color: #111;
-  border: 2px solid #d4af37;
+  background: #ffffff;
+  color: #020611;
+  border: 2px solid #e0b33a;
   border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 6px 20px rgba(2, 6, 17, 0.55), 0 0 0 1px rgba(37, 99, 235, 0.25);
   cursor: pointer;
   animation: toast-in 0.18s ease-out;
 }
@@ -2065,30 +2073,30 @@ body.touch .touch-ui {
   cursor: pointer;
 }
 .toast-accept {
-  background: #d4af37;
-  color: #111;
-  border: 2px solid #8a6d1b;
+  background: #e0b33a;
+  color: #020611;
+  border: 2px solid #b8860b;
 }
 .toast-decline {
-  background: #fff;
-  color: #111;
-  border: 1px solid #999;
+  background: #eff6ff;
+  color: #071633;
+  border: 1px solid #3b82f6;
 }
 .toast-icon {
   flex: none;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.06em;
-  color: #8a6d1b;
-  background: #f5e9c8;
-  border: 1px solid #d4af37;
+  color: #e0b33a;
+  background: #071633;
+  border: 1px solid #2563eb;
   border-radius: 6px;
   padding: 3px 6px;
 }
 .toast-text {
   font-size: 14px;
   line-height: 1.35;
-  color: #111;
+  color: #020611;
 }
 @keyframes toast-in {
   from {
@@ -2111,8 +2119,8 @@ body.touch .touch-ui {
 }
 
 /* ---- Home rebrand: intro scene, header, footer, social, info pages ---- */
-/* Contrast rule: white bg = black text, black bg = white text. Palette
-// black / white / gold (#e0b33a) only. */
+/* Contrast rule: white/gold bg = black/navy text, dark navy/black bg = white text.
+// Palette: blue / black / white / gold (#e0b33a) only. */
 
 /* Intro: full-screen overlay on the live 3D flyover. The canvas keeps
 // rendering behind it; the cards are the only DOM on top. */
@@ -2127,14 +2135,14 @@ body.touch .touch-ui {
   color: #ffffff;
   /* Cinematic widescreen vignette + top/bottom letterbox framing */
   background:
-    radial-gradient(ellipse at center, transparent 48%, rgba(0, 0, 0, 0.62) 100%),
+    radial-gradient(ellipse at center, transparent 48%, rgba(2, 6, 17, 0.68) 100%),
     linear-gradient(
       to bottom,
-      rgba(0, 0, 0, 0.86) 0%,
-      rgba(0, 0, 0, 0.35) 14%,
-      rgba(0, 0, 0, 0.08) 48%,
-      rgba(0, 0, 0, 0.48) 82%,
-      rgba(0, 0, 0, 0.9) 100%
+      rgba(2, 6, 17, 0.88) 0%,
+      rgba(6, 16, 38, 0.36) 14%,
+      rgba(2, 6, 17, 0.08) 48%,
+      rgba(6, 16, 38, 0.52) 82%,
+      rgba(2, 6, 17, 0.92) 100%
     );
   pointer-events: none;
 }
@@ -2171,8 +2179,9 @@ body.touch .touch-ui {
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: rgba(0, 0, 0, 0.82);
-  border: 1px solid rgba(224, 179, 58, 0.55);
+  background: rgba(5, 14, 34, 0.86);
+  border: 1px solid rgba(224, 179, 58, 0.65);
+  box-shadow: 0 0 12px rgba(37, 99, 235, 0.3);
   border-radius: 999px;
   font-size: 11px;
   font-weight: 800;
@@ -2201,10 +2210,10 @@ body.touch .touch-ui {
   font-weight: 800;
   letter-spacing: 0.14em;
   color: #ffffff;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(5, 14, 34, 0.82);
   padding: 8px 12px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(96, 165, 250, 0.45);
 }
 .intro-pause {
   pointer-events: auto;
@@ -2213,9 +2222,9 @@ body.touch .touch-ui {
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.08em;
-  background: rgba(0, 0, 0, 0.78);
+  background: rgba(6, 16, 38, 0.84);
   color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.38);
+  border: 1px solid #60a5fa;
   border-radius: 8px;
   cursor: pointer;
 }
@@ -2230,7 +2239,7 @@ body.touch .touch-ui {
   font-size: 15px;
   font-weight: 800;
   letter-spacing: 0.08em;
-  background: rgba(0, 0, 0, 0.82);
+  background: rgba(6, 16, 38, 0.88);
   color: #ffffff;
   border: 2px solid #e0b33a;
   border-radius: 8px;
@@ -2288,7 +2297,7 @@ body.touch .touch-ui {
 }
 .intro-pill {
   padding: 7px 14px;
-  background: rgba(0, 0, 0, 0.84);
+  background: rgba(5, 14, 34, 0.88);
   color: #ffffff;
   border: 1px solid #e0b33a;
   border-radius: 999px;
@@ -2296,7 +2305,7 @@ body.touch .touch-ui {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55), inset 0 0 10px rgba(37, 99, 235, 0.25);
 }
 .intro-cta-row {
   margin-top: 22px;
@@ -2314,7 +2323,7 @@ body.touch .touch-ui {
   border: 2px solid #ffffff;
   border-radius: 8px;
   cursor: pointer;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.65);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.65), 0 0 18px rgba(37, 99, 235, 0.35);
   transition: transform 0.15s ease;
 }
 .intro-enter:hover {
@@ -2333,9 +2342,9 @@ body.touch .touch-ui {
   margin-bottom: 12px;
 }
 .intro-chapter {
-  background: rgba(0, 0, 0, 0.76);
+  background: rgba(5, 14, 34, 0.8);
   color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.24);
+  border: 1px solid rgba(96, 165, 250, 0.35);
   border-radius: 6px;
   padding: 7px 8px;
   cursor: pointer;
@@ -2347,7 +2356,8 @@ body.touch .touch-ui {
 }
 .intro-chapter.active {
   border-color: #e0b33a;
-  background: rgba(0, 0, 0, 0.9);
+  background: rgba(7, 22, 51, 0.94);
+  box-shadow: 0 0 12px rgba(37, 99, 235, 0.35);
 }
 .intro-chapter-label {
   font-size: 11px;
@@ -2364,7 +2374,7 @@ body.touch .touch-ui {
 .intro-chapter-bar {
   display: block;
   height: 3px;
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(59, 130, 246, 0.28);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -2386,8 +2396,8 @@ body.touch .touch-ui {
   display: inline-block;
   margin-right: 8px;
   padding: 2px 7px;
-  background: rgba(0, 0, 0, 0.82);
-  border: 1px solid rgba(224, 179, 58, 0.6);
+  background: rgba(6, 18, 42, 0.88);
+  border: 1px solid rgba(224, 179, 58, 0.7);
   border-radius: 4px;
   font-size: 11px;
   font-weight: 800;
@@ -2404,7 +2414,7 @@ body.touch .touch-ui {
 }
 .intro-progress {
   height: 6px;
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(59, 130, 246, 0.32);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -2417,7 +2427,7 @@ body.touch .touch-ui {
 .intro-hint {
   margin: 8px 0 0;
   text-align: center;
-  color: #ffffff;
+  color: #dbeafe;
   font-size: 12px;
   text-shadow: 0 1px 3px #000000;
 }
@@ -2499,8 +2509,9 @@ body.touch .touch-ui {
 }
 .menu-chip {
   padding: 8px 14px;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(6, 16, 38, 0.85);
   border: 2px solid #e0b33a;
+  box-shadow: 0 0 12px rgba(37, 99, 235, 0.3);
   border-radius: 999px;
   color: #ffffff;
   font-size: 14px;
@@ -2537,7 +2548,7 @@ body.touch .touch-ui {
 }
 .menu-footer-line {
   margin: 6px 0 0;
-  color: #dedede;
+  color: #dbeafe;
   font-size: 12px;
   text-shadow: 0 1px 3px #000000;
 }
@@ -2546,8 +2557,9 @@ body.touch .touch-ui {
 .menu-social {
   margin: 26px auto 0;
   max-width: 620px;
-  background: rgba(0, 0, 0, 0.66);
+  background: rgba(5, 14, 34, 0.82);
   border: 2px solid #e0b33a;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), inset 0 0 20px rgba(37, 99, 235, 0.2);
   padding: 16px 18px;
   text-align: center;
 }
@@ -2565,7 +2577,7 @@ body.touch .touch-ui {
 }
 .menu-friends {
   margin: 8px 0 0;
-  color: #dedede;
+  color: #dbeafe;
   font-size: 14px;
   line-height: 1.45;
 }
@@ -2597,7 +2609,7 @@ body.touch .touch-ui {
   letter-spacing: 0.04em;
 }
 
-/* Info pages: black card, white text, gold headings — same as the rest. */
+/* Info pages: dark navy/black card, white text, gold headings — same as the rest. */
 .menu-page-card {
   text-align: left;
 }
@@ -2619,7 +2631,7 @@ body.touch .touch-ui {
   line-height: 1.55;
 }
 .legal a {
-  color: #7ef6ff;
+  color: #60a5fa;
 }
 .legal .days {
   margin: 8px 0 4px;
@@ -2650,13 +2662,13 @@ body.touch .touch-ui {
 
 /* Standalone /stats page — a plain linkable page, no game. Body is
  * overflow:hidden for the game, so this page scrolls on its own.
- * Black background, white text, gold accents — same as the panels. */
+ * Obsidian-blue/black background, white text, gold accents — same as the panels. */
 .stats-page {
   position: fixed;
   inset: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: #000000;
+  background: #020611;
   color: #ffffff;
   padding: 20px 16px 48px;
   box-sizing: border-box;
@@ -2688,7 +2700,7 @@ body.touch .touch-ui {
 
 .stats-page-head p {
   margin: 6px 0 0;
-  color: #dedede;
+  color: #dbeafe;
 }
 
 .stats-page-head a {

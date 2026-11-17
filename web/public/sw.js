@@ -1,10 +1,10 @@
 // OrbitX City service worker — app-shell cache, network-first API.
 // RULE: bump CACHE on every push that changes the shell (game.js, index.html,
 // CSS, icons) — otherwise phones keep serving the old bundle from this cache.
-// v16 (2026-11-17): 5-act interactive splash flyover + full 3D building
-// architectural details, roof textures, bus-route & unit test fixes; on top of
-// v15 economy (Leaderboards panel, snap earned, startJob rollback) and v14.
-const CACHE = "orbitx-city-v16";
+// v17 (2026-11-17): Blue · Black · White · Gold platform UI theme & logo
+// lockup/mark/icon overhaul; on top of v16 (5-act splash flyover + 3D building
+// architectural details) and v15.
+const CACHE = "orbitx-city-v17";
 const PRECACHE = [
   "/",
   "/index.html",

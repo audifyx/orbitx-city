@@ -3379,11 +3379,11 @@ export default function App() {
                             <span>{modLine}</span>
                             <span>Dirt {wear.dirt}/100 · Damage {wear.damage}/100{snap.garage.workshop ? " · Workshop: 25% off wash + repair" : ""}</span>
                             <span className="days">
-                              <span style={{ display: "inline-block", width: "120px", height: "8px", background: "#222", verticalAlign: "middle" }}>
-                                <span style={{ display: "inline-block", width: `${wear.dirt}%`, height: "8px", background: "#a67c52" }} />
+                              <span style={{ display: "inline-block", width: "120px", height: "8px", background: "#0a1936", border: "1px solid #3b82f6", verticalAlign: "middle" }}>
+                                <span style={{ display: "inline-block", width: `${wear.dirt}%`, height: "8px", background: "#e0b33a" }} />
                               </span>
-                              <span style={{ display: "inline-block", width: "120px", height: "8px", background: "#222", verticalAlign: "middle" }}>
-                                <span style={{ display: "inline-block", width: `${wear.damage}%`, height: "8px", background: "#c0392b" }} />
+                              <span style={{ display: "inline-block", width: "120px", height: "8px", background: "#0a1936", border: "1px solid #3b82f6", verticalAlign: "middle" }}>
+                                <span style={{ display: "inline-block", width: `${wear.damage}%`, height: "8px", background: "#ef4444" }} />
                               </span>
                             </span>
                           </div>
@@ -5022,7 +5022,7 @@ export default function App() {
           {menu && looksFailed ? (
             <p
               className="menu-warning"
-              style={{ background: "#f4f6fa", color: "#111318", padding: "10px 14px", borderRadius: 8, maxWidth: 560, margin: "12px auto", textAlign: "center" }}
+              style={{ background: "#ffffff", color: "#020611", border: "2px solid #e0b33a", padding: "10px 14px", borderRadius: 8, maxWidth: 560, margin: "12px auto", textAlign: "center" }}
             >
               Character list failed to load — only TJR is available right now. Check your connection and reload to see all twelve characters.
             </p>
@@ -5378,7 +5378,7 @@ function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, j
     if (!ctx) return;
     const size = off.width;
     ctx.clearRect(0, 0, size, size);
-    ctx.fillStyle = "rgba(8, 12, 18, 0.72)";
+    ctx.fillStyle = "rgba(5, 14, 32, 0.86)";
     ctx.fillRect(0, 0, size, size);
     // Fit the full extent (harbor included) — no hardcoded scale.
     const spanX = model.maxX - model.minX;
@@ -5390,12 +5390,12 @@ function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, j
       [offX + (x - model.minX) * scale, offZ + (z - model.minZ) * scale] as const;
     // Harbor water.
     const [hx, hz] = plot(model.harbor.x, model.harbor.z);
-    ctx.fillStyle = "#14568f";
+    ctx.fillStyle = "#1d4ed8";
     ctx.fillRect(hx, hz, model.harbor.w * scale, model.harbor.d * scale);
     // Building blocks, colored by facade style; the tower is gold.
     for (const block of model.blocks) {
       const [bx, bz] = plot(block.x, block.z);
-      ctx.fillStyle = block.hero ? "#e0b33a" : MAP_BLOCK_COLORS[block.style] ?? "#232a38";
+      ctx.fillStyle = block.hero ? "#e0b33a" : MAP_BLOCK_COLORS[block.style] ?? "#1e3a8a";
       ctx.fillRect(bx, bz, Math.max(1.5, block.w * scale), Math.max(1.5, block.d * scale));
     }
     // Plaza outline.
@@ -5404,7 +5404,7 @@ function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, j
     ctx.lineWidth = 1.2;
     ctx.strokeRect(px + 0.5, pz + 0.5, model.plaza.w * scale, model.plaza.d * scale);
     // Road grid.
-    ctx.strokeStyle = "rgba(126,246,255,0.28)";
+    ctx.strokeStyle = "rgba(96, 165, 250, 0.34)";
     ctx.lineWidth = 1;
     for (const c of model.roads) {
       const [rx] = plot(c, model.minZ);
@@ -5471,24 +5471,24 @@ function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, j
       const cx = Math.max(best.x0, Math.min(vx, best.x1));
       const cy = Math.max(best.y0, Math.min(vz, best.y1));
       if (Math.hypot(cx - vx, cy - vz) > 6) {
-        ctx.strokeStyle = "rgba(232,246,255,0.45)";
+        ctx.strokeStyle = "rgba(219, 234, 254, 0.5)";
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(vx, vz);
         ctx.lineTo(cx, cy);
         ctx.stroke();
       }
-      ctx.fillStyle = "#e8f6ff";
+      ctx.fillStyle = "#ffffff";
       ctx.textAlign = "left";
       // Dark halo so the white label stays readable over the light blocks.
-      ctx.strokeStyle = "rgba(4, 8, 14, 0.9)";
+      ctx.strokeStyle = "rgba(2, 6, 17, 0.92)";
       ctx.lineWidth = 2;
       ctx.strokeText(label, best.x0, best.y0 + 6);
       ctx.fillText(label, best.x0, best.y0 + 6);
     }
     ctx.textAlign = "left";
     // North marker.
-    ctx.fillStyle = "#7ef6ff";
+    ctx.fillStyle = "#60a5fa";
     ctx.font = "bold 9px sans-serif";
     ctx.textAlign = "center";
     ctx.fillText("N", size / 2, 10);
@@ -5515,7 +5515,7 @@ function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, j
     // Other players.
     for (const person of people) {
       const [ppx, ppz] = plot(person.x, person.z);
-      ctx.fillStyle = person.speaking ? "#7ef6ff" : "#f4f6fa";
+      ctx.fillStyle = person.speaking ? "#60a5fa" : "#ffffff";
       ctx.beginPath();
       ctx.arc(ppx, ppz, person.speaking ? 4 : 3, 0, Math.PI * 2);
       ctx.fill();
@@ -6019,7 +6019,7 @@ function CityStatsPanel({ stats, loading, error, onRefresh }: { stats: CityStats
             <b>{d.day}</b>
             <span>{d.players} active</span>
           </div>
-          <div style={{ flex: 1, height: 10, background: "#222222", minWidth: 80 }}>
+          <div style={{ flex: 1, height: 10, background: "#0a1936", border: "1px solid rgba(59, 130, 246, 0.45)", minWidth: 80 }}>
             <div style={{ height: "100%", width: `${Math.round((d.players / maxDaily) * 100)}%`, background: "#e0b33a" }} />
           </div>
         </article>

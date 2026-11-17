@@ -1,18 +1,129 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 200" role="img" aria-label="ORBITX CITY">
-  <!-- OrbitX City lockup: mark + wordmark. Black / white / gold only. -->
-  <rect width="680" height="200" fill="#000000"/>
+  <!-- OrbitX City lockup: Blue / Black / White / Gold theme. -->
+  <defs>
+    <linearGradient id="panelBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#02050d"/>
+      <stop offset="50%" stop-color="#071633"/>
+      <stop offset="100%" stop-color="#02050d"/>
+    </linearGradient>
+    <radialGradient id="orbGlow" cx="50%" cy="50%" r="52%">
+      <stop offset="0%" stop-color="#153e85"/>
+      <stop offset="60%" stop-color="#071530"/>
+      <stop offset="100%" stop-color="#02050d"/>
+    </radialGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fff2b2"/>
+      <stop offset="48%" stop-color="#e0b33a"/>
+      <stop offset="100%" stop-color="#b8861b"/>
+    </linearGradient>
+    <linearGradient id="goldTowerFront" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="22%" stop-color="#ffe699"/>
+      <stop offset="65%" stop-color="#e0b33a"/>
+      <stop offset="100%" stop-color="#b88418"/>
+    </linearGradient>
+    <linearGradient id="goldTowerBack" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#c99626"/>
+      <stop offset="55%" stop-color="#e0b33a"/>
+      <stop offset="90%" stop-color="#ffe699"/>
+      <stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1d4ed8"/>
+      <stop offset="50%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#e0b33a"/>
+    </linearGradient>
+    <clipPath id="orbClipLockup">
+      <circle cx="104" cy="100" r="80"/>
+    </clipPath>
+  </defs>
+
+  <!-- Deep Blue-Black Lockup Frame -->
+  <rect width="680" height="200" rx="8" fill="url(#panelBg)"/>
+  <rect x="1.5" y="1.5" width="677" height="197" rx="7" fill="none" stroke="#1e3a8a" stroke-width="1.5" stroke-opacity="0.75"/>
+  <line x1="24" y1="2" x2="656" y2="2" stroke="url(#blueGrad)" stroke-width="2.5"/>
+  <line x1="24" y1="198" x2="656" y2="198" stroke="url(#goldGrad)" stroke-width="2.5"/>
+
+  <!-- Emblem Mark (Left) -->
   <g>
-    <circle cx="100" cy="100" r="86" fill="none" stroke="#e0b33a" stroke-width="6"/>
-    <polygon points="48,162 66,178 152,38 134,22" fill="#e0b33a"/>
-    <polygon points="152,162 134,178 48,38 66,22" fill="#f2c94c"/>
-    <g fill="#e0b33a">
-      <rect x="84" y="170" width="6" height="12"/>
-      <rect x="91" y="162" width="6" height="20"/>
-      <rect x="98" y="172" width="6" height="10"/>
-      <rect x="105" y="158" width="6" height="24"/>
-      <rect x="112" y="166" width="6" height="16"/>
+    <circle cx="104" cy="100" r="86" fill="url(#orbGlow)"/>
+    <circle cx="104" cy="100" r="72" fill="none" stroke="#3b82f6" stroke-width="2" stroke-opacity="0.85"/>
+    <circle cx="104" cy="100" r="64" fill="none" stroke="#93c5fd" stroke-width="1" stroke-dasharray="6 5" stroke-opacity="0.5"/>
+
+    <g clip-path="url(#orbClipLockup)">
+      <!-- Royal-blue background skyline -->
+      <g fill="#1d4ed8" opacity="0.85">
+        <rect x="70" y="156" width="6" height="26"/>
+        <rect x="78" y="148" width="7" height="34"/>
+        <rect x="87" y="152" width="6" height="30"/>
+        <rect x="95" y="143" width="7" height="39"/>
+        <rect x="104" y="139" width="8" height="43"/>
+        <rect x="114" y="146" width="7" height="36"/>
+        <rect x="123" y="151" width="6" height="31"/>
+        <rect x="131" y="157" width="6" height="25"/>
+      </g>
+
+      <!-- Back X-Tower -->
+      <g transform="translate(104,100) rotate(36)">
+        <polygon points="-12,88 -8.5,-50 -4.8,-54 -4.8,-70 -1.8,-74 0,-91 1.8,-74 4.8,-70 4.8,-54 8.5,-50 12,88" fill="#040916" stroke="#3b82f6" stroke-width="1.1"/>
+        <polygon points="-10.2,88 -6.8,-48 -3.8,-52 -3.8,-68 -1.3,-72 0,-90 1.3,-72 3.8,-68 3.8,-52 6.8,-48 10.2,88" fill="url(#goldTowerBack)"/>
+        <g fill="#061229">
+          <rect x="-5" y="-44" width="2" height="114"/>
+          <rect x="-1" y="-62" width="2" height="132"/>
+          <rect x="3" y="-44" width="2" height="114"/>
+        </g>
+        <g fill="#60a5fa">
+          <rect x="-4.5" y="-40" width="1.1" height="102"/>
+          <rect x="-0.5" y="-58" width="1.1" height="120"/>
+          <rect x="3.5" y="-40" width="1.1" height="102"/>
+        </g>
+      </g>
+
+      <!-- Front X-Tower -->
+      <g transform="translate(104,100) rotate(-36)">
+        <polygon points="-13,88 -9,-50 -5,-54 -5,-70 -1.8,-74 0,-91 1.8,-74 5,-70 5,-54 9,-50 13,88" fill="#030712" stroke="#1d4ed8" stroke-width="1.3"/>
+        <polygon points="-10.8,88 -7.2,-48 -4,-52 -4,-68 -1.4,-72 0,-90 1.4,-72 4,-68 4,-52 7.2,-48 10.8,88" fill="url(#goldTowerFront)"/>
+        <polygon points="-10.8,88 -7.2,-48 -4.2,-48 -7.2,88" fill="#ffffff" opacity="0.4"/>
+        <g fill="#050d1f">
+          <rect x="-5.4" y="-44" width="2.1" height="116"/>
+          <rect x="-1" y="-62" width="2.1" height="134"/>
+          <rect x="3.3" y="-44" width="2.1" height="116"/>
+        </g>
+        <g fill="#93c5fd">
+          <rect x="-4.8" y="-38" width="1.1" height="104"/>
+          <rect x="3.8" y="-38" width="1.1" height="104"/>
+        </g>
+        <rect x="-0.5" y="-58" width="1" height="122" fill="#ffffff" opacity="0.92"/>
+      </g>
+
+      <!-- Foreground Gold Skyline -->
+      <g fill="url(#goldGrad)">
+        <rect x="74" y="164" width="5" height="18"/>
+        <rect x="81" y="157" width="5" height="25"/>
+        <rect x="88" y="161" width="5" height="21"/>
+        <rect x="95" y="150" width="6" height="32"/>
+        <rect x="103" y="146" width="6" height="36"/>
+        <rect x="111" y="153" width="5" height="29"/>
+        <rect x="118" y="159" width="5" height="23"/>
+        <rect x="125" y="163" width="5" height="19"/>
+      </g>
     </g>
+
+    <circle cx="104" cy="100" r="81" fill="none" stroke="url(#goldGrad)" stroke-width="5"/>
+    <polygon points="51,26 59,35 56,38 44,18" fill="#ffffff"/>
+    <polygon points="157,26 149,35 152,38 164,18" fill="#ffe699"/>
+    <circle cx="23" cy="100" r="3" fill="#60a5fa" stroke="#ffffff" stroke-width="1"/>
+    <circle cx="185" cy="100" r="3" fill="#60a5fa" stroke="#ffffff" stroke-width="1"/>
   </g>
-  <text x="228" y="94" font-family="Arial, Helvetica, sans-serif" font-size="62" font-weight="900" letter-spacing="6" fill="#ffffff">ORBITX</text>
-  <text x="232" y="154" font-family="Arial, Helvetica, sans-serif" font-size="36" font-weight="800" letter-spacing="26" fill="#e0b33a">CITY</text>
+
+  <!-- Wordmark (Right): Crisp White ORBITX + Blue/Gold Divider + Gold CITY -->
+  <text x="224" y="92" font-family="Arial, Helvetica, sans-serif" font-size="66" font-weight="900" letter-spacing="8" fill="#1d4ed8" opacity="0.55">ORBITX</text>
+  <text x="222" y="90" font-family="Arial, Helvetica, sans-serif" font-size="66" font-weight="900" letter-spacing="8" fill="#ffffff">ORBITX</text>
+
+  <!-- Blue-to-Gold Horizon Rule -->
+  <line x1="224" y1="112" x2="634" y2="112" stroke="url(#blueGrad)" stroke-width="3"/>
+  <polygon points="429,106 435,112 429,118 423,112" fill="#ffffff" stroke="#3b82f6" stroke-width="1.5"/>
+
+  <text x="226" y="162" font-family="Arial, Helvetica, sans-serif" font-size="38" font-weight="900" letter-spacing="28" fill="url(#goldGrad)">CITY</text>
+  <circle cx="626" cy="148" r="4" fill="#60a5fa"/>
 </svg>

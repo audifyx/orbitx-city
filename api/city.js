@@ -2555,7 +2555,7 @@ async function readWorld() {
     // Prune rows nobody will ever read again (players who closed the tab).
     // Best-effort and probabilistic — one prune per ~20 reads keeps the
     // table clean without doubling every sync's Supabase traffic.
-    if (Math.random() < 0.05) await client.from("presence").delete().lt("seen", since);
+    if (Math.random() < 0.05) await client.from("presence").delete?.()?.lt?.("seen", since);
     const { data, error } = await client.from("presence").select("state, seen").gt("seen", since);
     if (!error && data) return data.map((row) => (typeof row.state === "string" ? JSON.parse(row.state) : row.state));
     if (error) noteSupabase(error.message);

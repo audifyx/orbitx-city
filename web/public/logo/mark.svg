@@ -1,14 +1,129 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="OrbitX City mark">
-  <!-- OrbitX City mark: two crossing skyscraper towers form an X inside a gold orbit ring, skyline at the base. Black / gold / white only. -->
-  <rect width="200" height="200" fill="#000000"/>
-  <circle cx="100" cy="100" r="86" fill="none" stroke="#e0b33a" stroke-width="6"/>
-  <polygon points="48,162 66,178 152,38 134,22" fill="#e0b33a"/>
-  <polygon points="152,162 134,178 48,38 66,22" fill="#f2c94c"/>
-  <g fill="#e0b33a">
-    <rect x="84" y="170" width="6" height="12"/>
-    <rect x="91" y="162" width="6" height="20"/>
-    <rect x="98" y="172" width="6" height="10"/>
-    <rect x="105" y="158" width="6" height="24"/>
-    <rect x="112" y="166" width="6" height="16"/>
+  <!-- OrbitX City mark: Blue / Black / White / Gold theme. Crossing Art-Deco skyscraper towers inside dual gold & royal-blue orbital rings over a downtown skyline. -->
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="50%" r="52%">
+      <stop offset="0%" stop-color="#123570"/>
+      <stop offset="58%" stop-color="#071530"/>
+      <stop offset="100%" stop-color="#02050d"/>
+    </radialGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fff2b2"/>
+      <stop offset="45%" stop-color="#e0b33a"/>
+      <stop offset="100%" stop-color="#b8861b"/>
+    </linearGradient>
+    <linearGradient id="goldTowerFront" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="22%" stop-color="#ffe699"/>
+      <stop offset="65%" stop-color="#e0b33a"/>
+      <stop offset="100%" stop-color="#b88418"/>
+    </linearGradient>
+    <linearGradient id="goldTowerBack" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#c99626"/>
+      <stop offset="55%" stop-color="#e0b33a"/>
+      <stop offset="90%" stop-color="#ffe699"/>
+      <stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#93c5fd"/>
+      <stop offset="50%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <clipPath id="orbClip">
+      <circle cx="100" cy="100" r="84"/>
+    </clipPath>
+  </defs>
+
+  <!-- Obsidian-black base with deep royal-blue core glow -->
+  <rect width="200" height="200" fill="#02050d"/>
+  <circle cx="100" cy="100" r="92" fill="url(#bgGlow)"/>
+
+  <!-- Inner electric-blue orbital ring & horizon grid -->
+  <circle cx="100" cy="100" r="76" fill="none" stroke="url(#blueGrad)" stroke-width="2.2" stroke-opacity="0.85"/>
+  <circle cx="100" cy="100" r="68" fill="none" stroke="#60a5fa" stroke-width="1" stroke-dasharray="6 5" stroke-opacity="0.55"/>
+
+  <!-- Clipped skyline & lower tower bases -->
+  <g clip-path="url(#orbClip)">
+    <!-- Back royal-blue skyline layer -->
+    <g fill="#1e40af" opacity="0.85">
+      <rect x="64" y="160" width="6" height="26"/>
+      <rect x="72" y="152" width="7" height="34"/>
+      <rect x="81" y="156" width="6" height="30"/>
+      <rect x="89" y="146" width="8" height="40"/>
+      <rect x="99" y="142" width="8" height="44"/>
+      <rect x="109" y="149" width="7" height="37"/>
+      <rect x="118" y="154" width="6" height="32"/>
+      <rect x="126" y="160" width="6" height="26"/>
+    </g>
+
+    <!-- Tower 2 (Back-to-Front: Bottom-Left to Top-Right) -->
+    <g transform="translate(100,100) rotate(36)">
+      <!-- Navy-black architectural shadow frame -->
+      <polygon points="-13,92 -9,-54 -5,-58 -5,-74 -2,-78 0,-96 2,-78 5,-74 5,-58 9,-54 13,92" fill="#040916" stroke="#3b82f6" stroke-width="1.2"/>
+      <!-- Gold stepped skyscraper body -->
+      <polygon points="-11,92 -7,-52 -4,-56 -4,-72 -1.4,-76 0,-95 1.4,-76 4,-72 4,-56 7,-52 11,92" fill="url(#goldTowerBack)"/>
+      <!-- Blue & obsidian window fenestration -->
+      <g fill="#061229">
+        <rect x="-5.5" y="-46" width="2.2" height="120"/>
+        <rect x="-1.1" y="-66" width="2.2" height="140"/>
+        <rect x="3.3" y="-46" width="2.2" height="120"/>
+      </g>
+      <g fill="#60a5fa">
+        <rect x="-5" y="-42" width="1.2" height="108" opacity="0.85"/>
+        <rect x="-0.6" y="-62" width="1.2" height="128" opacity="0.9"/>
+        <rect x="3.8" y="-42" width="1.2" height="108" opacity="0.85"/>
+      </g>
+    </g>
+
+    <!-- Tower 1 (Foreground: Bottom-Right to Top-Left) -->
+    <g transform="translate(100,100) rotate(-36)">
+      <!-- Drop shadow & royal-blue edge -->
+      <polygon points="-14,92 -9.5,-54 -5.5,-58 -5.5,-74 -2,-78 0,-96 2,-78 5.5,-74 5.5,-58 9.5,-54 14,92" fill="#030712" stroke="#1d4ed8" stroke-width="1.4"/>
+      <!-- Bright gold-white stepped skyscraper body -->
+      <polygon points="-11.5,92 -7.5,-52 -4.2,-56 -4.2,-72 -1.5,-76 0,-95 1.5,-76 4.2,-72 4.2,-56 7.5,-52 11.5,92" fill="url(#goldTowerFront)"/>
+      <!-- White highlight facet on left edge -->
+      <polygon points="-11.5,92 -7.5,-52 -4.5,-52 -7.5,92" fill="#ffffff" opacity="0.42"/>
+      <!-- Architectural window bands -->
+      <g fill="#050d1f">
+        <rect x="-5.8" y="-46" width="2.3" height="122"/>
+        <rect x="-1.1" y="-66" width="2.3" height="142"/>
+        <rect x="3.5" y="-46" width="2.3" height="122"/>
+      </g>
+      <!-- Glowing white & electric-blue window lights -->
+      <g fill="#93c5fd">
+        <rect x="-5.2" y="-40" width="1.2" height="110"/>
+        <rect x="4.1" y="-40" width="1.2" height="110"/>
+      </g>
+      <rect x="-0.5" y="-62" width="1.1" height="130" fill="#ffffff" opacity="0.92"/>
+    </g>
+
+    <!-- Foreground Gold & White Downtown Skyline at Base -->
+    <g fill="url(#goldGrad)">
+      <rect x="68" y="168" width="5" height="18"/>
+      <rect x="75" y="161" width="6" height="25"/>
+      <rect x="83" y="165" width="5" height="21"/>
+      <rect x="90" y="154" width="6" height="32"/>
+      <polygon points="93,147 90,154 96,154"/>
+      <rect x="98" y="150" width="6" height="36"/>
+      <rect x="106" y="157" width="6" height="29"/>
+      <rect x="114" y="163" width="5" height="23"/>
+      <rect x="121" y="167" width="5" height="19"/>
+    </g>
+    <!-- Skyline white/blue window sparkles -->
+    <g fill="#ffffff" opacity="0.9">
+      <rect x="92" y="158" width="2" height="14"/>
+      <rect x="100" y="154" width="2" height="18"/>
+      <rect x="108" y="161" width="2" height="12"/>
+    </g>
   </g>
+
+  <!-- Outer Gold Orbit Ring -->
+  <circle cx="100" cy="100" r="85" fill="none" stroke="url(#goldGrad)" stroke-width="5.5"/>
+
+  <!-- Spire tips breaking past the orbit ring (White + Gold) -->
+  <polygon points="44,23 53,32 50,35 37,14" fill="#ffffff"/>
+  <polygon points="156,23 147,32 150,35 163,14" fill="#ffe699"/>
+
+  <!-- Cardinal Blue & White Orbital Nodes -->
+  <circle cx="15" cy="100" r="3.2" fill="#60a5fa" stroke="#ffffff" stroke-width="1"/>
+  <circle cx="185" cy="100" r="3.2" fill="#60a5fa" stroke="#ffffff" stroke-width="1"/>
 </svg>

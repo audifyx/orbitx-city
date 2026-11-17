@@ -101,6 +101,7 @@ function fakeSupabase() {
     from: (table) => ({
       upsert: async (row) => upsert(table, row),
       select: () => query(table),
+      delete: () => ({ lt: async () => ({ data: null, error: null }) }),
     }),
   };
 }
