@@ -2395,7 +2395,7 @@ export function createRuntime(scene: Scene) {
   const ROAD_GRID_HALF = 190;
 
   function nearestRoadCenter(v: number): number {
-    let best = REGION_ROAD_CENTERS[0];
+    let best: number = REGION_ROAD_CENTERS[0];
     let bestD = Math.abs(v - best);
     for (const c of REGION_ROAD_CENTERS) {
       const d = Math.abs(v - c);
