@@ -3,7 +3,7 @@ import { neon } from "@neondatabase/serverless";
 import { createClient } from "@supabase/supabase-js";
 import { Redis } from "@upstash/redis";
 import { ensureDaily, handleLive, noteEarn } from "./live.js";
-import { adBuy, adCompose, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus, adSubmit, billboardOrbitxBuy, billboardOrbitxOrders, billboardOrbitxQuote, billboardOrbitxStatus, officeSolBuy, officeSolCompose, officeSolLeasesFor, officeSolQuote, officeSolStatus, officeSolSubmit } from "./ads.js";
+import { adBuy, adCompose, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus, adSubmit, arcadeCancel, arcadeCompose, arcadeHistory, arcadeLeaders, arcadeLobby, arcadeSubmit, billboardOrbitxBuy, billboardOrbitxOrders, billboardOrbitxQuote, billboardOrbitxStatus, officeSolBuy, officeSolCompose, officeSolLeasesFor, officeSolQuote, officeSolStatus, officeSolSubmit } from "./ads.js";
 import { authMode, checkReauth, handleAuthOp, looksLikeAccountToken, supabasePublic, verifyAccessToken } from "./auth.js";
 import { audit, chainShopEnabled, confirmSend, ensureWallet, exportWallet, latestBlockhash, networkName, publicBalance, quoteSend, submitSignedTx, walletView } from "./wallet.js";
 import { AccessToken } from "livekit-server-sdk";
@@ -1655,6 +1655,47 @@ async function ensureSchema() {
     where_at TEXT NOT NULL,
     when_at TEXT NOT NULL,
     detail TEXT NOT NULL
+  )`;
+  // Mini-Games Hub (Neon Arcade): one row per PvP pot game; the row is
+  // the matchmaking authority. The escrow keypair lives in arcade_state
+  // (one row, id='escrow'), sealed with WALLET_MASTER_KEY.
+  await sql`CREATE TABLE IF NOT EXISTS arcade_games (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    joiner_id TEXT NOT NULL DEFAULT '',
+    game TEXT NOT NULL,
+    tier_usd INTEGER NOT NULL,
+    entry_raw TEXT NOT NULL DEFAULT '0',
+    status TEXT NOT NULL,
+    creator_name TEXT NOT NULL DEFAULT '',
+    creator_pick TEXT NOT NULL DEFAULT '',
+    creator_address TEXT NOT NULL DEFAULT '',
+    joiner_name TEXT NOT NULL DEFAULT '',
+    joiner_pick TEXT NOT NULL DEFAULT '',
+    joiner_address TEXT NOT NULL DEFAULT '',
+    result TEXT NOT NULL DEFAULT '',
+    winner_id TEXT NOT NULL DEFAULT '',
+    winner_name TEXT NOT NULL DEFAULT '',
+    payout_signature TEXT NOT NULL DEFAULT '',
+    refund_signature TEXT NOT NULL DEFAULT '',
+    entry_signature TEXT NOT NULL DEFAULT '',
+    joiner_entry_signature TEXT NOT NULL DEFAULT '',
+    message_hash TEXT NOT NULL DEFAULT '',
+    joiner_message_hash TEXT NOT NULL DEFAULT '',
+    idempotency_key TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    join_expires_at TIMESTAMPTZ,
+    resolved_at TIMESTAMPTZ,
+    error TEXT NOT NULL DEFAULT '',
+    meta TEXT NOT NULL DEFAULT '{}'
+  )`;
+  await sql`CREATE TABLE IF NOT EXISTS arcade_state (
+    id TEXT PRIMARY KEY,
+    public_key TEXT NOT NULL DEFAULT '',
+    sealed TEXT NOT NULL DEFAULT '',
+    funded BOOLEAN NOT NULL DEFAULT FALSE,
+    ata_ready BOOLEAN NOT NULL DEFAULT FALSE
   )`;
   store.ready = true;
 }
@@ -6368,6 +6409,18 @@ export async function POST(request) {
     return adReply(await officeSolSubmit(adCtx, player, body));
   }
   if (op === "office-sol-buy") return adReply(await officeSolBuy(adCtx, player, body));
+
+  // Mini-Games Hub — 2-player PvP pot games in real ORBITX (Neon Arcade):
+  // Coin Flip + Dice Roll, $1/$2/$5/$10 entries from the on-device wallet,
+  // winner takes the full pot, no house cut. Guests can play — the entry
+  // is tied to the device wallet address, not the account (the same
+  // on-device pattern as ad-compose/ad-submit).
+  if (op === "arcade-lobby") return adReply(await arcadeLobby(adCtx, player, body));
+  if (op === "arcade-compose") return adReply(await arcadeCompose(adCtx, player, body));
+  if (op === "arcade-submit") return adReply(await arcadeSubmit(adCtx, player, body));
+  if (op === "arcade-cancel") return adReply(await arcadeCancel(adCtx, player, body));
+  if (op === "arcade-history") return adReply(await arcadeHistory(adCtx, player));
+  if (op === "arcade-leaders") return adReply(await arcadeLeaders(adCtx, player));
 
   const radioReply = async (result) => {
     const { status, ...payload } = result;

@@ -39,11 +39,13 @@ import {
   TOKEN_PROGRAM_ID,
   audit,
   buildTokenBurn,
+  createSolanaKeypair,
   getSignatureStatus,
   getTokenAccounts,
   getTransactionMeta,
   messageHash,
   openSecret,
+  sealSecret,
   sendSignedTx,
   signLegacyMessage,
   solanaRpc,
@@ -52,6 +54,7 @@ import {
   walletRow,
 } from "./wallet.js";
 import { b58decode, b58encode as encode58 } from "./live.js";
+import { randomBytes, randomInt } from "node:crypto";
 
 const LAMPORTS_PER_SOL = 1e9;
 const DAY_MS = 86400000;
@@ -201,9 +204,11 @@ function admins() {
 function store() {
   const slot = globalThis;
   if (!slot.__orbitxAds) {
-    slot.__orbitxAds = { orders: new Map(), limits: new Map(), decimals: 0, mintProgram: new Map(), officeLeases: new Map() };
+    slot.__orbitxAds = { orders: new Map(), limits: new Map(), decimals: 0, mintProgram: new Map(), officeLeases: new Map(), arcadeGames: new Map(), arcadeEscrow: null, arcadePaper: new Map() };
   }
   if (!slot.__orbitxAds.officeLeases) slot.__orbitxAds.officeLeases = new Map();
+  if (!slot.__orbitxAds.arcadeGames) slot.__orbitxAds.arcadeGames = new Map();
+  if (!slot.__orbitxAds.arcadePaper) slot.__orbitxAds.arcadePaper = new Map();
   return slot.__orbitxAds;
 }
 
@@ -1880,4 +1885,830 @@ export async function officeSolLeasesFor(ctx, player) {
   }
   mine.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   return { ok: true, leases: mine.slice(0, 10).map(publicLease) };
+}
+
+// ===========================================================================
+// Mini-Games Hub — 2-player PvP pot games in real ORBITX
+// ===========================================================================
+// Real games, pot-pooled, winner takes ALL (user, 2026-11-18): two players
+// put in the same entry, the server flips/rolls, the winner automatically
+// gets both entries — no house cut, no 90/10 split. 50/50 games only in
+// this slice: Coin Flip (heads/tails) and Dice Roll (high/low).
+//
+// Money model: the entry is $1 / $2 / $5 / $10 in ORBITX at buy time
+// (DexScreener ORBITX price, same source as the ad USD display). The
+// entry leaves the player's ON-DEVICE (PIN) wallet in a transaction the
+// device signs — the server never sees the device key (the adCompose /
+// adSubmit pattern). The entry goes to the arcade ESCROW address, a
+// server-held keypair sealed with WALLET_MASTER_KEY and stored in
+// arcade_state; the escrow only ever holds entries of in-progress games.
+// At resolve the server pays the FULL pot (2x entry) from the escrow to
+// the winner, server-side. If no opponent joins in time the entry is
+// refunded from the escrow automatically. No custody beyond one
+// in-progress game's escrow.
+//
+// Paper mode (rig/tests only): ARCADE_PAPER=1 records transfers instead
+// of broadcasting them and seeds every address with paper ORBITX, so the
+// whole sign/verify/resolve/payout path runs with zero real funds. The
+// real on-chain flow is proven by the user's phone test, same as the
+// push-10 real-economy rule.
+//
+// Ops (wired in api/city.js): arcade-lobby, arcade-compose,
+// arcade-submit, arcade-cancel, arcade-history, arcade-leaders.
+// A game row is the matchmaking authority: open games live in the
+// in-memory store AND Supabase (arcade_games) so a creator and a joiner
+// on different lambda instances see the same game.
+
+export const ARCADE_GAMES = {
+  coinflip: { name: "Coin Flip", picks: ["heads", "tails"] },
+  diceroll: { name: "Dice Roll", picks: ["high", "low"] },
+};
+export const ARCADE_TIERS_USD = [1, 2, 5, 10];
+export const ARCADE_JOIN_TIMEOUT_MS = 120_000;
+export const ARCADE_JOIN_COMPOSE_MS = 60_000;
+export const ARCADE_MAX_PER_HOUR = 20;
+// The escrow needs a little SOL for the payout transaction fee and the
+// rent of its ORBITX token account. The first creator funds it once
+// (0.005 SOL, inside their entry transaction, same fee-buffer pattern
+// as ads) — after that the escrow pays its own way for hundreds of games.
+export const ARCADE_ESCROW_FUND_LAMPORTS = 5_000_000;
+const ARCADE_PAPER_SEED_UI = 10_000_000;
+
+function arcadePaper() {
+  return process.env.ARCADE_PAPER === "1";
+}
+
+function arcadeNow(ctx) {
+  return typeof ctx?.now === "function" ? ctx.now() : Date.now();
+}
+
+function arcadeUserId(player) {
+  return String(player?.authUser || player?.id || "");
+}
+
+function oppositePick(game, pick) {
+  const picks = ARCADE_GAMES[game]?.picks || [];
+  if (picks.length !== 2) return "";
+  return pick === picks[0] ? picks[1] : picks[0];
+}
+
+// Live ORBITX price in USD, same source as the ad USD display
+// (DexScreener). Cached 60s; a stale (<=1h) price is the fallback when
+// the fetch fails; ORBITX_USD pins a fixed price (tests, rig, operators).
+// Throws when no price is available — the quote fails, nothing is bought.
+let orbitxUsdCache = { price: 0, at: 0 };
+export async function orbitxUsdPrice() {
+  const pinned = Number(process.env.ORBITX_USD);
+  if (Number.isFinite(pinned) && pinned > 0) return pinned;
+  const now = Date.now();
+  if (orbitxUsdCache.price > 0 && now - orbitxUsdCache.at < 60_000) return orbitxUsdCache.price;
+  const fresh = Number(await dexUsd());
+  if (Number.isFinite(fresh) && fresh > 0) {
+    orbitxUsdCache = { price: fresh, at: now };
+    return fresh;
+  }
+  if (orbitxUsdCache.price > 0 && now - orbitxUsdCache.at < 3_600_000) return orbitxUsdCache.price;
+  throw new Error("The ORBITX price could not be read. Try again in a moment.");
+}
+
+export async function arcadeEntryRaw(tierUsd) {
+  const usd = Number(tierUsd);
+  if (!ARCADE_TIERS_USD.includes(usd)) return 0n;
+  const price = await orbitxUsdPrice();
+  const dec = await decimals();
+  return BigInt(Math.round((usd / price) * 10 ** dec));
+}
+
+export async function arcadeTiers() {
+  const dec = await decimals();
+  const out = [];
+  for (const usd of ARCADE_TIERS_USD) {
+    const raw = await arcadeEntryRaw(usd);
+    out.push({ usd, entryRaw: raw.toString(), entryUi: Number(raw) / 10 ** dec, potUi: (Number(raw) * 2) / 10 ** dec });
+  }
+  return out;
+}
+
+// --- Paper ledger (ARCADE_PAPER=1 only): every address starts with a
+// paper ORBITX balance; paper transfers move it and return paper sigs.
+// Nothing here touches the chain.
+function paperLedger() {
+  return store().arcadePaper;
+}
+
+function paperBalanceRaw(address) {
+  const ledger = paperLedger();
+  if (!ledger.has(address)) {
+    const dec = 6;
+    ledger.set(address, BigInt(ARCADE_PAPER_SEED_UI) * 10n ** BigInt(dec));
+  }
+  return ledger.get(address);
+}
+
+function paperMove(from, to, raw) {
+  const ledger = paperLedger();
+  const amount = BigInt(raw);
+  ledger.set(from, paperBalanceRaw(from) - amount);
+  ledger.set(to, paperBalanceRaw(to) + amount);
+  return `paper_${randomBytes(8).toString("hex")}`;
+}
+
+async function orbitxBalanceRaw(ctx, address) {
+  if (typeof ctx?.orbitxBalance === "function") return BigInt(await ctx.orbitxBalance(address));
+  if (arcadePaper()) return paperBalanceRaw(address);
+  const accounts = await getTokenAccounts(address, orbitxMint());
+  const seen = new Set();
+  let total = 0n;
+  for (const item of accounts || []) {
+    if (seen.has(item.pubkey)) continue; // the RPC double-count quirk: same account under both programs
+    seen.add(item.pubkey);
+    total += BigInt(item.amount || "0");
+  }
+  return total;
+}
+
+async function arcadeBlockhash() {
+  if (arcadePaper()) return "11111111111111111111111111111111";
+  const latest = await solanaRpc("getLatestBlockhash", [{ commitment: "confirmed" }]);
+  const blockhash = latest?.value?.blockhash || latest?.blockhash || "";
+  if (!blockhash) throw new Error("The RPC did not return a blockhash.");
+  return blockhash;
+}
+
+// --- Escrow: one server-held keypair, sealed with WALLET_MASTER_KEY.
+// Created lazily on the first game and stored in arcade_state (Supabase)
+// so every lambda instance pays out from the same address. Without a
+// master key the escrow is ephemeral in-memory only (paper/tests) and
+// compose refuses to run in production.
+async function arcadeEscrow(ctx) {
+  const slot = store();
+  if (slot.arcadeEscrow) return slot.arcadeEscrow;
+  const client = ctx?.sb ? ctx.sb() : null;
+  if (client) {
+    try {
+      const { data } = await client.from("arcade_state").select("*").eq("id", "escrow").maybeSingle();
+      if (data?.public_key) {
+        slot.arcadeEscrow = { publicKey: data.public_key, sealed: data.sealed || null, funded: !!data.funded, ataReady: !!data.ata_ready };
+        return slot.arcadeEscrow;
+      }
+    } catch {
+      // Fall through to creating one.
+    }
+  }
+  const made = createSolanaKeypair();
+  let sealed = null;
+  try {
+    sealed = sealSecret(made.secret);
+  } catch {
+    sealed = null;
+  }
+  const rec = { publicKey: made.publicKey, sealed, funded: false, ataReady: false, ephemeral: !sealed };
+  if (sealed && client) {
+    await client.from("arcade_state").upsert({ id: "escrow", public_key: made.publicKey, sealed, funded: false, ata_ready: false });
+  }
+  slot.arcadeEscrow = rec;
+  return rec;
+}
+
+async function markEscrowReady(ctx, escrow) {
+  escrow.funded = true;
+  escrow.ataReady = true;
+  const client = ctx?.sb ? ctx.sb() : null;
+  if (client && !escrow.ephemeral) {
+    await client.from("arcade_state").upsert({ id: "escrow", public_key: escrow.publicKey, sealed: escrow.sealed, funded: true, ata_ready: true });
+  }
+}
+
+async function escrowNeedsFunding(ctx, escrow) {
+  if (arcadePaper()) return !escrow.funded;
+  try {
+    const raw = await solanaRpc("getBalance", [escrow.publicKey]);
+    const lamports = typeof raw === "number" ? raw : raw?.value || 0;
+    return lamports < 3_000_000;
+  } catch {
+    return true;
+  }
+}
+
+async function escrowAtaExists(ctx, escrowAta) {
+  if (arcadePaper()) return store().arcadeEscrow?.ataReady === true;
+  try {
+    const info = await solanaRpc("getAccountInfo", [escrowAta, { encoding: "base64" }]);
+    return !!(info?.value || info);
+  } catch {
+    return false;
+  }
+}
+
+// --- Transaction builders (versioned tx, device-signed for entries,
+// escrow-signed for payouts/refunds). The entry tx is built fresh (not
+// decompiled) — the same @solana/web3.js + @solana/spl-token calls the
+// Jupiter burn path uses in attachBurnToSwap.
+async function buildArcadeTx({ from, to, rawAmount, blockhash, fundLamports }) {
+  const { PublicKey, VersionedTransaction, TransactionMessage, SystemProgram } = await import("@solana/web3.js");
+  const {
+    TOKEN_2022_PROGRAM_ID,
+    getAssociatedTokenAddressSync,
+    createAssociatedTokenAccountIdempotentInstruction,
+    createTransferInstruction,
+  } = await import("@solana/spl-token");
+  const mint = orbitxMint();
+  if (!mint) throw new Error("ORBITX_MINT is not set.");
+  const fromPk = new PublicKey(from);
+  const toPk = new PublicKey(to);
+  const mintPk = new PublicKey(mint);
+  const fromAta = getAssociatedTokenAddressSync(mintPk, fromPk, false, TOKEN_2022_PROGRAM_ID);
+  const toAta = getAssociatedTokenAddressSync(mintPk, toPk, false, TOKEN_2022_PROGRAM_ID);
+  const instructions = [];
+  if (fundLamports > 0) {
+    instructions.push(SystemProgram.transfer({ fromPubkey: fromPk, toPubkey: toPk, lamports: fundLamports }));
+  }
+  // Idempotent: a no-op when the escrow token account already exists.
+  instructions.push(createAssociatedTokenAccountIdempotentInstruction(fromPk, toAta, toPk, mintPk, TOKEN_2022_PROGRAM_ID));
+  instructions.push(createTransferInstruction(fromAta, toAta, fromPk, BigInt(rawAmount), [], TOKEN_2022_PROGRAM_ID));
+  const message = new TransactionMessage({ payerKey: fromPk, recentBlockhash: blockhash, instructions }).compileToV0Message();
+  const tx = new VersionedTransaction(message);
+  return Buffer.from(tx.serialize()).toString("base64");
+}
+
+// Pay out of the escrow (winner payout / refund). Paper mode moves the
+// paper ledger; production signs with the escrow key and broadcasts.
+async function sendFromEscrow(ctx, escrow, toAddress, rawAmount) {
+  const amount = BigInt(rawAmount);
+  if (amount <= 0n) throw new Error("Nothing to pay out.");
+  if (arcadePaper()) return paperMove(escrow.publicKey, toAddress, amount);
+  if (!escrow.sealed) throw new Error("The arcade escrow is not set up yet. No payout was sent.");
+  const secret = openSecret(escrow.sealed);
+  try {
+    const blockhash = await arcadeBlockhash();
+    const unsigned = await buildArcadeTx({ from: escrow.publicKey, to: toAddress, rawAmount: amount, blockhash, fundLamports: 0 });
+    const { signedTx, signature } = signVersionedTransaction(unsigned, secret, encode58);
+    const sent = await sendSignedTx(signedTx);
+    return String(sent || signature);
+  } finally {
+    secret.fill(0);
+  }
+}
+
+// --- Game rows (memory + Supabase arcade_games, same pattern as orders).
+function gameFromRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id || "",
+    joinerId: row.joiner_id || "",
+    game: row.game,
+    tierUsd: Number(row.tier_usd || 0),
+    entryRaw: String(row.entry_raw || "0"),
+    status: row.status,
+    creatorName: row.creator_name || "",
+    creatorPick: row.creator_pick || "",
+    creatorAddress: row.creator_address || "",
+    joinerName: row.joiner_name || "",
+    joinerPick: row.joiner_pick || "",
+    joinerAddress: row.joiner_address || "",
+    result: row.result || "",
+    winnerId: row.winner_id || "",
+    winnerName: row.winner_name || "",
+    payoutSignature: row.payout_signature || "",
+    refundSignature: row.refund_signature || "",
+    entrySignature: row.entry_signature || "",
+    joinerEntrySignature: row.joiner_entry_signature || "",
+    messageHash: row.message_hash || "",
+    joinerMessageHash: row.joiner_message_hash || "",
+    idempotencyKey: row.idempotency_key || "",
+    createdAt: row.created_at || "",
+    expiresAt: row.expires_at || "",
+    joinExpiresAt: row.join_expires_at || "",
+    resolvedAt: row.resolved_at || "",
+    error: row.error || "",
+    meta: row.meta && typeof row.meta === "object" ? row.meta : {},
+  };
+}
+
+function gameToRow(game) {
+  return {
+    id: game.id,
+    user_id: game.userId,
+    joiner_id: game.joinerId || "",
+    game: game.game,
+    tier_usd: game.tierUsd,
+    entry_raw: String(game.entryRaw || "0"),
+    status: game.status,
+    creator_name: game.creatorName || "",
+    creator_pick: game.creatorPick || "",
+    creator_address: game.creatorAddress || "",
+    joiner_name: game.joinerName || "",
+    joiner_pick: game.joinerPick || "",
+    joiner_address: game.joinerAddress || "",
+    result: game.result || "",
+    winner_id: game.winnerId || "",
+    winner_name: game.winnerName || "",
+    payout_signature: game.payoutSignature || "",
+    refund_signature: game.refundSignature || "",
+    entry_signature: game.entrySignature || "",
+    joiner_entry_signature: game.joinerEntrySignature || "",
+    message_hash: game.messageHash || "",
+    joiner_message_hash: game.joinerMessageHash || "",
+    idempotency_key: game.idempotencyKey || "",
+    created_at: game.createdAt || null,
+    expires_at: game.expiresAt || null,
+    join_expires_at: game.joinExpiresAt || null,
+    resolved_at: game.resolvedAt || null,
+    error: game.error || "",
+    meta: game.meta || {},
+  };
+}
+
+async function persistArcadeGame(ctx, game) {
+  store().arcadeGames.set(game.id, game);
+  const client = ctx?.sb ? ctx.sb() : null;
+  if (!client) return;
+  const { error } = await client.from("arcade_games").upsert(gameToRow(game));
+  if (error && ctx.note) ctx.note(error.message);
+}
+
+async function loadArcadeGame(ctx, id) {
+  const local = store().arcadeGames.get(String(id));
+  if (local) return local;
+  const client = ctx?.sb ? ctx.sb() : null;
+  if (!client) return null;
+  const { data, error } = await client.from("arcade_games").select("*").eq("id", String(id)).maybeSingle();
+  if (error || !data) return null;
+  const game = gameFromRow(data);
+  if (game) store().arcadeGames.set(game.id, game);
+  return game;
+}
+
+async function loadArcadeGameByKey(ctx, key) {
+  for (const game of store().arcadeGames.values()) {
+    if (game.idempotencyKey === key) return game;
+  }
+  const client = ctx?.sb ? ctx.sb() : null;
+  if (!client) return null;
+  const { data, error } = await client.from("arcade_games").select("*").eq("idempotency_key", key).maybeSingle();
+  if (error || !data) return null;
+  const game = gameFromRow(data);
+  if (game) store().arcadeGames.set(game.id, game);
+  return game;
+}
+
+function publicArcadeGame(game, dec = 6) {
+  if (!game) return null;
+  const entryUi = Number(BigInt(game.entryRaw || "0")) / 10 ** dec;
+  return {
+    id: game.id,
+    game: game.game,
+    gameName: ARCADE_GAMES[game.game]?.name || game.game,
+    tierUsd: game.tierUsd,
+    entryUi,
+    potUi: entryUi * 2,
+    status: game.status,
+    creator: { id: game.userId, name: game.creatorName || "Player" },
+    creatorPick: game.creatorPick,
+    joiner: game.joinerId ? { id: game.joinerId, name: game.joinerName || "Player" } : null,
+    joinerPick: game.joinerPick || "",
+    result: game.result || "",
+    winnerId: game.winnerId || "",
+    winnerName: game.winnerName || "",
+    payoutSignature: game.payoutSignature || "",
+    refundSignature: game.refundSignature || "",
+    entrySignature: game.entrySignature || "",
+    joinerEntrySignature: game.joinerEntrySignature || "",
+    createdAt: game.createdAt || "",
+    expiresAt: game.expiresAt || "",
+    resolvedAt: game.resolvedAt || "",
+    error: game.error || "",
+  };
+}
+
+function liveGameFor(userId) {
+  for (const game of store().arcadeGames.values()) {
+    if (!["composed", "open", "join-composed"].includes(game.status)) continue;
+    if (game.userId === userId || game.joinerId === userId) return game;
+  }
+  return null;
+}
+
+function flipResult(game, ctx) {
+  if (ctx?.fixedResult) return String(ctx.fixedResult);
+  if (game.game === "diceroll") return String(randomInt(1, 7));
+  return randomInt(0, 2) === 0 ? "heads" : "tails";
+}
+
+function winnerOf(game, result) {
+  if (game.game === "diceroll") {
+    const roll = Number(result);
+    const side = roll >= 4 ? "high" : "low";
+    return side === game.creatorPick ? "creator" : "joiner";
+  }
+  return result === game.creatorPick ? "creator" : "joiner";
+}
+
+// Resolve a fully-paid game: server RNG decides, the escrow pays the
+// FULL pot (2x entry) to the winner. Called from join-submit and retried
+// by the sweep when a payout fails.
+async function resolveArcadeGame(ctx, game) {
+  if (game.status !== "ready") return game;
+  const result = flipResult(game, ctx);
+  const side = winnerOf(game, result);
+  const winnerId = side === "creator" ? game.userId : game.joinerId;
+  const winnerName = side === "creator" ? game.creatorName : game.joinerName;
+  const winnerAddress = side === "creator" ? game.creatorAddress : game.joinerAddress;
+  const potRaw = BigInt(game.entryRaw || "0") * 2n;
+  game.result = result;
+  game.winnerId = winnerId;
+  game.winnerName = winnerName;
+  try {
+    const escrow = await arcadeEscrow(ctx);
+    game.payoutSignature = await sendFromEscrow(ctx, escrow, winnerAddress, potRaw);
+    game.status = "resolved";
+    game.resolvedAt = new Date(arcadeNow(ctx)).toISOString();
+    game.error = "";
+  } catch (err) {
+    // The pot stays in escrow and the game stays "ready" — the next
+    // lobby read retries the payout. Nothing is lost, nothing is paid
+    // twice: the status only flips to resolved after a payout signature.
+    game.error = `The payout did not send (${err.message || "payout"}). It will retry.`;
+  }
+  await persistArcadeGame(ctx, game);
+  return game;
+}
+
+async function refundArcadeGame(ctx, game) {
+  if (game.status !== "open") return game;
+  try {
+    const escrow = await arcadeEscrow(ctx);
+    game.refundSignature = await sendFromEscrow(ctx, escrow, game.creatorAddress, BigInt(game.entryRaw || "0"));
+    game.status = "refunded";
+    game.error = "";
+  } catch (err) {
+    game.error = `The refund did not send (${err.message || "refund"}). It will retry.`;
+  }
+  await persistArcadeGame(ctx, game);
+  return game;
+}
+
+// Lazy sweep, run on every lobby/compose/join read — no cron needed:
+// expired composes die unpaid, expired opens are refunded, stuck
+// ready games retry their payout, abandoned join-composes reopen.
+export async function arcadeSweep(ctx) {
+  const now = arcadeNow(ctx);
+  for (const game of [...store().arcadeGames.values()]) {
+    if (game.status === "composed" && game.expiresAt && now > Date.parse(game.expiresAt)) {
+      game.status = "expired";
+      await persistArcadeGame(ctx, game);
+    } else if (game.status === "join-composed" && game.joinExpiresAt && now > Date.parse(game.joinExpiresAt)) {
+      game.status = "open";
+      game.joinerId = "";
+      game.joinerName = "";
+      game.joinerPick = "";
+      game.joinerAddress = "";
+      game.joinerMessageHash = "";
+      game.joinExpiresAt = "";
+      game.meta = { ...game.meta, joinerUnsignedTx: "" };
+      await persistArcadeGame(ctx, game);
+    } else if (game.status === "open" && game.expiresAt && now > Date.parse(game.expiresAt)) {
+      await refundArcadeGame(ctx, game);
+    } else if (game.status === "ready") {
+      await resolveArcadeGame(ctx, game);
+    }
+  }
+}
+
+export async function arcadeLobby(ctx, player, body) {
+  await arcadeSweep(ctx);
+  const dec = await decimals();
+  const tiers = await arcadeTiers();
+  const userId = arcadeUserId(player);
+  const address = String(body?.address || "").trim();
+  let orbitx = null;
+  if (address && b58decode(address)?.length === 32) {
+    try {
+      orbitx = Number(await orbitxBalanceRaw(ctx, address)) / 10 ** dec;
+    } catch {
+      orbitx = null;
+    }
+  }
+  const games = [...store().arcadeGames.values()].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  return {
+    ok: true,
+    tiers,
+    joinTimeoutMs: ARCADE_JOIN_TIMEOUT_MS,
+    escrowNote: "Entries go to the arcade escrow. The winner takes the full pot — no house cut.",
+    orbitx,
+    open: games.filter((g) => g.status === "open").map((g) => publicArcadeGame(g, dec)),
+    mine: games.filter((g) => g.userId === userId || g.joinerId === userId).slice(0, 10).map((g) => publicArcadeGame(g, dec)),
+  };
+}
+
+function validArcadeAddress(value) {
+  const decoded = b58decode(String(value || "").trim());
+  return decoded && decoded.length === 32 ? String(value).trim() : "";
+}
+
+// Step 1 (create or join): validate everything, then compose the unsigned
+// entry transaction for the device wallet to sign. Nothing moves yet.
+export async function arcadeCompose(ctx, player, body) {
+  await arcadeSweep(ctx);
+  const userId = arcadeUserId(player);
+  if (!userId) return fail("Sign in first.");
+  const idem = String(body.idempotencyKey || "").slice(0, 80);
+  if (!idem) return fail("Missing a confirm id. Open the game sheet again.", 400);
+  const gameKind = String(body.game || "");
+  if (!ARCADE_GAMES[gameKind]) return fail("Pick Coin Flip or Dice Roll.");
+  const tierUsd = Number(body.tier);
+  if (!ARCADE_TIERS_USD.includes(tierUsd)) return fail("Pick a $1, $2, $5, or $10 game.");
+  const address = validArcadeAddress(body.address);
+  if (!address) return fail("That on-device wallet address is not valid.", 400);
+  if (hitLimit(`arcade:${userId}`, ARCADE_MAX_PER_HOUR, 60 * 60 * 1000)) {
+    return fail("Too many arcade games this hour. Wait and try again.", 429);
+  }
+  const existing = await loadArcadeGameByKey(ctx, idem);
+  if (existing) {
+    if (existing.status === "composed" && existing.userId === userId && existing.meta.unsignedTx) {
+      return { ok: true, game: publicArcadeGame(existing), unsignedTx: existing.meta.unsignedTx, resumed: true };
+    }
+    if (existing.status === "join-composed" && existing.joinerId === userId && existing.meta.joinerUnsignedTx) {
+      return { ok: true, game: publicArcadeGame(existing), unsignedTx: existing.meta.joinerUnsignedTx, resumed: true };
+    }
+    return { ok: true, game: publicArcadeGame(existing), message: "This game was already started. No second payment was made." };
+  }
+  const joinId = String(body.joinId || "");
+  let entryRaw;
+  try {
+    entryRaw = await arcadeEntryRaw(tierUsd);
+  } catch (err) {
+    return fail(err.message || "The ORBITX price could not be read. Nothing was bought.", 502);
+  }
+  if (entryRaw <= 0n) return fail("That entry could not be priced. Try again in a moment.", 502);
+  let balance = 0n;
+  try {
+    balance = await orbitxBalanceRaw(ctx, address);
+  } catch (err) {
+    return fail(`The ORBITX balance was not read (${err.message || "RPC"}). Nothing was bought.`, 502);
+  }
+  if (balance < entryRaw) {
+    const dec = await decimals();
+    return fail(`Not enough ORBITX in the on-device wallet. This game costs $${tierUsd} (about ${(Number(entryRaw) / 10 ** dec).toLocaleString()} ORBITX).`, 400);
+  }
+  let game;
+  let pick = String(body.pick || "");
+  if (joinId) {
+    game = await loadArcadeGame(ctx, joinId);
+    if (!game) return fail("That game was not found.", 404);
+    if (game.status !== "open") return fail("That game is no longer open.", 409);
+    if (game.userId === userId) return fail("That is your own game. Wait for an opponent.", 400);
+    if (game.game !== gameKind) return fail("That game is a different game. Pick it from the lobby.", 400);
+    if (game.tierUsd !== tierUsd) return fail("That game is a different entry. Pick it from the lobby.", 400);
+    // The join pays the game's STORED entry, not a fresh price — the pot
+    // is exactly 2x one entry even if the ORBITX price moved since the
+    // creator opened the game.
+    entryRaw = BigInt(game.entryRaw || "0");
+    if (entryRaw <= 0n) return fail("That game has no entry. Pick it from the lobby.", 400);
+    // The joiner always takes the opposite side — the flip then has
+    // exactly one winner. A same-side join is refused, never resolved.
+    if (!pick) pick = oppositePick(game.game, game.creatorPick);
+    if (pick !== oppositePick(game.game, game.creatorPick)) {
+      return fail(`That game is ${game.creatorPick} — take the other side.`, 400);
+    }
+    if (liveGameFor(userId)) return fail("Finish your open game first.", 400);
+  } else {
+    if (!ARCADE_GAMES[gameKind].picks.includes(pick)) return fail(`Pick ${ARCADE_GAMES[gameKind].picks.join(" or ")}.`);
+    if (liveGameFor(userId)) return fail("Finish your open game first.", 400);
+    const now = new Date(arcadeNow(ctx)).toISOString();
+    game = {
+      id: `arc_${randomBytes(8).toString("hex")}`,
+      userId,
+      joinerId: "",
+      game: gameKind,
+      tierUsd,
+      entryRaw: entryRaw.toString(),
+      status: "composed",
+      creatorName: String(player.name || "Player").slice(0, 32),
+      creatorPick: pick,
+      creatorAddress: address,
+      joinerName: "",
+      joinerPick: "",
+      joinerAddress: "",
+      result: "",
+      winnerId: "",
+      winnerName: "",
+      payoutSignature: "",
+      refundSignature: "",
+      entrySignature: "",
+      joinerEntrySignature: "",
+      messageHash: "",
+      joinerMessageHash: "",
+      idempotencyKey: idem,
+      createdAt: now,
+      expiresAt: new Date(arcadeNow(ctx) + ARCADE_JOIN_TIMEOUT_MS).toISOString(),
+      joinExpiresAt: "",
+      resolvedAt: "",
+      error: "",
+      meta: {},
+    };
+  }
+  let escrow;
+  try {
+    escrow = await arcadeEscrow(ctx);
+  } catch (err) {
+    return fail(err.message || "The arcade escrow is not set up yet.", 502);
+  }
+  if (escrow.ephemeral && !arcadePaper()) {
+    return fail("The arcade escrow is not set up yet. No entry was taken.", 502);
+  }
+  let blockhash = "";
+  try {
+    blockhash = await arcadeBlockhash();
+  } catch (err) {
+    return fail(`The RPC did not return a blockhash (${err.message || "RPC"}). Nothing was signed.`, 502);
+  }
+  let fund = 0;
+  try {
+    if (await escrowNeedsFunding(ctx, escrow)) fund = ARCADE_ESCROW_FUND_LAMPORTS;
+  } catch {
+    fund = 0;
+  }
+  let unsignedTx = "";
+  try {
+    unsignedTx = await buildArcadeTx({ from: address, to: escrow.publicKey, rawAmount: entryRaw, blockhash, fundLamports: fund });
+  } catch (err) {
+    return fail(`That entry transaction could not be built (${err.message || "build"}). Nothing was signed.`, 502);
+  }
+  let hash = "";
+  try {
+    hash = messageHash(versionedMessage(unsignedTx));
+  } catch {
+    return fail("That entry transaction could not be read.", 400);
+  }
+  if (joinId) {
+    game.joinerId = userId;
+    game.joinerName = String(player.name || "Player").slice(0, 32);
+    game.joinerPick = pick;
+    game.joinerAddress = address;
+    game.joinerMessageHash = hash;
+    game.joinExpiresAt = new Date(arcadeNow(ctx) + ARCADE_JOIN_COMPOSE_MS).toISOString();
+    game.meta = { ...game.meta, joinerUnsignedTx: unsignedTx };
+    game.status = "join-composed";
+  } else {
+    game.messageHash = hash;
+    game.meta = { ...game.meta, unsignedTx, fundLamports: fund };
+  }
+  await persistArcadeGame(ctx, game);
+  const dec = await decimals();
+  return {
+    ok: true,
+    game: publicArcadeGame(game, dec),
+    unsignedTx,
+    entryUi: Number(entryRaw) / 10 ** dec,
+    potUi: (Number(entryRaw) * 2) / 10 ** dec,
+    fundNote: fund > 0 ? "This first game also funds the escrow with 0.005 SOL for payout fees." : "",
+    message: "Sign this transaction with your on-device wallet to put your entry in.",
+  };
+}
+
+// Step 2: the device signed the composed transaction — verify it is
+// EXACTLY this game's transaction, signed by this game's wallet, then
+// broadcast it. A valid signature on any other transaction is refused:
+// the message hash must match the one recorded at compose time, so a
+// substituted transaction can never claim this game's pot.
+export async function arcadeSubmit(ctx, player, body) {
+  const userId = arcadeUserId(player);
+  if (!userId) return fail("Sign in first.");
+  const game = await loadArcadeGame(ctx, String(body.gameId || ""));
+  if (!game) return fail("That game was not found.", 404);
+  const isCreator = game.userId === userId;
+  const isJoiner = game.joinerId === userId;
+  if (!isCreator && !isJoiner) return fail("That game is not yours.", 403);
+  if (isCreator && game.status !== "composed") {
+    return { ok: true, game: publicArcadeGame(game), message: "This game does not need another signature." };
+  }
+  if (isJoiner && game.status !== "join-composed") {
+    return { ok: true, game: publicArcadeGame(game), message: "This game does not need another signature." };
+  }
+  const signedTx = String(body.signedTx || "");
+  if (!signedTx) return fail("No signed transaction was sent.", 400);
+  const expectedHash = isCreator ? game.messageHash : game.joinerMessageHash;
+  const expectedAddress = isCreator ? game.creatorAddress : game.joinerAddress;
+  let submittedHash = "";
+  try {
+    submittedHash = messageHash(versionedMessage(signedTx));
+  } catch {
+    return fail("That signed transaction could not be read.", 400);
+  }
+  if (!expectedHash || submittedHash !== expectedHash) {
+    return fail("That signature is not for this game. Compose it again.", 400);
+  }
+  const verified = verifySignedTx(signedTx, expectedAddress);
+  if (!verified.ok) return fail(verified.message || "That signature does not verify.", 400);
+  let entrySig = "";
+  try {
+    if (arcadePaper()) {
+      const escrow = await arcadeEscrow(ctx);
+      entrySig = paperMove(expectedAddress, escrow.publicKey, BigInt(game.entryRaw || "0"));
+      if (isCreator && game.meta?.fundLamports > 0) await markEscrowReady(ctx, escrow);
+    } else {
+      entrySig = await sendSignedTx(signedTx);
+      if (isCreator && game.meta?.fundLamports > 0) {
+        const escrow = await arcadeEscrow(ctx);
+        await markEscrowReady(ctx, escrow);
+      }
+    }
+  } catch (err) {
+    return fail(`The entry transaction was not accepted (${err.message || "RPC"}). Nothing was paid.`, 502);
+  }
+  if (isCreator) {
+    game.entrySignature = entrySig || verified.signature || "";
+    game.status = "open";
+  } else {
+    game.joinerEntrySignature = entrySig || verified.signature || "";
+    game.status = "ready";
+  }
+  game.error = "";
+  await persistArcadeGame(ctx, game);
+  if (game.status === "ready") await resolveArcadeGame(ctx, game);
+  const dec = await decimals();
+  const done = await loadArcadeGame(ctx, game.id);
+  return {
+    ok: true,
+    game: publicArcadeGame(done || game, dec),
+    message:
+      done?.status === "resolved"
+        ? done.winnerId === userId
+          ? `You won the pot — ${(Number(BigInt(done.entryRaw || "0")) * 2) / 10 ** dec} ORBITX is on its way to your wallet.`
+          : `${done.winnerName || "Your opponent"} won the pot.`
+        : "Your entry is in. Waiting for an opponent.",
+  };
+}
+
+export async function arcadeCancel(ctx, player, body) {
+  await arcadeSweep(ctx);
+  const userId = arcadeUserId(player);
+  if (!userId) return fail("Sign in first.");
+  const game = await loadArcadeGame(ctx, String(body.gameId || ""));
+  if (!game) return fail("That game was not found.", 404);
+  if (game.userId !== userId) return fail("Only the player who created the game can cancel it.", 403);
+  if (game.status === "composed") {
+    game.status = "expired";
+    await persistArcadeGame(ctx, game);
+    return { ok: true, game: publicArcadeGame(game), message: "Game cancelled. Nothing was paid." };
+  }
+  if (game.status !== "open") {
+    return { ok: true, game: publicArcadeGame(game), message: "This game can no longer be cancelled." };
+  }
+  await refundArcadeGame(ctx, game);
+  return { ok: true, game: publicArcadeGame(game), message: "Game cancelled. Your entry was refunded." };
+}
+
+export async function arcadeHistory(ctx, player) {
+  const userId = arcadeUserId(player);
+  if (!userId) return fail("Sign in first.");
+  const dec = await decimals();
+  const mine = [...store().arcadeGames.values()]
+    .filter((g) => g.userId === userId || g.joinerId === userId)
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const client = ctx?.sb ? ctx.sb() : null;
+  if (client && mine.length === 0) {
+    const { data } = await client.from("arcade_games").select("*").or(`user_id.eq.${userId},joiner_id.eq.${userId}`).order("created_at", { ascending: false }).limit(20);
+    for (const row of data || []) {
+      const game = gameFromRow(row);
+      if (game) {
+        store().arcadeGames.set(game.id, game);
+        mine.push(game);
+      }
+    }
+    mine.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  }
+  return { ok: true, games: mine.slice(0, 20).map((g) => publicArcadeGame(g, dec)) };
+}
+
+export async function arcadeLeaders(ctx, player) {
+  const userId = arcadeUserId(player);
+  const dec = await decimals();
+  const resolved = [...store().arcadeGames.values()].filter((g) => g.status === "resolved");
+  const client = ctx?.sb ? ctx.sb() : null;
+  if (client && resolved.length === 0) {
+    const { data } = await client.from("arcade_games").select("*").eq("status", "resolved").order("resolved_at", { ascending: false }).limit(100);
+    for (const row of data || []) {
+      const game = gameFromRow(row);
+      if (game) store().arcadeGames.set(game.id, game);
+    }
+  }
+  const all = [...store().arcadeGames.values()].filter((g) => g.status === "resolved");
+  const byId = new Map();
+  for (const game of all) {
+    const pot = Number(BigInt(game.entryRaw || "0")) * 2 / 10 ** dec;
+    const row = byId.get(game.winnerId) || { id: game.winnerId, name: game.winnerName || "Player", wins: 0, biggest: 0, games: 0 };
+    row.wins += 1;
+    row.biggest = Math.max(row.biggest, pot);
+    byId.set(game.winnerId, row);
+    for (const pid of [game.userId, game.joinerId]) {
+      const p = byId.get(pid) || { id: pid, name: pid === game.userId ? game.creatorName : game.joinerName, wins: 0, biggest: 0, games: 0 };
+      p.games += 1;
+      byId.set(pid, p);
+    }
+  }
+  const leaders = [...byId.values()].sort((a, b) => b.wins - a.wins || b.biggest - a.biggest).slice(0, 10);
+  return { ok: true, leaders, mine: userId ? byId.get(userId) || { id: userId, name: "", wins: 0, biggest: 0, games: 0 } : null };
 }
