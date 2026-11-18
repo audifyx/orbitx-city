@@ -43,15 +43,21 @@ async function clickText(page, text, label) {
 }
 function textOf(page) { return page.evaluate(() => document.body.textContent || ""); }
 async function closePanel(page) {
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // The buy toast ("...It's on the road in front of you.") stays in the
+  // DOM after the panel closes, so unmount is detected by the panel's own
+  // heading, not by the toast text. If the heading is already gone the
+  // panel closed on an earlier attempt — return instead of throwing.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const open = await page.evaluate(() => (document.body.textContent || "").includes("Cars — OrbitX Motors"));
+    if (!open) return true;
     await clickText(page, "Close", "Close panel");
     const closed = await waitFor(page, async () => {
       const t = await textOf(page);
-      return !t.includes("Inventory") && !t.includes("on the road in front of you") ? true : null;
+      return !t.includes("Cars — OrbitX Motors") ? true : null;
     }, "panel unmounts", 30000).catch(() => null);
     if (closed) return true;
   }
-  throw new Error("Shop panel did not close after 2 Close clicks");
+  throw new Error("Shop panel did not close after 3 Close clicks");
 }
 const readPlayer = (page) => page.evaluate(() => window.__ORBITX_PLAYER ?? null);
 const readSnap = (page) => page.evaluate(() => {
