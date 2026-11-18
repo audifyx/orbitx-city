@@ -1,4 +1,5 @@
 {
+  "error": "timeout waiting for: balance moves after flyer buy",
   "balanceStart": 60000,
   "atvBuy": "clicked",
   "atv": {
@@ -31,16 +32,8 @@
         },
         {
           "x": 0,
-          "y": 0,
-          "z": 62,
-          "yaw": 0,
-          "swimming": false,
-          "flying": false
-        },
-        {
-          "x": 0,
-          "y": 0,
-          "z": 62,
+          "y": 0.2,
+          "z": 55.05291584041845,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -48,7 +41,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 54.64185851876199,
+          "z": 55.05291584041845,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -56,7 +49,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 54.64185851876199,
+          "z": 55.05291584041845,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -64,7 +57,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 54.64185851876199,
+          "z": 53.661923170003604,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -72,7 +65,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 54.64185851876199,
+          "z": 51.90222466813855,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -80,7 +73,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 53.10815816278753,
+          "z": 51.90222466813855,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -88,7 +81,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.61565194453394,
+          "z": 49.89951896526858,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -96,7 +89,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.52574177645254,
+          "z": 49.89951896526858,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -104,7 +97,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525635657513085,
+          "z": 49.89951896526858,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -112,7 +105,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525635657513085,
+          "z": 49.89951896526858,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -120,7 +113,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525635657513085,
+          "z": 49.62710244776232,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -128,7 +121,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525635657513085,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -136,7 +129,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525635657513085,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -144,7 +137,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525635657513085,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -152,7 +145,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525635657513085,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -160,7 +153,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -168,7 +161,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -176,7 +169,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -184,7 +177,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -192,7 +185,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -200,7 +193,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -208,7 +201,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -216,7 +209,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -224,7 +217,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -232,7 +225,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -240,7 +233,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -248,7 +241,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -256,7 +249,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -264,7 +257,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -272,7 +265,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -280,7 +273,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -288,7 +281,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -296,7 +289,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -304,7 +297,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -312,7 +305,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -320,7 +313,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -328,7 +321,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -336,7 +329,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -344,7 +337,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -352,7 +345,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -360,7 +353,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -368,7 +361,7 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -376,7 +369,15 @@
         {
           "x": 0,
           "y": 0.2,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
@@ -401,11 +402,11 @@
   },
   "boardBuy": "clicked",
   "board": {
-    "balanceAfter": 58362,
+    "balanceAfter": 58512,
     "enterPos": {
       "x": 2.6,
       "y": 0,
-      "z": 49.525533768775645,
+      "z": 49.52845250938332,
       "yaw": 0,
       "swimming": false,
       "flying": false
@@ -415,373 +416,373 @@
         {
           "x": 2.6,
           "y": 0,
-          "z": 49.525533768775645,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 45.503458742272,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 44.392085077156985,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 44.392085077156985,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 44.392085077156985,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 44.392085077156985,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.52064122456121,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.41670697310274,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.41670697310274,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.41670697310274,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.41670697310274,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.41670697310274,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.401620201786784,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.401620201786784,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.401620201786784,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.401620201786784,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.401620201786784,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.401620201786784,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.401620201786784,
+          "x": 2.6,
+          "y": 0,
+          "z": 49.52845250938332,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 5,
           "y": 0.2,
-          "z": 43.401620201786784,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         }
       ],
-      "displacement": 6.65
+      "displacement": 6.58
     },
     "snapAfter": {
       "driving": false,
@@ -801,7 +802,7 @@
   },
   "compactBuy": "clicked",
   "compact": {
-    "balanceAfter": 58142
+    "balanceAfter": 58362
   },
   "snapAfter3": {
     "driving": false,
@@ -824,11 +825,11 @@
     "buyAttempt": "garage-full-button-shown",
     "garageFullShown": true,
     "garageFitsLine": "Your garage fits 3 cars — 3 parked",
-    "balanceUnchanged": true
+    "balanceUnchanged": false
   },
   "upgradeClick": "clicked",
   "upgrade": {
-    "balanceAfter": 57342,
+    "balanceAfter": 58142,
     "snap": {
       "driving": false,
       "vehicles": [
@@ -848,11 +849,11 @@
   },
   "sedanBuy": "clicked",
   "sedan": {
-    "balanceAfter": 56892,
+    "balanceAfter": 57342,
     "enterPos": {
-      "x": 0,
-      "y": 0.2,
-      "z": 43.401620201786784,
+      "x": 6.2,
+      "y": 0,
+      "z": 43.406768065543325,
       "yaw": 0,
       "swimming": false,
       "flying": false
@@ -860,255 +861,255 @@
     "drive": {
       "trail": [
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.401620201786784,
+          "x": 6.2,
+          "y": 0,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.401620201786784,
+          "x": 6.2,
+          "y": 0,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.401620201786784,
+          "x": 6.2,
+          "y": 0,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.401620201786784,
+          "x": 6.2,
+          "y": 0,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
-          "y": 0.2,
-          "z": 43.401620201786784,
+          "x": 6.2,
+          "y": 0,
+          "z": 43.406768065543325,
           "yaw": 0,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         },
         {
-          "x": 0,
+          "x": 6.2,
           "y": 0.2,
-          "z": 43.401620201786784,
-          "yaw": 0,
+          "z": 41,
+          "yaw": 1.5707963267948966,
           "swimming": false,
           "flying": false
         }
       ],
-      "displacement": 0
+      "displacement": 2.41
     },
     "snapAfter": {
       "driving": false,
@@ -1128,56 +1129,6 @@
       "carFlying": false
     }
   },
-  "sedanCapture": "ok",
-  "flyerBuy": "clicked",
-  "flyer": {
-    "balanceAfter": 50892,
-    "enterPos": {
-      "x": 2.6,
-      "y": 0,
-      "z": 43.401620201786784,
-      "yaw": 0,
-      "swimming": false,
-      "flying": false
-    },
-    "takeoffClick": "clicked",
-    "airPos": null,
-    "snapAir": {
-      "driving": false,
-      "vehicles": [
-        "atv-trail",
-        "board-street",
-        "city-compact",
-        "city-sedan",
-        "fly-skyhopper"
-      ],
-      "activeVehicle": "fly-skyhopper",
-      "garage": {
-        "slots": 1,
-        "workshop": false,
-        "showroom": false
-      },
-      "balance": 50892,
-      "carFlying": false
-    }
-  },
-  "finalSnap": {
-    "driving": true,
-    "vehicles": [
-      "atv-trail",
-      "board-street",
-      "city-compact",
-      "city-sedan",
-      "fly-skyhopper"
-    ],
-    "activeVehicle": "fly-skyhopper",
-    "garage": {
-      "slots": 1,
-      "workshop": false,
-      "showroom": false
-    },
-    "balance": 50892,
-    "carFlying": false
-  },
-  "finalBalance": 50892
+  "sedanCapture": "Error: timeout waiting for: fresh frame (sedan-on-road)",
+  "flyerBuy": "clicked"
 }
