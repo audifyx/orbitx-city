@@ -2555,6 +2555,21 @@ export function createRuntime(scene: Scene) {
     // (its parked copy hides until it comes back); every other spawn —
     // shop forecourt, world build, rental end — parks it again.
     activeCarHomeId = atHomeId ?? null;
+    // RACE (2026-11-18, proven in the rig): begin() fires a fire-and-
+    // forget joinUniverse, whose continuation runs only after
+    // universeJoin's await world.refresh() — so it can land AFTER a fast
+    // shop buy. A bare spawnActiveCar() used to remove the just-bought
+    // car from the road and re-spawn it at the Motors forecourt 250
+    // units away, because the shop-row reuse below only fires when the
+    // shop-row car is NOT the owned car (it had just been spliced out).
+    // Remember where the owned car already is so a bare re-spawn keeps
+    // it there instead of yanking it to the forecourt. A car being
+    // driven never donates its position (the new car must not spawn on
+    // top of it) — the driving branch below re-ids it and leaves it.
+    const prevPos =
+      ownedCarIndex >= 0 && cars[ownedCarIndex] && !(driving && carIndex === ownedCarIndex)
+        ? { x: cars[ownedCarIndex].x, z: cars[ownedCarIndex].z, yaw: cars[ownedCarIndex].yaw }
+        : null;
     if (ownedCarIndex >= 0) {
       const old = cars[ownedCarIndex];
       if (old && driving && carIndex === ownedCarIndex) {
@@ -2598,16 +2613,34 @@ export function createRuntime(scene: Scene) {
       z = spot.z;
       yaw = spot.yaw;
     } else {
-      const shopSpot = cars.findIndex((car) => car.id === "shop-row");
-      if (shopSpot >= 0) {
-        const old = cars[shopSpot];
-        root.remove(old.group);
-        if (!isBoatSpawn && !isWater(old.x, old.z)) {
-          x = old.x;
-          z = old.z;
-          yaw = old.yaw;
+      // No spot given (world build, universe join, rental end): keep the
+      // car where it already is — see the race note above. Otherwise
+      // reuse the old shop-row spot, else put it on the road in front of
+      // the player; the forecourt is only the last resort when there is
+      // genuinely no road (carSpawnSpot returns null).
+      if (prevPos && !isBoatSpawn && !isWater(prevPos.x, prevPos.z)) {
+        x = prevPos.x;
+        z = prevPos.z;
+        yaw = prevPos.yaw;
+      } else {
+        const shopSpot = cars.findIndex((car) => car.id === "shop-row");
+        if (shopSpot >= 0) {
+          const old = cars[shopSpot];
+          root.remove(old.group);
+          if (!isBoatSpawn && !isWater(old.x, old.z)) {
+            x = old.x;
+            z = old.z;
+            yaw = old.yaw;
+          }
+          cars.splice(shopSpot, 1);
+        } else if (!isBoatSpawn) {
+          const road = carSpawnSpot(lastBody);
+          if (road) {
+            x = road.x;
+            z = road.z;
+            yaw = road.yaw;
+          }
         }
-        cars.splice(shopSpot, 1);
       }
     }
     if (isBoatSpawn) {
