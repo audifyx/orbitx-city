@@ -67,6 +67,18 @@ check(!!mallFloor, "Mega Mall ground floor collider exists at (72, 0) with top 0
 const stationFloor = city.colliders.find((c) => c.minY === -6.3 && c.maxY === -6);
 check(!!stationFloor, "underground station floor collider still present (minY -6.3, maxY -6)");
 
+// --- Lift anchors: liftFloor is the floor INDEX, and floors[liftFloor]
+// must be the anchor's elevation (openLift rides from floors[current] —
+// confusing index with elevation yanked every upper-floor ride back to
+// the lobby, rig-proven 2026-11-18).
+const liftById = new Map(city.lifts.map((l) => [l.id, l]));
+let badLiftFloor: string[] = [];
+for (const a of city.anchors.filter((x) => x.kind === "lift")) {
+  const l = liftById.get(a.liftId ?? "");
+  if (!l || a.liftFloor === undefined || a.liftFloor < 0 || a.liftFloor >= l.floors.length || l.floors[a.liftFloor] !== a.y) badLiftFloor.push(a.id);
+}
+check(badLiftFloor.length === 0, `every lift anchor's liftFloor is a valid index matching its elevation (bad: ${badLiftFloor.join(",") || "none"})`);
+
 // --- Lift landings: every upper lift anchor must sit on a floor collider
 // whose top is the anchor y (otherwise the rider is deposited in the open
 // shaft and falls through it back to the lobby).
