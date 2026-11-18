@@ -1,1 +1,1390 @@
-[{"accessories":{"beard":false,"extra":"none","hair":"curly","hat":"none"},"colors":{"accent":"#141414","hair":"#1a1a1a","outfit":"#8a2a3a","skin":"#c98d64"},"displayName":"TJR","id":"tjr","look":"Short black curls · maroon shirt · watch on the wrist","tagline":"Maroon shirt. Charts loud."},{"accessories":{"beard":true,"extra":"chain","hair":"curly","hat":"cap"},"colors":{"accent":"#e0b33a","hair":"#111111","outfit":"#1a1a1a","skin":"#6b4429"},"displayName":"Ansem","id":"ansem","look":"Black · curly afro top · cap · black hoodie · gold chain","tagline":"Hood up. Chain on. Still early."},{"accessories":{"beard":false,"extra":"none","hair":"bald","hat":"bullcap"},"colors":{"accent":"#d42b2b","eyes":"#f4f4f4","hair":"#181818","outfit":"#2e3138","skin":"#181818"},"displayName":"Poor Goat","id":"poor-goat","look":"Black bull · red cap · big grey horns · dark hoodie","tagline":"Horns up. Floor is not."},{"accessories":{"beard":false,"extra":"none","hair":"long","hat":"none"},"colors":{"accent":"#ff7eb6","hair":"#5a2a22","outfit":"#2a2a30","skin":"#f3c3b0"},"displayName":"Cupsy","id":"cupsy","look":"Faceless · long dark-red hair · dark jacket · pink accent","tagline":"$2K to $30M. Ex-Fortnite."},{"accessories":{"beard":true,"extra":"glasses","hair":"long","hat":"none"},"colors":{"accent":"#d7deea","hair":"#8a6d4b","outfit":"#243056","skin":"#efc2a4"},"displayName":"Cobie","id":"cobie","look":"Long dirty-blond hair · stubble · navy coat · Bitcoin shades","tagline":"Navy coat, dry read."},{"accessories":{"beard":false,"extra":"glasses","hair":"side","hat":"none"},"colors":{"accent":"#111318","hair":"#111111","outfit":"#1b2a4a","skin":"#e8b892"},"displayName":"Hsaka","id":"hsaka","look":"Side-swept black hair · black frames · navy shirt","tagline":"Quiet bids. Sharp reads."},{"accessories":{"beard":false,"extra":"glasses","hair":"bald","hat":"chips"},"colors":{"accent":"#c1272d","hair":"#e8a04c","outfit":"#24457a","skin":"#e8a04c"},"displayName":"Gainzy","id":"gainzy","look":"Tan bear avatar · glasses · poker chips · blue suit, red tie","tagline":"Chips stacked. Suited up."},{"accessories":{"beard":false,"extra":"mask","hair":"bald","hat":"hood"},"colors":{"accent":"#7ef6ff","hair":"#1a1a1a","outfit":"#121418","skin":"#d9a882"},"displayName":"ZachXBT","id":"zachxbt","look":"Faceless · hood · mask · black coat","tagline":"Hood on. Notes ready."},{"accessories":{"beard":false,"extra":"visor","hair":"curly","hat":"none"},"colors":{"accent":"#1a120c","hair":"#6b3a22","outfit":"#ff8a3d","skin":"#f1c6a6"},"displayName":"Threadguy","id":"threadguy","look":"Pixel ape · rainbow visor shades · orange","tagline":"Mic hot. Timeline open."},{"accessories":{"beard":true,"extra":"glasses","hair":"long","hat":"none"},"colors":{"accent":"#e0b33a","hair":"#2c2118","outfit":"#16181f","skin":"#e7b48a"},"displayName":"Murad","id":"murad","look":"Long dark hair · full beard · black frames · black tee","tagline":"Gold trim, long thesis."},{"accessories":{"beard":true,"extra":"chain","hair":"buzz","hat":"none"},"colors":{"accent":"#f4f0ff","hair":"#e8d878","outfit":"#2f4a6b","skin":"#f0c2a0"},"displayName":"Frank","id":"frank","look":"Bleached blond buzz · dark beard · beaded necklaces · blue","tagline":"Blond buzz. Beads on."},{"accessories":{"beard":false,"extra":"none","hair":"buzz","hat":"plume"},"colors":{"accent":"#062028","hair":"#161616","outfit":"#19d8ff","skin":"#efc2a4"},"displayName":"Kaleo","id":"kaleo","look":"Penguin gladiator · Roman helmet · cyan","tagline":"Helmet on. Charts up."},{"id":"cole-maddox","displayName":"Sheriff Cole Maddox","tagline":"Sheriff's hat on. The group follows.","look":"Sheriff's hat · khaki uniform · leader","colors":{"outfit":"#8a7a56","accent":"#3a2f22","skin":"#e8b892","hair":"#6b4a2f"},"accessories":{"hair":"side","hat":"sheriff","extra":"none","beard":true}},{"id":"ryder-cross","displayName":"Ryder Cross","tagline":"Crossbow on his back. Nothing gets past him.","look":"Long dark hair · beard · vest · crossbow on back","colors":{"outfit":"#3a3f45","accent":"#6b4423","skin":"#e8b892","hair":"#4a3520"},"accessories":{"hair":"long","hat":"none","extra":"none","beard":true,"gear":"crossbow"}},{"id":"mika-reyes","displayName":"Mika Reyes","tagline":"Katana out. Quiet, then gone.","look":"Dreads · katana on back · dark gear","colors":{"outfit":"#2a2a30","accent":"#7a7a7a","skin":"#6b4429","hair":"#111111"},"accessories":{"hair":"dreads","hat":"none","extra":"none","beard":false,"gear":"katana"}},{"id":"carolyn-marsh","displayName":"Carolyn Marsh","tagline":"Looks harmless. Never is.","look":"Short grey hair · cardigan · quiet","colors":{"outfit":"#5a6b7a","accent":"#f4f6fa","skin":"#f0c2a0","hair":"#c9c9c9"},"accessories":{"hair":"buzz","hat":"none","extra":"none","beard":false}},{"id":"nolan-graves","displayName":"Nolan Graves","tagline":"Bessie does the talking.","look":"Black leather jacket · beard · Bessie on back","colors":{"outfit":"#16181f","accent":"#c1272d","skin":"#e8b892","hair":"#1a1a1a"},"accessories":{"hair":"buzz","hat":"none","extra":"none","beard":true,"gear":"bat"}},{"id":"maggie-hart","displayName":"Maggie Hart","tagline":"One shot. From far away.","look":"Long brown hair · olive jacket · rifle on back","colors":{"outfit":"#4a5a3a","accent":"#e0b33a","skin":"#f0c2a0","hair":"#6b4a2f"},"accessories":{"hair":"long","hat":"none","extra":"none","beard":false,"gear":"rifle"}},{"id":"mara-clarke","displayName":"Mara Clarke","tagline":"She leads. They follow.","look":"Long dark hair · dark jacket · leader","colors":{"outfit":"#2f2f35","accent":"#8a2a3a","skin":"#e8b892","hair":"#2c2118"},"accessories":{"hair":"long","hat":"none","extra":"none","beard":false}},{"id":"alyssa-clark","displayName":"Alyssa Clark","tagline":"Baton up. Fast hands.","look":"Long dark hair · baton on back","colors":{"outfit":"#3a4a5a","accent":"#e0b33a","skin":"#f0c2a0","hair":"#3a2a1a"},"accessories":{"hair":"long","hat":"none","extra":"none","beard":false,"gear":"baton"}},{"id":"victor-vale","displayName":"Victor Vale","tagline":"A smile, a suit, a deal.","look":"Black suit · gold tie · charm","colors":{"outfit":"#16181f","accent":"#e0b33a","skin":"#6b4429","hair":"#111111"},"accessories":{"hair":"buzz","hat":"none","extra":"none","beard":false}},{"id":"morgan-pierce","displayName":"Morgan Pierce","tagline":"The staff settles it.","look":"Beard · brown coat · bo staff on back","colors":{"outfit":"#4a3a28","accent":"#f4f6fa","skin":"#6b4429","hair":"#111111"},"accessories":{"hair":"buzz","hat":"none","extra":"none","beard":true,"gear":"staff"}},{"id":"dash-vance","displayName":"Dash Vance","tagline":"The Blur — fastest in the city.","look":"Red suit · gold bolt · lightning fast","colors":{"outfit":"#d43a2e","accent":"#e0b33a","skin":"#e8b892","hair":"#8a6d4b"},"accessories":{"hair":"buzz","hat":"hood","extra":"bolt","beard":false}},{"id":"owen-quinn","displayName":"Owen Quinn","tagline":"The Emerald Archer never misses.","look":"Green hood · bow on back · quiver","colors":{"outfit":"#2a6b2a","accent":"#e0b33a","skin":"#e8b892","hair":"#6b4a2f"},"accessories":{"hair":"side","hat":"hood","extra":"none","beard":false,"gear":"bow"}}]
+[
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "curly",
+"hat": "none"
+},
+"colors": {
+"accent": "#141414",
+"hair": "#1a1a1a",
+"outfit": "#8a2a3a",
+"skin": "#c98d64"
+},
+"displayName": "TJR",
+"id": "tjr",
+"look": "Short black curls \u00b7 maroon shirt \u00b7 watch on the wrist",
+"tagline": "Maroon shirt. Charts loud.",
+"group": "kol"
+},
+{
+"accessories": {
+"beard": true,
+"extra": "chain",
+"hair": "curly",
+"hat": "cap"
+},
+"colors": {
+"accent": "#e0b33a",
+"hair": "#111111",
+"outfit": "#1a1a1a",
+"skin": "#6b4429"
+},
+"displayName": "Ansem",
+"id": "ansem",
+"look": "Black \u00b7 curly afro top \u00b7 cap \u00b7 black hoodie \u00b7 gold chain",
+"tagline": "Hood up. Chain on. Still early.",
+"group": "kol"
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "bald",
+"hat": "bullcap"
+},
+"colors": {
+"accent": "#d42b2b",
+"eyes": "#f4f4f4",
+"hair": "#181818",
+"outfit": "#2e3138",
+"skin": "#181818"
+},
+"displayName": "Poor Goat",
+"id": "poor-goat",
+"look": "Black bull \u00b7 red cap \u00b7 big grey horns \u00b7 dark hoodie",
+"tagline": "Horns up. Floor is not.",
+"group": "kol"
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#ff7eb6",
+"hair": "#5a2a22",
+"outfit": "#2a2a30",
+"skin": "#f3c3b0"
+},
+"displayName": "Cupsy",
+"id": "cupsy",
+"look": "Faceless \u00b7 long dark-red hair \u00b7 dark jacket \u00b7 pink accent",
+"tagline": "$2K to $30M. Ex-Fortnite.",
+"group": "kol"
+},
+{
+"accessories": {
+"beard": true,
+"extra": "glasses",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#d7deea",
+"hair": "#8a6d4b",
+"outfit": "#243056",
+"skin": "#efc2a4"
+},
+"displayName": "Cobie",
+"id": "cobie",
+"look": "Long dirty-blond hair \u00b7 stubble \u00b7 navy coat \u00b7 Bitcoin shades",
+"tagline": "Navy coat, dry read.",
+"group": "kol"
+},
+{
+"accessories": {
+"beard": false,
+"extra": "glasses",
+"hair": "side",
+"hat": "none"
+},
+"colors": {
+"accent": "#111318",
+"hair": "#111111",
+"outfit": "#1b2a4a",
+"skin": "#e8b892"
+},
+"displayName": "Hsaka",
+"id": "hsaka",
+"look": "Side-swept black hair \u00b7 black frames \u00b7 navy shirt",
+"tagline": "Quiet bids. Sharp reads.",
+"group": "kol"
+},
+{
+"accessories": {
+"beard": false,
+"extra": "glasses",
+"hair": "bald",
+"hat": "chips"
+},
+"colors": {
+"accent": "#c1272d",
+"hair": "#e8a04c",
+"outfit": "#24457a",
+"skin": "#e8a04c"
+},
+"displayName": "Gainzy",
+"id": "gainzy",
+"look": "Tan bear avatar \u00b7 glasses \u00b7 poker chips \u00b7 blue suit, red tie",
+"tagline": "Chips stacked. Suited up.",
+"group": "kol"
+},
+{
+"accessories": {
+"beard": false,
+"extra": "mask",
+"hair": "bald",
+"hat": "hood"
+},
+"colors": {
+"accent": "#7ef6ff",
+"hair": "#1a1a1a",
+"outfit": "#121418",
+"skin": "#d9a882"
+},
+"displayName": "ZachXBT",
+"id": "zachxbt",
+"look": "Faceless \u00b7 hood \u00b7 mask \u00b7 black coat",
+"tagline": "Hood on. Notes ready.",
+"group": "kol"
+},
+{
+"accessories": {
+"beard": false,
+"extra": "visor",
+"hair": "curly",
+"hat": "none"
+},
+"colors": {
+"accent": "#1a120c",
+"hair": "#6b3a22",
+"outfit": "#ff8a3d",
+"skin": "#f1c6a6"
+},
+"displayName": "Threadguy",
+"id": "threadguy",
+"look": "Pixel ape \u00b7 rainbow visor shades \u00b7 orange",
+"tagline": "Mic hot. Timeline open.",
+"group": "kol"
+},
+{
+"accessories": {
+"beard": true,
+"extra": "glasses",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#e0b33a",
+"hair": "#2c2118",
+"outfit": "#16181f",
+"skin": "#e7b48a"
+},
+"displayName": "Murad",
+"id": "murad",
+"look": "Long dark hair \u00b7 full beard \u00b7 black frames \u00b7 black tee",
+"tagline": "Gold trim, long thesis.",
+"group": "kol"
+},
+{
+"accessories": {
+"beard": true,
+"extra": "chain",
+"hair": "buzz",
+"hat": "none"
+},
+"colors": {
+"accent": "#f4f0ff",
+"hair": "#e8d878",
+"outfit": "#2f4a6b",
+"skin": "#f0c2a0"
+},
+"displayName": "Frank",
+"id": "frank",
+"look": "Bleached blond buzz \u00b7 dark beard \u00b7 beaded necklaces \u00b7 blue",
+"tagline": "Blond buzz. Beads on.",
+"group": "kol"
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "buzz",
+"hat": "plume"
+},
+"colors": {
+"accent": "#062028",
+"hair": "#161616",
+"outfit": "#19d8ff",
+"skin": "#efc2a4"
+},
+"displayName": "Kaleo",
+"id": "kaleo",
+"look": "Penguin gladiator \u00b7 Roman helmet \u00b7 cyan",
+"tagline": "Helmet on. Charts up.",
+"group": "kol"
+},
+{
+"id": "cole-maddox",
+"displayName": "Sheriff Cole Maddox",
+"tagline": "Sheriff's hat on. The group follows.",
+"look": "Sheriff's hat \u00b7 khaki uniform \u00b7 leader",
+"colors": {
+"outfit": "#8a7a56",
+"accent": "#3a2f22",
+"skin": "#e8b892",
+"hair": "#6b4a2f"
+},
+"accessories": {
+"hair": "side",
+"hat": "sheriff",
+"extra": "none",
+"beard": true
+},
+"group": "walking-dead"
+},
+{
+"id": "ryder-cross",
+"displayName": "Ryder Cross",
+"tagline": "Crossbow on his back. Nothing gets past him.",
+"look": "Long dark hair \u00b7 beard \u00b7 vest \u00b7 crossbow on back",
+"colors": {
+"outfit": "#3a3f45",
+"accent": "#6b4423",
+"skin": "#e8b892",
+"hair": "#4a3520"
+},
+"accessories": {
+"hair": "long",
+"hat": "none",
+"extra": "none",
+"beard": true,
+"gear": "crossbow"
+},
+"group": "walking-dead"
+},
+{
+"id": "mika-reyes",
+"displayName": "Mika Reyes",
+"tagline": "Katana out. Quiet, then gone.",
+"look": "Dreads \u00b7 katana on back \u00b7 dark gear",
+"colors": {
+"outfit": "#2a2a30",
+"accent": "#7a7a7a",
+"skin": "#6b4429",
+"hair": "#111111"
+},
+"accessories": {
+"hair": "dreads",
+"hat": "none",
+"extra": "none",
+"beard": false,
+"gear": "katana"
+},
+"group": "walking-dead"
+},
+{
+"id": "carolyn-marsh",
+"displayName": "Carolyn Marsh",
+"tagline": "Looks harmless. Never is.",
+"look": "Short grey hair \u00b7 cardigan \u00b7 quiet",
+"colors": {
+"outfit": "#5a6b7a",
+"accent": "#f4f6fa",
+"skin": "#f0c2a0",
+"hair": "#c9c9c9"
+},
+"accessories": {
+"hair": "buzz",
+"hat": "none",
+"extra": "none",
+"beard": false
+},
+"group": "walking-dead"
+},
+{
+"id": "nolan-graves",
+"displayName": "Nolan Graves",
+"tagline": "Bessie does the talking.",
+"look": "Black leather jacket \u00b7 beard \u00b7 Bessie on back",
+"colors": {
+"outfit": "#16181f",
+"accent": "#c1272d",
+"skin": "#e8b892",
+"hair": "#1a1a1a"
+},
+"accessories": {
+"hair": "buzz",
+"hat": "none",
+"extra": "none",
+"beard": true,
+"gear": "bat"
+},
+"group": "walking-dead"
+},
+{
+"id": "maggie-hart",
+"displayName": "Maggie Hart",
+"tagline": "One shot. From far away.",
+"look": "Long brown hair \u00b7 olive jacket \u00b7 rifle on back",
+"colors": {
+"outfit": "#4a5a3a",
+"accent": "#e0b33a",
+"skin": "#f0c2a0",
+"hair": "#6b4a2f"
+},
+"accessories": {
+"hair": "long",
+"hat": "none",
+"extra": "none",
+"beard": false,
+"gear": "rifle"
+},
+"group": "walking-dead"
+},
+{
+"id": "mara-clarke",
+"displayName": "Mara Clarke",
+"tagline": "She leads. They follow.",
+"look": "Long dark hair \u00b7 dark jacket \u00b7 leader",
+"colors": {
+"outfit": "#2f2f35",
+"accent": "#8a2a3a",
+"skin": "#e8b892",
+"hair": "#2c2118"
+},
+"accessories": {
+"hair": "long",
+"hat": "none",
+"extra": "none",
+"beard": false
+},
+"group": "fear"
+},
+{
+"id": "alyssa-clarke",
+"displayName": "Alyssa Clarke",
+"tagline": "Baton up. Fast hands.",
+"look": "Long dark hair \u00b7 baton on back",
+"colors": {
+"outfit": "#3a4a5a",
+"accent": "#e0b33a",
+"skin": "#f0c2a0",
+"hair": "#3a2a1a"
+},
+"accessories": {
+"hair": "long",
+"hat": "none",
+"extra": "none",
+"beard": false,
+"gear": "baton"
+},
+"group": "fear"
+},
+{
+"id": "victor-vale",
+"displayName": "Victor Vale",
+"tagline": "A smile, a suit, a deal.",
+"look": "Black suit \u00b7 gold tie \u00b7 charm",
+"colors": {
+"outfit": "#16181f",
+"accent": "#e0b33a",
+"skin": "#6b4429",
+"hair": "#111111"
+},
+"accessories": {
+"hair": "buzz",
+"hat": "none",
+"extra": "none",
+"beard": false
+},
+"group": "fear"
+},
+{
+"id": "morgan-pierce",
+"displayName": "Morgan Pierce",
+"tagline": "The staff settles it.",
+"look": "Beard \u00b7 brown coat \u00b7 bo staff on back",
+"colors": {
+"outfit": "#4a3a28",
+"accent": "#f4f6fa",
+"skin": "#6b4429",
+"hair": "#111111"
+},
+"accessories": {
+"hair": "buzz",
+"hat": "none",
+"extra": "none",
+"beard": true,
+"gear": "staff"
+},
+"group": "fear"
+},
+{
+"id": "dash-vance",
+"displayName": "Dash Vance",
+"tagline": "The Blur \u2014 fastest in the city.",
+"look": "Red suit \u00b7 gold bolt \u00b7 lightning fast",
+"colors": {
+"outfit": "#d43a2e",
+"accent": "#e0b33a",
+"skin": "#e8b892",
+"hair": "#8a6d4b"
+},
+"accessories": {
+"hair": "buzz",
+"hat": "hood",
+"extra": "bolt",
+"beard": false
+},
+"group": "flash"
+},
+{
+"id": "owen-quinn",
+"displayName": "Owen Quinn",
+"tagline": "The Emerald Archer never misses.",
+"look": "Green hood \u00b7 bow on back \u00b7 quiver",
+"colors": {
+"outfit": "#2a6b2a",
+"accent": "#e0b33a",
+"skin": "#e8b892",
+"hair": "#6b4a2f"
+},
+"accessories": {
+"hair": "side",
+"hat": "hood",
+"extra": "none",
+"beard": false,
+"gear": "bow"
+},
+"group": "arrow"
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "side",
+"hat": "none"
+},
+"colors": {
+"accent": "#6b7a3a",
+"hair": "#111111",
+"outfit": "#2f4a2a",
+"skin": "#e8b892"
+},
+"displayName": "Glen Park",
+"group": "walking-dead",
+"id": "glen-park",
+"look": "Short black side-part hair \u00b7 dark-green jacket \u00b7 fast on his feet",
+"tagline": "Runs fast. Scavenges faster."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"gear": "rifle",
+"hair": "side",
+"hat": "sheriff"
+},
+"colors": {
+"accent": "#3a2f22",
+"hair": "#6b4a2f",
+"outfit": "#8a7a56",
+"skin": "#f0c2a0"
+},
+"displayName": "Carl Maddox",
+"group": "walking-dead",
+"id": "carl-maddox",
+"look": "Teen \u00b7 sheriff hat \u00b7 brown side hair \u00b7 rifle on back",
+"tagline": "Young aim. Steady hands."
+},
+{
+"accessories": {
+"beard": true,
+"extra": "none",
+"hair": "spiky",
+"hat": "none"
+},
+"colors": {
+"accent": "#c1272d",
+"hair": "#b03020",
+"outfit": "#6b2a1a",
+"skin": "#e8b892"
+},
+"displayName": "Abe Foster",
+"group": "walking-dead",
+"id": "abe-foster",
+"look": "Tall \u00b7 red spiky hair \u00b7 beard \u00b7 red-brown jacket",
+"tagline": "Big swing. Bigger heart."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#8a9a7a",
+"hair": "#2c2118",
+"outfit": "#4a5248",
+"skin": "#c98d64"
+},
+"displayName": "Rosie Vega",
+"group": "walking-dead",
+"id": "rosie-vega",
+"look": "Long dark hair \u00b7 grey-green jacket \u00b7 medic's kit",
+"tagline": "Patch up. Push on."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "glasses",
+"hair": "curly",
+"hat": "none"
+},
+"colors": {
+"accent": "#5a6b7a",
+"hair": "#6b4a2f",
+"outfit": "#d8d2c4",
+"skin": "#f0c2a0"
+},
+"displayName": "Gene Watts",
+"group": "walking-dead",
+"id": "gene-watts",
+"look": "Tall and lanky \u00b7 curly brown hair \u00b7 glasses \u00b7 pale shirt",
+"tagline": "Invents first. Explains later."
+},
+{
+"accessories": {
+"beard": true,
+"extra": "none",
+"gear": "katana",
+"hair": "buzz",
+"hat": "none"
+},
+"colors": {
+"accent": "#e0b33a",
+"hair": "#111111",
+"outfit": "#2a2438",
+"skin": "#6b4429"
+},
+"displayName": "Zeke Sutton",
+"group": "walking-dead",
+"id": "zeke-sutton",
+"look": "Short dark hair \u00b7 beard \u00b7 dark jacket, gold trim \u00b7 sword on back",
+"tagline": "A king's poise. A sword's edge."
+},
+{
+"accessories": {
+"beard": true,
+"extra": "glasses",
+"hair": "buzz",
+"hat": "none"
+},
+"colors": {
+"accent": "#8a8a8a",
+"hair": "#111111",
+"outfit": "#2f2f35",
+"skin": "#6b4429"
+},
+"displayName": "Gabe Stone",
+"group": "walking-dead",
+"id": "gabe-stone",
+"look": "Buzz hair \u00b7 beard \u00b7 glasses \u00b7 dark jacket",
+"tagline": "Steady hands. Steady faith."
+},
+{
+"accessories": {
+"beard": true,
+"extra": "none",
+"hair": "side",
+"hat": "none"
+},
+"colors": {
+"accent": "#7a6a4a",
+"hair": "#6b4a2f",
+"outfit": "#4a4a42",
+"skin": "#e8b892"
+},
+"displayName": "Aaron Hale",
+"group": "walking-dead",
+"id": "aaron-hale",
+"look": "Short brown hair \u00b7 light beard \u00b7 practical jacket",
+"tagline": "Scout's eyes. Recruiter's smile."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"gear": "rifle",
+"hair": "buzz",
+"hat": "none"
+},
+"colors": {
+"accent": "#c1272d",
+"hair": "#111111",
+"outfit": "#2f3530",
+"skin": "#6b4429"
+},
+"displayName": "Sasha Wells",
+"group": "walking-dead",
+"id": "sasha-wells",
+"look": "Short buzz hair \u00b7 dark jacket \u00b7 rifle on back",
+"tagline": "One shot. No second."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#7a6a4a",
+"hair": "#2c2118",
+"outfit": "#5a5248",
+"skin": "#f0c2a0"
+},
+"displayName": "Nicky Clarke",
+"group": "fear",
+"id": "nicky-clarke",
+"look": "Long dark hair \u00b7 worn jacket \u00b7 survivor",
+"tagline": "Still standing. Still moving."
+},
+{
+"accessories": {
+"beard": true,
+"extra": "none",
+"hair": "side",
+"hat": "none"
+},
+"colors": {
+"accent": "#5a6b7a",
+"hair": "#6b4a2f",
+"outfit": "#3a3f45",
+"skin": "#e8b892"
+},
+"displayName": "Travis Mann",
+"group": "fear",
+"id": "travis-mann",
+"look": "Tall \u00b7 brown side hair \u00b7 beard \u00b7 dark jacket",
+"tagline": "Strong arms. Steady heart."
+},
+{
+"accessories": {
+"beard": true,
+"extra": "none",
+"hair": "side",
+"hat": "none"
+},
+"colors": {
+"accent": "#6b6b6b",
+"hair": "#8a8a8a",
+"outfit": "#2f2f35",
+"skin": "#c98d64"
+},
+"displayName": "Danny Salas",
+"group": "fear",
+"id": "danny-salas",
+"look": "Older \u00b7 grey side hair \u00b7 beard \u00b7 dark shirt",
+"tagline": "Fixes what breaks. Always."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#8a2a3a",
+"hair": "#1a1a1a",
+"outfit": "#2f3530",
+"skin": "#c98d64"
+},
+"displayName": "Ofelia Salas",
+"group": "fear",
+"id": "ofelia-salas",
+"look": "Long dark hair \u00b7 dark jacket \u00b7 fighter",
+"tagline": "Fights for her own."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#7a7a8a",
+"hair": "#2c2118",
+"outfit": "#5a5a60",
+"skin": "#c98d64"
+},
+"displayName": "Lucy Galvez",
+"group": "fear",
+"id": "lucy-galvez",
+"look": "Long dark hair \u00b7 grey jacket \u00b7 fighter",
+"tagline": "Quick feet. Quicker blade."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"gear": "crossbow",
+"hair": "buzz",
+"hat": "none"
+},
+"colors": {
+"accent": "#6b4423",
+"hair": "#1a1a1a",
+"outfit": "#3a3f35",
+"skin": "#e8b892"
+},
+"displayName": "Dwayne Riggs",
+"group": "fear",
+"id": "dwayne-riggs",
+"look": "Buzz hair \u00b7 scarred look \u00b7 dark vest \u00b7 crossbow on back",
+"tagline": "Crossbow ready. Always."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"gear": "rifle",
+"hair": "side",
+"hat": "sheriff"
+},
+"colors": {
+"accent": "#8a7a56",
+"hair": "#6b4a2f",
+"outfit": "#4a3f30",
+"skin": "#e8b892"
+},
+"displayName": "Johnny Dore",
+"group": "fear",
+"id": "johnny-dore",
+"look": "Sheriff hat \u00b7 brown side hair \u00b7 rifle on back",
+"tagline": "Draws fast. Aims true."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#7a9aba",
+"hair": "#e8d878",
+"outfit": "#d8d2c4",
+"skin": "#f0c2a0"
+},
+"displayName": "June Calloway",
+"group": "fear",
+"id": "june-calloway",
+"look": "Long blonde hair \u00b7 light jacket \u00b7 medic",
+"tagline": "Heals first. Asks later."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "side",
+"hat": "none"
+},
+"colors": {
+"accent": "#5a6b7a",
+"hair": "#1a1a1a",
+"outfit": "#2f2f35",
+"skin": "#e8b892"
+},
+"displayName": "Alia Stone",
+"group": "fear",
+"id": "alia-stone",
+"look": "Dark side-part hair \u00b7 dark jacket \u00b7 notebook in hand",
+"tagline": "Writes the truth. Lives it."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#e0b33a",
+"hair": "#8a6d4b",
+"outfit": "#4a5a6b",
+"skin": "#f0c2a0"
+},
+"displayName": "Charlie Nash",
+"group": "fear",
+"id": "charlie-nash",
+"look": "Young \u00b7 long light-brown hair \u00b7 small jacket",
+"tagline": "Small scout. Big eyes."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "side",
+"hat": "cap"
+},
+"colors": {
+"accent": "#c1272d",
+"hair": "#6b4a2f",
+"outfit": "#3a4a5a",
+"skin": "#e8b892"
+},
+"displayName": "Sarah Wicks",
+"group": "fear",
+"id": "sarah-wicks",
+"look": "Cap \u00b7 brown side hair \u00b7 denim jacket",
+"tagline": "Drives anything. Anywhere."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#e0b33a",
+"hair": "#111111",
+"outfit": "#3a2a4a",
+"skin": "#6b4429"
+},
+"displayName": "Iris Vance",
+"group": "flash",
+"id": "iris-vance",
+"look": "Long dark hair \u00b7 smart jacket \u00b7 reporter's eye",
+"tagline": "Chases the story. Finds it."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#7ec8e8",
+"hair": "#e8e8e8",
+"outfit": "#dfe8f0",
+"skin": "#f0c2a0"
+},
+"displayName": "Kate Frost",
+"group": "flash",
+"id": "kate-frost",
+"look": "Long silver-white hair \u00b7 white-blue outfit",
+"tagline": "Cold touch. Warm heart."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "glasses",
+"hair": "fade",
+"hat": "none"
+},
+"colors": {
+"accent": "#7ec8e8",
+"hair": "#111111",
+"outfit": "#2f2f35",
+"skin": "#6b4429"
+},
+"displayName": "Sisko Ray",
+"group": "flash",
+"id": "sisko-ray",
+"look": "Fade hair \u00b7 glasses \u00b7 dark jacket \u00b7 tech in hand",
+"tagline": "Tech in hand. Door open."
+},
+{
+"accessories": {
+"beard": true,
+"extra": "none",
+"hair": "buzz",
+"hat": "none"
+},
+"colors": {
+"accent": "#8a7a56",
+"hair": "#111111",
+"outfit": "#1f2430",
+"skin": "#6b4429"
+},
+"displayName": "Joe Wells",
+"group": "flash",
+"id": "joe-wells",
+"look": "Buzz hair \u00b7 beard \u00b7 dark suit \u00b7 detective",
+"tagline": "Reads the scene. Solves it."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "side",
+"hat": "none"
+},
+"colors": {
+"accent": "#e0b33a",
+"hair": "#8a8a8a",
+"outfit": "#1f1f24",
+"skin": "#f0c2a0"
+},
+"displayName": "Harrison Voss",
+"group": "flash",
+"id": "harrison-voss",
+"look": "Older \u00b7 grey side hair \u00b7 dark suit, yellow accent",
+"tagline": "Runs it backwards. Still wins."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "fade",
+"hat": "none"
+},
+"colors": {
+"accent": "#e0b33a",
+"hair": "#111111",
+"outfit": "#d43a2e",
+"skin": "#6b4429"
+},
+"displayName": "Wally Vance",
+"group": "flash",
+"id": "wally-vance",
+"look": "Young \u00b7 fade hair \u00b7 red suit \u00b7 lightning quick",
+"tagline": "Young speed. Big heart."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#e0b33a",
+"hair": "#6b4a2f",
+"outfit": "#d43a2e",
+"skin": "#f0c2a0"
+},
+"displayName": "Jessie Swift",
+"group": "flash",
+"id": "jessie-swift",
+"look": "Long brown hair \u00b7 red suit \u00b7 quick on her feet",
+"tagline": "Swift by name. Swifter in stride."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "side",
+"hat": "none"
+},
+"colors": {
+"accent": "#e0b33a",
+"hair": "#8a8a8a",
+"outfit": "#b03028",
+"skin": "#e8b892"
+},
+"displayName": "Jay Garrett",
+"group": "flash",
+"id": "jay-garrett",
+"look": "Older \u00b7 grey side hair \u00b7 red suit \u00b7 veteran",
+"tagline": "Old school. Still fastest."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "side",
+"hat": "none"
+},
+"colors": {
+"accent": "#8a8a8a",
+"hair": "#6b4a2f",
+"outfit": "#6b6b70",
+"skin": "#f0c2a0"
+},
+"displayName": "Ralph Dugan",
+"group": "flash",
+"id": "ralph-dugan",
+"look": "Tall \u00b7 brown side hair \u00b7 grey suit",
+"tagline": "Stretches the truth. Literally."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "side",
+"hat": "none"
+},
+"colors": {
+"accent": "#7ec8e8",
+"hair": "#8a8a8a",
+"outfit": "#2a4a6b",
+"skin": "#e8b892"
+},
+"displayName": "Leo Coldwell",
+"group": "flash",
+"id": "leo-coldwell",
+"look": "Older \u00b7 grey side hair \u00b7 blue parka",
+"tagline": "Freeze first. Ask later."
+},
+{
+"accessories": {
+"beard": true,
+"extra": "none",
+"hair": "buzz",
+"hat": "none"
+},
+"colors": {
+"accent": "#e86a2a",
+"hair": "#1a1a1a",
+"outfit": "#2f2f28",
+"skin": "#e8b892"
+},
+"displayName": "Mick Rourke",
+"group": "flash",
+"id": "mick-rourke",
+"look": "Big \u00b7 buzz hair \u00b7 beard \u00b7 dark jacket, orange accent",
+"tagline": "Burns bright. Never backs down."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "curly",
+"hat": "none"
+},
+"colors": {
+"accent": "#b08ad8",
+"hair": "#111111",
+"outfit": "#5a3a6b",
+"skin": "#6b4429"
+},
+"displayName": "Celia Horton",
+"group": "flash",
+"id": "celia-horton",
+"look": "Curly dark hair \u00b7 purple jacket \u00b7 calm and knowing",
+"tagline": "Feels what you feel."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "glasses",
+"hair": "fade",
+"hat": "none"
+},
+"colors": {
+"accent": "#7ec8e8",
+"hair": "#111111",
+"outfit": "#2a4a7a",
+"skin": "#6b4429"
+},
+"displayName": "Chester Rook",
+"group": "flash",
+"id": "chester-rook",
+"look": "Fade hair \u00b7 glasses \u00b7 blue jacket \u00b7 gadgets",
+"tagline": "Gadgets ready. Always tinkering."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#f4f6fa",
+"hair": "#2c2118",
+"outfit": "#6b4a8a",
+"skin": "#f0c2a0"
+},
+"displayName": "Nora Vance",
+"group": "flash",
+"id": "nora-vance",
+"look": "Long dark hair \u00b7 purple-white suit",
+"tagline": "Runs through time. On time."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "glasses",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#7a9aba",
+"hair": "#e8d878",
+"outfit": "#d8d2c4",
+"skin": "#f0c2a0"
+},
+"displayName": "Felicity Sloan",
+"group": "arrow",
+"id": "felicity-sloan",
+"look": "Long blonde hair \u00b7 glasses \u00b7 light jacket",
+"tagline": "Hacks in. Hacks out."
+},
+{
+"accessories": {
+"beard": true,
+"extra": "none",
+"gear": "rifle",
+"hair": "buzz",
+"hat": "none"
+},
+"colors": {
+"accent": "#c1272d",
+"hair": "#111111",
+"outfit": "#2f3530",
+"skin": "#6b4429"
+},
+"displayName": "John Diggs",
+"group": "arrow",
+"id": "john-diggs",
+"look": "Buzz hair \u00b7 beard \u00b7 dark tactical jacket \u00b7 rifle on back",
+"tagline": "Heavy cover. Heavier aim."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#c1272d",
+"hair": "#e8d878",
+"outfit": "#16181f",
+"skin": "#f0c2a0"
+},
+"displayName": "Laura Lance",
+"group": "arrow",
+"id": "laura-lance",
+"look": "Long blonde hair \u00b7 black suit",
+"tagline": "Her voice hits harder."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#8a8a8a",
+"hair": "#e8d878",
+"outfit": "#f4f6fa",
+"skin": "#f0c2a0"
+},
+"displayName": "Sara Lane",
+"group": "arrow",
+"id": "sara-lane",
+"look": "Long blonde hair \u00b7 white suit",
+"tagline": "Silent steps. Sharp strikes."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"gear": "bow",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#e0b33a",
+"hair": "#b03020",
+"outfit": "#8a2a2a",
+"skin": "#f0c2a0"
+},
+"displayName": "Thea Quinn",
+"group": "arrow",
+"id": "thea-quinn",
+"look": "Long red hair \u00b7 red jacket \u00b7 bow on back",
+"tagline": "Quick draw. Quicker shot."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"gear": "bow",
+"hair": "side",
+"hat": "hood"
+},
+"colors": {
+"accent": "#e0b33a",
+"hair": "#6b4a2f",
+"outfit": "#8a2a2a",
+"skin": "#e8b892"
+},
+"displayName": "Roy Harp",
+"group": "arrow",
+"id": "roy-harp",
+"look": "Brown side hair \u00b7 red hood \u00b7 bow on back",
+"tagline": "Hood up. Arrow loose."
+},
+{
+"accessories": {
+"beard": true,
+"extra": "none",
+"gear": "bow",
+"hair": "side",
+"hat": "hood"
+},
+"colors": {
+"accent": "#6b6b6b",
+"hair": "#8a8a8a",
+"outfit": "#1f1f24",
+"skin": "#e8b892"
+},
+"displayName": "Marcus Merlin",
+"group": "arrow",
+"id": "marcus-merlin",
+"look": "Older \u00b7 grey side hair \u00b7 beard \u00b7 dark hood \u00b7 bow on back",
+"tagline": "Shadows aim. He hits."
+},
+{
+"accessories": {
+"beard": true,
+"extra": "none",
+"gear": "katana",
+"hair": "buzz",
+"hat": "none"
+},
+"colors": {
+"accent": "#c1272d",
+"hair": "#1a1a1a",
+"outfit": "#2f3530",
+"skin": "#e8b892"
+},
+"displayName": "Slade Willis",
+"group": "arrow",
+"id": "slade-willis",
+"look": "Big \u00b7 buzz hair \u00b7 beard \u00b7 dark tactical jacket \u00b7 sword on back",
+"tagline": "Soldier's grit. No mercy."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "side",
+"hat": "none"
+},
+"colors": {
+"accent": "#8a8a8a",
+"hair": "#1a1a1a",
+"outfit": "#16181f",
+"skin": "#e8b892"
+},
+"displayName": "Adrian Crane",
+"group": "arrow",
+"id": "adrian-crane",
+"look": "Dark side hair \u00b7 black jacket \u00b7 calm and cold",
+"tagline": "Throws first. Talks never."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"gear": "bow",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#e0b33a",
+"hair": "#111111",
+"outfit": "#2a6b2a",
+"skin": "#e8b892"
+},
+"displayName": "Emiko Quinn",
+"group": "arrow",
+"id": "emiko-quinn",
+"look": "Long dark hair \u00b7 green jacket \u00b7 bow on back",
+"tagline": "Green hood. True aim."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "mask",
+"hair": "buzz",
+"hat": "none"
+},
+"colors": {
+"accent": "#c1272d",
+"hair": "#1a1a1a",
+"outfit": "#2f2f35",
+"skin": "#c98d64"
+},
+"displayName": "Rene Ramos",
+"group": "arrow",
+"id": "rene-ramos",
+"look": "Buzz hair \u00b7 mask \u00b7 dark jacket \u00b7 brawler",
+"tagline": "Mask on. Fists up."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"hair": "afro",
+"hat": "none"
+},
+"colors": {
+"accent": "#e0b33a",
+"hair": "#111111",
+"outfit": "#16181f",
+"skin": "#6b4429"
+},
+"displayName": "Dina Drake",
+"group": "arrow",
+"id": "dina-drake",
+"look": "Dark afro \u00b7 black suit \u00b7 sonic stance",
+"tagline": "Her voice breaks walls."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "glasses",
+"hair": "fade",
+"hat": "none"
+},
+"colors": {
+"accent": "#7ec8e8",
+"hair": "#111111",
+"outfit": "#6b6b70",
+"skin": "#6b4429"
+},
+"displayName": "Curtis Hoyt",
+"group": "arrow",
+"id": "curtis-hoyt",
+"look": "Fade hair \u00b7 glasses \u00b7 grey jacket \u00b7 gadgets",
+"tagline": "Builds the fix. Ships it."
+},
+{
+"accessories": {
+"beard": false,
+"extra": "none",
+"gear": "katana",
+"hair": "long",
+"hat": "none"
+},
+"colors": {
+"accent": "#8a8a8a",
+"hair": "#111111",
+"outfit": "#16181f",
+"skin": "#e8b892"
+},
+"displayName": "Nyssa Ghul",
+"group": "arrow",
+"id": "nyssa-ghul",
+"look": "Long dark hair \u00b7 black outfit \u00b7 sword on back",
+"tagline": "Silent blade. No warning."
+}
+]
