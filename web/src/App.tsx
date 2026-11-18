@@ -2844,7 +2844,7 @@ export default function App() {
                     <label>
                       Billboard
                       <select value={adId} onChange={(event) => { setAdId(event.target.value); setAdQuoteData(null); setAdOrbitxQuote(null); }}>
-                        {(snap.billboards.length ? snap.billboards : [{ id: "plaza-east", project: "OrbitX", text: "" }]).map((board) => (
+                        {(snap.billboards.length ? snap.billboards : [{ id: "plaza-east", project: "OrbitX", text: "", image: "", start: "", end: "" }]).map((board) => (
                           <option key={board.id} value={board.id} disabled={adPay === "orbitx" && !!board.taken && !board.mine}>
                             {adPay === "orbitx"
                               ? `${board.zone || board.id}${board.taken ? ` — taken until ${board.takenEnd || ""}${board.mine ? " (yours)" : ""}` : " — free"}`
