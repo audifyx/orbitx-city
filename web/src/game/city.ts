@@ -5112,7 +5112,12 @@ function addMegaMall(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: 
     storefront: true,
   });
   // Ground floor: stone finish, ceiling slab is the mezzanine (built below).
+  // Floor collider (2026-11-18): the slab is a walkable floor, so it gets
+  // a collider with its top at the slab top (0.12) — without one, the
+  // mall's minY (-0.1) marked it below-grade and the player fell through
+  // the floor (groundY defaults to -200 indoors). Same fix as the HQ lobby.
   put(boxes, x0 + w / 2, 0.08, z0 + d / 2, w - 2.4, 0.08, d - 2.4, "stone");
+  cols.push({ minX: x0 + 1.2, maxX: x0 + w - 1.2, minY: 0.04, maxY: 0.12, minZ: z0 + 1.2, maxZ: z0 + d - 1.2 });
   cladWallsTall(boxes, x0, z0, w, d, "w", 9.5);
   // Shopfronts along the south wall. Three of them are the wardrobe
   // stores (style theme): each has its own shopfront + anchor below, so
@@ -5375,7 +5380,12 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
     crown: { w: 40, d: 40, h: 3 },
   });
   // Ground floor: lobby, double-height void over the north strip (z 5..29).
+  // Floor collider (2026-11-18): the slab is a walkable floor, so it gets
+  // a collider with its top at the slab top (0.12) — without one, the
+  // lobby's minY (-0.1) marked it below-grade and the player fell through
+  // the floor (groundY defaults to -200 indoors). Same fix as the mall.
   put(boxes, x0 + w / 2, 0.08, z0 + d / 2, w - 2.4, 0.08, d - 2.4, "cream");
+  cols.push({ minX: x0 + 1.2, maxX: x0 + w - 1.2, minY: 0.04, maxY: 0.12, minZ: z0 + 1.2, maxZ: z0 + d - 1.2 });
   cladWallsTall(boxes, x0, z0, w, d, "e", 20);
   // Gold ORBITX logo wall on the north wall + reception desk at the void edge.
   roomSign("hq-logo", -72, 4.2, z0 + d - 0.75, Math.PI, 14, 3, ["ORBITX"], "The city builds here");

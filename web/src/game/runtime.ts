@@ -7588,8 +7588,12 @@ export function createRuntime(scene: Scene) {
       const zone = zoneAt(body);
       insideName = zone?.id ?? "";
       // A zone whose floor is below the street (the underground station)
-      // is the only place the player may stand under y=0.
-      inBelowGrade = !!zone && zone.minY !== undefined && zone.minY < 0;
+      // is the only place the player may stand under y=0. The threshold
+      // is -1, not 0: the HQ lobby and mall ground floors sit at minY
+      // -0.1 (slab tolerance, not below-grade) and must NOT count, or the
+      // player falls through their floors (groundY defaults to -200
+      // indoors) — the 2026-11-18 HQ floor glitch.
+      inBelowGrade = !!zone && zone.minY !== undefined && zone.minY < -1;
       if (insideName && insideName !== prevInsideName) triggerHaptic("door");
       prevInsideName = insideName;
       if (zone?.id === "project-0" && world.mintSet && !world.me?.holder && !driving) {
