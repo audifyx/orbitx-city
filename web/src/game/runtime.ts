@@ -12354,6 +12354,8 @@ declare global {
       nextStop: string;
       speed: number;
       riding: boolean;
+      driving: boolean;
+      operator: boolean;
     };
     /** OrbitX Line ground-train debug state (read-only snapshot). */
     __ORBITX_LINE?: {
@@ -12365,6 +12367,7 @@ declare global {
       stopped: boolean;
       dwell: number;
       riding: boolean;
+      driving: boolean;
       hasGroup: boolean;
     };
   }
