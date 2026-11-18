@@ -135,6 +135,62 @@ test("jobs: clocking out after all tasks completes the shift and bumps the strea
   assert.equal(saveFor(id, 1).job, null);
 });
 
+test("jobs: train operator clocks in at 80/hr with 5 tasks and the pay splits 16 each", async () => {
+  const { token, id } = await guest();
+  const started = await call("job-start", { job: "train" }, token);
+  assert.equal(started.ok, true, started.message);
+  const raw = saveFor(id, 1);
+  assert.equal(raw.job.id, "train");
+  assert.equal(raw.job.hourlyRate, 80, "train operator is the same tier as the bus");
+  assert.equal(raw.job.tasks, 5, "train has 5 tasks: board + four stations");
+  assert.equal(raw.job.tasksDone, 0);
+  assert.equal(raw.job.taskPaid, 0);
+  // 80 / 5 = 16 per station, no remainder.
+  for (let task = 0; task < 5; task++) {
+    const done = await call("job-task", { job: "train", task }, token);
+    assert.equal(done.ok, true, done.message);
+    assert.equal(done.taskPay, 16);
+    assert.equal(done.tasksDone, task + 1);
+  }
+  assert.equal(saveFor(id, 1).job.tasksDone, 5);
+  assert.equal(saveFor(id, 1).balance, 60080);
+  const extra = await call("job-task", { job: "train", task: 5 }, token);
+  assert.equal(extra.ok, false);
+  // All task pay landed: earn settles only the rested bonus, 80 * 1.1 - 80 = 8.
+  ageShift(id);
+  const earned = await call("earn", { job: "train" }, token);
+  assert.equal(earned.ok, true, earned.message);
+  assert.equal(earned.me.balance, 60088);
+  assert.equal(earned.me.jobStreak, 1);
+  assert.equal(saveFor(id, 1).job, null);
+});
+
+test("jobs: bus driver clocks in at 80/hr with 6 tasks — five 13s and a 15 remainder", async () => {
+  const { token, id } = await guest();
+  const started = await call("job-start", { job: "bus" }, token);
+  assert.equal(started.ok, true, started.message);
+  const raw = saveFor(id, 1);
+  assert.equal(raw.job.id, "bus");
+  assert.equal(raw.job.hourlyRate, 80);
+  assert.equal(raw.job.tasks, 6, "bus has 6 tasks: board + five distinct stops");
+  // floor(80 / 6) = 13 for the first five stops, the last takes 80 - 13*5 = 15.
+  const expected = [13, 13, 13, 13, 13, 15];
+  for (let task = 0; task < 6; task++) {
+    const done = await call("job-task", { job: "bus", task }, token);
+    assert.equal(done.ok, true, done.message);
+    assert.equal(done.taskPay, expected[task]);
+  }
+  assert.equal(saveFor(id, 1).balance, 60080);
+  const extra = await call("job-task", { job: "bus", task: 6 }, token);
+  assert.equal(extra.ok, false);
+  ageShift(id);
+  const earned = await call("earn", { job: "bus" }, token);
+  assert.equal(earned.ok, true, earned.message);
+  assert.equal(earned.me.balance, 60088, "80 task pay + 8 rested bonus");
+  assert.equal(earned.me.jobStreak, 1);
+  assert.equal(saveFor(id, 1).job, null);
+});
+
 test("jobs: the hourly rate scales with the streak", async () => {
   const { token, id } = await guest();
   await call("job-start", { job: "courier" }, token);
