@@ -3,7 +3,7 @@
 //
 // Counts are derived from the real catalogs — never hardcoded — so the
 // splash stays up to date as features are added, removed, or renamed:
-//   characters — LOOK_IDS (avatar.ts, the 12 KOL looks)
+//   characters — LOOK_IDS (avatar.ts, the full roster: 12 KOLs + 60 heroes)
 //   jobs       — JOBS_20 (emergency.ts, the job roster)
 //   vehicles   — VEHICLES (vehicles.ts, the full catalog)
 //   homes      — HOMES (homes.ts, buildHomeCatalog — 50 per state)
@@ -68,7 +68,7 @@ export const FEATURE_HIGHLIGHTS: FeatureHighlight[] = [
   {
     id: "characters",
     name: `${CITY_FACTS.characters} characters`,
-    blurb: "Play as a real name from the timeline.",
+    blurb: "Play as a KOL or a hero — each with a real power.",
     count: CITY_FACTS.characters,
     countLabel: "characters",
   },
