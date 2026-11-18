@@ -244,7 +244,11 @@ function buildMyPropertyRows(data: { server: number; lots: string[]; offices: My
       where: def ? `${state?.name ?? def.state} · ${district?.name ?? def.district}` : home.homeId,
       detail: `${home.price} City Sol · Server ${home.server}`,
       anchor: home.homeId,
-      manage: null,
+      // Catalog homes are manageable like the old lot homes: Manage opens
+      // the Home Editor, Workshop opens the 2D Home Workshop. (Was null —
+      // the row rendered with no buttons at all, so neither entry point
+      // existed from My Props.)
+      manage: "home",
     });
   }
   return rows;
