@@ -6,6 +6,7 @@ import { PROXIMITY_RANGE, VOICE_FILTERS } from "./game/voice";
 import { allLooks, loadLooks, lookName } from "./game/avatar";
 import { BILLBOARD_ORBITX_DAYS, BILLBOARD_ORBITX_USD, GROCERY_FOOD_BY_ID, GYM_WORKOUTS, OFFICE_SUITES, RECIPES, RESTAURANT_BY_ID, RESTAURANT_MENUS, adUsdPrice, foodSpeedMult, hungerLabel, officeSolUsdPrice } from "./game/content";
 import { parseSeed } from "./game/seed";
+import { apiUrl } from "./game/net";
 import { cityMapModel } from "./game/city";
 import { CharacterSelect } from "./Roster";
 import { MenuHome } from "./MenuHome";
@@ -266,7 +267,7 @@ async function callCity(op: string, extra: Record<string, unknown> = {}) {
     const headers: Record<string, string> = { "content-type": "application/json" };
     const token = override || accountToken() || localStorage.getItem("orbitx-token") || "";
     if (token) headers.authorization = `Bearer ${token}`;
-    const response = await fetch("/api/city", {
+    const response = await fetch(apiUrl("/api/city"), {
       method: "POST",
       headers,
       body: JSON.stringify({ op, ...extra }),
@@ -6535,7 +6536,7 @@ export function StatsPage() {
       const token = accountToken();
       const headers: Record<string, string> = { "content-type": "application/json" };
       if (token) headers.authorization = `Bearer ${token}`;
-      const response = await fetch("/api/city", {
+      const response = await fetch(apiUrl("/api/city"), {
         method: "POST",
         headers,
         body: JSON.stringify({ op: "city-stats" }),

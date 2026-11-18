@@ -71,7 +71,7 @@ import {
   loadContent,
 } from "./content";
 import { burnAmount, earn, loadWallet, saveWallet, spend } from "./economy";
-import { createNet, type ChatLine, type NetAdapter, type NetState } from "./net";
+import { apiUrl, createNet, type ChatLine, type NetAdapter, type NetState } from "./net";
 import { allLooks, clothesFromOwned, dressPerson, loadLooks, lookById, lookName, looksReady, type Clothes } from "./avatar";
 import {
   TRICK_ARROW_LABEL,
@@ -7094,7 +7094,7 @@ export function createRuntime(scene: Scene) {
     const send = async (override?: string) => {
       const attemptHeaders = { ...headers };
       if (override) attemptHeaders.authorization = `Bearer ${override}`;
-      const response = await fetch("/api/city", {
+      const response = await fetch(apiUrl("/api/city"), {
         method: "POST",
         headers: attemptHeaders,
         body: JSON.stringify({ op, ...extra }),
