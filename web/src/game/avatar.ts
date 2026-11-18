@@ -7,6 +7,8 @@ export interface Look {
   tagline: string;
   /** Signature look line, from the research sheet (web/public/config/character-looks.md). */
   look?: string;
+  /** Roster group: "kol" (existing KOLs) or a hero set ("walking-dead" / "fear" / "flash" / "arrow"). */
+  group?: string;
   colors: { outfit: string; accent: string; skin: string; hair: string; eyes?: string };
   accessories: { hair: string; hat: string; extra: string; beard?: boolean; gear?: string };
 }
@@ -17,6 +19,7 @@ const FALLBACK: Look[] = [
     displayName: "TJR",
     tagline: "Charts loud, jacket louder.",
     look: "Short black curls · maroon shirt",
+    group: "kol",
     colors: { outfit: "#ff3355", accent: "#141414", skin: "#f0c2a0", hair: "#1a1a1a" },
     accessories: { hair: "spiky", hat: "none", extra: "headset" },
   },
@@ -70,6 +73,7 @@ function asLook(raw: unknown): Look | null {
     displayName: String(row.displayName),
     tagline: typeof row.tagline === "string" ? row.tagline : "",
     look: typeof row.look === "string" ? row.look : "",
+    group: typeof row.group === "string" ? row.group : "kol",
     colors: {
       outfit: typeof colors.outfit === "string" ? colors.outfit : "#f4f6fa",
       accent: typeof colors.accent === "string" ? colors.accent : "#111111",
