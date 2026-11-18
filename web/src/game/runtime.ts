@@ -930,6 +930,19 @@ export const FURNITURE_CATALOG: { id: string; name: string; price: number }[] = 
   { id: "armchair", name: "Armchair", price: 290 },
   { id: "coffee-table", name: "Coffee Table", price: 210 },
   { id: "tv-stand", name: "TV Stand", price: 180 },
+  // Home Workshop additions (2026-11-18): 24 pieces. Mirror api/city.js
+  // FURNITURE_CATALOG (server is the price authority) + homeplan.ts
+  // footprints + lifeview.ts pieceMesh shapes.
+  { id: "bookshelf", name: "Bookshelf", price: 300 },
+  { id: "wardrobe", name: "Wardrobe", price: 520 },
+  { id: "nightstand", name: "Nightstand", price: 140 },
+  { id: "fireplace", name: "Fireplace", price: 900 },
+  { id: "pool-table", name: "Pool Table", price: 1100 },
+  { id: "wall-art", name: "Wall Art", price: 160 },
+  { id: "kitchen-island", name: "Kitchen Island", price: 650 },
+  { id: "floor-cushion", name: "Floor Cushion", price: 100 },
+  { id: "bar-stool", name: "Bar Stool", price: 130 },
+  { id: "console-table", name: "Console Table", price: 240 },
 ];
 
 export function furnitureName(id: string): string {
@@ -9729,7 +9742,7 @@ export function createRuntime(scene: Scene) {
     }
   }
 
-  async function cribDecor(homeId: string, patch: { wall?: string; floor?: string; light?: string }) {
+  async function cribDecor(homeId: string, patch: { wall?: string; floor?: string; light?: string; rooms?: Record<string, { wall?: string; floor?: string }> }) {
     if (!world.online || !currentUniverse) return cribNeedsSignIn();
     try {
       const data = await world.cribDecor(homeId, currentUniverse, patch);

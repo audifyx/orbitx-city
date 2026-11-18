@@ -24,7 +24,8 @@ export interface CribHomeState {
   homeId: string;
   tier: number;
   tierName: string;
-  decor: { wall: string; floor: string; light: string };
+  /** Whole-home decor; rooms (when set) override wall/floor per room. */
+  decor: { wall: string; floor: string; light: string; rooms?: Record<string, { wall?: string; floor?: string }> };
   style: { exterior: string; roof: string; yard: string };
   lightsOn: boolean;
   tvOn: boolean;
@@ -89,6 +90,8 @@ export const CRIB_WALLS: Record<string, { name: string; price: number; color: nu
   red: { name: "Ember paint", price: 60, color: 0xd43a2e },
   black: { name: "Midnight paint", price: 60, color: 0x16181f },
   white: { name: "Cloud paint", price: 60, color: 0xf4f6fa },
+  sunset: { name: "Sunset paint", price: 70, color: 0xff7a3c },
+  forest: { name: "Forest paint", price: 60, color: 0x2e5d3a },
 };
 
 export const CRIB_FLOORS: Record<string, { name: string; price: number; color: number }> = {
@@ -97,6 +100,7 @@ export const CRIB_FLOORS: Record<string, { name: string; price: number; color: n
   gold: { name: "Gold floor", price: 120, color: 0xe0b33a },
   black: { name: "Onyx floor", price: 100, color: 0x16181f },
   grass: { name: "Grass floor", price: 90, color: 0x4a9a3a },
+  tile: { name: "Tile floor", price: 110, color: 0xcfd8dc },
 };
 
 export const CRIB_LIGHTS: Record<string, { name: string; price: number; color: number }> = {
@@ -104,6 +108,7 @@ export const CRIB_LIGHTS: Record<string, { name: string; price: number; color: n
   cool: { name: "Cool lights", price: 50, color: 0xdfefff },
   gold: { name: "Gold lights", price: 70, color: 0xe0b33a },
   cyan: { name: "Aqua lights", price: 60, color: 0x7eefff },
+  pink: { name: "Rose lights", price: 60, color: 0xff5ad0 },
 };
 
 /** Energy -> speed multiplier. Mirrors the server's rested rule (>= 70). */
@@ -183,6 +188,8 @@ export const HOME_EXTERIORS: Record<string, { label: string; price: number; trim
   beach: { label: "Beach trim", price: 120, trim: 0x7eefff },
   neon: { label: "Neon trim", price: 180, trim: 0xff5ad0 },
   midnight: { label: "Midnight trim", price: 150, trim: 0x3a4a6b },
+  sunset: { label: "Sunset trim", price: 160, trim: 0xff7a3c },
+  chrome: { label: "Chrome trim", price: 170, trim: 0xc8ccd4 },
 };
 
 /** Roof edge — "standard" renders nothing. */
@@ -190,6 +197,8 @@ export const HOME_ROOFS: Record<string, { label: string; price: number; roof: nu
   standard: { label: "Standard roof", price: 0, roof: 0x8a5a2e },
   gold: { label: "Gold roof", price: 120, roof: 0xe0b33a },
   neon: { label: "Neon roof", price: 150, roof: 0xff5ad0 },
+  beach: { label: "Aqua roof", price: 130, roof: 0x7eefff },
+  midnight: { label: "Midnight roof", price: 130, roof: 0x3a4a6b },
 };
 
 /** Front yard — "none" renders nothing. */
@@ -198,6 +207,8 @@ export const HOME_YARDS: Record<string, { label: string; price: number; yard: nu
   deck: { label: "Wooden deck", price: 200, yard: 0x8a5a2e },
   patio: { label: "Stone patio", price: 150, yard: 0x9aa0a8 },
   garden: { label: "Garden", price: 100, yard: 0x3a7d44 },
+  pool: { label: "Pool", price: 300, yard: 0x2a9fd8 },
+  lawn: { label: "Lawn", price: 80, yard: 0x55b04a },
 };
 
 /** One-tap presets: interior decor + exterior together. */
@@ -207,6 +218,8 @@ export const HOME_THEMES: Record<string, { label: string; price: number; wall: s
   beach: { label: "Beach House", price: 250, wall: "cream", floor: "wood", light: "warm", exterior: "beach", roof: "standard", yard: "patio" },
   neon: { label: "Neon Nights", price: 350, wall: "black", floor: "black", light: "cyan", exterior: "neon", roof: "neon", yard: "none" },
   midnight: { label: "Midnight", price: 300, wall: "black", floor: "marble", light: "cool", exterior: "midnight", roof: "standard", yard: "garden" },
+  sunset: { label: "Sunset", price: 320, wall: "sunset", floor: "wood", light: "warm", exterior: "sunset", roof: "standard", yard: "garden" },
+  chrome: { label: "Chrome Luxe", price: 450, wall: "white", floor: "marble", light: "cool", exterior: "chrome", roof: "standard", yard: "patio" },
 };
 
 /** Office themes — same presets, applied to a claimed office suite. */

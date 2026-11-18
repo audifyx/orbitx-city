@@ -274,6 +274,57 @@ export function createLifeView(root: Group, zones: Zone[], anchors: Anchor[]) {
       add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), 0, 0.4, 0, 1.25, 0.08, 0.65);
       add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), -0.5, 0.18, -0.22, 0.08, 0.36, 0.08);
       add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), 0.5, 0.18, 0.22, 0.08, 0.36, 0.08);
+    } else if (kind === "bookshelf") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), -0.55, 1.0, 0, 0.08, 2.0, 0.4);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), 0.55, 1.0, 0, 0.08, 2.0, 0.4);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), 0, 0.55, 0, 1.2, 0.07, 0.4);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), 0, 1.1, 0, 1.2, 0.07, 0.4);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), 0, 1.65, 0, 1.2, 0.07, 0.4);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xd43a2e })), -0.3, 1.24, 0, 0.35, 0.22, 0.32);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x7eefff })), 0.25, 1.24, 0, 0.3, 0.22, 0.32);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xe0b33a })), 0, 0.69, 0, 0.4, 0.22, 0.32);
+    } else if (kind === "wardrobe") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), 0, 1.05, 0, 1.4, 2.1, 0.7);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), -0.35, 1.05, 0.36, 0.6, 1.9, 0.04);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), 0.35, 1.05, 0.36, 0.6, 1.9, 0.04);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xe0b33a })), -0.08, 1.05, 0.39, 0.06, 0.12, 0.04);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xe0b33a })), 0.08, 1.05, 0.39, 0.06, 0.12, 0.04);
+    } else if (kind === "nightstand") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x2e2a26 })), 0, 0.35, 0, 0.65, 0.65, 0.65);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xe0b33a })), 0, 0.45, 0.34, 0.4, 0.08, 0.03);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), 0, 0.72, 0, 0.7, 0.06, 0.7);
+    } else if (kind === "fireplace") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x222222 })), 0, 0.6, 0, 1.6, 1.2, 0.6);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xff7a3c, emissive: 0xff7a3c, emissiveIntensity: 0.9 })), 0, 0.45, 0.32, 1.0, 0.7, 0.06);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xe0b33a })), 0, 1.28, 0, 1.7, 0.12, 0.7);
+    } else if (kind === "pool-table") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), 0, 0.4, 0, 2.5, 0.75, 1.4);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x1f6b3a })), 0, 0.82, 0, 2.3, 0.08, 1.2);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xf2f0e6 })), -0.6, 0.9, 0.2, 0.16, 0.16, 0.16);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xd43a2e })), 0.5, 0.9, -0.3, 0.16, 0.16, 0.16);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x101820 })), 0.7, 0.9, 0.3, 0.16, 0.16, 0.16);
+    } else if (kind === "wall-art") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), 0, 0.65, 0, 1.6, 1.25, 0.08);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xe0b33a })), 0, 0.65, 0.05, 1.4, 1.05, 0.03);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xd43a2e })), -0.3, 0.65, 0.07, 0.5, 0.5, 0.02);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x7eefff })), 0.35, 0.65, 0.07, 0.45, 0.45, 0.02);
+    } else if (kind === "kitchen-island") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x222222 })), 0, 0.45, 0, 2.1, 0.9, 0.9);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xe8e4d8 })), 0, 0.95, 0, 2.2, 0.08, 1.0);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xe0b33a })), 0, 0.45, 0.46, 1.8, 0.06, 0.03);
+    } else if (kind === "floor-cushion") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xff5ad0 })), 0, 0.18, 0, 0.85, 0.32, 0.85);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xd43a9e })), 0, 0.38, 0, 0.6, 0.12, 0.6);
+    } else if (kind === "bar-stool") {
+      add(new Mesh(post, new MeshLambertMaterial({ color: 0x222222 })), 0, 0.4, 0, 0.14, 0.75, 0.14);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x16181f })), 0, 0.82, 0, 0.55, 0.1, 0.55);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x222222 })), 0, 0.05, 0, 0.5, 0.08, 0.5);
+    } else if (kind === "console-table") {
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), 0, 0.85, 0, 1.5, 0.07, 0.45);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), -0.65, 0.42, 0, 0.07, 0.8, 0.07);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), 0.65, 0.42, 0, 0.07, 0.8, 0.07);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0xe0b33a })), -0.4, 0.95, 0, 0.35, 0.14, 0.3);
+      add(new Mesh(box, new MeshLambertMaterial({ color: 0x7eefff })), 0.4, 0.95, 0, 0.3, 0.14, 0.3);
     } else {
       add(new Mesh(box, new MeshLambertMaterial({ color: 0xc9a36a })), 0, 0.42, 0, 1.2, 0.1, 0.7);
       add(new Mesh(box, new MeshLambertMaterial({ color: 0x6b4a2a })), -0.45, 0.2, -0.25, 0.08, 0.4, 0.08);

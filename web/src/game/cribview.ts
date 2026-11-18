@@ -44,6 +44,7 @@ import {
 } from "three";
 import type { HomeDef } from "./homes";
 import { CRIB_FLOORS, CRIB_LIGHTS, CRIB_WALLS, HOME_EXTERIORS, HOME_ROOFS, HOME_THEMES, HOME_YARDS, doorSpot, tvSpot, type CribHomeState, type CribPetState } from "./crib";
+import { homeRoomLayout } from "./homeplan";
 
 const box = new BoxGeometry(1, 1, 1);
 
@@ -142,20 +143,76 @@ export function createCribView(root: Group) {
     const wallColor = CRIB_WALLS[crib.decor.wall]?.color ?? 0xe8dcc8;
     const floorColor = CRIB_FLOORS[crib.decor.floor]?.color ?? 0x8a5a2e;
     const lightColor = CRIB_LIGHTS[crib.decor.light]?.color ?? 0xffd9a0;
-    // Walls: flat paint panels proud of the striped wallpaper (0.72 in
-    // from the shell, the wallpaper bands end at 0.66). Door wall skipped.
-    if (crib.decor.wall !== "cream") {
+    // Walls & floors — whole-home by default; per-room when the Home
+    // Workshop set room finishes (decor.rooms). A room with no explicit
+    // finish inherits the whole-home wall/floor, so a room left at the
+    // defaults shows the base wallpaper / wood floor.
+    const rooms = crib.decor.rooms && Object.keys(crib.decor.rooms).length ? crib.decor.rooms : null;
+    if (rooms) {
+      const layout = homeRoomLayout(home);
+      const roomWall = (id: string) => rooms[id]?.wall ?? crib.decor.wall;
+      const roomFloor = (id: string) => rooms[id]?.floor ?? crib.decor.floor;
+      // Floors: one slab per room whose floor is not the wood default.
+      for (const room of layout) {
+        const floorKey = roomFloor(room.id);
+        if (floorKey && floorKey !== "wood") {
+          addBox(decor, CRIB_FLOORS[floorKey]?.color ?? 0x8a5a2e, room.x0 + room.w / 2, 0.15, room.z0 + room.d / 2, room.w - 0.1, 0.05, room.d - 0.1);
+        }
+      }
+      // Walls: each non-door wall split at the centre line, each half
+      // painted with the room that owns that side. Door wall skipped,
+      // same as the whole-home path.
+      const roomAtQuad = (sx: number, sz: number) =>
+        layout.find((r) => Math.sign(r.x0 + r.w / 2 - cx) === sx && Math.sign(r.z0 + r.d / 2 - cz) === sz);
       const inset = 0.72;
       const y = 1.85;
       const h = 3.15;
-      if (door !== "n") addBox(decor, wallColor, cx, y, z0 + inset, w - 2.5, h, 0.08);
-      if (door !== "s") addBox(decor, wallColor, cx, y, z0 + d - inset, w - 2.5, h, 0.08);
-      if (door !== "w") addBox(decor, wallColor, x0 + inset, y, cz, 0.08, h, d - 2.5);
-      if (door !== "e") addBox(decor, wallColor, x0 + w - inset, y, cz, 0.08, h, d - 2.5);
-    }
-    // Floor: a slab over the wood (wood top is 0.12, slab sits 0.13-0.17).
-    if (crib.decor.floor !== "wood") {
-      addBox(decor, floorColor, cx, 0.15, cz, w - 2.4, 0.05, d - 2.4);
+      const segLenX = w / 2 - 1.25;
+      const segLenZ = d / 2 - 1.25;
+      const paintWallSeg = (wallKey: string | undefined, x: number, z: number, sx: number, sz: number) => {
+        if (!wallKey || wallKey === "cream") return;
+        addBox(decor, CRIB_WALLS[wallKey]?.color ?? 0xe8dcc8, x, y, z, sx, h, sz);
+      };
+      if (door !== "n") {
+        const west = roomAtQuad(-1, -1);
+        const east = roomAtQuad(1, -1);
+        paintWallSeg(west ? roomWall(west.id) : undefined, x0 + w / 4 + 0.625, z0 + inset, segLenX, 0.08);
+        paintWallSeg(east ? roomWall(east.id) : undefined, x0 + (3 * w) / 4 - 0.625, z0 + inset, segLenX, 0.08);
+      }
+      if (door !== "s") {
+        const west = roomAtQuad(-1, 1);
+        const east = roomAtQuad(1, 1);
+        paintWallSeg(west ? roomWall(west.id) : undefined, x0 + w / 4 + 0.625, z0 + d - inset, segLenX, 0.08);
+        paintWallSeg(east ? roomWall(east.id) : undefined, x0 + (3 * w) / 4 - 0.625, z0 + d - inset, segLenX, 0.08);
+      }
+      if (door !== "w") {
+        const north = roomAtQuad(-1, -1);
+        const south = roomAtQuad(-1, 1);
+        paintWallSeg(north ? roomWall(north.id) : undefined, x0 + inset, z0 + d / 4 + 0.625, 0.08, segLenZ);
+        paintWallSeg(south ? roomWall(south.id) : undefined, x0 + inset, z0 + (3 * d) / 4 - 0.625, 0.08, segLenZ);
+      }
+      if (door !== "e") {
+        const north = roomAtQuad(1, -1);
+        const south = roomAtQuad(1, 1);
+        paintWallSeg(north ? roomWall(north.id) : undefined, x0 + w - inset, z0 + d / 4 + 0.625, 0.08, segLenZ);
+        paintWallSeg(south ? roomWall(south.id) : undefined, x0 + w - inset, z0 + (3 * d) / 4 - 0.625, 0.08, segLenZ);
+      }
+    } else {
+      // Walls: flat paint panels proud of the striped wallpaper (0.72 in
+      // from the shell, the wallpaper bands end at 0.66). Door wall skipped.
+      if (crib.decor.wall !== "cream") {
+        const inset = 0.72;
+        const y = 1.85;
+        const h = 3.15;
+        if (door !== "n") addBox(decor, wallColor, cx, y, z0 + inset, w - 2.5, h, 0.08);
+        if (door !== "s") addBox(decor, wallColor, cx, y, z0 + d - inset, w - 2.5, h, 0.08);
+        if (door !== "w") addBox(decor, wallColor, x0 + inset, y, cz, 0.08, h, d - 2.5);
+        if (door !== "e") addBox(decor, wallColor, x0 + w - inset, y, cz, 0.08, h, d - 2.5);
+      }
+      // Floor: a slab over the wood (wood top is 0.12, slab sits 0.13-0.17).
+      if (crib.decor.floor !== "wood") {
+        addBox(decor, floorColor, cx, 0.15, cz, w - 2.4, 0.05, d - 2.4);
+      }
     }
     // Lights: re-lamp the five static pendants in the chosen colour.
     if (crib.decor.light !== "warm") {

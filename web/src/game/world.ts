@@ -494,7 +494,7 @@ class CityWorld {
     return data;
   }
 
-  async cribDecor(home: string, server: number, patch: { wall?: string; floor?: string; light?: string }) {
+  async cribDecor(home: string, server: number, patch: { wall?: string; floor?: string; light?: string; rooms?: Record<string, { wall?: string; floor?: string }> }) {
     const data = await this.call("crib-decor", { home, server, ...patch });
     if (data.me) this.me = data.me as CityMe;
     return data;
