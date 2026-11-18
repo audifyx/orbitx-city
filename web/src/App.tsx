@@ -349,7 +349,6 @@ const EMPTY: Snap = {
   lift: null,
   people: [],
   npcs: [],
-  power: null,
   friends: [],
   requests: [],
   party: [],
