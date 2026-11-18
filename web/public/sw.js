@@ -1,11 +1,10 @@
 // OrbitX City service worker — app-shell cache, network-first API.
 // RULE: bump CACHE on every push that changes the shell (game.js, index.html,
 // CSS, icons) — otherwise phones keep serving the old bundle from this cache.
-// v20 (2026-11-17): Deep scan 3D world polish — unsealed State Office Tower
-// upper floors, removed duplicate emergency/district tower outer walls so 3D
-// windows/doors/wallpaper render cleanly, cleared Central Plaza & tower lobby
-// roads/sidewalks/crosswalks, fixed interior rug & stage Z-fighting, NPC LOD.
-const CACHE = "orbitx-city-v20";
+// v21 (2026-11-18): MEGA PUSH — building-entry doors, vehicle fixes, bus+train
+// operator jobs, Home Workshop 2D editor, 25 ORBITX billboards, Arcade PvP
+// pot games (Coin Flip + Dice Roll).
+const CACHE = "orbitx-city-v21";
 const PRECACHE = [
   "/",
   "/index.html",
