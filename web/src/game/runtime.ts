@@ -760,6 +760,11 @@ export interface Snap {
   // GTA expansion: garage / multiverse / emergency / district panels.
   vehicles: OwnedVehicle[];
   activeVehicle: string | null;
+  // Debug hook (same family as __ORBITX_SNAP): the cars actually spawned
+  // in the world right now — id + world position — so a rig can tell a
+  // spawn failure (car absent) from an enter failure (car present but
+  // unreachable). Owned vehicles live in `vehicles` above.
+  worldCars: { id: string; vehicleId: string | null; x: number; z: number }[];
   // True when the active car drove out of a home garage — its parked
   // copy hides and the garage panel says it waits out front.
   activeCarOut: boolean;
@@ -3334,6 +3339,7 @@ export function createRuntime(scene: Scene) {
       trail,
       vehicles: [...localVehicles],
       activeVehicle: localActiveVehicle,
+      worldCars: cars.map((c) => ({ id: c.id, vehicleId: c.vehicleId ?? null, x: Math.round(c.x * 10) / 10, z: Math.round(c.z * 10) / 10 })),
       activeCarOut: activeCarHomeId !== null,
       rental: localRental ? { ...localRental } : null,
       garage: { ...localGarage },
