@@ -411,6 +411,9 @@ const JOBS = {
   lifeguard: 65,
   cleaner: 55,
   bus: 80,
+  // Train Operator (OrbitX Line): same tier as the bus — 80/hr, five
+  // stations a shift (board + four stations).
+  train: 80,
   fire: 75,
   doctor: 70,
   // Emergency-services jobs (emergency.ts EMERGENCY_JOBS): cop and
@@ -441,7 +444,9 @@ function scaledPay(id, streak) {
 // (web/src/game/emergency.ts JOB_TASK_COUNTS, runtime.ts jobTaskList)
 // runs the same counts — keep the three in step:
 // courier 2, taxi 6 (3 fares x pickup + drop), guide 3, security 3,
-// mail 4, lifeguard 3, cleaner 5, bus 4, fire 4, doctor 5, teacher 3,
+// mail 4, lifeguard 3, cleaner 5, bus 6 (board + five stops on the
+// City Loop), train 5 (board + four stations on the OrbitX Line),
+// fire 4, doctor 5, teacher 3,
 // cop 4, paramedic 4, photographer 2, promoter 2, everything else 1.
 // Mini-games (coinhunt/fishing/shootout/treasure) are 1 — they pay in
 // full through `earn` and never call `job-task`.
@@ -453,7 +458,8 @@ const JOB_TASKS = {
   mail: 4,
   lifeguard: 3,
   cleaner: 5,
-  bus: 4,
+  bus: 6,
+  train: 5,
   fire: 4,
   doctor: 5,
   teacher: 3,

@@ -1049,8 +1049,17 @@ export function createGame(
       // swing the camera. While driving the loop train the arrows are the
       // throttle (Up = Gas, Down = Brake), so they must not pitch the
       // camera either — but Left / Right still turn it, since a train
-      // has no steering to fight over.
-      const trainDriving = runtime.drivingTrain() >= 0;
+      // has no steering to fight over. Same for the bus and the OrbitX
+      // Line: arrows are the throttle while the player has the wheel /
+      // the controls.
+      const trainDriving = runtime.drivingTrain() >= 0 || runtime.drivingBus() || runtime.drivingLine();
+      // Throttle for the bus + the OrbitX Line (the loop train reads the
+      // keys directly): W / Up / Gas is the throttle, S / Down / Brake
+      // slows it down. Set every frame, before after() steps the vehicles.
+      runtime.setVehicleThrottle(
+        keys.has("KeyW") || keys.has("ArrowUp") || runtime.gasHeld(),
+        keys.has("KeyS") || keys.has("ArrowDown") || runtime.brakeHeld(),
+      );
       const yawKeys = runtime.decorating()
         ? (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0)
         : runtime.driving()

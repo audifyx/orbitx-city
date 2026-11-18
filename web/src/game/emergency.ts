@@ -1904,7 +1904,9 @@ export function jobObjective(spec: EmergencyJobSpec, phaseIndex: number): string
 // The 20-job roster — the curated GTA-style set. The 19 existing jobs
 // (JOB_LIST, App.tsx) + cop + paramedic = 21, so one is cut: photographer
 // (40, the lowest pay, overlaps the guide's tour stops). Photographer stays
-// a playable job in the game — it is simply not in the curated 20.
+// a playable job in the game — it is simply not in the curated 20. The
+// Train Operator joined the roster later (bus + train are the two
+// drivable transport jobs), so the roster is now 21.
 // Every roster job is a real working job: take it, run the phases, get
 // paid in City Sol through the existing job-start / earn ops.
 // ---------------------------------------------------------------------------
@@ -1927,7 +1929,8 @@ export const JOBS_20: RosterJob[] = [
   { id: "mail", name: "Mail carrier", area: "City", base: 70, duty: "Collect the bag at the Jobs board, then deliver to two homes and a project office." },
   { id: "lifeguard", name: "Lifeguard", area: "Harbor", base: 65, duty: "Walk the harbor pier and scan the water at all three posts." },
   { id: "cleaner", name: "Street cleaner", area: "Plaza", base: 55, duty: "Sweep five litter spots around the plaza — stand still to sweep each one." },
-  { id: "bus", name: "Bus driver", area: "City", base: 80, duty: "Run the city bus — four stops, pause at each to board riders." },
+  { id: "bus", name: "Bus driver", area: "City", base: 80, duty: "Drive the city bus — take the wheel at Central, run the loop, serve five stops." },
+  { id: "train", name: "Train operator", area: "City", base: 80, duty: "Run the OrbitX Line — take the controls, serve four stations, mind the underground stop." },
   { id: "fire", name: "Firefighter", area: "Fire Department", base: 75, duty: "Report to the Fire Department, then answer three smoke reports — stand at each fire to put it out." },
   { id: "doctor", name: "Doctor", area: "Hospital", base: 70, duty: "Report to the hospital, run the hall clinic — treat three patients, one at a time — then restock at the Emergency Center." },
   { id: "teacher", name: "Teacher", area: "City", base: 60, duty: "Take the class on a field trip — library, park, then the fountain." },
@@ -1954,7 +1957,8 @@ export const JOB_TASK_COUNTS: Record<string, number> = {
   mail: 4,
   lifeguard: 3,
   cleaner: 5,
-  bus: 4,
+  bus: 6,
+  train: 5,
   fire: 4,
   doctor: 5,
   teacher: 3,

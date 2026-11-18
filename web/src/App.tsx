@@ -5215,7 +5215,7 @@ const JOB_LIST_BASE: Array<{ id: string; name: string; desc: string; base: numbe
   { id: "mail", name: "Mail carrier", desc: "Collect the bag at the Jobs board, then deliver to two homes and a project office.", base: 70 },
   { id: "lifeguard", name: "Lifeguard", desc: "Walk the harbor pier and scan the water at all three posts.", base: 65 },
   { id: "cleaner", name: "Street cleaner", desc: "Sweep five litter spots around the plaza — stand still to sweep each one.", base: 55 },
-  { id: "bus", name: "Bus driver", desc: "Run the city bus — four stops, pause at each to board riders.", base: 80 },
+  { id: "bus", name: "Bus driver", desc: "Drive the city bus — take the wheel, run the loop, serve five stops.", base: 80 },
   { id: "fire", name: "Firefighter", desc: "Answer three smoke reports — stand at each fire to put it out.", base: 75 },
   { id: "doctor", name: "Doctor", desc: "Run the hall clinic — treat three patients, one at a time.", base: 70 },
   { id: "teacher", name: "Teacher", desc: "Take the class on a field trip — library, park, then the fountain.", base: 60 },

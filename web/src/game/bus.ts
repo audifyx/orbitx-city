@@ -249,6 +249,11 @@ export const BUS_DWELL_S = 6;
 export const BUS_TURN_RATE = 2.4;
 export const BUS_SLOW_SPEED = 7;
 export const BUS_ARRIVE_DIST = 1.2;
+/** Operator mode: the bus pauses at least this long at a stop (riders
+ * board) and at most this long (an AFK operator never holds the line —
+ * the bus rolls on at the cap, same as the OrbitX Line). */
+export const BUS_OPERATOR_DWELL_MIN_S = 1.5;
+export const BUS_OPERATOR_DWELL_MAX_S = 20;
 /** Boarding radius from the bus centre (matches the car's 7). */
 export const BUS_BOARD_DIST = 7;
 
@@ -266,6 +271,15 @@ export class BusSim {
   speed = 0;
   /** The stop the bus is currently dwelling at, if any. */
   atStop: BusStopInfo | null = null;
+  /** Operator mode: a player on the Bus driver job has the wheel. The
+   * bus still steers itself along the waypoints (it never leaves the
+   * road) — the operator only works the throttle (gas / brake), and
+   * decides when to pull out of a stop. */
+  operator = false;
+  gas = false;
+  brake = false;
+  /** Earliest the operator may pull out with Gas (riders aboard). */
+  private minDwellUntil = 0;
   private dwellUntil = 0;
   private clock = 0;
 
@@ -295,7 +309,22 @@ export class BusSim {
     this.speed = 0;
     this.atStop = BUS_STOP_AT[0];
     this.dwellUntil = 8;
+    this.minDwellUntil = 0;
+    this.operator = false;
+    this.gas = false;
+    this.brake = false;
     this.clock = 0;
+  }
+
+  /** Hand the wheel to a player (true) or back to the automatic loop
+   * (false). Turning it off never stops the bus dead — the automatic
+   * profile eases the speed back up from wherever it is. */
+  setOperator(on: boolean): void {
+    this.operator = on;
+    if (!on) {
+      this.gas = false;
+      this.brake = false;
+    }
   }
 
   /** The next stop the bus will reach (scanning forward from the target). */
@@ -322,7 +351,15 @@ export class BusSim {
     this.clock += dt;
     if (this.dwelling) {
       this.speed = 0;
-      if (this.clock >= this.dwellUntil) {
+      if (this.operator) {
+        // The operator decides when to leave — Gas pulls out once the
+        // minimum dwell (riders aboard) has passed; the hold cap rolls
+        // the bus on even if the operator went AFK.
+        if ((this.gas && this.clock >= this.minDwellUntil) || this.clock >= this.dwellUntil) {
+          this.dwelling = false;
+          this.atStop = null;
+        }
+      } else if (this.clock >= this.dwellUntil) {
         this.dwelling = false;
         this.atStop = null;
       }
@@ -336,7 +373,15 @@ export class BusSim {
       const stop = BUS_STOP_AT[this.target];
       if (stop) {
         this.dwelling = true;
-        this.dwellUntil = this.clock + BUS_DWELL_S;
+        if (this.operator) {
+          // Pause to board riders, then wait for the operator — at most
+          // the hold cap.
+          this.minDwellUntil = this.clock + BUS_OPERATOR_DWELL_MIN_S;
+          this.dwellUntil = this.clock + BUS_OPERATOR_DWELL_MAX_S;
+        } else {
+          this.dwellUntil = this.clock + BUS_DWELL_S;
+          this.minDwellUntil = this.dwellUntil;
+        }
         this.atStop = stop;
       }
       this.target = (this.target + 1) % BUS_WAYPOINTS.length;
@@ -351,11 +396,18 @@ export class BusSim {
     this.yaw += turn;
     // Speed: full speed on a straight, slow for a sharp turn and on tight
     // merges past deck lamps, and ease off as the target nears so the bus
-    // pulls up, not past it.
+    // pulls up, not past it. In operator mode the player works the
+    // throttle — Gas accelerates toward the same caps (so the bus still
+    // slows into every stop even with Gas held), Brake stops it, and
+    // coasting eases it down. The steering stays automatic either way.
     let maxSpeed = BUS_SPEED;
     if (Math.abs(diff) > 0.5) maxSpeed = Math.min(maxSpeed, BUS_SLOW_SPEED);
     if (dist < 12) maxSpeed = Math.min(maxSpeed, Math.max(4, dist * 0.9));
-    if (this.speed > maxSpeed) this.speed = Math.max(maxSpeed, this.speed - 30 * dt);
+    if (this.operator) {
+      if (this.brake) this.speed = Math.max(0, this.speed - 30 * dt);
+      else if (this.gas) this.speed = Math.min(maxSpeed, this.speed + 12 * dt);
+      else this.speed = Math.max(0, this.speed - 8 * dt);
+    } else if (this.speed > maxSpeed) this.speed = Math.max(maxSpeed, this.speed - 30 * dt);
     else this.speed = Math.min(maxSpeed, this.speed + 12 * dt);
     this.x += Math.sin(this.yaw) * this.speed * dt;
     this.z += -Math.cos(this.yaw) * this.speed * dt;

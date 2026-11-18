@@ -1580,9 +1580,28 @@ export function createRuntime(scene: Scene) {
   const TRAIN_ACCEL = 4;
   const TRAIN_DWELL = 6;
   const TRAIN_TERMINAL_DWELL = 9;
+  /** Operator mode: seconds the train waits at a stop for the operator
+   * to pull out before rolling on by itself (an AFK operator never
+   * holds the line). */
+  const TRAIN_OPERATOR_HOLD_S = 20;
   let trainState = { x: TRAIN_STATIONS[0].x, dir: 1, at: 0, next: 1, speed: 0, dwell: 2, stopped: true };
   let trainDoorOpen = 0;
   let ridingTrain = false;
+  // Driving the OrbitX Line (Train Operator job): the player is at the
+  // controls and works the throttle — Gas to go, Brake to slow down.
+  // The train still stops at every station on its own (the braking
+  // profile caps the speed so it can always stop in time); the operator
+  // decides when to pull out of a stop. False when riding as a
+  // passenger or not aboard at all.
+  let drivingLine = false;
+  /** Operator dwell hold: seconds left before the train rolls on even
+   * if the operator went AFK (20s cap, same as the bus). */
+  let trainHoldLeft = 0;
+  /** Throttle from the engine (W/S, arrows, Gas/Brake buttons) — the
+   * engine sets it every frame before after() runs, so the bus and the
+   * OrbitX Line can read it. The joystick forward/back counts too. */
+  let throttleGas = false;
+  let throttleBrake = false;
   // True while the player stands in a zone whose floor is below the street
   // (the underground station). The engine's ground clamp and fall-safety
   // only apply outdoors, so this is what lets the player walk at y=-6.
@@ -1723,16 +1742,32 @@ export function createRuntime(scene: Scene) {
   let fishMisses = 0;
   let fishEndsAt = 0;
   let fishBobber: Mesh | null = null;
-  // Batch 2 jobs. Bus: a 4-stop route with a 2s boarding dwell at each
-  // stop. Fire: three smoke reports, a 3s dwell at each fire. Doctor: a
-  // 3-patient clinic at the Community Hall, a 3s dwell per patient.
-  // Teacher: a 3-stop field trip (library, park, fountain), instant stops.
-  const BUS_STOPS = [
-    { x: 10, z: 17.6, label: "Board riders at the Jobs board" },
-    { x: 0, z: 46, label: "Board riders at the north stop" },
-    { x: 41.6, z: 90, label: "Board riders at the hall stop" },
-    { x: 0, z: 210.6, label: "Drop the last riders at the harbor" },
+  // Batch 2 jobs. Fire: three smoke reports, a 3s dwell at each fire.
+  // Doctor: a 3-patient clinic at the Community Hall, a 3s dwell per
+  // patient. Teacher: a 3-stop field trip (library, park, fountain),
+  // instant stops.
+  // Bus driver: the real City Loop. The six stops below are the loop's
+  // unique stops in first-visit order from Central (waypoint coords from
+  // bus.ts BUS_STOP_AT — where the bus actually stops, not the shelter
+  // door). A shift is board + five distinct stops — the loop visits
+  // Eastgate and Central twice, so repeats never count twice.
+  const BUS_JOB_STOPS = [
+    { id: "central", name: "Central Station", x: 0, z: 72 },
+    { id: "eastgate", name: "Eastgate", x: 144, z: 0 },
+    { id: "sunset", name: "Sunset, LA", x: 800, z: 144 },
+    { id: "palms", name: "Palms, Florida", x: 38, z: 1044 },
+    { id: "westgate", name: "Westgate", x: -144, z: 0 },
+    { id: "brooklyn", name: "Brooklyn, NY", x: -800, z: 144 },
   ] as const;
+  /** Gas / Brake from every input that can drive a vehicle: the
+   * engine's throttle (W/S, arrows, Gas/Brake buttons), the touch
+   * holds, and the joystick forward/back. */
+  function driveInput(): { gas: boolean; brake: boolean } {
+    return {
+      gas: throttleGas || holdGas || stickY > 0.5,
+      brake: throttleBrake || holdBrake || stickY < -0.5,
+    };
+  }
   const FIRE_SPOTS = [
     { x: 18, z: 72, label: "Put out the fire at the north avenue" },
     { x: -18, z: -72, label: "Put out the fire at the south avenue" },
@@ -1858,6 +1893,21 @@ export function createRuntime(scene: Scene) {
   const bus = new BusSim();
   let busMesh: Group | null = null;
   let ridingBus = false;
+  // Driving the City Loop bus (Bus driver job): the player has the wheel
+  // and works the throttle — Gas to go, Brake to slow down. The bus still
+  // steers itself along the waypoints (it never leaves the road) and
+  // still pauses at every stop; the operator decides when to pull out.
+  let drivingBus = false;
+  /** Distinct stops served this shift (the loop visits Eastgate and
+   * Central twice — a repeat visit is not a second stop). */
+  let busServedIds = new Set<string>();
+  /** The stop the player boarded at — serving it again is not a task. */
+  let busBoardStopId = "";
+  /** Distinct stations served this shift (the line ping-pongs, so a
+   * station can come up twice — a repeat is not a second station). */
+  let trainServedIdx = new Set<number>();
+  /** The station the player boarded at — serving it again is not a task. */
+  let trainBoardIdx = -1;
   let beacon: Mesh | null = null;
   let packageMesh: Mesh | null = null;
   let rider: Group | null = null;
@@ -3652,6 +3702,7 @@ export function createRuntime(scene: Scene) {
     if (id === "lifeguard") return "Lifeguard";
     if (id === "cleaner") return "Street cleaner";
     if (id === "bus") return "Bus driver";
+    if (id === "train") return "Train operator";
     if (id === "fire") return "Firefighter";
     if (id === "doctor") return "Doctor";
     if (id === "cop") return "Police Officer";
@@ -3677,7 +3728,7 @@ export function createRuntime(scene: Scene) {
   const JOB_PAY: Record<string, number> = {
     courier: 45, taxi: 90, guide: 60, mechanic: 55, photographer: 40,
     promoter: 50, dock: 65, dj: 55, banker: 50, barista: 45, vendor: 55,
-    security: 75, mail: 70, lifeguard: 65, cleaner: 55, bus: 80,
+    security: 75, mail: 70, lifeguard: 65, cleaner: 55, bus: 80, train: 80,
     fire: 75, doctor: 70, cop: 85, paramedic: 80, teacher: 60,
     coinhunt: 40, fishing: 45, shootout: 50, treasure: 45,
   };
@@ -3735,7 +3786,24 @@ export function createRuntime(scene: Scene) {
     }
     if (id === "lifeguard") return LIFEGUARD_POSTS.map((post) => ({ label: post.label, x: post.x, z: post.z }));
     if (id === "cleaner") return LITTER_SPOTS.map((spot, i) => ({ label: `Sweep litter spot ${i + 1} of ${LITTER_SPOTS.length}`, x: spot.x, z: spot.z }));
-    if (id === "bus") return BUS_STOPS.map((stop) => ({ label: stop.label, x: stop.x, z: stop.z }));
+    if (id === "bus") {
+      // The panel's preview of the shift: board at Central, then the five
+      // stops in loop order. The live route follows wherever the player
+      // actually boards (tickJobs) — repeats never count twice.
+      return [
+        { label: "Board the bus at Central Station and take the wheel", x: 0, z: 72 },
+        ...BUS_JOB_STOPS.slice(1).map((stop) => ({ label: `Serve ${stop.name}`, x: stop.x, z: stop.z })),
+      ];
+    }
+    if (id === "train") {
+      // The panel's preview: board at Westgate, then the four stations
+      // east along the line. The live route follows wherever the player
+      // actually boards — repeats never count twice.
+      return [
+        { label: "Board the train at Westgate and take the controls", x: TRAIN_STATIONS[0].x, z: TRAIN_LINE_Z },
+        ...TRAIN_STATIONS.slice(1).map((st) => ({ label: `Serve ${st.name} station`, x: st.x, z: TRAIN_LINE_Z })),
+      ];
+    }
     if (id === "teacher") return TEACHER_STOPS.map((stop) => ({ label: stop.label, x: stop.x, z: stop.z }));
     if (id === "security") return [
       { label: "Patrol the fountain", x: 0, z: 12 },
@@ -3820,7 +3888,15 @@ export function createRuntime(scene: Scene) {
       const left = LITTER_DONE - phase;
       return left > 1 ? `Sweep the plaza — ${left} litter spots left` : "Sweep the plaza — one litter spot left";
     }
-    if (job === "bus") return BUS_STOPS[Math.min(phase, BUS_STOPS.length - 1)].label;
+    if (job === "bus") {
+      if (phase === 0) return "Board the City Loop bus and take the wheel";
+      const next = bus.nextStop();
+      return `Serve ${next?.name ?? "the next stop"} — ${6 - phase} stop${6 - phase === 1 ? "" : "s"} to go`;
+    }
+    if (job === "train") {
+      if (phase === 0) return "Board the OrbitX Line and take the controls";
+      return `Serve ${TRAIN_STATIONS[trainState.next]?.name ?? "the next station"} — ${5 - phase} station${5 - phase === 1 ? "" : "s"} to go`;
+    }
     // Emergency jobs (cop / paramedic / fire / doctor): per-phase lines
     // verbatim from EMERGENCY_JOBS in emergency.ts.
     const emSpec = emergencyJobById(job);
@@ -4498,8 +4574,11 @@ export function createRuntime(scene: Scene) {
     if (!who || !playing || paused || typing) return;
     body = who;
     // Riding the bus: E gets off, but only at a stop — the prompt names it.
+    // The driver gets off the same way (the wheel goes back to the loop).
     if (ridingBus) {
       if (bus.dwelling && bus.atStop) exitBus(body);
+      else say("Hold on — the bus is moving. You can get off at the next stop.");
+      publish();
       return;
     }
     if (driving) {
@@ -4529,7 +4608,8 @@ export function createRuntime(scene: Scene) {
       return;
     }
     if (trainStopped() && nearTrainBoard(body)) {
-      boardTrain(body);
+      // On the Train Operator job the player takes the controls, not a seat.
+      boardTrain(body, job === "train");
       publish();
       return;
     }
@@ -4805,8 +4885,9 @@ export function createRuntime(scene: Scene) {
     }
     // City Loop bus: board while it dwells at a stop — free, no fare. It
     // answers before the car fallback, like a door beats a parked car.
+    // On the Bus driver job the player takes the wheel, not a seat.
     if (bus.dwelling && Math.hypot(bus.x - body.x, bus.z - body.z) < BUS_BOARD_DIST) {
-      boardBus(body);
+      boardBus(body, job === "bus");
       return;
     }
     // No door, zone, or board answered: a car within 7 units is the last
@@ -5038,7 +5119,7 @@ export function createRuntime(scene: Scene) {
     return Math.abs(body.y - (trainTrackY(trainState.x) + 0.35)) < 2;
   }
 
-  function boardTrain(body: Body) {
+  function boardTrain(body: Body, asOperator = false) {
     ridingTrain = true;
     body.flying = false;
     body.vy = 0;
@@ -5047,12 +5128,24 @@ export function createRuntime(scene: Scene) {
     body.y = trainTrackY(trainState.x) + 0.35;
     body.yaw = trainState.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
     triggerHaptic("door");
-    say("Riding the OrbitX Line — free. Press E to get off at the next stop.");
+    if (asOperator) {
+      // Take the controls: the line is yours to run for this shift.
+      drivingLine = true;
+      trainServedIdx = new Set();
+      trainBoardIdx = trainState.at;
+      trainHoldLeft = TRAIN_OPERATOR_HOLD_S;
+      say("You're driving the OrbitX Line — Gas to go, Brake to slow down. Serve four stations.");
+    } else {
+      say("Riding the OrbitX Line — free. Press E to get off at the next stop.");
+    }
   }
 
   function alightTrain(body: Body) {
     const station = TRAIN_STATIONS[trainState.at];
     ridingTrain = false;
+    // Stepping off hands the controls back to the automatic profile.
+    drivingLine = false;
+    trainHoldLeft = 0;
     body.x = station.board.x;
     body.y = station.board.y;
     body.z = station.board.z;
@@ -5083,8 +5176,19 @@ export function createRuntime(scene: Scene) {
   function stepTrain(dt: number) {
     if (!trainGroup) return;
     if (trainState.stopped) {
-      trainState.dwell -= dt;
-      if (trainState.dwell <= 0) trainState.stopped = false;
+      if (drivingLine) {
+        // The operator decides when to leave — Gas pulls out once the
+        // dwell (doors open, riders aboard) has run; an AFK operator
+        // never holds the line: the train rolls on at the hold cap.
+        trainHoldLeft -= dt;
+        trainState.dwell -= dt;
+        if ((driveInput().gas && trainState.dwell <= 0) || trainHoldLeft <= 0) {
+          trainState.stopped = false;
+        }
+      } else {
+        trainState.dwell -= dt;
+        if (trainState.dwell <= 0) trainState.stopped = false;
+      }
     } else {
       const target = TRAIN_STATIONS[trainState.next].x;
       const dist = Math.abs(target - trainState.x);
@@ -5095,6 +5199,8 @@ export function createRuntime(scene: Scene) {
         trainState.at = trainState.next;
         trainState.dwell =
           trainState.next === 0 || trainState.next === TRAIN_STATIONS.length - 1 ? TRAIN_TERMINAL_DWELL : TRAIN_DWELL;
+        // The operator gets a fresh hold window at every station.
+        if (drivingLine) trainHoldLeft = TRAIN_OPERATOR_HOLD_S;
         let next = trainState.at + trainState.dir;
         if (next < 0 || next >= TRAIN_STATIONS.length) {
           trainState.dir *= -1;
@@ -5104,9 +5210,20 @@ export function createRuntime(scene: Scene) {
       } else {
         // Never faster than the speed that still stops in time.
         const allowed = Math.sqrt(2 * TRAIN_ACCEL * dist);
-        const want = Math.min(TRAIN_CRUISE, allowed);
-        if (trainState.speed < want) trainState.speed = Math.min(want, trainState.speed + TRAIN_ACCEL * dt);
-        else trainState.speed = Math.max(want, trainState.speed - TRAIN_ACCEL * dt);
+        if (drivingLine) {
+          // Gas accelerates toward the same cap (so the train still
+          // slows into every station even with Gas held), Brake stops
+          // it, coasting eases it down.
+          const { gas, brake } = driveInput();
+          if (brake) trainState.speed = Math.max(0, trainState.speed - TRAIN_ACCEL * 2.5 * dt);
+          else if (gas) trainState.speed = Math.min(Math.min(TRAIN_CRUISE, allowed), trainState.speed + TRAIN_ACCEL * dt);
+          else trainState.speed = Math.max(0, trainState.speed - TRAIN_ACCEL * 0.5 * dt);
+          trainState.speed = Math.min(trainState.speed, allowed);
+        } else {
+          const want = Math.min(TRAIN_CRUISE, allowed);
+          if (trainState.speed < want) trainState.speed = Math.min(want, trainState.speed + TRAIN_ACCEL * dt);
+          else trainState.speed = Math.max(want, trainState.speed - TRAIN_ACCEL * dt);
+        }
         trainState.x += trainState.dir * trainState.speed * dt;
       }
     }
@@ -5195,18 +5312,32 @@ export function createRuntime(scene: Scene) {
     }
     stepTrain(0);
   }
-  function boardBus(body: Body) {
+  function boardBus(body: Body, asOperator = false) {
     ridingBus = true;
     body.flying = false;
     body.vy = 0;
     triggerHaptic("door");
-    say("City Loop bus — free ride. Press E at a stop to get off.");
+    if (asOperator) {
+      // Take the wheel: the bus is yours to drive for this shift.
+      drivingBus = true;
+      bus.setOperator(true);
+      busServedIds = new Set();
+      busBoardStopId = bus.atStop?.id ?? "";
+      say("You're driving the City Loop — Gas to go, Brake to slow down. Serve five stops.");
+    } else {
+      say("City Loop bus — free ride. Press E at a stop to get off.");
+    }
     publish();
   }
 
   function exitBus(body: Body) {
     const stop = bus.atStop;
     ridingBus = false;
+    // Stepping off hands the wheel back to the automatic loop.
+    if (drivingBus) {
+      drivingBus = false;
+      bus.setOperator(false);
+    }
     if (stop) {
       // Step off onto the sidewalk by the shelter, facing the bus.
       body.x = stop.doorX;
@@ -5243,9 +5374,9 @@ export function createRuntime(scene: Scene) {
         publish();
         return;
       }
-      boardTrain(body);
+      boardTrain(body, job === "train");
     } else if (kind === "bus") {
-      boardBus(body);
+      boardBus(body, job === "bus");
       // boardBus leaves the snap to the next frame's rideBus — put the
       // body on the bus now so the teleport is instant, not a frame late.
       body.x = bus.x;
@@ -5304,6 +5435,12 @@ export function createRuntime(scene: Scene) {
         exitBus(body);
       } else {
         ridingBus = false;
+        // Stepping off mid-route hands the wheel back too — never leave
+        // the bus waiting for an operator who is gone.
+        if (drivingBus) {
+          drivingBus = false;
+          bus.setOperator(false);
+        }
         // Curb side of the bus (its right, +Z local): with the mesh
         // rotation YXZ at PI/2 - yaw, local +Z maps to (cos yaw, sin yaw).
         body.x = bus.x + Math.cos(bus.yaw) * 3;
@@ -5742,7 +5879,52 @@ export function createRuntime(scene: Scene) {
     }
     if (job === "lifeguard") target = LIFEGUARD_POSTS[Math.min(phase, 2)];
     if (job === "cleaner") target = LITTER_SPOTS[Math.min(phase, LITTER_SPOTS.length - 1)];
-    if (job === "bus") target = BUS_STOPS[Math.min(phase, BUS_STOPS.length - 1)];
+    // Bus driver + Train operator: the player DRIVES the vehicle. Phase 0
+    // is boarding (the beacon chases the moving vehicle); later phases
+    // are the distinct stops/stations it serves while the player is at
+    // the controls. A repeat visit never counts twice, and stepping off
+    // mid-shift just points the beacon back at the vehicle so the player
+    // can climb back in and carry on. The phase work runs here, ahead of
+    // the on-foot reach logic below (skipped for these jobs).
+    if (job === "bus") {
+      if (phase === 0) target = { x: bus.x, z: bus.z };
+      else {
+        const next = bus.nextStop();
+        const stop = next ? BUS_JOB_STOPS.find((s) => s.id === next.id) : undefined;
+        target = stop ? { x: stop.x, z: stop.z } : { x: bus.x, z: bus.z };
+        if (!drivingBus) target = { x: bus.x, z: bus.z };
+      }
+      if (!paused) {
+        if (phase === 0 && drivingBus) {
+          phase = 1;
+          say("Behind the wheel — serve the next stop.");
+        } else if (phase > 0 && drivingBus && bus.dwelling && bus.atStop && bus.atStop.id !== busBoardStopId && !busServedIds.has(bus.atStop.id)) {
+          busServedIds.add(bus.atStop.id);
+          phase += 1;
+          if (phase >= 6) void finishJob("bus");
+          else say(`Stop served — ${bus.atStop.name}. ${6 - phase} to go.`);
+        }
+      }
+    }
+    if (job === "train") {
+      if (phase === 0) target = { x: trainState.x, z: TRAIN_LINE_Z };
+      else {
+        const st = TRAIN_STATIONS[trainState.next];
+        target = st ? { x: st.x, z: TRAIN_LINE_Z } : { x: trainState.x, z: TRAIN_LINE_Z };
+        if (!drivingLine) target = { x: trainState.x, z: TRAIN_LINE_Z };
+      }
+      if (!paused) {
+        if (phase === 0 && drivingLine) {
+          phase = 1;
+          say("At the controls — run the line to the next station.");
+        } else if (phase > 0 && drivingLine && trainState.stopped && trainState.at !== trainBoardIdx && !trainServedIdx.has(trainState.at)) {
+          trainServedIdx.add(trainState.at);
+          phase += 1;
+          if (phase >= 5) void finishJob("train");
+          else say(`Station served — ${TRAIN_STATIONS[trainState.at]?.name}. ${5 - phase} to go.`);
+        }
+      }
+    }
     // Emergency jobs: phase targets resolve through EMERGENCY_JOBS — dept
     // targets go to the NEAREST department anchor of that kind.
     if (emSpec) target = jobTargetFor(emSpec, phase, body.x, body.z, anchors);
@@ -5787,12 +5969,15 @@ export function createRuntime(scene: Scene) {
       }
     }
     if (!target || paused) return;
+    // The drivable jobs did their phase work above — the on-foot reach
+    // and dwell logic below is for walkers, not drivers.
+    if (job === "bus" || job === "train") return;
     const reachDist = job === "courier" && phase === 0 ? 5.2 : job === "courier" ? 6 : driving ? 4.2 : 2.8;
     let reach = Math.hypot(body.x - target.x, body.z - target.z) < reachDist;
     if (job === "courier" && phase === 1 && atShop(body)) reach = true;
     // Dwell jobs: leaving the spot resets the hold. Standing still inside
     // the radius counts up; the prompt shows the seconds left.
-    const dwellJob = job === "lifeguard" || job === "cleaner" || job === "bus";
+    const dwellJob = job === "lifeguard" || job === "cleaner";
     if (dwellJob && !reach) dwell = 0;
     if (!reach) return;
     // Emergency jobs: dwell phases hold still for dwellSeconds, arrival
@@ -5832,10 +6017,6 @@ export function createRuntime(scene: Scene) {
         phase += 1;
         if (phase >= LITTER_DONE) void finishJob("cleaner");
         else say(`Spot swept. ${LITTER_DONE - phase} to go.`);
-      } else if (job === "bus") {
-        phase += 1;
-        if (phase >= BUS_STOPS.length) void finishJob("bus");
-        else say("Riders aboard. Next stop.");
       }
       return;
     }
@@ -6923,7 +7104,12 @@ export function createRuntime(scene: Scene) {
     lastBody = body;
     // City Loop bus: advance the loop, move the mesh (wheels spin with the
     // road speed, like drive()), say the arrival line on a bridge hop, and
-    // carry the rider with it.
+    // carry the rider with it. The operator's throttle feeds the bus
+    // before it steps — Gas / Brake (or the joystick) only matter while
+    // the player has the wheel.
+    const { gas: busGas, brake: busBrake } = driveInput();
+    bus.gas = drivingBus && busGas;
+    bus.brake = drivingBus && busBrake;
     bus.update(dt);
     if (busMesh) {
       busMesh.position.set(bus.x, 0.12, bus.z);
@@ -6942,6 +7128,8 @@ export function createRuntime(scene: Scene) {
       nextStop: bus.nextStop()?.name ?? "",
       speed: Math.round(bus.speed * 10) / 10,
       riding: ridingBus,
+      driving: drivingBus,
+      operator: bus.operator,
     };
     // Rental expiry — once a second, while playing. The car goes back and
     // the player is left on foot where the car was.
@@ -7172,6 +7360,7 @@ export function createRuntime(scene: Scene) {
       stopped: trainState.stopped,
       dwell: Math.round(trainState.dwell * 10) / 10,
       riding: ridingTrain,
+      driving: drivingLine,
       hasGroup: !!trainGroup,
     };
     const now = performance.now();
@@ -7345,16 +7534,26 @@ export function createRuntime(scene: Scene) {
       else if (driving && nearGate(body, 0, 8)) prompt = "Press E — hover time trial";
       else if (driving) prompt = "Press E to get out";
       else if (ridingTrain)
-        prompt = trainState.stopped
-          ? `Press E — get off at ${TRAIN_STATIONS[trainState.at].name}`
-          : `Riding the OrbitX Line — next stop ${TRAIN_STATIONS[trainState.next].name}`;
+        prompt = drivingLine
+          ? trainState.stopped
+            ? "Stop served — press Gas to depart"
+            : "Driving the OrbitX Line — Gas to go, Brake to slow down"
+          : trainState.stopped
+            ? `Press E — get off at ${TRAIN_STATIONS[trainState.at].name}`
+            : `Riding the OrbitX Line — next stop ${TRAIN_STATIONS[trainState.next].name}`;
       else if (trainState.stopped && nearTrainBoard(body))
-        prompt = `Press E — board the train to ${TRAIN_STATIONS[trainState.next].name} (free)`;
+        prompt = job === "train"
+          ? "Press E — take the controls (Train Operator)"
+          : `Press E — board the train to ${TRAIN_STATIONS[trainState.next].name} (free)`;
       else if (ridingBus)
         prompt =
-          bus.dwelling && bus.atStop
-            ? `Press E to get off — ${bus.atStop.name}`
-            : `Riding the City Loop — next stop ${bus.nextStop()?.name ?? ""}`;
+          drivingBus
+            ? bus.dwelling && bus.atStop
+              ? "Stop served — press Gas to depart"
+              : "Driving the City Loop — Gas to go, Brake to slow down"
+            : bus.dwelling && bus.atStop
+              ? `Press E to get off — ${bus.atStop.name}`
+              : `Riding the City Loop — next stop ${bus.nextStop()?.name ?? ""}`;
       else if (riding) prompt = trainPoses[riding.train]?.dwelling ? "Press E — get off at the Loop Station" : "Riding the loop train — enjoy the view";
       else if (drivingTrain) prompt = trainPoses[drivingTrain.train]?.dwelling ? "Press E — step off at the Loop Station" : "Driving the loop train — Gas to go, Brake to slow down";
       else if (nearOwnBed(body)) prompt = energy >= 100 ? "Your bed — fully rested" : "Press E — sleep in your bed (energy back to 100)";
@@ -7419,7 +7618,7 @@ export function createRuntime(scene: Scene) {
         // The City Loop bus beats the car fallback: a dwelling bus at the
         // stop answers E before any car parked nearby does.
         const nearCar = nearestCar(body, 7);
-        if (bus.dwelling && Math.hypot(bus.x - body.x, bus.z - body.z) < BUS_BOARD_DIST) prompt = "Press E — board the City Loop bus (free)";
+        if (bus.dwelling && Math.hypot(bus.x - body.x, bus.z - body.z) < BUS_BOARD_DIST) prompt = job === "bus" ? "Press E — take the wheel (Bus driver)" : "Press E — board the City Loop bus (free)";
         else if (nearCar >= 0) {
           prompt = (cars[nearCar]?.group.userData.kind as string) === "boat" ? "Press E to sail — free ferry" : "Press E to drive";
         }
@@ -10677,6 +10876,18 @@ export function createRuntime(scene: Scene) {
     /** Which loop train the player is driving (-1 = none). The engine
      * reads this every frame to hand that train's speed to the player. */
     drivingTrain: () => (drivingTrain ? drivingTrain.train : -1),
+    /** The player has the City Loop bus's wheel / the OrbitX Line's
+     * controls. The engine reads these every frame for the arrow-key
+     * throttle guard (arrows drive, they must not pitch the camera). */
+    drivingBus: () => drivingBus,
+    drivingLine: () => drivingLine,
+    /** Throttle from the engine (W/S, arrows, Gas/Brake buttons) — set
+     * every frame before after() runs, so the bus and the OrbitX Line
+     * can read it. */
+    setVehicleThrottle(gas: boolean, brake: boolean) {
+      throttleGas = gas;
+      throttleBrake = brake;
+    },
     /** Touch Gas / Brake holds, for the engine's driven-train throttle. */
     gasHeld: () => holdGas,
     brakeHeld: () => holdBrake,
@@ -10740,6 +10951,18 @@ export function createRuntime(scene: Scene) {
       // Riding the train: no flying off a moving train — get off first.
       if (ridingTrain) {
         say("Get off the train first — press E at the next stop.");
+        publish();
+        return;
+      }
+      // Driving the bus: no flying out of the driver's seat — get off first.
+      if (drivingBus) {
+        say("Get off the bus first — press E at the next stop.");
+        publish();
+        return;
+      }
+      // Driving the OrbitX Line: no flying out of the cab — get off first.
+      if (drivingLine) {
+        say("Get off the train first — press E at the next station.");
         publish();
         return;
       }
@@ -10857,6 +11080,20 @@ export function createRuntime(scene: Scene) {
       mailStops = [];
       if (id === "mail") resolveMailStops();
       riderOn = false;
+      // Already aboard as a passenger? Clocking in takes the wheel / the
+      // controls at once — no need to get off and climb back in.
+      if (id === "bus" && ridingBus && !drivingBus) {
+        drivingBus = true;
+        bus.setOperator(true);
+        busServedIds = new Set();
+        busBoardStopId = bus.atStop?.id ?? "";
+      }
+      if (id === "train" && ridingTrain && !drivingLine) {
+        drivingLine = true;
+        trainServedIdx = new Set();
+        trainBoardIdx = trainState.at;
+        trainHoldLeft = TRAIN_OPERATOR_HOLD_S;
+      }
       // Clock in: the shift starts now, at this job's hourly rate, with
       // its tasks on the map. The server records the same shift
       // (job-start) — online it is the authority for task pay, and
@@ -10886,6 +11123,44 @@ export function createRuntime(scene: Scene) {
       if (!job) {
         say("Not clocked in to a job.");
         return;
+      }
+      // Clocking out hands the wheel / the controls back first — never
+      // leave the bus or the train waiting for an operator who is gone.
+      const who = lastBody;
+      if (who) {
+        if (drivingBus) {
+          if (bus.dwelling && bus.atStop) exitBus(who);
+          else {
+            // Mid-route: step off at the curb side, same as the
+            // Transport panel's get-off.
+            ridingBus = false;
+            drivingBus = false;
+            bus.setOperator(false);
+            who.x = bus.x + Math.cos(bus.yaw) * 3;
+            who.z = bus.z + Math.sin(bus.yaw) * 3;
+            who.y = 0;
+            who.vy = 0;
+            who.flying = false;
+            triggerHaptic("door");
+          }
+        }
+        if (drivingLine) {
+          if (trainStopped()) alightTrain(who);
+          else {
+            // Mid-line: step off beside the track, same as the
+            // Transport panel's get-off.
+            ridingTrain = false;
+            drivingLine = false;
+            trainHoldLeft = 0;
+            who.x = trainState.x;
+            who.z = TRAIN_LINE_Z + 3.5;
+            who.y = trainTrackY(trainState.x) + 0.35;
+            who.yaw = Math.PI;
+            who.vy = 0;
+            who.flying = false;
+            triggerHaptic("door");
+          }
+        }
       }
       const done = jobTasksTotal > 0 ? Math.min(phase, jobTasksTotal) : 0;
       // Flush any finished task's pay before settling, so the clock-out
