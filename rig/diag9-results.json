@@ -1,0 +1,460 @@
+{
+  "frameAtHud": {
+    "ready": true,
+    "draws": 973,
+    "fps": 1,
+    "player": {
+      "x": 0,
+      "y": 0,
+      "z": 62,
+      "yaw": 0,
+      "swimming": false,
+      "flying": false
+    }
+  },
+  "frameAtBuy": {
+    "ready": true,
+    "draws": 975,
+    "fps": 14,
+    "player": {
+      "x": 0,
+      "y": 0,
+      "z": 62,
+      "yaw": 0,
+      "swimming": false,
+      "flying": false
+    }
+  },
+  "buy": "clicked",
+  "snapAfterBuy": {
+    "worldCars": [
+      {
+        "id": "north",
+        "vehicleId": null,
+        "x": 0,
+        "z": 46
+      },
+      {
+        "id": "dock-west-home",
+        "vehicleId": "boat-ferry",
+        "x": -391,
+        "z": 20.5
+      },
+      {
+        "id": "dock-west-ny",
+        "vehicleId": "boat-ferry",
+        "x": -599,
+        "z": 20.5
+      },
+      {
+        "id": "dock-east-home",
+        "vehicleId": "boat-ferry",
+        "x": 391,
+        "z": 20.5
+      },
+      {
+        "id": "dock-east-la",
+        "vehicleId": "boat-ferry",
+        "x": 599,
+        "z": 20.5
+      },
+      {
+        "id": "dock-south-home",
+        "vehicleId": "boat-ferry",
+        "x": 20.5,
+        "z": 391
+      },
+      {
+        "id": "dock-south-fl",
+        "vehicleId": "boat-ferry",
+        "x": 20.5,
+        "z": 699
+      },
+      {
+        "id": "shop-row",
+        "vehicleId": "atv-trail",
+        "x": 0,
+        "z": 56
+      }
+    ],
+    "activeVehicle": "atv-trail",
+    "balance": 58500,
+    "prompt": ""
+  },
+  "playerAfterBuy": {
+    "ready": true,
+    "draws": 994,
+    "fps": 4,
+    "player": {
+      "x": 0,
+      "y": 0,
+      "z": 62,
+      "yaw": 0,
+      "swimming": false,
+      "flying": false
+    }
+  },
+  "upgradeClick": "clicked",
+  "poll": [
+    {
+      "t": 0,
+      "bal": 58130,
+      "slots": 0,
+      "vehicles": 3,
+      "sedanBtn": "Garage full",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 3 cars — 3 parked."
+    },
+    {
+      "t": 2,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 4,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 6,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 8,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 10,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 12,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 14,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 16,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 18,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 20,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 22,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 24,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 26,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 28,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 30,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 32,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 34,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 36,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 38,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 40,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 42,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 44,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 46,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 48,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 50,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 52,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 54,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 56,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 58,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 60,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 62,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 64,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 66,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 68,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 70,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 72,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 74,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 76,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 78,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 80,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 82,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 84,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 86,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    },
+    {
+      "t": 88,
+      "bal": 57330,
+      "slots": 1,
+      "vehicles": 3,
+      "sedanBtn": "Buy — 450 City Sol",
+      "fits": "Buy one, pick a color, drive it out of the garage. City Sol only — no burn. Your garage fits 5 cars — 3 parked."
+    }
+  ]
+}
