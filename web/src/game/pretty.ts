@@ -1034,16 +1034,18 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
     }
   };
 
-  buildWall("n", true, z);
-  buildWall("s", true, z + d);
-  buildWall("w", false, x);
-  buildWall("e", false, x + w);
+  if (proud === 0) {
+    buildWall("n", true, z);
+    buildWall("s", true, z + d);
+    buildWall("w", false, x);
+    buildWall("e", false, x + w);
 
-  addWorldUvBoxes(group, baseWallBoxes, baseMat, 8, 8, true);
-  addWorldUvBoxes(group, upperWallBoxes, material, 10, 14, true);
+    addWorldUvBoxes(group, baseWallBoxes, baseMat, 8, 8, true);
+    addWorldUvBoxes(group, upperWallBoxes, material, 10, 14, true);
+  }
 
   if (door === "n" || door === "s") addDoor(true);
-  else addDoor(false);
+  else if (door === "w" || door === "e") addDoor(false);
 
   // ---- glass curtain bands on the upper floors (office towers only) ----
   if (glass === "curtain") {
@@ -1087,9 +1089,10 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
     }
   }
 
+  const capPad = proud > 0 ? 0.6 : 0;
   const roofCap = new Mesh(box, DARK_MAT);
   roofCap.position.set(cx, h + 0.2, cz);
-  roofCap.scale.set(w, 0.4, d);
+  roofCap.scale.set(w + capPad, 0.4, d + capPad);
   roofCap.castShadow = true;
   roofCap.receiveShadow = true;
   group.add(roofCap);
@@ -1524,7 +1527,7 @@ function addStorefront(group: Group, f: Facade) {
 // 4. Residential home window shutters, under-window flower planter boxes, and upper-floor windows.
 // 5. Mid/high-rise protruding window sills & wrought-iron Juliet balconies.
 function addArchitecturalDetails(group: Group, f: Facade) {
-  if (f.tiers) return;
+  if (f.tiers || f.glassProud) return;
   const { x, z, w, d, h, door, passThrough } = f;
   const cx = x + w / 2;
   const cz = z + d / 2;
@@ -1691,9 +1694,10 @@ function addArchitecturalDetails(group: Group, f: Facade) {
 
 // Gold trim band at the top of the walls.
 function addCornice(group: Group, f: Facade) {
+  const pad = f.glassProud ? 0.6 : 0;
   const trim = new Mesh(box, GOLD_MAT);
   trim.position.set(f.x + f.w / 2, f.h - 0.15, f.z + f.d / 2);
-  trim.scale.set(f.w + 0.3, 0.35, f.d + 0.3);
+  trim.scale.set(f.w + 0.3 + pad, 0.35, f.d + 0.3 + pad);
   group.add(trim);
 }
 
@@ -1944,7 +1948,7 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
       if (facade.wing) addWing(root, facade, material);
       continue;
     }
-    if (facade.enterable && facade.door) {
+    if (facade.enterable) {
       root.add(hollow(facade, material, !!facade.glass));
     } else {
       const mesh = new Mesh(

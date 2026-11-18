@@ -6970,12 +6970,15 @@ export function createRuntime(scene: Scene) {
     tickCrazy(body);    // NPC patrol: walk the loop of waypoints around the home spot, pausing
     // at each stop; face the player while talking.
     for (const [index, npc] of npcs.entries()) {
+      const npcDistSq = (npc.x - body.x) * (npc.x - body.x) + (npc.z - body.z) * (npc.z - body.z);
+      npc.group.visible = opts.orbit || npcDistSq <= 260 * 260;
       // Walk-cycle speed from real displacement (same rule as the player).
       const npcSpeed = Math.min(30, Math.hypot(npc.x - npc.prevX, npc.z - npc.prevZ) / Math.max(dt, 0.001));
       const npcMoving = npcSpeed > 0.05;
       npc.prevX = npc.x;
       npc.prevZ = npc.z;
       const walkNpc = () => {
+        if (!opts.orbit && npcDistSq > 180 * 180) return;
         const npcWalker = ensureWalker(npc.group);
         if (npcWalker) animateWalk(npcWalker, npcSpeed, dt, npcMoving, false);
       };

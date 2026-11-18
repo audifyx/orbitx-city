@@ -1,10 +1,11 @@
 // OrbitX City service worker — app-shell cache, network-first API.
 // RULE: bump CACHE on every push that changes the shell (game.js, index.html,
 // CSS, icons) — otherwise phones keep serving the old bundle from this cache.
-// v19 (2026-11-17): 3D world texture & Z-fighting polish (shared world-UV
-// facades, clean base masonry, darkSurface/creamPlaster/crimson textures,
-// intersection-free state roads/sidewalks) + 200-player universe capacity & LOD.
-const CACHE = "orbitx-city-v19";
+// v20 (2026-11-17): Deep scan 3D world polish — unsealed State Office Tower
+// upper floors, removed duplicate emergency/district tower outer walls so 3D
+// windows/doors/wallpaper render cleanly, cleared Central Plaza & tower lobby
+// roads/sidewalks/crosswalks, fixed interior rug & stage Z-fighting, NPC LOD.
+const CACHE = "orbitx-city-v20";
 const PRECACHE = [
   "/",
   "/index.html",

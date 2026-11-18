@@ -331,27 +331,46 @@ export function buildRegionRoads(city: City, state: StateDef): void {
   const blockSpan = 26; // 36 spacing - 2 * ROAD_HALF (10) = 26 clear between cross-roads
   const sidewalkSpan = 24.4; // stops cleanly at each intersection corner
   for (const c of REGION_ROAD_CENTERS) {
-    // N/S continuous asphalt strip.
-    pushBox(city, cx + c, 0.06, cz, ROAD_HALF * 2, 0.12, span, "asphalt");
+    // N/S asphalt strip: c=0 splits around the State Office Tower superblock
+    // (cz-72..cz-44) and the Central Plaza / Landmark Tower (cz-31..cz+31).
+    if (c === 0) {
+      pushBox(city, cx, 0.06, cz - 133.5, ROAD_HALF * 2, 0.12, 113, "asphalt");
+      pushBox(city, cx, 0.06, cz + 110.5, ROAD_HALF * 2, 0.12, 159, "asphalt");
+    } else {
+      pushBox(city, cx + c, 0.06, cz, ROAD_HALF * 2, 0.12, span, "asphalt");
+    }
     // E/W asphalt segmented between N/S roads so intersections never Z-fight.
     for (const b of BLOCK_CENTERS) {
-      pushBox(city, cx + b, 0.06, cz + c, blockSpan, 0.12, ROAD_HALF * 2, "asphalt");
-      // Sidewalks along each block edge (never crossing road intersections).
-      pushBox(city, cx + c - 6.5, 0.1, cz + b, 2, 0.12, sidewalkSpan, "sidewalk");
-      pushBox(city, cx + c + 6.5, 0.1, cz + b, 2, 0.12, sidewalkSpan, "sidewalk");
-      pushBox(city, cx + b, 0.1, cz + c - 6.5, sidewalkSpan, 0.12, 2, "sidewalk");
-      pushBox(city, cx + b, 0.1, cz + c + 6.5, sidewalkSpan, 0.12, 2, "sidewalk");
+      const inPlaza = Math.abs(b) <= 18;
+      // Skip E/W road segments inside the Central Plaza (c=0) and the Office Tower back wall (c=-72).
+      if (!((c === 0 || c === -72) && inPlaza)) {
+        pushBox(city, cx + b, 0.06, cz + c, blockSpan, 0.12, ROAD_HALF * 2, "asphalt");
+      }
+      // Sidewalks along each block edge (never crossing road intersections, the plaza, or the office tower).
+      if (!(c === 0 && (Math.abs(b) <= 18 || b === -54))) {
+        pushBox(city, cx + c - 6.5, 0.1, cz + b, 2, 0.12, sidewalkSpan, "sidewalk");
+        pushBox(city, cx + c + 6.5, 0.1, cz + b, 2, 0.12, sidewalkSpan, "sidewalk");
+      }
+      if (!(c === 0 && inPlaza)) {
+        pushBox(city, cx + b, 0.1, cz + c - 6.5, sidewalkSpan, 0.12, 2, "sidewalk");
+        if (!(c === -72 && inPlaza)) {
+          pushBox(city, cx + b, 0.1, cz + c + 6.5, sidewalkSpan, 0.12, 2, "sidewalk");
+        }
+      }
     }
     // Outer 5u road stubs beyond ±185 to the ±190 region edge.
     pushBox(city, cx - 187.5, 0.06, cz + c, 5, 0.12, ROAD_HALF * 2, "asphalt");
     pushBox(city, cx + 187.5, 0.06, cz + c, 5, 0.12, ROAD_HALF * 2, "asphalt");
   }
-  // Boulevard centre-line dashes on the two central avenues only.
-  // At o=0 the two dashes would both sit on the region centre and
-  // overlap (z-fight) — the E/W dash alone marks the crossing.
+  // Boulevard centre-line dashes on the two central avenues only, stopping
+  // outside the Central Plaza (±29) and the State Office Tower (cz-72..cz-44).
   for (let o = -168; o <= 168; o += 24) {
-    pushBox(city, cx + o, 0.13, cz, 8, 0.04, 0.8, state.theme.boulevard);
-    if (o !== 0) pushBox(city, cx, 0.13, cz + o, 0.8, 0.04, 8, state.theme.boulevard);
+    if (Math.abs(o) > 24) {
+      pushBox(city, cx + o, 0.13, cz, 8, 0.04, 0.8, state.theme.boulevard);
+    }
+    if (o < -72 || o > 24) {
+      pushBox(city, cx, 0.13, cz + o, 0.8, 0.04, 8, state.theme.boulevard);
+    }
   }
   // Florida: a boardwalk strip along the region's south edge.
   if (state.id === "fl") {
@@ -777,7 +796,7 @@ function furnishStateBlock(
       rcol(S / 2, T * 0.5, 1.0, 0.55, 1.1, 1.1);
       rput(S / 2, T * 0.5, 0.5, 1.35, 0.5, 0.5, "gold");
     } else if (kind === "gym") {
-      rput(S / 2, T * 0.5, 3.2, 0.06, 0.12, 2.2, "red");
+      rput(S / 2, T * 0.5, 3.2, 0.15, 0.06, 2.2, "red");
     } else if (kind !== "hall") {
       rput(S / 2, T * 0.5, 3.2, 0.5, 1.0, 1.6, "wood");
       rcol(S / 2, T * 0.5, 3.2, 0.5, 1.0, 1.6);
@@ -1162,7 +1181,7 @@ function furnishStateTower(city: City, state: StateDef): void {
   stateWallpaperWall(city, false, lx0 + 39.45, lx0 + 39.38, lz0 + 1.25, lz0 + 26.75, 0, "white", accent);
 
   // ---- Lobby ring: west lounge, east lift side, north benches, south rug. ----
-  stateRug(city, cx - 17.5, cz - 58, 0, 3, 8, accent);
+  stateRug(city, cx - 17.5, cz - 58, 0.06, 3, 8, accent);
   stateSofa(city, cx - 17.5, cz - 52, 0, 3.4, "red");
   stateSofa(city, cx - 17.5, cz - 64, 0, 3.4, "red");
   statePlant(city, cx - 17.5, cz - 58);
@@ -1172,14 +1191,14 @@ function furnishStateTower(city: City, state: StateDef): void {
   stateSofa(city, cx + 10, cz - 46, 0, 3.4, "red");
   statePlant(city, cx - 17, cz - 46);
   statePlant(city, cx + 17, cz - 46);
-  stateRug(city, cx, cz - 70, 0, 6, 2, accent);
+  stateRug(city, cx, cz - 70, 0.06, 6, 2, accent);
   for (const [px, pz] of [[cx - 17.5, cz - 58], [cx + 17.5, cz - 48]] as Array<[number, number]>) {
     pushBox(city, px, 7.4, pz, 0.1, 1.2, 0.1, "black");
     pushBox(city, px, 6.7, pz, 0.6, 0.3, 0.6, "warm");
   }
 
   // ---- Core hall (tower ground floor): rug, sofas, plants, lamp, directory. ----
-  stateRug(city, cx, cz - 58, 0, 8, 6, accent);
+  stateRug(city, cx, cz - 58, 0.06, 8, 6, accent);
   stateSofa(city, cx - 8, cz - 64, 0, 3.4, "red");
   stateSofa(city, cx + 8, cz - 64, 0, 3.4, "red");
   statePlant(city, cx - 13, cz - 66);

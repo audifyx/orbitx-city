@@ -1449,12 +1449,16 @@ function addRoads(boxes: Box[]) {
     for (const cz of CENTERS) {
       if (cx === 0 && cz === 0) continue;
       if (inMega(cx, cz)) continue;
-      for (let i = 0; i < 5; i++) {
-        const o = 5.5 + i * 0.85;
-        put(boxes, cx, 0.11, cz + o, 8.6, 0.035, 0.42, "lane");
-        put(boxes, cx, 0.11, cz - o, 8.6, 0.035, 0.42, "lane");
-        put(boxes, cx + o, 0.11, cz, 0.42, 0.035, 8.6, "lane");
-        put(boxes, cx - o, 0.11, cz, 0.42, 0.035, 8.6, "lane");
+      const o = 8.4;
+      for (const s of [-1, 1]) {
+        const z = cz + s * o;
+        if (!(cx === 0 && Math.abs(z) < 31) && !inMega(cx, z)) {
+          put(boxes, cx, 0.11, z, 8.6, 0.035, 0.45, "lane");
+        }
+        const x = cx + s * o;
+        if (!(cz === 0 && Math.abs(x) < 31) && !inMega(x, cz)) {
+          put(boxes, x, 0.11, cz, 0.45, 0.035, 8.6, "lane");
+        }
       }
     }
   }
@@ -1466,12 +1470,14 @@ function addRoads(boxes: Box[]) {
     for (const cz of CENTERS) {
       if (cx === 0 && cz === 0) continue;
       for (const approach of [-10.5, 10.5]) {
+        if (cx === 0 && Math.abs(cz + approach) < 31) continue;
         for (let i = -2; i <= 2; i++) {
           if (inMega(cx + i * 1.5, cz + approach)) continue;
           put(boxes, cx + i * 1.5, 0.118, cz + approach, 0.7, 0.035, 1.7, "lane");
         }
       }
       for (const approach of [-10.5, 10.5]) {
+        if (cz === 0 && Math.abs(cx + approach) < 31) continue;
         for (let i = -2; i <= 2; i++) {
           if (inMega(cx + approach, cz + i * 1.5)) continue;
           put(boxes, cx + approach, 0.118, cz + i * 1.5, 1.7, 0.035, 0.7, "lane");
@@ -3966,7 +3972,7 @@ function furnishBlock(
   } else if (kind === "hall") {
     // Low stage platform (walkable, no collider) + curtain panel on the
     // back wall above it.
-    rput(S / 2, backT, Math.min(9, S - 4), 0.06, 0.12, 2.2, "wood");
+    rput(S / 2, backT, Math.min(9, S - 4), 0.18, 0.12, 2.2, "wood");
     rput(S / 2, T - 1.4, Math.min(9, S - 4), 1.7, 1.6, 0.1, accent);
   } else {
     rput(S / 2, backT, backW, 0.55, 1.05, 1.15, kind === "hotel" ? "stone" : "wood");
@@ -4054,7 +4060,7 @@ function furnishBlock(
       rcol(S / 2, T * 0.5, 1.0, 0.55, 1.1, 1.1);
       rput(S / 2, T * 0.5, 0.5, 1.35, 0.5, 0.5, "gold");
     } else if (kind === "gym") {
-      rput(S / 2, T * 0.5, 3.2, 0.06, 0.12, 2.2, "red");
+      rput(S / 2, T * 0.5, 3.2, 0.15, 0.06, 2.2, "red");
     } else if (kind !== "hall") {
       rput(S / 2, T * 0.5, 3.2, 0.5, 1.0, 1.6, "wood");
       rcol(S / 2, T * 0.5, 3.2, 0.5, 1.0, 1.6);

@@ -423,14 +423,6 @@ function solidBox(
   col(parts, x, y, z, sx, sy, sz);
 }
 
-/** Roof-material number (facade) -> box material. */
-function roofBoxMat(roofMat: 0 | 1 | 2 | 3): Mat {
-  if (roofMat === 1) return "red";
-  if (roofMat === 2) return "gray";
-  if (roofMat === 3) return "gold";
-  return "black";
-}
-
 /** Sign rotation so the plate faces the same way the door anchor faces. */
 function doorYaw(door: Face): number {
   if (door === "n") return Math.PI;
@@ -524,7 +516,7 @@ function shellWalls(
   w: number,
   d: number,
   h: number,
-  wallMat: Mat,
+  _wallMat: Mat,
   door: Face,
   doorW = 3,
   passThrough?: Face,
@@ -539,17 +531,18 @@ function shellWalls(
   const cz = z0 + d / 2;
   const gapOn = (face: Face) => face === door || face === passThrough;
   const gapW = (face: Face) => (face === passThrough ? passW : doorW);
-  // North wall (z = z0) and south wall (z = z0 + d).
+  // North wall (z = z0) and south wall (z = z0 + d) — colliders only
+  // (pretty.ts hollow() renders the textured walls, windows, and framed door).
   for (const z of [z0, z0 + d]) {
     const face: Face = z === z0 ? "n" : "s";
     if (gapOn(face)) {
       const gw = gapW(face);
       const leftW = cx - gw / 2 - x0;
       const rightW = x0 + w - (cx + gw / 2);
-      solidBox(parts, x0 + leftW / 2, h / 2, z, leftW, h, t, wallMat);
-      solidBox(parts, cx + gw / 2 + rightW / 2, h / 2, z, rightW, h, t, wallMat);
+      col(parts, x0 + leftW / 2, h / 2, z, leftW, h, t);
+      col(parts, cx + gw / 2 + rightW / 2, h / 2, z, rightW, h, t);
     } else {
-      solidBox(parts, cx, h / 2, z, w, h, t, wallMat);
+      col(parts, cx, h / 2, z, w, h, t);
     }
   }
   // West wall (x = x0) and east wall (x = x0 + w).
@@ -559,32 +552,20 @@ function shellWalls(
       const gw = gapW(face);
       const northD = cz - gw / 2 - z0;
       const southD = z0 + d - (cz + gw / 2);
-      solidBox(parts, x, h / 2, z0 + northD / 2, t, h, northD, wallMat);
-      solidBox(parts, x, h / 2, cz + gw / 2 + southD / 2, t, h, southD, wallMat);
+      col(parts, x, h / 2, z0 + northD / 2, t, h, northD);
+      col(parts, x, h / 2, cz + gw / 2 + southD / 2, t, h, southD);
     } else {
-      solidBox(parts, x, h / 2, cz, t, h, d, wallMat);
+      col(parts, x, h / 2, cz, t, h, d);
     }
   }
-  // Closed real door (2026-11-12): a solid wood panel fills the gap, with
-  // a lintel above it and a gold handle on both sides. The door is solid —
-  // entry is E at the door anchor, never a walk-through.
+  // Closed door collider + lintel collider on the door face.
   const alongX = door === "n" || door === "s";
   const dz = door === "n" ? z0 : door === "s" ? z0 + d : cz;
   const dx = door === "w" ? x0 : door === "e" ? x0 + w : cx;
   const px = alongX ? cx : dx;
   const pz = alongX ? dz : cz;
-  solidBox(parts, px, 1.45, pz, alongX ? doorW - 0.1 : 0.35, 2.9, alongX ? 0.35 : doorW - 0.1, "wood");
-  solidBox(parts, px, 3 + (h - 3) / 2, pz, alongX ? doorW : t, h - 3, alongX ? t : doorW, wallMat);
-  const hx = alongX ? cx + 1.1 : dx;
-  const hz = alongX ? dz : cz + 1.1;
-  const out = alongX ? (door === "n" ? -0.3 : 0.3) : door === "w" ? -0.3 : 0.3;
-  if (alongX) {
-    box(parts, hx, 1.15, pz + out, 0.16, 0.16, 0.14, "gold");
-    box(parts, hx, 1.15, pz - out, 0.16, 0.16, 0.14, "gold");
-  } else {
-    box(parts, px + out, 1.15, hz, 0.14, 0.16, 0.16, "gold");
-    box(parts, px - out, 1.15, hz, 0.14, 0.16, 0.16, "gold");
-  }
+  col(parts, px, 1.45, pz, alongX ? doorW - 0.1 : 0.35, 2.9, alongX ? 0.35 : doorW - 0.1);
+  col(parts, px, 3 + (h - 3) / 2, pz, alongX ? doorW : t, h - 3, alongX ? t : doorW);
 }
 
 function floorSlab(parts: CityParts, x0: number, z0: number, w: number, d: number, y: number, mat: Mat): void {
@@ -767,33 +748,33 @@ function deptFinish(
   const cx = bx0 + DEPT_W / 2;
   const cz = bz0 + DEPT_D / 2;
   const accent = district.style.accent;
-  // Wallpaper: split around the 3-wide door gap on the door face.
+  // Wallpaper: split around the 4-wide pretty.ts door gap on the door face.
   if (door === "n") {
-    wallpaperWall(parts, true, bz0 + 0.4, bz0 + 0.47, bx0 + 1.25, cx - 1.5, 0, "white", accent);
-    wallpaperWall(parts, true, bz0 + 0.4, bz0 + 0.47, cx + 1.5, bx0 + 16.75, 0, "white", accent);
+    wallpaperWall(parts, true, bz0 + 0.55, bz0 + 0.62, bx0 + 1.25, cx - 2, 0, "white", accent);
+    wallpaperWall(parts, true, bz0 + 0.55, bz0 + 0.62, cx + 2, bx0 + 16.75, 0, "white", accent);
   } else {
-    wallpaperWall(parts, true, bz0 + 0.4, bz0 + 0.47, bx0 + 1.25, bx0 + 16.75, 0, "white", accent);
+    wallpaperWall(parts, true, bz0 + 0.55, bz0 + 0.62, bx0 + 1.25, bx0 + 16.75, 0, "white", accent);
   }
   if (door === "s") {
-    wallpaperWall(parts, true, bz0 + 11.6, bz0 + 11.53, bx0 + 1.25, cx - 1.5, 0, "white", accent);
-    wallpaperWall(parts, true, bz0 + 11.6, bz0 + 11.53, cx + 1.5, bx0 + 16.75, 0, "white", accent);
+    wallpaperWall(parts, true, bz0 + 11.45, bz0 + 11.38, bx0 + 1.25, cx - 2, 0, "white", accent);
+    wallpaperWall(parts, true, bz0 + 11.45, bz0 + 11.38, cx + 2, bx0 + 16.75, 0, "white", accent);
   } else {
-    wallpaperWall(parts, true, bz0 + 11.6, bz0 + 11.53, bx0 + 1.25, bx0 + 16.75, 0, "white", accent);
+    wallpaperWall(parts, true, bz0 + 11.45, bz0 + 11.38, bx0 + 1.25, bx0 + 16.75, 0, "white", accent);
   }
   if (door === "w") {
-    wallpaperWall(parts, false, bx0 + 0.4, bx0 + 0.47, bz0 + 1.25, cz - 1.5, 0, "white", accent);
-    wallpaperWall(parts, false, bx0 + 0.4, bx0 + 0.47, cz + 1.5, bz0 + 10.75, 0, "white", accent);
+    wallpaperWall(parts, false, bx0 + 0.55, bx0 + 0.62, bz0 + 1.25, cz - 2, 0, "white", accent);
+    wallpaperWall(parts, false, bx0 + 0.55, bx0 + 0.62, cz + 2, bz0 + 10.75, 0, "white", accent);
   } else {
-    wallpaperWall(parts, false, bx0 + 0.4, bx0 + 0.47, bz0 + 1.25, bz0 + 10.75, 0, "white", accent);
+    wallpaperWall(parts, false, bx0 + 0.55, bx0 + 0.62, bz0 + 1.25, bz0 + 10.75, 0, "white", accent);
   }
   if (door === "e") {
-    wallpaperWall(parts, false, bx0 + 17.6, bx0 + 17.53, bz0 + 1.25, cz - 1.5, 0, "white", accent);
-    wallpaperWall(parts, false, bx0 + 17.6, bx0 + 17.53, cz + 1.5, bz0 + 10.75, 0, "white", accent);
+    wallpaperWall(parts, false, bx0 + 17.45, bx0 + 17.38, bz0 + 1.25, cz - 2, 0, "white", accent);
+    wallpaperWall(parts, false, bx0 + 17.45, bx0 + 17.38, cz + 2, bz0 + 10.75, 0, "white", accent);
   } else {
-    wallpaperWall(parts, false, bx0 + 17.6, bx0 + 17.53, bz0 + 1.25, bz0 + 10.75, 0, "white", accent);
+    wallpaperWall(parts, false, bx0 + 17.45, bx0 + 17.38, bz0 + 1.25, bz0 + 10.75, 0, "white", accent);
   }
-  // Rug in the free centre, per kind.
-  const rug = (x: number, z: number, mat: Mat) => box(parts, x, 0.09, z, 4, 0.06, 3, mat);
+  // Rug in the free centre, per kind (y=0.17, sy=0.06 sits cleanly on floorSlab top 0.14).
+  const rug = (x: number, z: number, mat: Mat) => box(parts, x, 0.17, z, 4, 0.06, 3, mat);
   if (kind === "fire") rug(cx - 2, cz + 4, "red");
   else if (kind === "police") rug(cx, cz + 0.5, "black");
   else if (kind === "hospital") rug(cx, cz + 1, "white");
@@ -825,12 +806,10 @@ export function buildDepartment(
   const roofMat = deptRoofMat(kind, district);
   const anchorKind = DEPT_ANCHOR_KIND[kind];
 
-  // Shell: floor, walls with door gap, roof slab, district-accent plinth.
+  // Shell: floor, wall colliders, roof collider (pretty.ts renders the facade + roof).
   floorSlab(parts, bx0, bz0, DEPT_W, DEPT_D, 0.08, "stone");
   shellWalls(parts, bx0, bz0, DEPT_W, DEPT_D, DEPT_H, info.wall, face);
-  box(parts, cx, DEPT_H + 0.2, cz, DEPT_W + 0.8, 0.4, DEPT_D + 0.8, roofBoxMat(roofMat));
   col(parts, cx, DEPT_H + 0.2, cz, DEPT_W + 0.8, 0.4, DEPT_D + 0.8);
-  box(parts, cx, 0.15, cz, DEPT_W + 0.6, 0.3, DEPT_D + 0.6, district.style.accent);
   // Apron outside the door.
   const apron =
     face === "e" ? { x: bx0 + DEPT_W + 2.5, z: cz, w: 5, d: 6 }
@@ -1002,29 +981,16 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
   // pass-through face (a helper, so TS does not narrow passThrough
   // to "e" | "w" and reject the "n" / "s" comparisons below).
   const gapOn = (face: Face) => door === face || passThrough === face;
-  // Half-width of the ground-floor gap: the person door is 3 wide,
-  // the car through-door is 4 (matches shellWalls passW).
-  const gapHalf = (face: Face) => (passThrough !== undefined && face === passThrough ? 2 : 1.5);
+  // Half-width of the ground-floor gap: pretty.ts cuts a 4-wide opening on door & passThrough.
+  const gapHalf = (_face: Face) => 2;
   const suites = districtOfficeSuites(district.id);
   const liftId = `lift-${district.id}`;
   const towerId = `tower-${district.id}`;
 
-  // Shell + roof + cornice band in the district accent.
+  // Shell + roof collider (pretty.ts renders the facade, cornice, roof, and crown).
   floorSlab(parts, x0, z0, TOWER_W, TOWER_D, 0.08, style.floor);
   shellWalls(parts, x0, z0, TOWER_W, TOWER_D, TOWER_H, style.wall, door, 3, passThrough);
-  for (const [bx, bz, bw, bd] of [
-    [cx, z0 + 0.3, TOWER_W, 0.5],
-    [cx, z0 + TOWER_D - 0.3, TOWER_W, 0.5],
-    [x0 + 0.3, cz, 0.5, TOWER_D],
-    [x0 + TOWER_W - 0.3, cz, 0.5, TOWER_D],
-  ] as Array<[number, number, number, number]>) {
-    box(parts, bx, TOWER_H - 0.6, bz, bw, 0.7, bd, style.accent);
-  }
-  box(parts, cx, TOWER_H + 0.2, cz, TOWER_W + 0.8, 0.4, TOWER_D + 0.8, roofBoxMat(style.roofMat));
   col(parts, cx, TOWER_H + 0.2, cz, TOWER_W + 0.8, 0.4, TOWER_D + 0.8);
-  if (style.crown) {
-    box(parts, cx, TOWER_H + 0.4 + style.crown.h / 2, cz, style.crown.w, style.crown.h, style.crown.d, style.accent);
-  }
   // Glass lift shaft, NW corner, full height.
   box(parts, x0 + 5, TOWER_H / 2, z0 + 3, 0.3, TOWER_H, 4, "cyan");
   box(parts, x0 + 3, TOWER_H / 2, z0 + 5, 4, TOWER_H, 0.3, "cyan");
@@ -1047,7 +1013,7 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
   signArt(parts, `dir2-${towerId}`, boardPos.x + (boardFace === "w" ? 0.3 : boardFace === "e" ? -0.3 : 0), 2.45, boardPos.z + (boardFace === "n" ? 0.3 : boardFace === "s" ? -0.3 : 0), boardPos.rotY, 4.6, 0.85, ["Floor 2", "Suites 2A – 2H"], "Standard offices");
   signArt(parts, `dir3-${towerId}`, boardPos.x + (boardFace === "w" ? 0.3 : boardFace === "e" ? -0.3 : 0), 1.55, boardPos.z + (boardFace === "n" ? 0.3 : boardFace === "s" ? -0.3 : 0), boardPos.rotY, 4.6, 0.85, ["Floor 3", "Suites 3A – 3H"], "Standard offices");
   signArt(parts, `dir4-${towerId}`, boardPos.x + (boardFace === "w" ? 0.3 : boardFace === "e" ? -0.3 : 0), 0.65, boardPos.z + (boardFace === "n" ? 0.3 : boardFace === "s" ? -0.3 : 0), boardPos.rotY, 4.6, 0.85, ["Floor 4", "Founder's Office · 4A – 4H"], "Premium suites");
-  box(parts, cx, 0.12, cz + 2, 8, 0.06, 6, style.accent);
+  box(parts, cx, 0.17, cz + 2, 8, 0.06, 6, style.accent);
   // Lobby sofas + plants — at z0+18: the z0+22 row grazed the directory
   // corridor for south-board towers, and z0+20 sits on the directory row
   // for east/west-board towers. z0+18 clears all four board faces.
@@ -1108,34 +1074,34 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
   }
 
   // Wallpaper on the tower shell, per floor (audit finish, 2026-11-11).
-  // The ground floor splits around the door gap (shellWalls doorW = 3,
-  // pass-through 4) — on the door face AND the pass-through face, so no
-  // paint hangs across either opening; the suite floors get the full walls.
+  // The ground floor splits around the door gap (pretty.ts gap = 4) — on the
+  // door face AND the pass-through face, so no paint hangs across either
+  // opening; the suite floors get the full walls (inset 0.55/0.62 proud of 0.45).
   for (const floorY of [0, 8, 12, 16]) {
     const ground = floorY === 0;
     if (ground && gapOn("n")) {
-      wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, x0 + 1.25, cx - gapHalf("n"), floorY, "white", style.accent);
-      wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, cx + gapHalf("n"), x0 + 26.75, floorY, "white", style.accent);
+      wallpaperWall(parts, true, z0 + 0.55, z0 + 0.62, x0 + 1.25, cx - gapHalf("n"), floorY, "white", style.accent);
+      wallpaperWall(parts, true, z0 + 0.55, z0 + 0.62, cx + gapHalf("n"), x0 + 26.75, floorY, "white", style.accent);
     } else {
-      wallpaperWall(parts, true, z0 + 0.4, z0 + 0.47, x0 + 1.25, x0 + 26.75, floorY, "white", style.accent);
+      wallpaperWall(parts, true, z0 + 0.55, z0 + 0.62, x0 + 1.25, x0 + 26.75, floorY, "white", style.accent);
     }
     if (ground && gapOn("s")) {
-      wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, x0 + 1.25, cx - gapHalf("s"), floorY, "white", style.accent);
-      wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, cx + gapHalf("s"), x0 + 26.75, floorY, "white", style.accent);
+      wallpaperWall(parts, true, z0 + 27.45, z0 + 27.38, x0 + 1.25, cx - gapHalf("s"), floorY, "white", style.accent);
+      wallpaperWall(parts, true, z0 + 27.45, z0 + 27.38, cx + gapHalf("s"), x0 + 26.75, floorY, "white", style.accent);
     } else {
-      wallpaperWall(parts, true, z0 + 27.6, z0 + 27.53, x0 + 1.25, x0 + 26.75, floorY, "white", style.accent);
+      wallpaperWall(parts, true, z0 + 27.45, z0 + 27.38, x0 + 1.25, x0 + 26.75, floorY, "white", style.accent);
     }
     if (ground && gapOn("w")) {
-      wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, z0 + 1.25, cz - gapHalf("w"), floorY, "white", style.accent);
-      wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, cz + gapHalf("w"), z0 + 26.75, floorY, "white", style.accent);
+      wallpaperWall(parts, false, x0 + 0.55, x0 + 0.62, z0 + 1.25, cz - gapHalf("w"), floorY, "white", style.accent);
+      wallpaperWall(parts, false, x0 + 0.55, x0 + 0.62, cz + gapHalf("w"), z0 + 26.75, floorY, "white", style.accent);
     } else {
-      wallpaperWall(parts, false, x0 + 0.4, x0 + 0.47, z0 + 1.25, z0 + 26.75, floorY, "white", style.accent);
+      wallpaperWall(parts, false, x0 + 0.55, x0 + 0.62, z0 + 1.25, z0 + 26.75, floorY, "white", style.accent);
     }
     if (ground && gapOn("e")) {
-      wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, z0 + 1.25, cz - gapHalf("e"), floorY, "white", style.accent);
-      wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, cz + gapHalf("e"), z0 + 26.75, floorY, "white", style.accent);
+      wallpaperWall(parts, false, x0 + 27.45, x0 + 27.38, z0 + 1.25, cz - gapHalf("e"), floorY, "white", style.accent);
+      wallpaperWall(parts, false, x0 + 27.45, x0 + 27.38, cz + gapHalf("e"), z0 + 26.75, floorY, "white", style.accent);
     } else {
-      wallpaperWall(parts, false, x0 + 27.6, x0 + 27.53, z0 + 1.25, z0 + 26.75, floorY, "white", style.accent);
+      wallpaperWall(parts, false, x0 + 27.45, x0 + 27.38, z0 + 1.25, z0 + 26.75, floorY, "white", style.accent);
     }
   }
 
@@ -1209,6 +1175,7 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
     awning: district.id === "harbor",
     cornice: true,
     crown: style.crown ?? undefined,
+    glass: "curtain",
   });
   parts.zones.push(...zones);
   parts.anchors.push(...anchors);
