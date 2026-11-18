@@ -1,4 +1,5 @@
 import { accountToken, ensureFreshAccountToken, readAccount, refreshAccountToken } from "../auth";
+import { apiUrl } from "./net";
 import { connectLive } from "./live";
 import type { OwnedVehicle, GarageUpgrades } from "./vehicles";
 import type { OwnedHome } from "./homes";
@@ -991,7 +992,7 @@ class CityWorld {
     const send = async (override?: string) => {
       const attemptHeaders = { ...headers };
       if (override) attemptHeaders.authorization = `Bearer ${override}`;
-      const response = await fetch("/api/city", {
+      const response = await fetch(apiUrl("/api/city"), {
         method: "POST",
         headers: attemptHeaders,
         body: JSON.stringify({ op, ...extra }),

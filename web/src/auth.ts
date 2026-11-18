@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { jwtExpiryMs, tokenNeedsRefresh } from "./tokenExpiry";
+import { apiUrl } from "./game/net";
 
 const KEY = "orbitx-account";
 
@@ -43,7 +44,7 @@ let config: AuthConfig | null = null;
 
 export async function loadAuthConfig(): Promise<AuthConfig> {
   if (config) return config;
-  const response = await fetch("/api/city");
+  const response = await fetch(apiUrl("/api/city"));
   const data = (await response.json()) as { auth?: AuthConfig };
   config = data.auth?.mode ? data.auth : { mode: "mock", url: "", anon: "" };
   return config;
@@ -223,7 +224,7 @@ export async function restoreAccount(): Promise<Account | null> {
 }
 
 async function mockPost(op: string, body: Record<string, unknown>) {
-  const response = await fetch("/api/city", {
+  const response = await fetch(apiUrl("/api/city"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ op, ...body }),

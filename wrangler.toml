@@ -1,0 +1,29 @@
+# Cloudflare Pages project for the OrbitX City game (static files only).
+#
+# The API does NOT live here — it lives on Render (see render.yaml).
+# The game calls it through VITE_API_URL, which must be set in the Pages
+# dashboard (Settings -> Environment variables -> Production) to the
+# Render API service URL, e.g. https://orbitx-city-api.onrender.com
+# (no trailing slash). Without it the game calls same-origin /api/city,
+# which does not exist on Pages.
+#
+# Create the project (after the Cloudflare token is re-linked — see
+# docs/RENDER_CLOUDFLARE_MIGRATION.md):
+#   Dashboard: Workers & Pages -> Create -> Pages -> Connect to Git
+#     -> repo audifyx/orbitx-city, branch main
+#     -> Framework preset: None (or Vite), Build command: npm run build,
+#        Build output directory: web/dist, Root directory: (repo root)
+#     -> Environment variable: VITE_API_URL = <Render API URL>
+#   or with Wrangler (see the migration doc for the deploy.py pattern):
+#     wrangler pages project create orbitx-city
+#     wrangler pages deploy web/dist --project-name orbitx-city
+#
+# The dashboard values above are authoritative; this file only records
+# them so the project can be recreated from the repo.
+
+name = "orbitx-city"
+compatibility_date = "2026-11-18"
+pages_build_output_dir = "web/dist"
+
+[build]
+command = "npm run build"

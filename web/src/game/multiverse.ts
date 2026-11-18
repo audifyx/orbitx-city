@@ -40,6 +40,7 @@
 
 import { accountToken } from "../auth";
 import type { ChatLine, NetState } from "./net";
+import { apiUrl } from "./net";
 import { world, type CityMe } from "./world";
 
 /** One universe holds at most this many players at once. */
@@ -270,7 +271,7 @@ async function callUniverseOp(
   const access = accountToken();
   if (access) headers.authorization = `Bearer ${access}`;
   else if (world.token) headers.authorization = `Bearer ${world.token}`;
-  const response = await fetch("/api/city", {
+  const response = await fetch(apiUrl("/api/city"), {
     method: "POST",
     headers,
     body: JSON.stringify({ op, ...extra }),

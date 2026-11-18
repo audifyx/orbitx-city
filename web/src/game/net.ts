@@ -40,6 +40,23 @@ export interface NetAdapter {
   close(): void;
 }
 
+
+/**
+ * Where the City API lives. Same origin by default (today's Vercel
+ * behaviour — the game calls relative /api/city). Set VITE_API_URL at
+ * build time to point the game at the Render API server when the game
+ * itself is hosted on Cloudflare Pages (a different origin).
+ * Trailing slashes are stripped; an empty value means same-origin.
+ */
+export function apiBase(): string {
+  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+  return (env?.VITE_API_URL || "").replace(/\/+$/, "");
+}
+
+export function apiUrl(path: string): string {
+  return `${apiBase()}${path}`;
+}
+
 /**
  * Same-browser tabs share a BroadcastChannel. A real relay is the same JSON
  * envelopes over a WebSocket: connect with ?server=ws://host:8787
