@@ -131,50 +131,6 @@ export interface Collider {
   tag?: string;
 }
 
-/** One exterior door: a facade's `door` face, with a closed leaf the
- * runtime opens on approach (2026-11-18). The leaf is a double door —
- * two 1.8-wide leaves sliding apart into the wall — so it clears the
- * 4-wide gap without poking past a small building's corner. The gap in
- * the wall colliders is centred on the face centre (cx/cz) in every wall
- * builder (city addWallCols, emergency shellWalls, states
- * pushWallColliders), so the door centre is the face centre here. All
- * facade doors are ground floor (y0 0). The ORBITX Tower is excluded:
- * it keeps its deliberate solid facade (closedDoor) and E-at-anchor entry. */
-export interface DoorDef {
-  /** Stable id — the facade id (one exterior door per facade). */
-  id: string;
-  /** Door centre on the wall plane (face centre). */
-  x: number;
-  z: number;
-  /** Floor the door stands on (0 for every facade door). */
-  y0: number;
-  face: Face;
-  /** True when the door runs along X (faces n/s). */
-  alongX: boolean;
-}
-
-/** Exterior doors for a facade list: every enterable facade with a door
- * face, except the ORBITX Tower (id "tower"). */
-export function doorsForFacades(facades: Facade[]): DoorDef[] {
-  const doors: DoorDef[] = [];
-  for (const f of facades) {
-    if (!f.enterable || !f.door) continue;
-    if (f.id === "tower") continue;
-    const alongX = f.door === "n" || f.door === "s";
-    const cx = f.x + f.w / 2;
-    const cz = f.z + f.d / 2;
-    doors.push({
-      id: f.id,
-      x: alongX ? cx : f.door === "w" ? f.x : f.x + f.w,
-      z: alongX ? (f.door === "n" ? f.z : f.z + f.d) : cz,
-      y0: 0,
-      face: f.door,
-      alongX,
-    });
-  }
-  return doors;
-}
-
 export interface ShipPath {
   y: number;
   radiusX: number;
@@ -280,7 +236,6 @@ export interface City {
   cars: CarSpawn[];
   zones: Zone[];
   facades: Facade[];
-  doors: DoorDef[];
   citizens: Citizen[];
   art: Art[];
   lifts: Lift[];
@@ -5927,7 +5882,6 @@ export function buildCity(seed: number): City {
     boards: fixed.boards,
     zones: [...fixed.zones, ...built.zones, ...mall.zones, ...office.zones, ...emergencyParts.zones, tower.zone, ...trainLine.zones],
     facades: [...facades, ...emergencyParts.facades],
-    doors: [] as DoorDef[],
     art: [...art, ...emergencyParts.art, ...station.art],
     lifts: [...mall.lifts, ...office.lifts, ...emergencyParts.lifts, ...station.lifts],
     cars: [
@@ -5972,20 +5926,6 @@ export function buildCity(seed: number): City {
   // City Loop bus: Central Station + five stop shelters (bus.ts). Same
   // rule as the regions/bridges — inside buildCity, before the cached model.
   buildBusStation(city);
-  // Dynamic doors (2026-11-18): every exterior door gets a closed leaf
-  // (the runtime slides it open on approach) + a tagged collider plugging
-  // the 4-wide x 3-high gap while closed. The collider is 0.5 thick on the
-  // wall plane — it seals the gap for every wall builder. Derived here,
-  // after the regions/homes run, so city.facades is complete.
-  city.doors = doorsForFacades(city.facades);
-  for (const d of city.doors) {
-    const t = 0.5;
-    if (d.alongX) {
-      city.colliders.push({ minX: d.x - 2, maxX: d.x + 2, minY: d.y0, maxY: d.y0 + 3, minZ: d.z - t / 2, maxZ: d.z + t / 2, tag: `door:${d.id}` });
-    } else {
-      city.colliders.push({ minX: d.x - t / 2, maxX: d.x + t / 2, minY: d.y0, maxY: d.y0 + 3, minZ: d.z - 2, maxZ: d.z + 2, tag: `door:${d.id}` });
-    }
-  }
   return city;
 }
 

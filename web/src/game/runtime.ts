@@ -3,11 +3,8 @@ import {
   CanvasTexture,
   CylinderGeometry,
   DoubleSide,
-  DynamicDrawUsage,
   FrontSide,
   Group,
-  InstancedMesh,
-  Matrix4,
   Mesh,
   MeshLambertMaterial,
   MeshStandardMaterial,
@@ -20,7 +17,7 @@ import {
   type PerspectiveCamera,
   type Scene,
 } from "three";
-import type { Anchor, Art, BoardSlot, City, Collider, DoorDef, Lift, Zone } from "./city";
+import type { Anchor, Art, BoardSlot, City, Collider, Lift, Zone } from "./city";
 import { TRAIN_LINE_Z, TRAIN_STATIONS, trainTrackY } from "./city";
 import { BUS_BOARD_DIST, BUS_LENGTH, BUS_WIDTH, BusSim, buildBusMesh } from "./bus";
 import {
@@ -1134,9 +1131,7 @@ function drawBillboardImageText(ctx: CanvasRenderingContext2D, img: HTMLImageEle
 
 // Preview of exactly what a billboard will look like, for the Ads panel:
 // same layout as the mesh, rendered to a data URL. Text-only when no
-// image was given at all; a FAILED image load is an error, not a silent
-// text-only preview — the panel must tell the user the image did not
-// load instead of showing a text board that hides the problem.
+// image; a failed image load still previews the text board.
 async function billboardPreview(imageUrl: string, project: string, text: string) {
   const face: BillboardInfo = {
     id: "preview",
@@ -1156,9 +1151,6 @@ async function billboardPreview(imageUrl: string, project: string, text: string)
     el.onerror = () => resolve(null);
     el.src = imageUrl;
   });
-  if (!img) {
-    return { ok: false as const, dataUrl: "", message: "The image could not be loaded. Try picking the file again, or upload it first and preview again." };
-  }
   const canvas = document.createElement("canvas");
   canvas.width = 512;
   canvas.height = 256;
@@ -1656,33 +1648,6 @@ export function createRuntime(scene: Scene) {
     slideZ: number;
   }
   const liftCabs = new Map<string, LiftCab>();
-  // Dynamic exterior doors (2026-11-18): every facade door gets a closed
-  // double leaf (two 1.8-wide wood leaves + gold pull handles, one
-  // InstancedMesh per part for the whole city — 2 draw calls, not 700).
-  // A leaf opens when the player comes within 2.5u and closes once they
-  // are 3.0u away (hysteresis, so it never flaps at the boundary); the
-  // tagged door collider is excluded from activeCols while the leaf is
-  // more than half open, exactly like the lift-door blocker. A door only
-  // ever closes when the player is 3.0u+ away, so nobody can be caught
-  // inside a closing leaf — the 2026-11-12 stuck-at-a-solid-wall bug
-  // cannot come back. The ORBITX Tower is not in city.doors (solid
-  // facade, E-at-anchor entry) and keeps its closed door.
-  interface DoorState {
-    def: DoorDef;
-    /** 0 = closed, 1 = fully open (leaves slid into the wall). */
-    doorPos: number;
-    doorTarget: number;
-    /** Hysteresis latch: opens < 2.5u, closes > 3.0u. */
-    isOpen: boolean;
-    /** Whether this door's collider is currently excluded. */
-    colOpen: boolean;
-  }
-  const doorStates: DoorState[] = [];
-  const openDoorTags = new Set<string>();
-  let doorSlabs: InstancedMesh | null = null;
-  let doorHandles: InstancedMesh | null = null;
-  const doorMatrix = new Matrix4();
-  let doorsOpenCount = -1;
   let insideName = "";
   let driving = false;
   let carIndex = -1;
@@ -2311,15 +2276,14 @@ export function createRuntime(scene: Scene) {
 
   // The colliders the engine walks on: the city's full set (plus the CRAZY
   // extras — rooftop decks, rails, theater seats) minus the one lift door
-  // blocker that is currently open (so the rider can step out of the cab)
-  // and minus the tagged colliders of any exterior doors that are open.
+  // blocker that is currently open (so the rider can step out of the cab).
   function refreshActiveCols() {
     const base = crazyCols.length ? [...cityCols, ...crazyCols] : cityCols;
-    if (!liftOpen && openDoorTags.size === 0) {
+    if (!liftOpen) {
       activeCols = base;
     } else {
-      const liftTag = liftOpen ? `lift-door:${liftOpen.liftId}:${liftOpen.floor}` : "";
-      activeCols = base.filter((c) => c.tag !== liftTag && !(c.tag !== undefined && openDoorTags.has(c.tag)));
+      const tag = `lift-door:${liftOpen.liftId}:${liftOpen.floor}`;
+      activeCols = base.filter((c) => c.tag !== tag);
     }
     rebuildColGrid();
   }
@@ -2407,120 +2371,11 @@ export function createRuntime(scene: Scene) {
     }
   }
 
-  // Dynamic exterior doors: one InstancedMesh for all wood leaves and one
-  // for all gold pull handles. Two leaves per door (1.8 wide each, closed
-  // centres at -0.9 / +0.9 along the wall); open, each slides 2.0 into
-  // the wall, so the 4-wide gap is fully clear and the leaf never pokes
-  // past a small building's corner. The leaf is 2.9 high, centred at
-  // y0 + 1.45; the handle is a vertical gold bar at the meeting edge,
-  // poking 0.07 out on each face so it reads from inside and outside.
-  const DOOR_LEAF_W = 1.8;
-  const DOOR_LEAF_H = 2.9;
-  const DOOR_LEAF_T = 0.3;
-  const DOOR_SLIDE = 2.0;
-  const DOOR_OPEN_DIST = 2.5;
-  const DOOR_CLOSE_DIST = 3.0;
-  function doorLeafMatrix(def: DoorDef, leaf: 0 | 1, pos: number, target: Matrix4): Matrix4 {
-    const centre = (leaf === 0 ? -DOOR_LEAF_W / 2 : DOOR_LEAF_W / 2) + (leaf === 0 ? -DOOR_SLIDE : DOOR_SLIDE) * pos;
-    const x = def.x + (def.alongX ? centre : 0);
-    const z = def.z + (def.alongX ? 0 : centre);
-    target.makeScale(def.alongX ? DOOR_LEAF_W : DOOR_LEAF_T, DOOR_LEAF_H, def.alongX ? DOOR_LEAF_T : DOOR_LEAF_W);
-    target.setPosition(x, def.y0 + DOOR_LEAF_H / 2, z);
-    return target;
-  }
-  function doorHandleMatrix(def: DoorDef, leaf: 0 | 1, pos: number, target: Matrix4): Matrix4 {
-    const centre = (leaf === 0 ? -DOOR_LEAF_W / 2 : DOOR_LEAF_W / 2) + (leaf === 0 ? -DOOR_SLIDE : DOOR_SLIDE) * pos;
-    // Handle sits 0.7 from the leaf centre toward the meeting edge.
-    const at = centre + (leaf === 0 ? 0.7 : -0.7);
-    const x = def.x + (def.alongX ? at : 0);
-    const z = def.z + (def.alongX ? 0 : at);
-    target.makeScale(def.alongX ? 0.14 : 0.44, 0.5, def.alongX ? 0.44 : 0.14);
-    target.setPosition(x, def.y0 + 1.15, z);
-    return target;
-  }
-  function buildDoors(doors: DoorDef[]) {
-    doorStates.length = 0;
-    openDoorTags.clear();
-    doorsOpenCount = -1;
-    doorSlabs = null;
-    doorHandles = null;
-    if (!doors.length) return;
-    const box = new BoxGeometry(1, 1, 1);
-    const slabs = new InstancedMesh(box, MATERIALS.wood, doors.length * 2);
-    const handles = new InstancedMesh(box, GOLD, doors.length * 2);
-    slabs.instanceMatrix.setUsage(DynamicDrawUsage);
-    handles.instanceMatrix.setUsage(DynamicDrawUsage);
-    slabs.frustumCulled = false;
-    handles.frustumCulled = false;
-    for (let i = 0; i < doors.length; i++) {
-      const def = doors[i] as DoorDef;
-      doorStates.push({ def, doorPos: 0, doorTarget: 0, isOpen: false, colOpen: false });
-      slabs.setMatrixAt(i * 2, doorLeafMatrix(def, 0, 0, doorMatrix));
-      slabs.setMatrixAt(i * 2 + 1, doorLeafMatrix(def, 1, 0, doorMatrix));
-      handles.setMatrixAt(i * 2, doorHandleMatrix(def, 0, 0, doorMatrix));
-      handles.setMatrixAt(i * 2 + 1, doorHandleMatrix(def, 1, 0, doorMatrix));
-    }
-    slabs.instanceMatrix.needsUpdate = true;
-    handles.instanceMatrix.needsUpdate = true;
-    root.add(slabs);
-    root.add(handles);
-    doorSlabs = slabs;
-    doorHandles = handles;
-  }
-  // Every frame: open doors the player is near, close the rest, ease the
-  // leaves, and flip the tagged collider when a leaf passes half-open.
-  function tickDoors(dt: number, body: Body) {
-    if (!doorSlabs || !doorHandles || !doorStates.length) return;
-    let changed = false;
-    let colsChanged = false;
-    for (let i = 0; i < doorStates.length; i++) {
-      const s = doorStates[i] as DoorState;
-      const d = s.def;
-      const dist = Math.hypot(body.x - d.x, body.z - d.z);
-      if (!s.isOpen && dist < DOOR_OPEN_DIST && Math.abs(body.y - d.y0) < 4) s.isOpen = true;
-      else if (s.isOpen && (dist > DOOR_CLOSE_DIST || Math.abs(body.y - d.y0) >= 4)) s.isOpen = false;
-      s.doorTarget = s.isOpen ? 1 : 0;
-      const prev = s.doorPos;
-      s.doorPos += (s.doorTarget - s.doorPos) * Math.min(1, dt * 6);
-      if (Math.abs(s.doorPos - prev) > 0.0005) {
-        changed = true;
-        doorSlabs.setMatrixAt(i * 2, doorLeafMatrix(d, 0, s.doorPos, doorMatrix));
-        doorSlabs.setMatrixAt(i * 2 + 1, doorLeafMatrix(d, 1, s.doorPos, doorMatrix));
-        doorHandles.setMatrixAt(i * 2, doorHandleMatrix(d, 0, s.doorPos, doorMatrix));
-        doorHandles.setMatrixAt(i * 2 + 1, doorHandleMatrix(d, 1, s.doorPos, doorMatrix));
-      }
-      const wantOpen = s.doorPos > 0.5;
-      if (wantOpen !== s.colOpen) {
-        s.colOpen = wantOpen;
-        if (wantOpen) openDoorTags.add(`door:${d.id}`);
-        else openDoorTags.delete(`door:${d.id}`);
-        colsChanged = true;
-      }
-    }
-    if (changed) {
-      doorSlabs.instanceMatrix.needsUpdate = true;
-      doorHandles.instanceMatrix.needsUpdate = true;
-    }
-    if (colsChanged) refreshActiveCols();
-    const open = doorStates.reduce((n, s) => n + (s.isOpen ? 1 : 0), 0);
-    if (open !== doorsOpenCount) {
-      doorsOpenCount = open;
-      (window as unknown as { __ORBITX_DOORS?: { total: number; open: number } }).__ORBITX_DOORS = { total: doorStates.length, open };
-    }
-  }
-
   // E at a lift call button: step into the cab, close the door, pick a floor.
   function openLift(anchor: Anchor) {
     const lift = lifts.find((item) => item.id === anchor.liftId);
     if (!lift || !lastBody) return;
-    // anchor.liftFloor is already the floor INDEX (0 = lobby, 1 = Floor 2,
-    // …) — not an elevation. The old code did
-    // lift.floors.indexOf(anchor.liftFloor), which searches the index in
-    // the elevations array [0,8,12,16,20] and always missed (-1 → 0), so
-    // every ride from an upper floor yanked the player back to the lobby
-    // and re-rode from y=0 (rig-proven 2026-11-18: Floor 3 → Floor 4
-    // dropped to y≈0.05 before climbing to 16).
-    const current = Math.max(0, Math.min(lift.floors.length - 1, anchor.liftFloor ?? 0));
+    const current = Math.max(0, lift.floors.indexOf(anchor.liftFloor ?? lift.floors[0]));
     liftPanel = { name: lift.name, floors: lift.floors, stops: lift.stops, current };
     const cab = liftCabs.get(lift.id);
     if (cab) {
@@ -2586,13 +2441,6 @@ export function createRuntime(scene: Scene) {
     liftRide = null;
     liftOpen = null;
     liftPanel = null;
-    // Dynamic doors live under root too — drop the meshes with it and
-    // clear the state so the next sync rebuilds them from city.doors.
-    doorStates.length = 0;
-    openDoorTags.clear();
-    doorSlabs = null;
-    doorHandles = null;
-    doorsOpenCount = -1;
     // CRAZY extras live under root too, so the group goes with it — drop
     // the references (the signature reset forces a rebuild on next sync).
     crazyRender = null;
@@ -3295,7 +3143,6 @@ export function createRuntime(scene: Scene) {
     for (const slot of next.boards) mountBoard(slot);
     for (const item of next.art) mountArt(item);
     buildLiftCabs();
-    buildDoors(next.doors ?? []);
     buildTrain();
     // No stray parked cars: the only car spawned from the city list is the
     // player's own car (index 0, in their paint). Bought cars spawn on the
@@ -5263,42 +5110,6 @@ export function createRuntime(scene: Scene) {
     publish();
   }
 
-  /**
-   * Where the rider sits on the driven vehicle (vehicle-local space,
-   * front = +X; the local body is NOT parented to the car group, so the
-   * per-frame rider pose translates this into world space). Three poses:
-   * - "sit" (bike / atv / open car): hips on the seat, legs bent to the
-   *   pegs, arms forward to the bars.
-   * - "stand" (skateboard / boat): feet on the deck, slight knee bend,
-   *   arms out for balance.
-   * - "sunk" (enclosed car): the cabin is too short for a full seated
-   *   rider (sedan cabin 0.36 tall) — sink the body so only head +
-   *   shoulders clear the roofline instead of vanishing entirely.
-   * originY is the rider group origin (feet level) in vehicle-local Y.
-   */
-  function riderSeatFor(car: (typeof cars)[number]): {
-    dx: number;
-    originY: number;
-    pose: "sit" | "stand" | "sunk";
-  } {
-    const kind = (car.group.userData.kind as string) || "car";
-    const def = getVehicle(car.vehicleId ?? "city-sedan");
-    const plan = def?.plan;
-    const bodyTop = plan ? plan.bodyY + plan.bodyH / 2 : 0.71;
-    if (kind === "bike" || kind === "atv") {
-      return { dx: -0.25, originY: bodyTop + 0.15 - 0.5, pose: "sit" };
-    }
-    if (kind === "skateboard" || kind === "boat") {
-      return { dx: 0, originY: bodyTop + 0.05, pose: "stand" };
-    }
-    // Car / flying: enclosed cabin -> sunk; open top -> sit.
-    if (plan && plan.cabinLen > 0) {
-      const roofTop = bodyTop + plan.cabinH;
-      return { dx: plan.cabinX, originY: roofTop - 1.19, pose: "sunk" };
-    }
-    return { dx: 0, originY: bodyTop + 0.15 - 0.5, pose: "sit" };
-  }
-
   function enterCar(body: Body, index: number) {
     driving = true;
     carIndex = index;
@@ -5855,21 +5666,10 @@ export function createRuntime(scene: Scene) {
     // 2.4 rad/s so boost does not spin the car, and the low-speed turn is
     // gentle (no spinning while creeping). steerSm already carries the
     // moving sign, so reverse steers the same way as before.
-    // Standstill pivot (2026-11-18): a bike nose-against a wall could not
-    // turn at all — `moving` is 0 below 0.4 u/s, so the bars did nothing
-    // and the only escape was reversing blindly. Open vehicles (bike /
-    // atv / skateboard) keep a gentle in-place pivot at full lock, so the
-    // rider can turn out of a tight spot; it blends out by 1.5 u/s and
-    // never applies to enclosed cars (a car cannot pivot in place).
-    const canPivot =
-      (car.group.userData.kind as string) === "bike" ||
-      (car.group.userData.kind as string) === "atv" ||
-      (car.group.userData.kind as string) === "skateboard";
-    const steerTarget = s * (moving !== 0 ? moving : canPivot ? 1 : 0);
+    const steerTarget = s * moving;
     steerSm += (steerTarget - steerSm) * Math.min(1, dt * 7);
     const turnRadius = 9 / params.steer;
-    const pivotRate = canPivot ? 0.55 * Math.max(0, 1 - Math.abs(carSpeed) / 1.5) : 0;
-    car.yaw += steerSm * Math.max(Math.min(Math.abs(carSpeed) / turnRadius, 2.4), pivotRate) * dt;
+    car.yaw += steerSm * Math.min(Math.abs(carSpeed) / turnRadius, 2.4) * dt;
     // The chase camera recentres behind the car: when the player is not
     // actively looking around, chaseYaw decays back to 0.
     if (lookX === 0) chaseYaw *= Math.exp(-dt * 0.9);
@@ -7599,8 +7399,6 @@ export function createRuntime(scene: Scene) {
       cab.doorPos += (cab.doorTarget - cab.doorPos) * Math.min(1, dt * 6);
       cab.door.position.set(cab.baseX + cab.slideX * cab.doorPos, 1.3, cab.baseZ + cab.slideZ * cab.doorPos);
     }
-    // Exterior doors slide open on approach, closed otherwise.
-    tickDoors(dt, body);
     // Elevator ride: ease the cab + rider between floors, then open the door
     // (which also opens the shaft's door blocker for that floor so the rider
     // can step out). The blocker closes again once the rider walks away.
@@ -7736,10 +7534,7 @@ export function createRuntime(scene: Scene) {
     }
     const emoteNow = Date.now() < world.emoteUntil ? world.emote : "";
     if (localBody) {
-      // Riding: the rider stays visible in third person — a riderless
-      // bike reads as a bug (2026-11-18). First-person still hides the
-      // body (the camera sits where the head is).
-      localBody.visible = camMode !== "first" && !ridingTrain && !ridingBus && !riding && !drivingTrain && !spectator;
+      localBody.visible = camMode !== "first" && !driving && !ridingTrain && !ridingBus && !riding && !drivingTrain && !spectator;
       const lift = applyEmote(localBody, emoteNow, Math.PI - body.yaw);
       localBody.position.set(body.x, body.y + lift, body.z);
       paintPerson(localBody, true);
@@ -7762,52 +7557,6 @@ export function createRuntime(scene: Scene) {
         // Blocked against a wall: stick held but no displacement — bump.
         if (playing && stickMoving && horizontalSpeed < 0.05 && body.onGround) triggerHaptic("bump");
         animateWalk(localWalker, horizontalSpeed, dt, (horizontalSpeed > 0.3 || stickMoving) && body.onGround, body.flying);
-      }
-      // Riding pose (2026-11-18): seat the visible rider on the driven
-      // vehicle. The walk cycle is skipped while driving, so nothing
-      // overwrites this pose; on dismount the walk cycle takes the
-      // pivots back (and applyEmote resets the group rotation first).
-      if (driving && localWalker && carIndex >= 0) {
-        const car = cars[carIndex];
-        if (car) {
-          const seat = riderSeatFor(car);
-          const fx = Math.sin(car.yaw);
-          const fz = -Math.cos(car.yaw);
-          localBody.position.set(
-            car.x + fx * seat.dx,
-            car.group.position.y + seat.originY,
-            car.z + fz * seat.dx,
-          );
-          if (seat.pose === "stand") {
-            localWalker.legL.rotation.x = -0.25;
-            localWalker.legR.rotation.x = -0.25;
-            localWalker.armL.rotation.x = -0.25;
-            localWalker.armR.rotation.x = -0.25;
-            localWalker.armL.rotation.z = 0.35;
-            localWalker.armR.rotation.z = -0.35;
-            localBody.rotation.x = 0.08;
-          } else {
-            // Seated (bike / atv / sunk car): thighs forward to the
-            // pegs, arms forward to the bars, torso leaning in.
-            localWalker.legL.rotation.x = -1.25;
-            localWalker.legR.rotation.x = -1.25;
-            localWalker.armL.rotation.x = -1.0;
-            localWalker.armR.rotation.x = -1.0;
-            localWalker.armL.rotation.z = 0.08;
-            localWalker.armR.rotation.z = -0.08;
-            localBody.rotation.x = 0.35;
-          }
-          // Lean with the bike into turns (same sign as the car group).
-          localBody.rotation.z = -car.lean;
-          window.__ORBITX_RIDER = {
-            visible: localBody.visible,
-            kind: (car.group.userData.kind as string) || "car",
-            pose: seat.pose,
-            legL: localWalker.legL.rotation.x,
-            armL: localWalker.armL.rotation.x,
-            lean: car.lean,
-          };
-        }
       }
       const ring = localBody.getObjectByName("ring");
       if (ring) {
