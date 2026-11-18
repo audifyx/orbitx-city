@@ -1134,7 +1134,9 @@ function drawBillboardImageText(ctx: CanvasRenderingContext2D, img: HTMLImageEle
 
 // Preview of exactly what a billboard will look like, for the Ads panel:
 // same layout as the mesh, rendered to a data URL. Text-only when no
-// image; a failed image load still previews the text board.
+// image was given at all; a FAILED image load is an error, not a silent
+// text-only preview — the panel must tell the user the image did not
+// load instead of showing a text board that hides the problem.
 async function billboardPreview(imageUrl: string, project: string, text: string) {
   const face: BillboardInfo = {
     id: "preview",
@@ -1154,6 +1156,9 @@ async function billboardPreview(imageUrl: string, project: string, text: string)
     el.onerror = () => resolve(null);
     el.src = imageUrl;
   });
+  if (!img) {
+    return { ok: false as const, dataUrl: "", message: "The image could not be loaded. Try picking the file again, or upload it first and preview again." };
+  }
   const canvas = document.createElement("canvas");
   canvas.width = 512;
   canvas.height = 256;

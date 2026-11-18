@@ -1660,9 +1660,22 @@ export default function App() {
   const previewBillboard = async () => {
     const rt = gameRef.current?.runtime;
     if (!rt) return;
-    const res = await rt.billboardPreview(adImageUrl, adProject || snap.name || "OrbitX", adText);
-    if (res.ok) setAdPreviewUrl((res as { dataUrl?: string }).dataUrl || "");
-    else setAdMsg(String((res as { message?: string }).message || "Preview failed."));
+    // Prefer the locally selected file: the preview must show the image
+    // the user just picked, BEFORE any upload. adImageUrl is only set
+    // after "Upload image" completes, so passing it alone previews
+    // text-only for a file that was picked but not yet uploaded. The
+    // uploaded URL is the fallback for a file already uploaded.
+    const localUrl = adImageFile ? URL.createObjectURL(adImageFile) : "";
+    const imageUrl = localUrl || adImageUrl;
+    try {
+      const res = await rt.billboardPreview(imageUrl, adProject || snap.name || "OrbitX", adText);
+      if (res.ok) setAdPreviewUrl((res as { dataUrl?: string }).dataUrl || "");
+      else setAdMsg(String((res as { message?: string }).message || "Preview failed."));
+    } finally {
+      // The preview is a data URL by now (the image is drawn to a
+      // canvas inside billboardPreview), so the object URL can go.
+      if (localUrl) URL.revokeObjectURL(localUrl);
+    }
   };
 
   const play = () => {
