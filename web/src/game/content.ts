@@ -14,6 +14,12 @@ export interface BillboardInfo {
   image: string;
   start: string;
   end: string;
+  /** Ads-panel availability, filled in by the runtime snap. */
+  zone?: string;
+  taken?: boolean;
+  takenEnd?: string;
+  takenBy?: string;
+  mine?: boolean;
 }
 
 export interface EventInfo {

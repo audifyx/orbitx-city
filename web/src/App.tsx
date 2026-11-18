@@ -4,7 +4,7 @@ import type { AdOrder, CityStats, MyPropertyClaim, OfficeSolLease, PanelName, Ra
 import { EMPTY_CITY_PEOPLE, FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/runtime";
 import { PROXIMITY_RANGE, VOICE_FILTERS } from "./game/voice";
 import { allLooks, loadLooks, lookName } from "./game/avatar";
-import { GROCERY_FOOD_BY_ID, GYM_WORKOUTS, OFFICE_SUITES, RECIPES, RESTAURANT_BY_ID, RESTAURANT_MENUS, adUsdPrice, foodSpeedMult, hungerLabel, officeSolUsdPrice } from "./game/content";
+import { BILLBOARD_ORBITX_DAYS, BILLBOARD_ORBITX_USD, GROCERY_FOOD_BY_ID, GYM_WORKOUTS, OFFICE_SUITES, RECIPES, RESTAURANT_BY_ID, RESTAURANT_MENUS, adUsdPrice, foodSpeedMult, hungerLabel, officeSolUsdPrice } from "./game/content";
 import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
 import { CharacterSelect } from "./Roster";
@@ -548,6 +548,17 @@ export default function App() {
   const [adMsg, setAdMsg] = useState("");
   // On-device wallet PIN for paying a billboard from the device wallet.
   const [adPin, setAdPin] = useState("");
+  // ORBITX billboards (2026-11-18): flat $1 for 7 days, paid in ORBITX
+  // from the in-app wallet, 100% burned. No SOL, no swap.
+  const [adPay, setAdPay] = useState<"orbitx" | "sol">("orbitx");
+  const [adProject, setAdProject] = useState("");
+  const [adImageFile, setAdImageFile] = useState<File | null>(null);
+  const [adImageUrl, setAdImageUrl] = useState("");
+  const [adPreviewUrl, setAdPreviewUrl] = useState("");
+  const [adUploadBusy, setAdUploadBusy] = useState(false);
+  const [adOrbitxQuote, setAdOrbitxQuote] = useState<{ orbitxUi: number; balanceUi: number; enough: boolean; endsAt: string } | null>(null);
+  const [adOrbitxKey, setAdOrbitxKey] = useState("");
+  const [adOrbitxOrders, setAdOrbitxOrders] = useState<AdOrder[]>([]);
   // In-game radio: the playlist is shared, the sound is personal — a plain
   // audio element on this device, never broadcast to other players.
   const [radioTracks, setRadioTracks] = useState<RadioTrack[]>([]);
@@ -780,6 +791,9 @@ export default function App() {
     if (!rt) return;
     void rt.adOrders().then((res) => {
       if (res.ok) setAdOrders(((res as { orders?: AdOrder[] }).orders || []) as AdOrder[]);
+    });
+    void rt.billboardOrbitxOrders().then((res) => {
+      if (res.ok) setAdOrbitxOrders(((res as { orders?: AdOrder[] }).orders || []) as AdOrder[]);
     });
   }, [panel]);
 
@@ -1596,6 +1610,58 @@ export default function App() {
     setRadioFile(null);
     if (radioInputRef.current) radioInputRef.current.value = "";
     setRadioBusy(false);
+  };
+
+  // ORBITX billboard image: the server issues a signed URL for the
+  // billboard-ads bucket, the browser PUTs the file straight to
+  // Storage, and the public URL comes back for the buy. Mirrors the
+  // radio upload (same signed-URL pattern, 5 MB image cap).
+  const uploadBillboardImage = async () => {
+    const file = adImageFile;
+    if (!file) return;
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    setAdUploadBusy(true);
+    setAdMsg("");
+    const started = await rt.billboardImageUrl(file.name, file.size);
+    const signedUrl = (started as { signedUrl?: string }).signedUrl;
+    const publicUrl = (started as { publicUrl?: string }).publicUrl;
+    if (!started.ok || !signedUrl || !publicUrl) {
+      setAdMsg(String((started as { message?: string }).message || "Could not start the upload."));
+      setAdUploadBusy(false);
+      return;
+    }
+    let put: Response;
+    try {
+      put = await fetch(signedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+    } catch {
+      setAdMsg("The upload did not go through. Check your connection and try again.");
+      setAdUploadBusy(false);
+      return;
+    }
+    if (!put.ok) {
+      setAdMsg("The upload did not go through. Try again.");
+      setAdUploadBusy(false);
+      return;
+    }
+    setAdImageUrl(publicUrl);
+    setAdPreviewUrl("");
+    setAdMsg("Image uploaded — preview it before you pay.");
+    setAdUploadBusy(false);
+  };
+
+  // Preview of exactly what the billboard will look like: the same
+  // image+text layout the world renders on the mesh.
+  const previewBillboard = async () => {
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    const res = await rt.billboardPreview(adImageUrl, adProject || snap.name || "OrbitX", adText);
+    if (res.ok) setAdPreviewUrl((res as { dataUrl?: string }).dataUrl || "");
+    else setAdMsg(String((res as { message?: string }).message || "Preview failed."));
   };
 
   const play = () => {
@@ -2670,6 +2736,54 @@ export default function App() {
                       if (!rt) return;
                       setAdBusy(true);
                       setAdMsg("");
+                      if (adPay === "orbitx") {
+                        // ORBITX billboards: flat $1 for 7 days, paid in
+                        // ORBITX from the in-app wallet, 100% burned.
+                        if (!adOrbitxQuote) {
+                          const q = await rt.quoteBillboardOrbitx(adId, adProject || snap.name || "OrbitX", adText, adImageUrl);
+                          if (q.ok) {
+                            setAdOrbitxQuote({
+                              orbitxUi: Number((q as { orbitxUi?: number }).orbitxUi || 0),
+                              balanceUi: Number((q as { balanceUi?: number }).balanceUi || 0),
+                              enough: Boolean((q as { enough?: boolean }).enough),
+                              endsAt: String((q as { endsAt?: string }).endsAt || ""),
+                            });
+                            setAdOrbitxKey(`bbx_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
+                          } else {
+                            setAdMsg(String((q as { message?: string }).message || "The quote failed."));
+                          }
+                        } else {
+                          const res = await rt.buyBillboardOrbitx(adId, adProject || snap.name || "OrbitX", adText, adImageUrl, adOrbitxKey);
+                          if (res.ok && (res as { order?: AdOrder }).order) {
+                            const order = (res as { order: AdOrder }).order;
+                            setAdOrder(order);
+                            setAdMsg(String((res as { message?: string }).message || ""));
+                            // The burn confirms on-chain; poll until the
+                            // booking is live, then refresh my orders.
+                            for (let i = 0; i < 10; i++) {
+                              const st = await rt.billboardOrbitxStatus(order.id);
+                              const cur = (st as { order?: AdOrder }).order;
+                              if (st.ok && cur) {
+                                setAdOrder(cur);
+                                if (cur.status === "live") break;
+                              }
+                              await new Promise((r) => setTimeout(r, 1500));
+                            }
+                            const mine = await rt.billboardOrbitxOrders();
+                            if (mine.ok) setAdOrbitxOrders(((mine as { orders?: AdOrder[] }).orders || []) as AdOrder[]);
+                            setAdOrbitxQuote(null);
+                            setAdOrbitxKey("");
+                          } else {
+                            setAdMsg(String((res as { message?: string }).message || "Booking failed."));
+                            if (String((res as { message?: string }).message || "").includes("already finished")) {
+                              setAdOrbitxQuote(null);
+                              setAdOrbitxKey("");
+                            }
+                          }
+                        }
+                        setAdBusy(false);
+                        return;
+                      }
                       if (!adQuoteData) {
                         const q = await rt.quoteAd(adId, adDays);
                         if (q.ok) {
@@ -2719,28 +2833,95 @@ export default function App() {
                       setAdBusy(false);
                     }}
                   >
+                    <div className="days">
+                      <button type="button" className={adPay === "orbitx" ? "on" : ""} onClick={() => { setAdPay("orbitx"); setAdQuoteData(null); setAdOrbitxQuote(null); }}>
+                        ORBITX · ${BILLBOARD_ORBITX_USD.toFixed(2)} / {BILLBOARD_ORBITX_DAYS} days
+                      </button>
+                      <button type="button" className={adPay === "sol" ? "on" : ""} onClick={() => { setAdPay("sol"); setAdOrbitxQuote(null); }}>
+                        SOL · classic
+                      </button>
+                    </div>
                     <label>
                       Billboard
-                      <select value={adId} onChange={(event) => { setAdId(event.target.value); setAdQuoteData(null); }}>
+                      <select value={adId} onChange={(event) => { setAdId(event.target.value); setAdQuoteData(null); setAdOrbitxQuote(null); }}>
                         {(snap.billboards.length ? snap.billboards : [{ id: "plaza-east", project: "OrbitX", text: "" }]).map((board) => (
-                          <option key={board.id} value={board.id}>
-                            {board.id} — {board.project}
+                          <option key={board.id} value={board.id} disabled={adPay === "orbitx" && !!board.taken && !board.mine}>
+                            {adPay === "orbitx"
+                              ? `${board.zone || board.id}${board.taken ? ` — taken until ${board.takenEnd || ""}${board.mine ? " (yours)" : ""}` : " — free"}`
+                              : `${board.id} — ${board.project}`}
                           </option>
                         ))}
                       </select>
                     </label>
+                    {adPay === "orbitx" ? (
+                      <label>
+                        Project name
+                        <input value={adProject} maxLength={40} placeholder={snap.name || "OrbitX"} onChange={(event) => setAdProject(event.target.value)} />
+                      </label>
+                    ) : null}
                     <label>
                       Message
-                      <input value={adText} maxLength={32} onChange={(event) => setAdText(event.target.value)} />
+                      <input value={adText} maxLength={adPay === "orbitx" ? 60 : 32} onChange={(event) => setAdText(event.target.value)} />
                     </label>
-                    <div className="days">
-                      {([1, 7, 30] as const).map((days) => (
-                        <button key={days} type="button" className={adDays === days ? "on" : ""} onClick={() => { setAdDays(days); setAdQuoteData(null); }}>
-                          {days} day{days === 1 ? "" : "s"} · ${adUsdPrice(adId, days).toFixed(2)}
+                    {adPay === "orbitx" ? (
+                      <p>$1.00 for 7 days, every board. Paid in ORBITX, 100% burned on-chain.</p>
+                    ) : (
+                      <div className="days">
+                        {([1, 7, 30] as const).map((days) => (
+                          <button key={days} type="button" className={adDays === days ? "on" : ""} onClick={() => { setAdDays(days); setAdQuoteData(null); }}>
+                            {days} day{days === 1 ? "" : "s"} · ${adUsdPrice(adId, days).toFixed(2)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {adPay === "orbitx" ? (
+                      <>
+                        <label>
+                          Ad image — jpg, png, webp or gif, at most 5 MB (optional, text-only works too)
+                          <input
+                            type="file"
+                            accept=".jpg,.jpeg,.png,.webp,.gif,image/*"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0] ?? null;
+                              if (!file) {
+                                setAdImageFile(null);
+                                return;
+                              }
+                              if (!/\.(jpg|jpeg|png|webp|gif)$/i.test(file.name)) {
+                                setAdImageFile(null);
+                                setAdMsg("That is not an image (jpg, png, webp, gif).");
+                                return;
+                              }
+                              if (file.size > 5 * 1024 * 1024) {
+                                setAdImageFile(null);
+                                setAdMsg("That image is over 5 MB.");
+                                return;
+                              }
+                              setAdImageFile(file);
+                              setAdImageUrl("");
+                              setAdPreviewUrl("");
+                              setAdMsg(`${file.name} — ${(file.size / 1024).toFixed(0)} KB. Press Upload image when ready.`);
+                            }}
+                          />
+                        </label>
+                        <button type="button" disabled={!adImageFile || adUploadBusy} onClick={() => void uploadBillboardImage()}>
+                          {adUploadBusy ? "Uploading…" : "Upload image"}
                         </button>
-                      ))}
-                    </div>
-                    {adQuoteData ? (
+                        {adImageUrl ? <p>Image uploaded.</p> : null}
+                        <button type="button" onClick={() => void previewBillboard()}>Preview the billboard</button>
+                        {adPreviewUrl ? <img src={adPreviewUrl} alt="Billboard preview" style={{ width: "100%" }} /> : null}
+                      </>
+                    ) : null}
+                    {adPay === "orbitx" ? (
+                      adOrbitxQuote ? (
+                        <p>
+                          $1.00 burns ~{adOrbitxQuote.orbitxUi.toLocaleString()} ORBITX. 100% burn, no fee, no cut. Live until {adOrbitxQuote.endsAt}.
+                          Your in-app wallet holds {adOrbitxQuote.balanceUi.toLocaleString()} ORBITX{adOrbitxQuote.enough ? "." : " — not enough, top up first."}
+                        </p>
+                      ) : (
+                        <p>Real billboards: pay $1 in ORBITX from your in-app wallet, the city burns it all on-chain. No fee, no cut. Stays up 7 days.</p>
+                      )
+                    ) : adQuoteData ? (
                       <>
                         <p>
                           ${adQuoteData.priceUsd.toFixed(2)} buys ~{adQuoteData.estOrbitxUi} ORBITX ({adQuoteData.priceSol} SOL) and burns it all.
@@ -2762,8 +2943,24 @@ export default function App() {
                       </label>
                     ) : null}
                     {adMsg ? <p>{adMsg}</p> : null}
-                    <button type="submit" disabled={adBusy}>{adQuoteData ? (snap.localAddress ? "Confirm & pay from on-device wallet" : "Confirm & pay from in-app wallet") : "Get price"}</button>
-                    {adQuoteData ? <button type="button" onClick={() => setAdQuoteData(null)}>Change board or days</button> : null}
+                    <button type="submit" disabled={adBusy}>
+                      {adPay === "orbitx"
+                        ? adOrbitxQuote
+                          ? adOrbitxQuote.enough
+                            ? "Confirm & pay $1 in ORBITX"
+                            : "Not enough ORBITX"
+                          : "Get price"
+                        : adQuoteData
+                          ? snap.localAddress
+                            ? "Confirm & pay from on-device wallet"
+                            : "Confirm & pay from in-app wallet"
+                          : "Get price"}
+                    </button>
+                    {adPay === "orbitx" ? (
+                      adOrbitxQuote ? <button type="button" onClick={() => { setAdOrbitxQuote(null); setAdOrbitxKey(""); }}>Change board</button> : null
+                    ) : adQuoteData ? (
+                      <button type="button" onClick={() => setAdQuoteData(null)}>Change board or days</button>
+                    ) : null}
                   </form>
                 )}
                 {adOrder ? (
@@ -2795,6 +2992,20 @@ export default function App() {
                   <div>
                     <p>My ads</p>
                     {adOrders.map((item) => (
+                      <article key={item.id}>
+                        <div>
+                          <b>{item.board} — {item.status}</b>
+                          <span>{item.project} · {item.text} · until {String(item.expiresAt || "").slice(0, 10)}</span>
+                          {item.burnUrl ? <span><a href={item.burnUrl} target="_blank" rel="noreferrer">Burn tx</a></span> : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+                {adOrbitxOrders.length ? (
+                  <div>
+                    <p>My ORBITX billboards · $1 / 7 days</p>
+                    {adOrbitxOrders.map((item) => (
                       <article key={item.id}>
                         <div>
                           <b>{item.board} — {item.status}</b>

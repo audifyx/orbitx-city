@@ -1056,13 +1056,13 @@ async function orbitxWalletBalance(ctx, player) {
   const row = await walletRow(player.authUser);
   if (!row) return { address: "", balance: 0n };
   const dec = await decimals();
-  const accounts = await getTokenAccounts(row.address, orbitxMint());
+  const accounts = await getTokenAccounts(row.public_key, orbitxMint());
   let balance = 0n;
   for (const account of accounts || []) {
     const amount = BigInt(account?.amount || "0");
     if (amount > balance) balance = amount;
   }
-  return { address: row.address, balance, decimals: dec };
+  return { address: row.public_key, balance, decimals: dec };
 }
 
 export async function billboardOrbitxQuote(ctx, player, body) {
@@ -1166,14 +1166,14 @@ export async function billboardOrbitxBuy(ctx, player, body) {
       error: "",
       createdAt: now,
       expiresAt: endStr(BILLBOARD_ORBITX_DAYS),
-      meta: { kind: "orbitx-week", image, owner: row.address },
+      meta: { kind: "orbitx-week", image, owner: row.public_key },
     };
   } else {
     order.board = board;
     order.project = project;
     order.text = text;
     order.orbitxAmount = amount.toString();
-    order.meta = { ...(order.meta || {}), kind: "orbitx-week", image, owner: row.address };
+    order.meta = { ...(order.meta || {}), kind: "orbitx-week", image, owner: row.public_key };
     order.status = "processing";
     order.error = "";
   }
