@@ -5258,6 +5258,42 @@ export function createRuntime(scene: Scene) {
     publish();
   }
 
+  /**
+   * Where the rider sits on the driven vehicle (vehicle-local space,
+   * front = +X; the local body is NOT parented to the car group, so the
+   * per-frame rider pose translates this into world space). Three poses:
+   * - "sit" (bike / atv / open car): hips on the seat, legs bent to the
+   *   pegs, arms forward to the bars.
+   * - "stand" (skateboard / boat): feet on the deck, slight knee bend,
+   *   arms out for balance.
+   * - "sunk" (enclosed car): the cabin is too short for a full seated
+   *   rider (sedan cabin 0.36 tall) — sink the body so only head +
+   *   shoulders clear the roofline instead of vanishing entirely.
+   * originY is the rider group origin (feet level) in vehicle-local Y.
+   */
+  function riderSeatFor(car: (typeof cars)[number]): {
+    dx: number;
+    originY: number;
+    pose: "sit" | "stand" | "sunk";
+  } {
+    const kind = (car.group.userData.kind as string) || "car";
+    const def = getVehicle(car.vehicleId ?? "city-sedan");
+    const plan = def?.plan;
+    const bodyTop = plan ? plan.bodyY + plan.bodyH / 2 : 0.71;
+    if (kind === "bike" || kind === "atv") {
+      return { dx: -0.25, originY: bodyTop + 0.15 - 0.5, pose: "sit" };
+    }
+    if (kind === "skateboard" || kind === "boat") {
+      return { dx: 0, originY: bodyTop + 0.05, pose: "stand" };
+    }
+    // Car / flying: enclosed cabin -> sunk; open top -> sit.
+    if (plan && plan.cabinLen > 0) {
+      const roofTop = bodyTop + plan.cabinH;
+      return { dx: plan.cabinX, originY: roofTop - 1.19, pose: "sunk" };
+    }
+    return { dx: 0, originY: bodyTop + 0.15 - 0.5, pose: "sit" };
+  }
+
   function enterCar(body: Body, index: number) {
     driving = true;
     carIndex = index;
@@ -7684,7 +7720,10 @@ export function createRuntime(scene: Scene) {
     }
     const emoteNow = Date.now() < world.emoteUntil ? world.emote : "";
     if (localBody) {
-      localBody.visible = camMode !== "first" && !driving && !ridingTrain && !ridingBus && !riding && !drivingTrain && !spectator;
+      // Riding: the rider stays visible in third person — a riderless
+      // bike reads as a bug (2026-11-18). First-person still hides the
+      // body (the camera sits where the head is).
+      localBody.visible = camMode !== "first" && !ridingTrain && !ridingBus && !riding && !drivingTrain && !spectator;
       const lift = applyEmote(localBody, emoteNow, Math.PI - body.yaw);
       localBody.position.set(body.x, body.y + lift, body.z);
       paintPerson(localBody, true);
@@ -7707,6 +7746,52 @@ export function createRuntime(scene: Scene) {
         // Blocked against a wall: stick held but no displacement — bump.
         if (playing && stickMoving && horizontalSpeed < 0.05 && body.onGround) triggerHaptic("bump");
         animateWalk(localWalker, horizontalSpeed, dt, (horizontalSpeed > 0.3 || stickMoving) && body.onGround, body.flying);
+      }
+      // Riding pose (2026-11-18): seat the visible rider on the driven
+      // vehicle. The walk cycle is skipped while driving, so nothing
+      // overwrites this pose; on dismount the walk cycle takes the
+      // pivots back (and applyEmote resets the group rotation first).
+      if (driving && localWalker && carIndex >= 0) {
+        const car = cars[carIndex];
+        if (car) {
+          const seat = riderSeatFor(car);
+          const fx = Math.sin(car.yaw);
+          const fz = -Math.cos(car.yaw);
+          localBody.position.set(
+            car.x + fx * seat.dx,
+            car.group.position.y + seat.originY,
+            car.z + fz * seat.dx,
+          );
+          if (seat.pose === "stand") {
+            localWalker.legL.rotation.x = -0.25;
+            localWalker.legR.rotation.x = -0.25;
+            localWalker.armL.rotation.x = -0.25;
+            localWalker.armR.rotation.x = -0.25;
+            localWalker.armL.rotation.z = 0.35;
+            localWalker.armR.rotation.z = -0.35;
+            localBody.rotation.x = 0.08;
+          } else {
+            // Seated (bike / atv / sunk car): thighs forward to the
+            // pegs, arms forward to the bars, torso leaning in.
+            localWalker.legL.rotation.x = -1.25;
+            localWalker.legR.rotation.x = -1.25;
+            localWalker.armL.rotation.x = -1.0;
+            localWalker.armR.rotation.x = -1.0;
+            localWalker.armL.rotation.z = 0.08;
+            localWalker.armR.rotation.z = -0.08;
+            localBody.rotation.x = 0.35;
+          }
+          // Lean with the bike into turns (same sign as the car group).
+          localBody.rotation.z = -car.lean;
+          window.__ORBITX_RIDER = {
+            visible: localBody.visible,
+            kind: (car.group.userData.kind as string) || "car",
+            pose: seat.pose,
+            legL: localWalker.legL.rotation.x,
+            armL: localWalker.armL.rotation.x,
+            lean: car.lean,
+          };
+        }
       }
       const ring = localBody.getObjectByName("ring");
       if (ring) {
