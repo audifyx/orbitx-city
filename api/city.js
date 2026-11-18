@@ -3524,10 +3524,11 @@ async function buyCar(save, body) {
   const price = VEHICLE_PRICES[id];
   if (price == null) return { ok: false, message: "That vehicle is not for sale.", status: 400 };
   const colors = VEHICLE_COLORS[id] || [];
-  const color = body.color == null || body.color === "" ? VEHICLE_DEFAULT_COLORS[id] : String(body.color);
-  if (!colors.includes(color)) {
-    return { ok: false, message: "That color is not available for this vehicle.", status: 400 };
-  }
+  // An unknown/invalid color never fails the purchase: fall back to the
+  // vehicle's default (a stale client can send a color the server no
+  // longer lists — the buyer still gets their car).
+  let color = body.color == null || body.color === "" ? VEHICLE_DEFAULT_COLORS[id] : String(body.color);
+  if (!colors.includes(color)) color = VEHICLE_DEFAULT_COLORS[id];
   const vehicles = Array.isArray(save.vehicles) ? save.vehicles : [];
   const owned = vehicles.find((v) => v.id === id);
   if (owned) {
@@ -3768,10 +3769,9 @@ async function rentCar(save, body) {
   const id = String(body.id || "");
   if (VEHICLE_PRICES[id] == null) return { ok: false, message: "That vehicle is not for rent.", status: 400 };
   const colors = VEHICLE_COLORS[id] || [];
-  const color = body.color == null || body.color === "" ? VEHICLE_DEFAULT_COLORS[id] : String(body.color);
-  if (!colors.includes(color)) {
-    return { ok: false, message: "That color is not available for this vehicle.", status: 400 };
-  }
+  // Same fallback as buyCar: an invalid color never fails the rental.
+  let color = body.color == null || body.color === "" ? VEHICLE_DEFAULT_COLORS[id] : String(body.color);
+  if (!colors.includes(color)) color = VEHICLE_DEFAULT_COLORS[id];
   const days = Math.floor(Number(body.days || 0));
   if (!Number.isFinite(days) || days < RENTAL_MIN_DAYS || days > RENTAL_MAX_DAYS) {
     return { ok: false, message: `Rent ${RENTAL_MIN_DAYS}–${RENTAL_MAX_DAYS} days at a time.`, status: 400 };

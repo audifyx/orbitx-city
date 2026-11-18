@@ -1105,15 +1105,33 @@ export default function App() {
   }, [snap.shopTabNonce]);
 
   // UNIFIED SHOP: fetch the server catalog + owned snapshot whenever the
-  // Shop opens, so prices and owned flags are server-fresh.
+  // Shop opens, so prices and owned flags are server-fresh. Also re-fire
+  // when the universe joins: shopCatalog() silently no-ops while
+  // currentUniverse is null (the join is still in flight when a fast user
+  // opens the Shop), and without this the catalog never arrives for the
+  // whole session. One 2s retry covers a join landing between renders.
   useEffect(() => {
     if (panel !== "shop") return;
     const rt = gameRef.current?.runtime;
     if (!rt) return;
-    void rt.shopCatalog().then((res) => {
-      if (res.ok) setShopData(res as ShopCatalogData);
-    });
-  }, [panel]);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const fetchCatalog = (attempt: number) => {
+      void rt.shopCatalog().then((res) => {
+        if (cancelled) return;
+        if (res.ok) {
+          setShopData(res as ShopCatalogData);
+          return;
+        }
+        if (attempt < 1) timer = setTimeout(() => fetchCatalog(attempt + 1), 2000);
+      });
+    };
+    fetchCatalog(0);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [panel, snap.universe?.id]);
 
   // Keep the grocery fresh while the Shop's Grocery tab is open — the
   // catalog, inventory and hunger all come from the server, never local.
@@ -1981,8 +1999,17 @@ export default function App() {
                           const active = snap.activeVehicle === id;
                           const price = shopData?.catalog.cars.find((entry) => entry.id === id)?.price ?? v.price;
                           const serverColors = shopData?.catalog.cars.find((entry) => entry.id === id)?.colors;
-                          const colorNames = serverColors?.length ? serverColors : Object.keys(VEHICLE_COLORS);
-                          const color = shopCarColors[id] ?? (ownedEntry && colorNames.includes(ownedEntry.color) ? ownedEntry.color : colorNames[0] ?? "black");
+                          // Default color MUST come from this vehicle's own
+                          // list (client catalog == server list, verified):
+                          // the old fallback was Object.keys(VEHICLE_COLORS)
+                          // — the global paint map — whose first key "white"
+                          // is not available for 9 vehicles (both ATVs, both
+                          // boards, city-muscle, tesla-roadster, fly-aero,
+                          // bike-street, bike-cruiser), so a buy clicked
+                          // before the server catalog arrived 400'd with
+                          // "That color is not available for this vehicle."
+                          const colorNames = serverColors?.length ? serverColors : v.colors;
+                          const color = shopCarColors[id] ?? (ownedEntry && colorNames.includes(ownedEntry.color) ? ownedEntry.color : v.defaultColor ?? colorNames[0] ?? "black");
                           const balance = shopData?.shop.balance ?? snap.balance;
                           const afford = balance >= price;
                           const garageFull = ownedVehicles.length >= garageCap(snap.garage) && !ownedEntry;

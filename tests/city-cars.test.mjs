@@ -36,6 +36,27 @@ async function buy(token, id, color = "black") {
   return res;
 }
 
+test("buy color: an invalid color falls back to the vehicle default instead of failing the buy", async () => {
+  const { token, id } = await guest("ColorFallback");
+  // "white" is the pre-catalog Shop default (first key of the global paint
+  // map) and is NOT available for atv-trail / board-street / atv-quad —
+  // a buy clicked before the server catalog arrived used to 400 here with
+  // "That color is not available for this vehicle.", which is why the ATV
+  // and skateboard "didn't work" in the game.
+  const atv = await call("buy-car", { id: "atv-trail", color: "white", server: 1 }, token);
+  assert.equal(atv.ok, true, atv.message);
+  assert.equal(atv.me.balance, 60000 - 1500);
+  assert.equal(saveFor(id, 1).vehicles.find((v) => v.id === "atv-trail").color, "green");
+  const board = await call("buy-car", { id: "board-street", color: "white", server: 1 }, token);
+  assert.equal(board.ok, true, board.message);
+  assert.equal(board.me.balance, 60000 - 1500 - 150);
+  assert.equal(saveFor(id, 1).vehicles.find((v) => v.id === "board-street").color, "black");
+  // Same through the Shop UI's actual op.
+  const shop = await call("shop-buy", { category: "car", id: "atv-quad", color: "white", server: 1 }, token);
+  assert.equal(shop.ok, true, shop.message);
+  assert.equal(saveFor(id, 1).vehicles.find((v) => v.id === "atv-quad").color, "orange");
+});
+
 test("garage cap: 3 cars fit, the 4th is refused until parking is expanded", async () => {
   const { token, id } = await guest("Capped");
   await buy(token, "city-compact", "white"); // 220
