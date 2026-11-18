@@ -2470,6 +2470,21 @@ export function createRuntime(scene: Scene) {
     const dz = -Math.cos(spot.yaw);
     const clearAt = (x: number, z: number) => !cars.some((car) => Math.hypot(car.x - x, car.z - z) < 5);
     if (clearAt(spot.x, spot.z)) return spot;
+    // Sideways first: a car nudged 6+ units forward lands 12+ from the
+    // player — outside the 7-unit enter radius — so a fresh buy could
+    // never be entered (the sedan and flyer in run7 both spawned out of
+    // reach while the player re-entered the nearer parked board). A
+    // sideways nudge keeps the car beside the road spot, still in reach.
+    // The sideways axis is the right perpendicular to the facing.
+    const rx = -dz;
+    const rz = dx;
+    for (const step of [5, 10]) {
+      for (const sign of [1, -1]) {
+        const x = spot.x + rx * step * sign;
+        const z = spot.z + rz * step * sign;
+        if (clearAt(x, z)) return { x, z, yaw: spot.yaw };
+      }
+    }
     for (let step = 1; step <= 4; step++) {
       const x = spot.x + dx * 6 * step;
       const z = spot.z + dz * 6 * step;
@@ -4804,6 +4819,18 @@ export function createRuntime(scene: Scene) {
   }
 
   function nearestCar(body: Body, max: number) {
+    // The active car — the one just bought or selected — answers Use
+    // first when it is in range, even if another parked car is nearer.
+    // Otherwise a fresh buy strands the player: the car they just exited
+    // sits 2.6 units away while the new car is 6 ahead, so Use kept
+    // re-entering the old car (and if that one was nosed against a wall,
+    // the new car looked like it "doesn't work"). A different parked car
+    // is still enterable — walk up to it so the active car is out of
+    // range, or select it in the garage to make it active.
+    if (ownedCarIndex >= 0 && ownedCarIndex < cars.length) {
+      const active = cars[ownedCarIndex];
+      if (active && Math.hypot(active.x - body.x, active.z - body.z) < max) return ownedCarIndex;
+    }
     let best = -1;
     let bestD = max;
     cars.forEach((car, index) => {

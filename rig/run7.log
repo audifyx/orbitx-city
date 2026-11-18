@@ -1,0 +1,1200 @@
+skipped flyover
+hud ok
+start balance: 60000
+atv buy click: clicked
+atv drive: 12.47
+board buy click: clicked
+board drive: 6.65
+compact buy click: clicked
+owned after 3 buys: {"driving":false,"vehicles":["atv-trail","board-street","city-compact"],"activeVehicle":"city-compact","garage":{"slots":0,"workshop":false,"showroom":false},"balance":58142,"carFlying":false}
+cap check: {"buyAttempt":"garage-full-button-shown","garageFullShown":true,"garageFitsLine":"Your garage fits 3 cars — 3 parked"}
+upgrade click: clicked
+garage after upgrade: {"slots":1,"workshop":false,"showroom":false}
+sedan buy click: clicked
+sedan drive: 0
+flyer buy click: clicked
+takeoff click: clicked
+flyer air: null carFlying: false
+RIG DONE {
+  "balanceStart": 60000,
+  "atvBuy": "clicked",
+  "atv": {
+    "balanceAfter": 58500,
+    "enterPos": {
+      "x": 0,
+      "y": 0,
+      "z": 62,
+      "yaw": 0,
+      "swimming": false,
+      "flying": false
+    },
+    "drive": {
+      "trail": [
+        {
+          "x": 0,
+          "y": 0,
+          "z": 62,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0,
+          "z": 62,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0,
+          "z": 62,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0,
+          "z": 62,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 54.64185851876199,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 54.64185851876199,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 54.64185851876199,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 54.64185851876199,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 53.10815816278753,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.61565194453394,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.52574177645254,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525635657513085,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525635657513085,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525635657513085,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525635657513085,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525635657513085,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525635657513085,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525635657513085,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        }
+      ],
+      "displacement": 12.47
+    },
+    "snapAfter": {
+      "driving": false,
+      "vehicles": [
+        "atv-trail"
+      ],
+      "activeVehicle": "atv-trail",
+      "garage": {
+        "slots": 0,
+        "workshop": false,
+        "showroom": false
+      },
+      "balance": 58512,
+      "carFlying": false
+    }
+  },
+  "boardBuy": "clicked",
+  "board": {
+    "balanceAfter": 58362,
+    "enterPos": {
+      "x": 2.6,
+      "y": 0,
+      "z": 49.525533768775645,
+      "yaw": 0,
+      "swimming": false,
+      "flying": false
+    },
+    "drive": {
+      "trail": [
+        {
+          "x": 2.6,
+          "y": 0,
+          "z": 49.525533768775645,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 45.503458742272,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 44.392085077156985,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 44.392085077156985,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 44.392085077156985,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 44.392085077156985,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.52064122456121,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.41670697310274,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.41670697310274,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.41670697310274,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.41670697310274,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.41670697310274,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        }
+      ],
+      "displacement": 6.65
+    },
+    "snapAfter": {
+      "driving": false,
+      "vehicles": [
+        "atv-trail",
+        "board-street"
+      ],
+      "activeVehicle": "board-street",
+      "garage": {
+        "slots": 0,
+        "workshop": false,
+        "showroom": false
+      },
+      "balance": 58362,
+      "carFlying": false
+    }
+  },
+  "compactBuy": "clicked",
+  "compact": {
+    "balanceAfter": 58142
+  },
+  "snapAfter3": {
+    "driving": false,
+    "vehicles": [
+      "atv-trail",
+      "board-street",
+      "city-compact"
+    ],
+    "activeVehicle": "city-compact",
+    "garage": {
+      "slots": 0,
+      "workshop": false,
+      "showroom": false
+    },
+    "balance": 58142,
+    "carFlying": false
+  },
+  "sedanBuyAttempt": "garage-full-button-shown",
+  "cap": {
+    "buyAttempt": "garage-full-button-shown",
+    "garageFullShown": true,
+    "garageFitsLine": "Your garage fits 3 cars — 3 parked",
+    "balanceUnchanged": true
+  },
+  "upgradeClick": "clicked",
+  "upgrade": {
+    "balanceAfter": 57342,
+    "snap": {
+      "driving": false,
+      "vehicles": [
+        "atv-trail",
+        "board-street",
+        "city-compact"
+      ],
+      "activeVehicle": "city-compact",
+      "garage": {
+        "slots": 1,
+        "workshop": false,
+        "showroom": false
+      },
+      "balance": 57342,
+      "carFlying": false
+    }
+  },
+  "sedanBuy": "clicked",
+  "sedan": {
+    "balanceAfter": 56892,
+    "enterPos": {
+      "x": 0,
+      "y": 0.2,
+      "z": 43.401620201786784,
+      "yaw": 0,
+      "swimming": false,
+      "flying": false
+    },
+    "drive": {
+      "trail": [
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        },
+        {
+          "x": 0,
+          "y": 0.2,
+          "z": 43.401620201786784,
+          "yaw": 0,
+          "swimming": false,
+          "flying": false
+        }
+      ],
+      "displacement": 0
+    },
+    "snapAfter": {
+      "driving": false,
+      "vehicles": [
+        "atv-trail",
+        "board-street",
+        "city-compact",
+        "city-sedan"
+      ],
+      "activeVehicle": "city-sedan",
+      "garage": {
+        "slots": 1,
+        "workshop": false,
+        "showroom": false
+      },
+      "balance": 56892,
+      "carFlying": false
+    }
+  },
+  "sedanCapture": "ok",
+  "flyerBuy": "clicked",
+  "flyer": {
+    "balanceAfter": 50892,
+    "enterPos": {
+      "x": 2.6,
+      "y": 0,
+      "z": 43.401620201786784,
+      "yaw": 0,
+      "swimming": false,
+      "flying": false
+    },
+    "takeoffClick": "clicked",
+    "airPos": null,
+    "snapAir": {
+      "driving": false,
+      "vehicles": [
+        "atv-trail",
+        "board-street",
+        "city-compact",
+        "city-sedan",
+        "fly-skyhopper"
+      ],
+      "activeVehicle": "fly-skyhopper",
+      "garage": {
+        "slots": 1,
+        "workshop": false,
+        "showroom": false
+      },
+      "balance": 50892,
+      "carFlying": false
+    }
+  },
+  "finalSnap": {
+    "driving": true,
+    "vehicles": [
+      "atv-trail",
+      "board-street",
+      "city-compact",
+      "city-sedan",
+      "fly-skyhopper"
+    ],
+    "activeVehicle": "fly-skyhopper",
+    "garage": {
+      "slots": 1,
+      "workshop": false,
+      "showroom": false
+    },
+    "balance": 50892,
+    "carFlying": false
+  },
+  "finalBalance": 50892
+}
