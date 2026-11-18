@@ -1036,6 +1036,19 @@ const FURNITURE_CATALOG = {
   armchair: { name: "Armchair", price: 290 },
   "coffee-table": { name: "Coffee Table", price: 210 },
   "tv-stand": { name: "TV Stand", price: 180 },
+  // Home Workshop additions (2026-11-18): more to place in 2D. Mirror in
+  // web/src/game/runtime.ts FURNITURE_CATALOG + homeplan.ts footprints +
+  // lifeview.ts pieceMesh — the server is the price authority.
+  bookshelf: { name: "Bookshelf", price: 300 },
+  wardrobe: { name: "Wardrobe", price: 520 },
+  nightstand: { name: "Nightstand", price: 140 },
+  fireplace: { name: "Fireplace", price: 900 },
+  "pool-table": { name: "Pool Table", price: 1100 },
+  "wall-art": { name: "Wall Art", price: 160 },
+  "kitchen-island": { name: "Kitchen Island", price: 650 },
+  "floor-cushion": { name: "Floor Cushion", price: 100 },
+  "bar-stool": { name: "Bar Stool", price: 130 },
+  "console-table": { name: "Console Table", price: 240 },
 };
 const FURNITURE_MAX_PER_HOME = 40;
 
@@ -4741,6 +4754,8 @@ const CRIB_WALLS = {
   red: { name: "Ember paint", price: 60 },
   black: { name: "Midnight paint", price: 60 },
   white: { name: "Cloud paint", price: 60 },
+  sunset: { name: "Sunset paint", price: 70 },
+  forest: { name: "Forest paint", price: 60 },
 };
 const CRIB_FLOORS = {
   wood: { name: "Wood floor", price: 80 },
@@ -4748,12 +4763,14 @@ const CRIB_FLOORS = {
   gold: { name: "Gold floor", price: 120 },
   black: { name: "Onyx floor", price: 100 },
   grass: { name: "Grass floor", price: 90 },
+  tile: { name: "Tile floor", price: 110 },
 };
 const CRIB_LIGHTS = {
   warm: { name: "Warm lights", price: 50 },
   cool: { name: "Cool lights", price: 50 },
   gold: { name: "Gold lights", price: 70 },
   cyan: { name: "Aqua lights", price: 60 },
+  pink: { name: "Rose lights", price: 60 },
 };
 
 // --- HOME STYLE: the OUTSIDE of a home + one-tap themes -----------------
@@ -4767,17 +4784,23 @@ const HOME_EXTERIORS = {
   beach: { name: "Beach pastel", price: 120 },
   neon: { name: "Neon facade", price: 180 },
   midnight: { name: "Midnight facade", price: 150 },
+  sunset: { name: "Sunset facade", price: 160 },
+  chrome: { name: "Chrome facade", price: 170 },
 };
 const HOME_ROOFS = {
   standard: { name: "Standard roof", price: 0 },
   gold: { name: "Gold trim roof", price: 120 },
   neon: { name: "Neon edge roof", price: 150 },
+  beach: { name: "Aqua edge roof", price: 130 },
+  midnight: { name: "Midnight edge roof", price: 130 },
 };
 const HOME_YARDS = {
   none: { name: "No yard feature", price: 0 },
   deck: { name: "Wood deck", price: 200 },
   patio: { name: "Stone patio", price: 150 },
   garden: { name: "Garden", price: 100 },
+  pool: { name: "Pool", price: 300 },
+  lawn: { name: "Lawn", price: 80 },
 };
 // A theme is one look for the whole home, inside + outside — the way a
 // project or community themes its place. Classic is the default look
@@ -4788,6 +4811,8 @@ const HOME_THEMES = {
   beach: { name: "Beach House", price: 250, wall: "cream", floor: "wood", light: "warm", exterior: "beach", roof: "standard", yard: "patio" },
   neon: { name: "Neon Nights", price: 350, wall: "black", floor: "black", light: "cyan", exterior: "neon", roof: "neon", yard: "none" },
   midnight: { name: "Midnight", price: 300, wall: "black", floor: "marble", light: "cool", exterior: "midnight", roof: "standard", yard: "garden" },
+  sunset: { name: "Sunset", price: 320, wall: "sunset", floor: "wood", light: "warm", exterior: "sunset", roof: "standard", yard: "garden" },
+  chrome: { name: "Chrome Luxe", price: 450, wall: "white", floor: "marble", light: "cool", exterior: "chrome", roof: "standard", yard: "patio" },
 };
 // Office themes use the same palette, so a project themes its home and
 // its office the same way. An office theme costs 200 City Sol.
@@ -4867,6 +4892,7 @@ function sanitizeCribHome(entry, now) {
       wall: String(crib.decor?.wall || "cream"),
       floor: String(crib.decor?.floor || "wood"),
       light: String(crib.decor?.light || "warm"),
+      ...(Object.keys(sanitizeCribRooms(crib.decor?.rooms)).length ? { rooms: sanitizeCribRooms(crib.decor?.rooms) } : {}),
     },
     style: {
       exterior: String(crib.style?.exterior || "default"),
@@ -5044,6 +5070,30 @@ async function cribUpgrade(save, body) {
   return { ok: true, message: `Upgraded to a ${next.name}! More rooms, more space, more flex.`, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
 }
 
+// --- Home Workshop: per-room finishes -----------------------------------
+// The 2D plan splits a home into four rooms (living / bedroom / kitchen /
+// dining — see web/src/game/homeplan.ts for the layout). A room finish
+// (wall or floor for one room) costs half the whole-home price, rounded
+// to the nearest 5, min 25. Rooms live in the same crib JSON — no new
+// column. A one-tap theme is a whole-home preset, so it clears rooms.
+const CRIB_ROOMS = ["living", "bedroom", "kitchen", "dining"];
+
+function roomFinishPrice(wholePrice) {
+  return Math.max(25, Math.round(Number(wholePrice || 0) / 2 / 5) * 5);
+}
+
+function sanitizeCribRooms(raw) {
+  const out = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [roomId, finish] of Object.entries(raw)) {
+    if (!CRIB_ROOMS.includes(roomId) || !finish || typeof finish !== "object") continue;
+    const wall = CRIB_WALLS[String(finish.wall)] ? String(finish.wall) : null;
+    const floor = CRIB_FLOORS[String(finish.floor)] ? String(finish.floor) : null;
+    if (wall || floor) out[roomId] = { ...(wall ? { wall } : {}), ...(floor ? { floor } : {}) };
+  }
+  return out;
+}
+
 async function cribDecor(save, body) {
   const server = parseServerId(body.server);
   if (!server) return { ok: false, message: "Pick a server (1-5) first.", status: 400 };
@@ -5070,11 +5120,45 @@ async function cribDecor(save, body) {
     total += opt.price;
     changes.push(["light", String(body.light), opt]);
   }
+  // Per-room finishes (Home Workshop): { living: { wall, floor }, ... }.
+  // A room finish costs half the whole-home price (rounded to 5, min 25)
+  // — repainting one room is cheaper than repainting the whole house.
+  if (body.rooms != null && typeof body.rooms === "object") {
+    const rooms = sanitizeCribRooms(decor.rooms);
+    for (const [roomId, patch] of Object.entries(body.rooms)) {
+      if (!CRIB_ROOMS.includes(roomId)) return { ok: false, message: "Unknown room.", status: 400 };
+      if (!patch || typeof patch !== "object") continue;
+      const current = rooms[roomId] || { wall: decor.wall, floor: decor.floor };
+      const next = { ...current };
+      if (patch.wall != null && String(patch.wall) !== current.wall) {
+        const opt = CRIB_WALLS[String(patch.wall)];
+        if (!opt) return { ok: false, message: "Unknown wall colour.", status: 400 };
+        const price = roomFinishPrice(opt.price);
+        total += price;
+        changes.push([`${roomId} wall`, String(patch.wall), { name: `${opt.name} — ${roomId}`, price }]);
+        next.wall = String(patch.wall);
+      }
+      if (patch.floor != null && String(patch.floor) !== current.floor) {
+        const opt = CRIB_FLOORS[String(patch.floor)];
+        if (!opt) return { ok: false, message: "Unknown flooring.", status: 400 };
+        const price = roomFinishPrice(opt.price);
+        total += price;
+        changes.push([`${roomId} floor`, String(patch.floor), { name: `${opt.name} — ${roomId}`, price }]);
+        next.floor = String(patch.floor);
+      }
+      rooms[roomId] = next;
+    }
+    if (Object.keys(rooms).length) decor.rooms = rooms;
+  }
   if (!changes.length) return { ok: false, message: "That is already how your home looks.", status: 400 };
   if (save.balance < total) return { ok: false, message: `Not enough City Sol — that redecoration is ${total}.`, status: 400 };
   save.balance -= total;
   noteSpent(save, total);
-  for (const [key, value] of changes) decor[key] = value;
+  // Whole-home keys only — room changes already landed in decor.rooms
+  // above (their change keys are "living wall" etc., never decor keys).
+  for (const [key, value] of changes) {
+    if (key === "wall" || key === "floor" || key === "light") decor[key] = value;
+  }
   entry.crib.decor = decor;
   await saveSave(save);
   return { ok: true, message: `Redecorated — ${changes.map(([, , opt]) => opt.name).join(", ")} for ${total} City Sol.`, crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
@@ -5123,6 +5207,8 @@ async function homeTheme(save, body) {
   save.balance -= theme.price;
   noteSpent(save, theme.price);
   entry.crib.decor = { wall: theme.wall, floor: theme.floor, light: theme.light };
+  // A theme is a whole-home preset — per-room finishes are replaced by it.
+  if (entry.crib.decor.rooms) delete entry.crib.decor.rooms;
   entry.crib.style = { exterior: theme.exterior, roof: theme.roof, yard: theme.yard };
   await saveSave(save);
   return { ok: true, message: "Themed your home " + E + " " + theme.name + " — inside and out — for " + theme.price + " City Sol.", crib: sanitizeCrib(save.homes), me: publicPlayer(save) };
