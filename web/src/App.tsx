@@ -100,7 +100,7 @@ import { shortAddress } from "./game/localWallet";
 import { STORES, WARDROBE_CATALOG, WARDROBE_KINDS, fitSummary, kindLabel, wardrobeItem, type SavedFit, type StoreId } from "./game/wardrobe";
 
 const HELP =
-  "WASD / arrows move · in a car arrows steer · click or drag to look · Q/R turn camera · Space jump · F fly · E use or drive · C camera · hold Z emotes · O spectator · T chat · V talk";
+  "WASD / arrows move · in a car arrows steer · click or drag to look · Q/R turn camera · Space jump · F fly · E use or drive · C camera · hold Z emotes · O spectator · T chat · V talk · Y power";
 
 // Tower office directory, served live by /api/city — never invented.
 // "offices" joins PanelName in runtime.ts once the tower-interiors wiring
@@ -1832,6 +1832,33 @@ export default function App() {
             Emote
           </button>
           <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.toggleSpectator(); }}>Clip</button>
+          {/* HERO POWERS: the current look's power (hidden for KOL looks,
+              which have none yet). Hold powers fire on pointer-down and
+              end on pointer-up, like the Emote wheel; press powers fire
+              once. Cooldown counts down on the button itself. */}
+          {snap.power ? (
+            <button
+              type="button"
+              title={snap.power.blurb}
+              style={{ touchAction: "none", opacity: snap.power.readyInMs > 0 && !snap.power.active ? 0.55 : 1 }}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                triggerHaptic("tap");
+                gameRef.current?.runtime.powerPress();
+              }}
+              onPointerUp={() => gameRef.current?.runtime.powerRelease()}
+              onPointerCancel={() => gameRef.current?.runtime.powerRelease()}
+              onPointerLeave={() => gameRef.current?.runtime.powerRelease()}
+            >
+              {snap.power.active
+                ? `${snap.power.name}…`
+                : snap.power.readyInMs > 0
+                  ? `${snap.power.name} (${Math.ceil(snap.power.readyInMs / 1000)}s)`
+                  : snap.power.trick
+                    ? `${snap.power.name} · ${snap.power.trick}`
+                    : `${snap.power.name} (Y)`}
+            </button>
+          ) : null}
           <button type="button" onClick={() => open("phone")}>Phone</button>
           {/* CITY STATS: admin-only. The button only exists for the
               signed-in audifyx@gmail.com account — everyone else never
@@ -5379,7 +5406,7 @@ export default function App() {
               className="menu-warning"
               style={{ background: "#ffffff", color: "#020611", border: "2px solid #e0b33a", padding: "10px 14px", borderRadius: 8, maxWidth: 560, margin: "12px auto", textAlign: "center" }}
             >
-              Character list failed to load — only TJR is available right now. Check your connection and reload to see all twelve characters.
+              Character list failed to load — only TJR is available right now. Check your connection and reload to see all seventy-two characters.
             </p>
           ) : null}
           {menuPage !== "home" ? (

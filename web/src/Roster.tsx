@@ -3,7 +3,17 @@ import { AmbientLight, DirectionalLight, Group, PerspectiveCamera, Scene, WebGLR
 import { allLooks, dressPerson, loadLooks, type Look } from "./game/avatar";
 
 const HELP =
-  "WASD move · click or drag to look · arrows or Q/R turn · Space jump · F fly · E use or drive · C camera · hold Z emotes · O spectator · T chat · V talk";
+  "WASD move · click or drag to look · arrows or Q/R turn · Space jump · F fly · E use or drive · C camera · hold Z emotes · O spectator · T chat · V talk · Y power";
+
+// HERO PACK: roster group labels are descriptive, never the show titles.
+const GROUP_LABELS: Record<string, string> = {
+  all: "All",
+  kol: "KOLs",
+  "walking-dead": "Survivors",
+  fear: "West Coast",
+  flash: "Speedsters",
+  arrow: "Archers",
+};
 
 interface CharacterSelectProps {
   seedText: string;
@@ -108,7 +118,20 @@ export function CharacterSelect({ seedText, setSeedText, webglMissing, busy, onP
     };
   }, [looks]);
 
-  const look = looks[index] ?? looks[0];
+  // HERO PACK: 72 looks in 5 groups (KOLs + 4 hero sets). The grid +
+  // Prev/Next navigate the filtered list; the snapshot loop still renders
+  // every look. Switching groups keeps the current character selected
+  // when it belongs to the new group, else jumps to the group's first.
+  const [group, setGroup] = useState("all");
+  const filtered = group === "all" ? looks : looks.filter((item) => (item.group ?? "kol") === group);
+  const look = filtered[index] ?? filtered[0];
+  const pickGroup = (next: string) => {
+    const current = look;
+    setGroup(next);
+    const list = next === "all" ? looks : looks.filter((item) => (item.group ?? "kol") === next);
+    const at = current ? list.findIndex((item) => item.id === current.id) : -1;
+    setIndex(at >= 0 ? at : 0);
+  };
 
   useEffect(() => {
     if (!look) return;
@@ -166,8 +189,8 @@ export function CharacterSelect({ seedText, setSeedText, webglMissing, busy, onP
   }, [look]);
 
   if (!look) return null;
-  const prev = () => setIndex((value) => (value - 1 + looks.length) % looks.length);
-  const next = () => setIndex((value) => (value + 1) % looks.length);
+  const prev = () => setIndex((value) => (value - 1 + filtered.length) % filtered.length);
+  const next = () => setIndex((value) => (value + 1) % filtered.length);
 
   return (
     <div
@@ -189,7 +212,21 @@ export function CharacterSelect({ seedText, setSeedText, webglMissing, busy, onP
           ← MENU
         </button>
         <h2>PICK YOUR CHARACTER</h2>
-        <p>12 characters · each one a real name from the timeline</p>
+        <p>{looks.length} characters · KOLs + 4 hero sets</p>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center", marginTop: 8 }}>
+          {(["all", "kol", "walking-dead", "fear", "flash", "arrow"] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              className="menu-ghost"
+              aria-pressed={group === key}
+              style={group === key ? { borderColor: "#e0b33a", color: "#e0b33a" } : undefined}
+              onClick={() => pickGroup(key)}
+            >
+              {GROUP_LABELS[key]}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="char-body">
         <div className="char-preview">
@@ -211,7 +248,7 @@ export function CharacterSelect({ seedText, setSeedText, webglMissing, busy, onP
           </div>
         </div>
         <div className="char-grid">
-          {looks.map((item, itemIndex) => (
+          {filtered.map((item, itemIndex) => (
             <button
               key={item.id}
               type="button"

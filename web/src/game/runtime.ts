@@ -73,6 +73,17 @@ import {
 import { burnAmount, earn, loadWallet, saveWallet, spend } from "./economy";
 import { createNet, type ChatLine, type NetAdapter, type NetState } from "./net";
 import { allLooks, clothesFromOwned, dressPerson, loadLooks, lookById, lookName, looksReady, type Clothes } from "./avatar";
+import {
+  TRICK_ARROW_LABEL,
+  cooldownReady,
+  cooldownRemainingMs,
+  inMeleeArc,
+  nextTrickArrow,
+  powerForLook,
+  powerSpeedMult,
+  type PowerDef,
+  type TrickArrow,
+} from "./powers";
 import { GOLD, MATERIALS } from "./materials";
 import { accountToken, ensureFreshAccountToken, readAccount, refreshAccountToken } from "../auth";
 import { world, type CityMe } from "./world";
@@ -656,6 +667,8 @@ export interface Snap {
   // Wandering citizens (the 14 People-theme NPCs among them) with their
   // LIVE position — the Players panel teleports to NPC friends via this.
   npcs: { name: string; x: number; z: number }[];
+  /** The current look's hero power (null for KOL looks): HUD button + key hint, cooldown, active state. */
+  power: { name: string; blurb: string; readyInMs: number; active: boolean; trick: string } | null;
   friends: { id: string; name: string }[];
   // Inbox: friend requests carry no kind; party invites carry
   // kind "party" + the party id. The Players panel tells them apart.
@@ -2045,6 +2058,41 @@ export function createRuntime(scene: Scene) {
   hands.visible = false;
   scene.add(hands);
   const sparks: Spark[] = [];
+  // ---- HERO POWERS: state + pools -------------------------------------
+  // Cooldowns / durations live in epoch ms (Date.now); NPC overrides use
+  // the in-game `clock` (seconds) — the two never mix.
+  interface PowerProjectile {
+    mesh: Mesh;
+    active: boolean;
+    x: number;
+    y: number;
+    z: number;
+    vx: number;
+    vy: number;
+    vz: number;
+    life: number;
+    def: PowerDef | null;
+    trick: TrickArrow;
+  }
+  const projectiles: PowerProjectile[] = [];
+  interface PowerBeacon {
+    mesh: Mesh;
+    npc: Npc | null;
+  }
+  const beacons: PowerBeacon[] = [];
+  let powerLastUsedAt = -1e12;
+  let powerActiveUntil = 0;
+  let powerHeld = false;
+  let powerTrick: TrickArrow = "standard";
+  let powerRevealUntil = 0;
+  let powerRevealRadius = 0;
+  let powerRallyRadius = 0;
+  let powerRallyUntil = 0;
+  let scopeUntil = 0;
+  let lastTrailAt = 0;
+  // Stealth: cloned transparent materials per player mesh + the originals,
+  // restored when stealth ends (shared world materials are never touched).
+  let stealthMats: { mesh: Mesh; mat: Material }[] | null = null;
   interface Npc {
     group: Group;
     name: string;
@@ -2063,6 +2111,17 @@ export function createRuntime(scene: Scene) {
     guest?: boolean;
     guestHome?: string;
     partyGuest?: boolean;
+    // HERO POWERS: clock-second windows (game `clock`, not epoch ms).
+    // followUntil: rally — walk toward the player. fleeUntil/fleeX/fleeZ:
+    // fear — run away from the point. gatherUntil/gatherX/gatherZ: charm
+    // / medic — walk to the fixed point and wait there.
+    followUntil: number;
+    fleeUntil: number;
+    fleeX: number;
+    fleeZ: number;
+    gatherUntil: number;
+    gatherX: number;
+    gatherZ: number;
   }
   const npcs: Npc[] = [];
   // Talk state: the open dialogue (null when no chat is open). Lives outside
@@ -3267,7 +3326,7 @@ export function createRuntime(scene: Scene) {
       const info = NPC_LINES[citizen.name];
       const patrol = info?.patrol ?? NPC_DEFAULT_PATROL;
       const waypoints = patrol.map(([dx, dz]) => ({ x: citizen.x + dx, z: citizen.z + dz }));
-      npcs.push({ group, name: citizen.name, homeX: citizen.x, homeZ: citizen.z, x: citizen.x, z: citizen.z, prevX: citizen.x, prevZ: citizen.z, yaw: index, waypoints, wp: 1 % waypoints.length, waitUntil: 0 });
+      npcs.push({ group, name: citizen.name, homeX: citizen.x, homeZ: citizen.z, x: citizen.x, z: citizen.z, prevX: citizen.x, prevZ: citizen.z, yaw: index, waypoints, wp: 1 % waypoints.length, waitUntil: 0, followUntil: 0, fleeUntil: 0, fleeX: 0, fleeZ: 0, gatherUntil: 0, gatherX: 0, gatherZ: 0 });
     });
     // Activity markers (labels only — no new geometry): the dance floor in
     // the hall and the three photo spots.
@@ -3412,6 +3471,21 @@ export function createRuntime(scene: Scene) {
       mesh.visible = false;
       root.add(mesh);
       sparks.push({ mesh, vx: 0, vy: 0, vz: 0, life: 0 });
+    }
+    // HERO POWERS: projectile + reveal-beacon pools (created once, reused).
+    for (let i = 0; i < 12; i++) {
+      const mesh = new Mesh(box, GOLD);
+      mesh.scale.set(0.12, 0.12, 0.9);
+      mesh.visible = false;
+      root.add(mesh);
+      projectiles.push({ mesh, active: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: 0, def: null, trick: "standard" });
+    }
+    for (let i = 0; i < 16; i++) {
+      const mesh = new Mesh(box, GOLD);
+      mesh.scale.set(0.25, 0.5, 0.25);
+      mesh.visible = false;
+      root.add(mesh);
+      beacons.push({ mesh, npc: null });
     }
     publish();
     // Menu universe pick: join that universe now that the session is live,
@@ -3600,6 +3674,7 @@ export function createRuntime(scene: Scene) {
         server: typeof remote.state.server === "number" ? remote.state.server : null,
       })),
       npcs: npcs.map((npc) => ({ name: npc.name, x: npc.x, z: npc.z })),
+      power: powerSnap(),
       friends: world.me?.friends ?? [],
       requests: world.me?.inbox ?? [],
       party: world.party?.members ?? [],
@@ -5069,9 +5144,10 @@ export function createRuntime(scene: Scene) {
     }
     // NPC talk: an NPC within 3 units answers E — but only after a door /
     // zone service point has had its say, so E at a door still walks in
-    // even when an NPC patrols past it.
+    // even when an NPC patrols past it. HERO POWERS: stealthed players
+    // are undetectable — E never opens talk while Vanish is active.
     const npcIndex = nearestNpc(body, 3);
-    if (npcIndex >= 0) {
+    if (npcIndex >= 0 && !stealthActive()) {
       openTalk(npcIndex);
       return;
     }
@@ -7191,7 +7267,9 @@ export function createRuntime(scene: Scene) {
   // by this (see engine.ts tick). Same formula as the server — well fed
   // (>=70) runs fast, starving (0) crawls; stamina adds up to +10%.
   function speedMult() {
-    return foodSpeedMult(hunger, foodStamina);
+    // HERO POWERS: a speed power multiplies on top of the food factor —
+    // the engine reads this every frame (engine.ts tick).
+    return foodSpeedMult(hunger, foodStamina) * powerSpeedMult(powerDef(), Date.now(), powerActiveUntil);
   }
 
   // Attempt the current step of a mission; the server validates kind,
@@ -7402,6 +7480,416 @@ export function createRuntime(scene: Scene) {
     }
   }
 
+  // ---- HERO POWERS: press / release / tick -----------------------------
+  function powerDef(): PowerDef | null {
+    return powerForLook(lookId);
+  }
+
+  /** True while the current power's timed effect is running. */
+  function powerActiveNow(): boolean {
+    const def = powerDef();
+    if (!def) return false;
+    if (def.hold) return powerHeld && Date.now() < powerActiveUntil;
+    return Date.now() < powerActiveUntil;
+  }
+
+  function stealthActive(): boolean {
+    const def = powerDef();
+    return !!def && def.kind === "stealth" && powerActiveNow();
+  }
+
+  function resetPowerState() {
+    powerLastUsedAt = -1e12;
+    powerActiveUntil = 0;
+    powerHeld = false;
+    powerTrick = "standard";
+    powerRevealUntil = 0;
+    powerRevealRadius = 0;
+    powerRallyRadius = 0;
+    powerRallyUntil = 0;
+    scopeUntil = 0;
+    restoreStealthMats();
+    for (const p of projectiles) {
+      p.active = false;
+      p.mesh.visible = false;
+    }
+    for (const b of beacons) {
+      b.npc = null;
+      b.mesh.visible = false;
+    }
+  }
+
+  function powerSnap(): Snap["power"] {
+    const def = powerDef();
+    if (!def) return null;
+    const now = Date.now();
+    return {
+      name: def.name,
+      blurb: def.blurb,
+      readyInMs: cooldownRemainingMs(now, powerLastUsedAt, def.cooldownMs),
+      active: powerActiveNow(),
+      trick: def.trick ? TRICK_ARROW_LABEL[powerTrick] : "",
+    };
+  }
+
+  /** One spark, short life — the Speed Force trail + impact pops. */
+  function sparkOne(x: number, y: number, z: number) {
+    for (const spark of sparks) {
+      if (spark.life > 0) continue;
+      spark.life = 0.8;
+      spark.mesh.visible = true;
+      spark.mesh.position.set(x, y, z);
+      spark.vx = (Math.random() - 0.5) * 4;
+      spark.vy = 1 + Math.random() * 3;
+      spark.vz = (Math.random() - 0.5) * 4;
+      return;
+    }
+  }
+
+  function knockNpc(npc: Npc, fromX: number, fromZ: number, dist: number) {
+    const dx = npc.x - fromX;
+    const dz = npc.z - fromZ;
+    const len = Math.hypot(dx, dz) || 1;
+    npc.x += (dx / len) * dist;
+    npc.z += (dz / len) * dist;
+  }
+
+  /** Area effect on every citizen within radius of (cx, cz). */
+  function applyAoeMode(def: PowerDef, cx: number, cz: number) {
+    const radius = def.aoeRadius ?? def.range;
+    const durS = (def.aoeDurationMs ?? 5000) / 1000;
+    for (const npc of npcs) {
+      if (Math.hypot(npc.x - cx, npc.z - cz) > radius) continue;
+      if (def.aoeMode === "wait") npc.waitUntil = clock + durS;
+      else if (def.aoeMode === "flee") {
+        npc.fleeUntil = clock + durS;
+        npc.fleeX = cx;
+        npc.fleeZ = cz;
+      } else if (def.aoeMode === "knockback") {
+        knockNpc(npc, cx, cz, 4);
+        npc.fleeUntil = clock + durS;
+        npc.fleeX = cx;
+        npc.fleeZ = cz;
+      }
+      burst(npc.x, 1.4, npc.z);
+    }
+  }
+
+  function applyReveal(radius: number, durMs: number) {
+    powerRevealRadius = radius;
+    powerRevealUntil = Date.now() + durMs;
+  }
+
+  function applyMelee(def: PowerDef, body: Body) {
+    let hits = 0;
+    for (const npc of npcs) {
+      if (!inMeleeArc(body.x, body.z, body.yaw, npc.x, npc.z, def.range, def.arcDeg)) continue;
+      hits += 1;
+      knockNpc(npc, body.x, body.z, def.knockback ?? 2);
+      npc.fleeUntil = clock + 3;
+      burst(npc.x, 1.4, npc.z);
+    }
+    if (def.aoeMode) applyAoeMode(def, body.x, body.z);
+    if (hits > 0) say(`${def.name} — ${hits} citizen${hits > 1 ? "s" : ""} hit.`);
+  }
+
+  function fireProjectile(def: PowerDef, body: Body) {
+    const slot = projectiles.find((p) => !p.active);
+    if (!slot) return;
+    let trick: TrickArrow = "standard";
+    if (def.trick) {
+      trick = powerTrick;
+      powerTrick = nextTrickArrow(powerTrick);
+    }
+    const dirX = Math.sin(body.yaw);
+    const dirZ = -Math.cos(body.yaw);
+    const speed = def.projSpeed ?? 60;
+    slot.active = true;
+    slot.def = def;
+    slot.trick = trick;
+    slot.x = body.x + dirX * 0.6;
+    slot.y = (body.y || 0) + 1.4;
+    slot.z = body.z + dirZ * 0.6;
+    slot.vx = dirX * speed;
+    slot.vy = 0;
+    slot.vz = dirZ * speed;
+    slot.life = def.range / speed + 0.3;
+    slot.mesh.visible = true;
+    slot.mesh.material =
+      def.proj === "freeze" ? MATERIALS.cyanhot : def.proj === "fire" ? MATERIALS.warm : def.proj === "star" ? MATERIALS.red : GOLD;
+    slot.mesh.position.set(slot.x, slot.y, slot.z);
+    slot.mesh.lookAt(slot.x + dirX, slot.y, slot.z + dirZ);
+    if (def.scope) scopeUntil = Date.now() + 1200;
+  }
+
+  function resolveProjectileHit(p: PowerProjectile, npc: Npc) {
+    const def = p.def;
+    if (!def) return;
+    if (def.trick && p.trick === "explosive") {
+      for (const other of npcs) {
+        if (Math.hypot(other.x - npc.x, other.z - npc.z) > 8) continue;
+        knockNpc(other, npc.x, npc.z, 4);
+        other.fleeUntil = clock + 5;
+        other.fleeX = npc.x;
+        other.fleeZ = npc.z;
+        burst(other.x, 1.4, other.z);
+      }
+      return;
+    }
+    if (def.trick && p.trick === "smoke") {
+      for (const other of npcs) {
+        if (Math.hypot(other.x - npc.x, other.z - npc.z) > 6) continue;
+        other.waitUntil = clock + 5;
+        burst(other.x, 1.4, other.z);
+      }
+      return;
+    }
+    if (def.proj === "freeze") {
+      npc.waitUntil = clock + 6;
+      burst(npc.x, 1.4, npc.z);
+      return;
+    }
+    if (def.proj === "fire") {
+      knockNpc(npc, p.x - p.vx * 0.05, p.z - p.vz * 0.05, 3);
+      npc.fleeUntil = clock + 5;
+      npc.fleeX = p.x - p.vx * 0.05;
+      npc.fleeZ = p.z - p.vz * 0.05;
+      burst(npc.x, 1.4, npc.z);
+      return;
+    }
+    knockNpc(npc, p.x - p.vx * 0.05, p.z - p.vz * 0.05, 2);
+    npc.fleeUntil = clock + 3;
+    npc.fleeX = p.x - p.vx * 0.05;
+    npc.fleeZ = p.z - p.vz * 0.05;
+    burst(npc.x, 1.4, npc.z);
+  }
+
+  function resolveProjectileGround(p: PowerProjectile) {
+    const def = p.def;
+    if (!def) return;
+    if (def.trick && p.trick === "explosive") {
+      for (const npc of npcs) {
+        if (Math.hypot(npc.x - p.x, npc.z - p.z) > 8) continue;
+        knockNpc(npc, p.x, p.z, 4);
+        npc.fleeUntil = clock + 5;
+        npc.fleeX = p.x;
+        npc.fleeZ = p.z;
+      }
+    } else if (def.trick && p.trick === "smoke") {
+      for (const npc of npcs) {
+        if (Math.hypot(npc.x - p.x, npc.z - p.z) > 6) continue;
+        npc.waitUntil = clock + 5;
+      }
+    }
+    burst(p.x, 1, p.z);
+  }
+
+  /** Fire the current look's power once (press powers). Hold powers are
+   * armed in pressPower and end in releasePower / tickPowers. */
+  function usePowerNow(def: PowerDef, body: Body) {
+    const now = Date.now();
+    if (def.kind === "speed-press") {
+      powerActiveUntil = now + def.durationMs;
+      if (def.revealRadius) applyReveal(def.revealRadius, def.revealDurationMs ?? 8000);
+      if (def.aoeMode) applyAoeMode(def, body.x, body.z);
+      if (def.rallyRadius) {
+        powerRallyRadius = def.rallyRadius;
+        powerRallyUntil = now + (def.rallyDurationMs ?? def.durationMs);
+      }
+    } else if (def.kind === "projectile") {
+      fireProjectile(def, body);
+      if (def.revealRadius) applyReveal(def.revealRadius, def.revealDurationMs ?? 10000);
+    } else if (def.kind === "melee") {
+      applyMelee(def, body);
+      if (def.speedMult) powerActiveUntil = now + def.durationMs;
+    } else if (def.kind === "rally") {
+      powerActiveUntil = now + def.durationMs;
+    } else if (def.kind === "gather") {
+      for (const npc of npcs) {
+        if (Math.hypot(npc.x - body.x, npc.z - body.z) > def.range) continue;
+        npc.gatherUntil = clock + def.durationMs / 1000;
+        npc.gatherX = body.x;
+        npc.gatherZ = body.z;
+      }
+      if (def.speedMult) powerActiveUntil = now + def.durationMs;
+    } else if (def.kind === "stealth") {
+      powerActiveUntil = now + def.durationMs;
+    } else if (def.kind === "reveal") {
+      applyReveal(def.revealRadius ?? def.range, def.revealDurationMs ?? 12000);
+      if (def.speedMult) powerActiveUntil = now + def.durationMs;
+    } else if (def.kind === "aoe") {
+      applyAoeMode(def, body.x, body.z);
+    } else if (def.kind === "breach") {
+      const dist = def.teleport ?? 8;
+      const fromX = body.x;
+      const fromZ = body.z;
+      body.x += Math.sin(body.yaw) * dist;
+      body.z -= Math.cos(body.yaw) * dist;
+      burst(fromX, 1.4, fromZ);
+      burst(body.x, 1.4, body.z);
+      say(`${def.name} — stepped ${dist}u forward.`);
+    }
+  }
+
+  /** KeyY down / HUD Power button down. */
+  function pressPower() {
+    const def = powerDef();
+    if (!def || !playing) return;
+    const now = Date.now();
+    if (def.hold) {
+      if (!cooldownReady(now, powerLastUsedAt, def.cooldownMs)) {
+        say(`${def.name} recharging — ${Math.ceil(cooldownRemainingMs(now, powerLastUsedAt, def.cooldownMs) / 1000)}s.`);
+        return;
+      }
+      if (powerHeld) return;
+      powerHeld = true;
+      powerActiveUntil = now + def.durationMs;
+      publish();
+      return;
+    }
+    if (!cooldownReady(now, powerLastUsedAt, def.cooldownMs)) {
+      say(`${def.name} recharging — ${Math.ceil(cooldownRemainingMs(now, powerLastUsedAt, def.cooldownMs) / 1000)}s.`);
+      return;
+    }
+    const body = lastBody;
+    if (!body) return;
+    powerLastUsedAt = now;
+    usePowerNow(def, body);
+    publish();
+  }
+
+  /** KeyY up / HUD Power button up — ends a hold power, starts its cooldown. */
+  function releasePower() {
+    if (!powerHeld) return;
+    powerHeld = false;
+    powerLastUsedAt = Date.now();
+    powerActiveUntil = 0;
+    publish();
+  }
+
+  function applyStealthMats() {
+    if (stealthMats || !localBody) return;
+    stealthMats = [];
+    localBody.traverse((child) => {
+      const mesh = child as Mesh;
+      if (!mesh.isMesh) return;
+      const mat = mesh.material as Material;
+      if (!mat || Array.isArray(mat)) return;
+      const clone = mat.clone();
+      clone.transparent = true;
+      clone.opacity = 0.35;
+      stealthMats!.push({ mesh, mat });
+      mesh.material = clone;
+    });
+    const tag = localBody.getObjectByName("tag");
+    if (tag) tag.visible = false;
+  }
+
+  function restoreStealthMats() {
+    if (!stealthMats) return;
+    for (const { mesh, mat } of stealthMats) mesh.material = mat;
+    stealthMats = null;
+    if (localBody) {
+      const tag = localBody.getObjectByName("tag");
+      if (tag) tag.visible = true;
+    }
+  }
+
+  /** Per-frame power work: projectiles, beacons, rally follow refresh,
+   * scope zoom, Speed Force trail, stealth translucency, hold expiry. */
+  function tickPowers(dt: number, body: Body, camera: PerspectiveCamera) {
+    const now = Date.now();
+    // Hold power ran out while still held: end it, start the cooldown.
+    if (powerHeld && now >= powerActiveUntil) {
+      powerHeld = false;
+      powerLastUsedAt = now;
+      powerActiveUntil = 0;
+      publish();
+    }
+    // Projectiles: fly, hit citizens, or fizzle on the ground / at range.
+    for (const p of projectiles) {
+      if (!p.active) continue;
+      p.life -= dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.z += p.vz * dt;
+      p.mesh.position.set(p.x, p.y, p.z);
+      let done = p.life <= 0 || p.y <= 0.05;
+      let hit: Npc | null = null;
+      if (!done) {
+        for (const npc of npcs) {
+          if (Math.hypot(npc.x - p.x, npc.z - p.z) < 1.2 && p.y > 0 && p.y < 2.2) {
+            hit = npc;
+            done = true;
+            break;
+          }
+        }
+      }
+      if (done) {
+        if (hit) resolveProjectileHit(p, hit);
+        else resolveProjectileGround(p);
+        p.active = false;
+        p.mesh.visible = false;
+      }
+    }
+    // Reveal beacons: gold markers above citizens within range.
+    let bi = 0;
+    if (now < powerRevealUntil && lastBody) {
+      for (const npc of npcs) {
+        if (bi >= beacons.length) break;
+        if (Math.hypot(npc.x - lastBody.x, npc.z - lastBody.z) > powerRevealRadius) continue;
+        const beacon = beacons[bi++];
+        beacon.npc = npc;
+        beacon.mesh.visible = true;
+        beacon.mesh.position.set(npc.x, 2.6 + Math.sin(clock * 3 + bi) * 0.15, npc.z);
+      }
+    }
+    for (; bi < beacons.length; bi++) {
+      beacons[bi].npc = null;
+      beacons[bi].mesh.visible = false;
+    }
+    // Rally: citizens in range keep following the moving player.
+    const def = powerDef();
+    const rallyOn = !!def && def.kind === "rally" && powerActiveNow();
+    const secRallyOn = now < powerRallyUntil && powerRallyRadius > 0;
+    if ((rallyOn || secRallyOn) && lastBody) {
+      const radius = rallyOn ? (def?.range ?? 8) : powerRallyRadius;
+      for (const npc of npcs) {
+        if (Math.hypot(npc.x - lastBody.x, npc.z - lastBody.z) <= radius) npc.followUntil = clock + 0.5;
+      }
+    }
+    // Scope zoom while a scoped shot is fresh.
+    const wantFov = now < scopeUntil ? 34 : 62;
+    if (camera.fov !== wantFov) {
+      camera.fov = wantFov;
+      camera.updateProjectionMatrix();
+    }
+    // Speed trail: sparks while a speed power is active.
+    if (powerActiveNow() && def && def.speedMult && def.speedMult > 1 && now - lastTrailAt > 90) {
+      lastTrailAt = now;
+      sparkOne(body.x, (body.y || 0) + 0.7, body.z);
+    }
+    // Stealth translucency (cloned materials only — never shared ones).
+    if (stealthActive()) applyStealthMats();
+    else restoreStealthMats();
+    // Rig / debug hook: live power state for data-layer probes.
+    (window as unknown as { __ORBITX_POWER?: unknown }).__ORBITX_POWER = {
+      hero: lookId,
+      power: def?.id ?? null,
+      name: def?.name ?? null,
+      readyInMs: def ? cooldownRemainingMs(now, powerLastUsedAt, def.cooldownMs) : 0,
+      active: powerActiveNow(),
+      speedMult: def ? powerSpeedMult(def, now, powerActiveUntil) : 1,
+      held: powerHeld,
+      trick: powerTrick,
+      projectiles: projectiles.filter((p) => p.active).length,
+      beacons: beacons.filter((b) => b.mesh.visible).length,
+      following: npcs.filter((n) => clock < n.followUntil).length,
+      fleeing: npcs.filter((n) => clock < n.fleeUntil).length,
+      waiting: npcs.filter((n) => clock < n.waitUntil).length,
+    };
+  }
+
   function after(dt: number, body: Body, camera: PerspectiveCamera, opts: { orbit: boolean; fountain: { x: number; z: number }; trains?: TrainPose[] }) {
     try {
     clock += dt;
@@ -7547,6 +8035,51 @@ export function createRuntime(scene: Scene) {
         walkNpc();
         continue;
       }
+      // HERO POWERS: rally follow / fear flee / charm gather override the
+      // patrol while their clock window is open.
+      if (clock < npc.followUntil && lastBody) {
+        const fdx = lastBody.x - npc.x;
+        const fdz = lastBody.z - npc.z;
+        const fdist = Math.hypot(fdx, fdz);
+        if (fdist > 1.2) {
+          const fstep = Math.min(fdist, 2.2 * dt);
+          npc.x += (fdx / fdist) * fstep;
+          npc.z += (fdz / fdist) * fstep;
+          npc.yaw = Math.atan2(fdx, fdz);
+        }
+        npc.group.position.set(npc.x, 0, npc.z);
+        npc.group.rotation.y = npc.yaw;
+        walkNpc();
+        continue;
+      }
+      if (clock < npc.fleeUntil) {
+        const adx = npc.x - npc.fleeX;
+        const adz = npc.z - npc.fleeZ;
+        const adist = Math.hypot(adx, adz) || 1;
+        const astep = 2.5 * dt;
+        npc.x += (adx / adist) * astep;
+        npc.z += (adz / adist) * astep;
+        npc.yaw = Math.atan2(adx, adz);
+        npc.group.position.set(npc.x, 0, npc.z);
+        npc.group.rotation.y = npc.yaw;
+        walkNpc();
+        continue;
+      }
+      if (clock < npc.gatherUntil) {
+        const gdx = npc.gatherX - npc.x;
+        const gdz = npc.gatherZ - npc.z;
+        const gdist = Math.hypot(gdx, gdz);
+        if (gdist > 1) {
+          const gstep = Math.min(gdist, 1.6 * dt);
+          npc.x += (gdx / gdist) * gstep;
+          npc.z += (gdz / gdist) * gstep;
+          npc.yaw = Math.atan2(gdx, gdz);
+        }
+        npc.group.position.set(npc.x, 0, npc.z);
+        npc.group.rotation.y = npc.yaw;
+        walkNpc();
+        continue;
+      }
       const target = npc.waypoints[npc.wp % npc.waypoints.length];
       if (clock < npc.waitUntil) {
         npc.group.position.set(npc.x, 0, npc.z);
@@ -7601,6 +8134,8 @@ export function createRuntime(scene: Scene) {
     }
     // Exterior doors slide open on approach, closed otherwise.
     tickDoors(dt, body);
+    // HERO POWERS: projectiles, beacons, rally, scope, trail, stealth.
+    tickPowers(dt, body, camera);
     // Elevator ride: ease the cab + rider between floors, then open the door
     // (which also opens the shaft's door blocker for that floor so the rider
     // can step out). The blocker closes again once the rider walks away.
@@ -7957,7 +8492,7 @@ export function createRuntime(scene: Scene) {
     else if (Math.hypot(body.x - WASH_SPOT.x, body.z - WASH_SPOT.z) < 2.5) prompt = `Press E — wash a hover-car (+${WASH_PAY} City Sol)`;
     else if (zone?.id === "gym" && Math.hypot(body.x - GYM_SPOT.x, body.z - GYM_SPOT.z) < 2.5) prompt = "Press E — work out at the gym";
     else if (zone?.kitchen && ownsHome(zone.id) && Math.hypot(body.x - zone.kitchen.x, body.z - zone.kitchen.z) < 2.5) prompt = "Press E — cook in your kitchen";
-      else if (nearestNpc(body, 3) >= 0) {
+      else if (!stealthActive() && nearestNpc(body, 3) >= 0) {
         const npc = npcs[nearestNpc(body, 3)];
         prompt = npc ? `Press E — talk to ${npc.name}` : "";
       } else if (nearestPhotoSpot(body, 2.5)) {
@@ -10514,6 +11049,13 @@ export function createRuntime(scene: Scene) {
         ],
         wp: 1,
         waitUntil: 0,
+        followUntil: 0,
+        fleeUntil: 0,
+        fleeX: 0,
+        fleeZ: 0,
+        gatherUntil: 0,
+        gatherX: 0,
+        gatherZ: 0,
         guest: true,
         guestHome: guest.homeId,
         partyGuest: !!party && party.guests.includes(guest.name),
@@ -11854,10 +12396,19 @@ export function createRuntime(scene: Scene) {
     setLook(id: string) {
       const next = lookById(id).id;
       lookId = next;
+      resetPowerState();
       localStorage.setItem("orbitx-look", next);
       if (world.online) void world.rename(wallet.name, next).then(() => applyMe());
       if (profileView?.self) profileView.look = next;
       publish();
+    },
+    // HERO POWERS: press (KeyY down / HUD Power button down) + release
+    // (KeyY up / HUD Power button up — ends hold powers, starts cooldown).
+    powerPress() {
+      pressPower();
+    },
+    powerRelease() {
+      releasePower();
     },
     // PROFILE: save the bio and/or showcase picks. Returns the server
     // reply so the panel can show the error (e.g. showcasing a home
