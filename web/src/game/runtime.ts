@@ -2090,6 +2090,10 @@ export function createRuntime(scene: Scene) {
   let powerRallyUntil = 0;
   let scopeUntil = 0;
   let lastTrailAt = 0;
+  // Frame counter for the __ORBITX_POWER debug hook — the engine ticks at
+  // ~0.2-1 fps under SwiftShader, so a rig must wait for this to move
+  // before trusting a read (a stale snapshot looks like a failed power).
+  let powerFrame = 0;
   // Stealth: cloned transparent materials per player mesh + the originals,
   // restored when stealth ends (shared world materials are never touched).
   let stealthMats: { mesh: Mesh; mat: Material }[] | null = null;
@@ -7873,7 +7877,9 @@ export function createRuntime(scene: Scene) {
     if (stealthActive()) applyStealthMats();
     else restoreStealthMats();
     // Rig / debug hook: live power state for data-layer probes.
+    powerFrame += 1;
     (window as unknown as { __ORBITX_POWER?: unknown }).__ORBITX_POWER = {
+      frame: powerFrame,
       hero: lookId,
       power: def?.id ?? null,
       name: def?.name ?? null,
