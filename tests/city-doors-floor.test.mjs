@@ -1,7 +1,7 @@
 // HQ FLOOR + DYNAMIC DOORS: the door registry and the fall-through fix,
 // checked against the real city build (seed 1).
 // The game TS can't be imported by plain node (extensionless imports), so
-// this test bundles tests/probe-doors-floor.ts with esbuild and runs it.
+// this test bundles rig/probe-doors-floor.ts with esbuild and runs it.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -16,7 +16,7 @@ const esbuild = path.join(root, "web", "node_modules", ".bin", "esbuild");
 
 test("hq floor + dynamic doors (probe)", { timeout: 180000 }, async () => {
   const bundle = path.join(root, "rig", ".probe-doors-floor.bundle.mjs");
-  await run(esbuild, [path.join(root, "tests", "probe-doors-floor.ts"), "--bundle", "--platform=node", "--format=esm", `--outfile=${bundle}`, "--log-level=error"]);
+  await run(esbuild, [path.join(root, "rig", "probe-doors-floor.ts"), "--bundle", "--platform=node", "--format=esm", `--outfile=${bundle}`, "--log-level=error"]);
   try {
     const { stdout } = await run(process.execPath, [bundle], { timeout: 120000 });
     assert.match(stdout, /ALL DOOR \+ FLOOR CHECKS PASSED/);
