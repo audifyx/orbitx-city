@@ -54,7 +54,7 @@ function paintFacade(style: number) {
   const s = style % 6;
   const wins: Array<{ x: number; y: number; w: number; h: number; lit: number }> = [];
   const ROWS = 8;
-  const rowY = (r: number) => 18 + r * 54;
+  const rowY = (r: number) => 12 + r * 64;
   if (s === 0) {
     // Glass curtain wall: dark blue glass bands + thin mullions, per-pane
     // tint variation, interior blind/ceiling detail + floor slab lines.
@@ -66,35 +66,31 @@ function paintFacade(style: number) {
         const px = 8 + col * 30;
         const v = cellHash(row, col, 0);
         ctx.fillStyle = v < 0.25 ? "#1d4258" : v < 0.6 ? "#16324a" : "#12293d";
-        ctx.fillRect(px, y, 28, 36);
+        ctx.fillRect(px, y, 28, 42);
         // Interior office ceiling strip + blind slats on lit panes
         if (v < 0.68) {
           ctx.fillStyle = "rgba(180,248,255,0.42)";
           ctx.fillRect(px + 3, y + 3, 22, 3);
           if (v > 0.32) {
             ctx.fillStyle = "rgba(12,26,38,0.35)";
-            for (let by = y + 8; by < y + 24; by += 4) ctx.fillRect(px + 2, by, 24, 1.5);
+            for (let by = y + 8; by < y + 28; by += 4) ctx.fillRect(px + 2, by, 24, 1.5);
           }
         }
         ctx.fillStyle = "rgba(126,246,255,0.58)";
         ctx.fillRect(px + 2, y + 4, 24, 3);
         ctx.fillStyle = "rgba(255,255,255,0.14)";
-        ctx.fillRect(px + 3, y + 8, 6, 24);
+        ctx.fillRect(px + 3, y + 8, 6, 28);
         ctx.fillStyle = "#0a141d";
-        ctx.fillRect(px + 28, y, 2, 36);
+        ctx.fillRect(px + 28, y, 2, 42);
         ctx.fillStyle = "#2b3d4f";
-        ctx.fillRect(px, y + 18, 28, 1.5);
-        wins.push({ x: px, y, w: 28, h: 36, lit: v < 0.7 ? 1 : 0.4 });
+        ctx.fillRect(px, y + 21, 28, 1.5);
+        wins.push({ x: px, y, w: 28, h: 42, lit: v < 0.7 ? 1 : 0.4 });
       }
       ctx.fillStyle = "#0a141d";
-      ctx.fillRect(0, y + 44, 256, 3);
+      ctx.fillRect(0, y + 50, 256, 3);
       ctx.fillStyle = "#24384a";
-      ctx.fillRect(0, y + 42, 256, 2);
+      ctx.fillRect(0, y + 48, 256, 2);
     }
-    ctx.fillStyle = "#0a141d";
-    ctx.fillRect(0, 452, 256, 60);
-    ctx.fillStyle = "#e0b33a";
-    ctx.fillRect(0, 452, 256, 3);
   } else if (s === 1) {
     // Warm brick residential: REAL brick courses (8px courses, 16px
     // bricks, staggered, each brick a varied terracotta/tan) + warm-lit
@@ -104,7 +100,7 @@ function paintFacade(style: number) {
     ctx.fillRect(0, 0, 256, 512);
     const courseH = 8;
     const brickW = 16;
-    for (let r = 0; r * courseH < 452; r++) {
+    for (let r = 0; r * courseH < 512; r++) {
       const y = r * courseH;
       const off = r % 2 === 0 ? 0 : brickW / 2;
       for (let c = -1; c <= 256 / brickW; c++) {
@@ -129,35 +125,29 @@ function paintFacade(style: number) {
         const y = rowY(row);
         const lit = cellHash(row, col, 11);
         ctx.fillStyle = "#2a1a12";
-        ctx.fillRect(x - 3, y - 3, 34, 38);
+        ctx.fillRect(x - 3, y - 3, 34, 42);
         ctx.fillStyle = lit < 0.55 ? "#ffd9a0" : lit < 0.8 ? "#c98d4e" : "#3a2a1a";
-        ctx.fillRect(x, y, 28, 32);
+        ctx.fillRect(x, y, 28, 36);
         if (lit < 0.55) {
           ctx.fillStyle = "rgba(120,70,40,0.48)";
-          ctx.fillRect(x + 2, y + 2, 9, 28);
-          ctx.fillRect(x + 19, y + 2, 7, 14);
+          ctx.fillRect(x + 2, y + 2, 9, 32);
+          ctx.fillRect(x + 19, y + 2, 7, 16);
         }
         // Double-hung sash muntin crossbars
         ctx.fillStyle = "#2a1a12";
-        ctx.fillRect(x + 13, y, 2, 32);
-        ctx.fillRect(x, y + 15, 28, 2);
+        ctx.fillRect(x + 13, y, 2, 36);
+        ctx.fillRect(x, y + 17, 28, 2);
         ctx.fillStyle = "rgba(244,247,251,0.55)";
-        ctx.fillRect(x + 1, y + 15, 26, 1);
+        ctx.fillRect(x + 1, y + 17, 26, 1);
         // Stone sill + lintel with raised central keystone
         ctx.fillStyle = "#d8cfb8";
-        ctx.fillRect(x - 5, y + 32, 38, 4);
+        ctx.fillRect(x - 5, y + 36, 38, 4);
         ctx.fillRect(x - 3, y - 8, 34, 5);
         ctx.fillStyle = "#ece4d0";
         ctx.fillRect(x + 10, y - 10, 8, 7);
-        wins.push({ x, y, w: 28, h: 32, lit: lit < 0.55 ? 1 : lit < 0.8 ? 0.6 : 0.15 });
+        wins.push({ x, y, w: 28, h: 36, lit: lit < 0.55 ? 1 : lit < 0.8 ? 0.6 : 0.15 });
       }
     }
-    ctx.fillStyle = "#b8a88a";
-    ctx.fillRect(0, 452, 256, 60);
-    ctx.fillStyle = "#8a7a5e";
-    for (let x = 0; x < 256; x += 64) ctx.fillRect(x, 452, 2, 60);
-    ctx.fillStyle = "#e8e0cc";
-    ctx.fillRect(0, 452, 256, 4);
   } else if (s === 2) {
     // Concrete ribbon windows: architectural precast panels with tie-rod
     // dimples, full-width dark bands, sub-mullions, sill + floor slab lines.
@@ -166,13 +156,13 @@ function paintFacade(style: number) {
     for (let p = 0; p < 4; p++) {
       const v = cellHash(0, p, 2);
       ctx.fillStyle = v < 0.5 ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
-      ctx.fillRect(p * 64, 0, 64, 452);
+      ctx.fillRect(p * 64, 0, 64, 512);
       ctx.fillStyle = "#9aa0a6";
-      ctx.fillRect(p * 64, 0, 2, 452);
+      ctx.fillRect(p * 64, 0, 2, 512);
       // Precast tie-rod holes
       ctx.fillStyle = "rgba(60,66,74,0.45)";
       for (let row = 0; row < ROWS; row++) {
-        const py = rowY(row) + 36;
+        const py = rowY(row) + 42;
         ctx.fillRect(p * 64 + 10, py, 3, 3);
         ctx.fillRect(p * 64 + 50, py, 3, 3);
       }
@@ -180,152 +170,121 @@ function paintFacade(style: number) {
     for (let row = 0; row < ROWS; row++) {
       const y = rowY(row);
       ctx.fillStyle = "#232a30";
-      ctx.fillRect(10, y, 236, 28);
+      ctx.fillRect(10, y, 236, 32);
       ctx.fillStyle = "#3d4a55";
       ctx.fillRect(14, y + 4, 228, 5);
       ctx.fillStyle = "rgba(215,221,232,0.55)";
-      ctx.fillRect(14, y + 12, 228, 2);
+      ctx.fillRect(14, y + 14, 228, 2);
       for (let m = 0; m < 8; m++) {
         const mv = cellHash(row, m, 22);
         if (mv < 0.65) {
           ctx.fillStyle = "rgba(191,230,255,0.32)";
-          ctx.fillRect(12 + m * 29, y + 6, 24, 16);
+          ctx.fillRect(12 + m * 29, y + 6, 24, 20);
         }
       }
       ctx.fillStyle = "#181d22";
-      for (let m = 1; m < 8; m++) ctx.fillRect(10 + m * 30, y, 2.5, 28);
+      for (let m = 1; m < 8; m++) ctx.fillRect(10 + m * 30, y, 2.5, 32);
       ctx.fillStyle = "#d7dde8";
-      ctx.fillRect(8, y + 28, 240, 4);
+      ctx.fillRect(8, y + 32, 240, 4);
       ctx.fillStyle = "#9aa0a6";
-      ctx.fillRect(0, y + 46, 256, 4);
-      wins.push({ x: 10, y, w: 236, h: 28, lit: 0.72 });
+      ctx.fillRect(0, y + 50, 256, 3);
+      wins.push({ x: 10, y, w: 236, h: 32, lit: 0.72 });
     }
-    ctx.fillStyle = "#8b9096";
-    ctx.fillRect(0, 452, 256, 60);
-    ctx.fillStyle = "#d7dde8";
-    ctx.fillRect(0, 452, 256, 4);
   } else if (s === 3) {
     // Cream stone modern: limestone coursing + fluted pilasters with capitals,
     // dentil cornice, casement windows with transoms and sills.
     ctx.fillStyle = "#e8e0cc";
     ctx.fillRect(0, 0, 256, 512);
     ctx.fillStyle = "#d8cfb8";
-    for (let y = 18; y < 452; y += 18) ctx.fillRect(0, y, 256, 1);
-    for (let r = 0; r < 26; r++) {
-      const y = r * 18;
+    for (let y = 16; y < 512; y += 16) ctx.fillRect(0, y, 256, 1);
+    for (let r = 0; r < 32; r++) {
+      const y = r * 16;
       const off = r % 2 === 0 ? 0 : 32;
-      for (let x = off; x < 256; x += 64) ctx.fillRect(x, y, 1, 18);
+      for (let x = off; x < 256; x += 64) ctx.fillRect(x, y, 1, 16);
     }
     for (let col = 0; col <= 4; col++) {
       ctx.fillStyle = "#d8cfb8";
-      ctx.fillRect(col * 64 - 6, 0, 12, 452);
-      ctx.fillStyle = "#c4b896";
-      ctx.fillRect(col * 64 - 8, 0, 16, 6);
-      ctx.fillRect(col * 64 - 8, 446, 16, 6);
+      ctx.fillRect(col * 64 - 6, 0, 12, 512);
     }
-    // Classical dentil band at top of stone module
-    ctx.fillStyle = "#c4b896";
-    for (let dx = 4; dx < 256; dx += 12) ctx.fillRect(dx, 8, 6, 5);
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < 4; col++) {
         const x = 20 + col * 60;
         const y = rowY(row);
         const lit = cellHash(row, col, 3);
         ctx.fillStyle = "#1d2733";
-        ctx.fillRect(x - 2, y - 2, 40, 42);
+        ctx.fillRect(x - 2, y - 2, 40, 44);
         ctx.fillStyle = lit < 0.5 ? "#ffdba8" : "#5a6a7a";
-        ctx.fillRect(x, y, 36, 38);
+        ctx.fillRect(x, y, 36, 40);
         ctx.fillStyle = "rgba(232,224,204,0.75)";
         ctx.fillRect(x + 3, y + 3, 30, 5);
         // French casement vertical + transom bars
         ctx.fillStyle = "#1d2733";
-        ctx.fillRect(x + 17, y, 2, 38);
-        ctx.fillRect(x, y + 11, 36, 2);
+        ctx.fillRect(x + 17, y, 2, 40);
+        ctx.fillRect(x, y + 12, 36, 2);
         // Molded stone header + sill
         ctx.fillStyle = "#cfc4a8";
         ctx.fillRect(x - 4, y - 6, 44, 4);
         ctx.fillStyle = "#f2ece0";
-        ctx.fillRect(x - 3, y + 38, 42, 4);
-        wins.push({ x, y, w: 36, h: 38, lit: lit < 0.5 ? 0.85 : 0.4 });
+        ctx.fillRect(x - 3, y + 40, 42, 4);
+        wins.push({ x, y, w: 36, h: 40, lit: lit < 0.5 ? 0.85 : 0.4 });
       }
     }
-    ctx.fillStyle = "#cfc4a8";
-    ctx.fillRect(0, 452, 256, 60);
-    ctx.fillStyle = "#e8e0cc";
-    ctx.fillRect(0, 452, 256, 4);
   } else if (s === 4) {
-    // Neon commercial: dark base, gold sign band, big glowing panes,
-    // spandrel louver grilles + gold/cyan floor lines.
+    // Neon commercial: dark base, glowing panes, spandrel grilles + gold/cyan floor lines.
     ctx.fillStyle = "#0c0f16";
     ctx.fillRect(0, 0, 256, 512);
-    ctx.fillStyle = "#e0b33a";
-    ctx.fillRect(0, 8, 256, 30);
-    ctx.fillStyle = "#10141c";
-    ctx.fillRect(24, 17, 208, 12);
-    ctx.fillStyle = "#7ef6ff";
-    ctx.fillRect(28, 21, 200, 4);
     for (let row = 0; row < ROWS; row++) {
-      const y = 52 + row * 50;
+      const y = rowY(row);
       for (let col = 0; col < 3; col++) {
         const x = 16 + col * 80;
         const lit = cellHash(row, col, 4);
         ctx.fillStyle = "#12303f";
-        ctx.fillRect(x, y, 56, 40);
+        ctx.fillRect(x, y, 56, 42);
         ctx.fillStyle = lit < 0.5 ? "#7ef6ff" : lit < 0.8 ? "#2fa8cc" : "#1a5a70";
         ctx.globalAlpha = 0.85;
-        ctx.fillRect(x + 4, y + 4, 48, 28);
+        ctx.fillRect(x + 4, y + 4, 48, 32);
         ctx.globalAlpha = 1;
         ctx.fillStyle = "#0c0f16";
-        ctx.fillRect(x + 27, y + 4, 2, 28);
+        ctx.fillRect(x + 27, y + 4, 2, 32);
         ctx.fillStyle = "rgba(255,255,255,0.68)";
         ctx.fillRect(x + 8, y + 10, 40, 3);
-        wins.push({ x: x + 4, y: y + 4, w: 48, h: 28, lit: lit < 0.5 ? 1 : 0.6 });
+        wins.push({ x: x + 4, y: y + 4, w: 48, h: 32, lit: lit < 0.5 ? 1 : 0.6 });
       }
       ctx.fillStyle = "#e0b33a";
-      ctx.fillRect(0, y + 46, 256, 2);
+      ctx.fillRect(0, y + 50, 256, 2);
     }
-    ctx.fillStyle = "#0a0d13";
-    ctx.fillRect(0, 452, 256, 60);
-    ctx.fillStyle = "#e0b33a";
-    ctx.fillRect(0, 452, 256, 3);
   } else {
     // Dark OrbitX identity: cyan windows with white frames, brushed panel
-    // seams, gold floor lines, cyan accent line at the top.
+    // seams, gold floor lines.
     ctx.fillStyle = "#10141c";
     ctx.fillRect(0, 0, 256, 512);
     ctx.fillStyle = "#1a202c";
-    for (let px = 64; px < 256; px += 64) ctx.fillRect(px - 1, 0, 2, 452);
-    ctx.fillStyle = "#9befff";
-    ctx.fillRect(0, 8, 256, 3);
+    for (let px = 64; px < 256; px += 64) ctx.fillRect(px - 1, 0, 2, 512);
     for (let row = 0; row < ROWS; row++) {
       const y = rowY(row);
       for (let col = 0; col < 4; col++) {
         const x = 18 + col * 60;
         const lit = cellHash(row, col, 5);
         ctx.fillStyle = "#12343f";
-        ctx.fillRect(x, y, 44, 34);
+        ctx.fillRect(x, y, 44, 38);
         if (lit < 0.7) {
           ctx.fillStyle = lit < 0.35 ? "#7ef6ff" : "#49c8e8";
           ctx.globalAlpha = 0.85;
-          ctx.fillRect(x + 4, y + 4, 36, 22);
+          ctx.fillRect(x + 4, y + 4, 36, 26);
           ctx.globalAlpha = 1;
           ctx.fillStyle = "rgba(255,255,255,0.5)";
           ctx.fillRect(x + 6, y + 7, 32, 2);
         }
         ctx.fillStyle = "#10141c";
-        ctx.fillRect(x + 21, y + 4, 2, 22);
+        ctx.fillRect(x + 21, y + 4, 2, 26);
         ctx.strokeStyle = "#f4f7fb";
         ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, 44, 34);
-        wins.push({ x: x + 4, y: y + 4, w: 36, h: 22, lit: lit < 0.35 ? 1 : lit < 0.7 ? 0.7 : 0.1 });
+        ctx.strokeRect(x, y, 44, 38);
+        wins.push({ x: x + 4, y: y + 4, w: 36, h: 26, lit: lit < 0.35 ? 1 : lit < 0.7 ? 0.7 : 0.1 });
       }
       ctx.fillStyle = "#e0b33a";
-      ctx.fillRect(0, y + 46, 256, 2);
+      ctx.fillRect(0, y + 50, 256, 2);
     }
-    ctx.fillStyle = "#0a0d13";
-    ctx.fillRect(0, 452, 256, 60);
-    ctx.fillStyle = "#e0b33a";
-    ctx.fillRect(0, 452, 256, 3);
   }
   const map = new CanvasTexture(canvas);
   map.colorSpace = SRGBColorSpace;
@@ -646,42 +605,145 @@ function addMergedBoxes(group: Group, boxes: BoxTuple[], mat: MeshStandardMateri
   for (const g of geos) if (g !== merged) g.dispose();
 }
 
-function facadeMaterial(style: number, w: number, h: number) {
-  const src = paints[style % paints.length];
-  const map = src.map.clone();
-  const glow = src.glow.clone();
-  map.repeat.set(Math.max(1, w / 10), Math.max(1, h / 14));
-  glow.repeat.set(map.repeat.x, map.repeat.y);
-  map.needsUpdate = true;
-  glow.needsUpdate = true;
+type UvBoxTuple = [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number?,
+  number?,
+  number?,
+];
+
+function worldUvBox(
+  px: number,
+  py: number,
+  pz: number,
+  sx: number,
+  sy: number,
+  sz: number,
+  tileU = 10,
+  tileV = 14,
+  originX = px - sx / 2,
+  originY = py - sy / 2,
+  originZ = pz - sz / 2,
+): BufferGeometry {
+  const g = new BoxGeometry(sx, sy, sz);
+  g.translate(px, py, pz);
+  const pos = g.attributes.position;
+  const norm = g.attributes.normal;
+  const uv = g.attributes.uv;
+  if (pos && norm && uv) {
+    for (let i = 0; i < pos.count; i++) {
+      const vx = pos.getX(i);
+      const vy = pos.getY(i);
+      const vz = pos.getZ(i);
+      const nx = Math.abs(norm.getX(i));
+      const ny = Math.abs(norm.getY(i));
+      if (nx > 0.5) {
+        uv.setXY(i, (vz - originZ) / tileU, (vy - originY) / tileV);
+      } else if (ny > 0.5) {
+        uv.setXY(i, (vx - originX) / tileU, (vz - originZ) / tileU);
+      } else {
+        uv.setXY(i, (vx - originX) / tileU, (vy - originY) / tileV);
+      }
+    }
+    uv.needsUpdate = true;
+  }
+  return g;
+}
+
+function addWorldUvBoxes(
+  group: Group,
+  boxes: UvBoxTuple[],
+  mat: MeshStandardMaterial,
+  tileU: number,
+  tileV: number,
+  castShadow = true,
+) {
+  if (boxes.length === 0) return;
+  const geos = boxes.map(([px, py, pz, sx, sy, sz, ox, oy, oz]) =>
+    worldUvBox(px, py, pz, sx, sy, sz, tileU, tileV, ox, oy, oz),
+  );
+  const merged = mergeGeometries(geos) ?? geos[0];
+  const mesh = new Mesh(merged, mat);
+  mesh.castShadow = castShadow;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  for (const g of geos) if (g !== merged) g.dispose();
+}
+
+// Shared upper-facade materials (one per style, registered once in nightMats,
+// tiled via world-space UVs so zero CanvasTextures are cloned per building).
+const FACADE_MATS: MeshStandardMaterial[] = paints.map((src, idx) => {
   const mat = new MeshStandardMaterial({
-    map,
-    emissiveMap: glow,
-    emissive: STYLE_EMISSIVE[style % STYLE_EMISSIVE.length],
+    map: src.map,
+    emissiveMap: src.glow,
+    emissive: STYLE_EMISSIVE[idx % STYLE_EMISSIVE.length],
     emissiveIntensity: 0.55,
     roughness: 0.42,
     metalness: 0.28,
   });
   nightMats.push({ mat, day: 0.35, night: 1.7 });
   return mat;
+});
+
+// Shared ground-floor / residential masonry & cladding materials (no baked 2D
+// window grid, so 3D windows, shutters, and doors sit on clean architecture).
+const BASE_WALL_MATS: MeshStandardMaterial[] = [
+  new MeshStandardMaterial({
+    color: 0x223244,
+    map: textureFor("darkSurface"),
+    roughness: 0.44,
+    metalness: 0.38,
+  }),
+  new MeshStandardMaterial({
+    color: 0xffffff,
+    map: textureFor("brick"),
+    roughness: 0.72,
+    metalness: 0.08,
+  }),
+  new MeshStandardMaterial({
+    color: 0xd8e0ea,
+    map: textureFor("concrete"),
+    roughness: 0.52,
+    metalness: 0.24,
+  }),
+  new MeshStandardMaterial({
+    color: 0xffffff,
+    map: textureFor("stone"),
+    roughness: 0.62,
+    metalness: 0.1,
+  }),
+  new MeshStandardMaterial({
+    color: 0x263246,
+    map: textureFor("darkSurface"),
+    roughness: 0.48,
+    metalness: 0.32,
+  }),
+  new MeshStandardMaterial({
+    color: 0x1c2636,
+    map: textureFor("darkSurface"),
+    roughness: 0.4,
+    metalness: 0.42,
+  }),
+];
+
+function facadeMaterial(style: number, _w?: number, _h?: number) {
+  return FACADE_MATS[style % FACADE_MATS.length];
 }
 
-function addWall(
-  group: Group,
-  x: number,
-  y: number,
-  z: number,
-  sx: number,
-  sy: number,
-  sz: number,
-  material: MeshStandardMaterial,
-) {
-  const mesh = new Mesh(box, material);
-  mesh.position.set(x, y, z);
-  mesh.scale.set(sx, sy, sz);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  group.add(mesh);
+function baseWallMaterial(facade: Facade): MeshStandardMaterial {
+  if (facade.glass === "home" || facade.porch) {
+    // Homes alternate warm brick, ashlar limestone, and painted stucco/clapboard
+    const idx = Math.abs(Math.round(facade.x + facade.z) + facade.style) % 3;
+    if (idx === 0) return BASE_WALL_MATS[1];
+    if (idx === 1) return BASE_WALL_MATS[3];
+    return WHITE_MAT;
+  }
+  return BASE_WALL_MATS[facade.style % BASE_WALL_MATS.length];
 }
 
 // ---- glazing pass on the hollow shell ----
@@ -699,8 +761,12 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
   const t = 0.45;
   const cx = x + w / 2;
   const cz = z + d / 2;
-  const midY = h / 2;
   const gap = 4;
+  const isHome = facade.glass === "home" || !!facade.porch || h <= 6.2;
+  const baseH = isHome ? h : Math.min(h, 3.6);
+  const baseMat = baseWallMaterial(facade);
+  const baseWallBoxes: UvBoxTuple[] = [];
+  const upperWallBoxes: UvBoxTuple[] = [];
 
   const addDoor = (alongX: boolean) => {
     const px = alongX ? cx : door === "w" ? x + t / 2 : x + w - t / 2;
@@ -796,7 +862,7 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
     return blocked;
   };
 
-  // Ground-floor window openings for one face:
+  // Ground-floor windows for one face:
   // - Homes get front windows flanking the door AND side/rear windows on non-door faces.
   // - Curtain-wall towers get windows spaced ~6.5u on every face.
   // - Other enterable buildings get ground-floor windows on non-storefront faces.
@@ -853,6 +919,9 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
   const buildWall = (face: Face, alongX: boolean, fixed: number) => {
     const span = alongX ? w : d;
     const origin = alongX ? x : z;
+    // Only cut see-through window holes on faces without interior cladWalls/wallpaper liners
+    // (door and passThrough faces); on lined faces, keep the wall solid and mount 3D windows proud.
+    const canCutThrough = face === door || face === passThrough;
     const openings: WallOpening[] = [];
     if (door === face) {
       const c = origin + span / 2;
@@ -861,7 +930,7 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
       const c = origin + span / 2;
       openings.push({ a0: c - gap / 2, a1: c + gap / 2, y0: 0, y1: 3, door: true });
     }
-    if (facade.storefront && facade.face === face) {
+    if (facade.storefront && facade.face === face && canCutThrough) {
       const c = origin + span / 2;
       const paneW = Math.min(span * 0.72, 12);
       const p0 = c - paneW / 2;
@@ -875,39 +944,56 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
       }
       if (p1 > cur + 0.3) openings.push({ a0: cur, a1: p1, y0: 0.15, y1: 3.35 });
     }
-    for (const op of windowsFor(face, span, origin)) openings.push(op);
+    const faceWindows = windowsFor(face, span, origin);
+    if (canCutThrough) {
+      for (const op of faceWindows) openings.push(op);
+    }
     openings.sort((a, b) => a.a0 - b.a0);
     const wallC =
       face === "n" ? fixed + t / 2 : face === "s" ? fixed - t / 2 : face === "w" ? fixed + t / 2 : fixed - t / 2;
     const outer =
       face === "n" ? fixed - 0.07 : face === "s" ? fixed + 0.07 : face === "w" ? fixed - 0.07 : fixed + 0.07;
-    const solid = (a0: number, a1: number) => {
+    const pushBase = (px: number, py: number, pz: number, sx: number, sy: number, sz: number) => {
+      baseWallBoxes.push([px, py, pz, sx, sy, sz, x, 0, z]);
+    };
+    const solidBase = (a0: number, a1: number) => {
       if (a1 - a0 < 0.05) return;
       const mid = (a0 + a1) / 2;
       const len = a1 - a0;
-      if (alongX) addWall(group, mid, midY, wallC, len, h, t, material);
-      else addWall(group, wallC, midY, mid, t, h, len, material);
+      if (alongX) pushBase(mid, baseH / 2, wallC, len, baseH, t);
+      else pushBase(wallC, baseH / 2, mid, t, baseH, len);
     };
-    const around = (op: WallOpening) => {
+    const aroundBase = (op: WallOpening) => {
       const mid = (op.a0 + op.a1) / 2;
       const len = op.a1 - op.a0;
       if (op.y0 > 0.05) {
-        if (alongX) addWall(group, mid, op.y0 / 2, wallC, len, op.y0, t, material);
-        else addWall(group, wallC, op.y0 / 2, mid, t, op.y0, len, material);
+        if (alongX) pushBase(mid, op.y0 / 2, wallC, len, op.y0, t);
+        else pushBase(wallC, op.y0 / 2, mid, t, op.y0, len);
       }
-      if (op.y1 < h - 0.05) {
-        const hy = (op.y1 + h) / 2;
-        if (alongX) addWall(group, mid, hy, wallC, len, h - op.y1, t, material);
-        else addWall(group, wallC, hy, mid, t, h - op.y1, len, material);
+      if (op.y1 < baseH - 0.05) {
+        const hy = (op.y1 + baseH) / 2;
+        if (alongX) pushBase(mid, hy, wallC, len, baseH - op.y1, t);
+        else pushBase(wallC, hy, mid, t, baseH - op.y1, len);
       }
     };
     let cursor = origin;
     for (const op of openings) {
-      solid(cursor, op.a0);
-      around(op);
+      solidBase(cursor, op.a0);
+      aroundBase(op);
       cursor = op.a1;
     }
-    solid(cursor, origin + span);
+    solidBase(cursor, origin + span);
+
+    // Upper stories (baseH..h): single full-width unbroken facade wall per face
+    if (h > baseH + 0.05) {
+      const upH = h - baseH;
+      const upY = baseH + upH / 2;
+      const mid = origin + span / 2;
+      if (alongX) upperWallBoxes.push([mid, upY, wallC, span, upH, t, x, baseH, z]);
+      else upperWallBoxes.push([wallC, upY, mid, t, upH, span, x, baseH, z]);
+    }
+
+    // Glaze cut-through openings (storefront panes & front/passThrough windows)
     for (const op of openings) {
       if (op.door) continue;
       const mid = (op.a0 + op.a1) / 2;
@@ -924,12 +1010,37 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
       }
       glassStats.windows++;
     }
+
+    // Glaze non-door faces with proud exterior 3D window panes + frames (never exposing interior liners)
+    if (!canCutThrough) {
+      const outSign = face === "n" || face === "w" ? -1 : 1;
+      const panePlane = fixed + outSign * 0.05;
+      const framePlane = fixed + outSign * 0.08;
+      const mat = glass === "curtain" ? CURTAIN_GLASS_MAT : WINDOW_GLASS_MAT;
+      for (const op of faceWindows) {
+        const mid = (op.a0 + op.a1) / 2;
+        const cy = (op.y0 + op.y1) / 2;
+        const gw = op.a1 - op.a0;
+        const gh = op.y1 - op.y0;
+        if (alongX) {
+          glassPane(group, mat, mid, cy, panePlane, gw - 0.08, gh - 0.08, 0.08);
+          frameMesh(group, gw, gh, mid, cy, framePlane, faceRotY(face));
+        } else {
+          glassPane(group, mat, panePlane, cy, mid, 0.08, gh - 0.08, gw - 0.08);
+          frameMesh(group, gw, gh, framePlane, cy, mid, faceRotY(face));
+        }
+        glassStats.windows++;
+      }
+    }
   };
 
   buildWall("n", true, z);
   buildWall("s", true, z + d);
   buildWall("w", false, x);
   buildWall("e", false, x + w);
+
+  addWorldUvBoxes(group, baseWallBoxes, baseMat, 8, 8, true);
+  addWorldUvBoxes(group, upperWallBoxes, material, 10, 14, true);
 
   if (door === "n" || door === "s") addDoor(true);
   else addDoor(false);
@@ -976,7 +1087,12 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
     }
   }
 
-  addWall(group, cx, h + 0.2, cz, w, 0.4, d, DARK_MAT);
+  const roofCap = new Mesh(box, DARK_MAT);
+  roofCap.position.set(cx, h + 0.2, cz);
+  roofCap.scale.set(w, 0.4, d);
+  roofCap.castShadow = true;
+  roofCap.receiveShadow = true;
+  group.add(roofCap);
 
   // ---- shop interior (world-quality upgrade 2026-11-13) ----
   if (facade.storefront) {
@@ -1158,6 +1274,15 @@ function addGableRoof(
   tri.lineTo(0, rise);
   tri.closePath();
   const geo = new ExtrudeGeometry(tri, { depth: ridgeLen, bevelEnabled: false });
+  const uv = geo.attributes.uv;
+  if (uv) {
+    const scaleU = 1 / Math.max(6, span);
+    const scaleV = 1 / Math.max(6, ridgeLen);
+    for (let i = 0; i < uv.count; i++) {
+      uv.setXY(i, uv.getX(i) * scaleU, uv.getY(i) * scaleV);
+    }
+    uv.needsUpdate = true;
+  }
   const mesh = new Mesh(geo, ROOF_MATS[matIdx % ROOF_MATS.length]);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -1578,9 +1703,7 @@ function addCrownBox(group: Group, f: Facade, material: MeshStandardMaterial) {
   if (!crown) return;
   const cx = f.x + f.w / 2;
   const cz = f.z + f.d / 2;
-  const mesh = new Mesh(box, material);
-  mesh.position.set(cx, f.h + crown.h / 2, cz);
-  mesh.scale.set(crown.w, crown.h, crown.d);
+  const mesh = new Mesh(worldUvBox(cx, f.h + crown.h / 2, cz, crown.w, crown.h, crown.d, 10, 14), material);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   group.add(mesh);
@@ -1597,14 +1720,10 @@ function addTiers(group: Group, f: Facade, material: MeshStandardMaterial) {
   const cx = f.x + f.w / 2;
   const cz = f.z + f.d / 2;
   let y = 0;
+  const tierBoxes: UvBoxTuple[] = [];
   const finBoxes: BoxTuple[] = [];
   tiers.forEach((tier, index) => {
-    const mesh = new Mesh(box, material);
-    mesh.position.set(cx, y + tier.h / 2, cz);
-    mesh.scale.set(tier.w, tier.h, tier.d);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
+    tierBoxes.push([cx, y + tier.h / 2, cz, tier.w, tier.h, tier.d]);
     if (index > 0) {
       finBoxes.push([cx, y, cz, tier.w + 0.35, 0.35, tier.d + 0.35]);
     }
@@ -1623,6 +1742,7 @@ function addTiers(group: Group, f: Facade, material: MeshStandardMaterial) {
     }
     y += tier.h;
   });
+  addWorldUvBoxes(group, tierBoxes, material, 10, 14, true);
   addMergedBoxes(group, finBoxes, GOLD_MAT, false);
 }
 
@@ -1632,9 +1752,21 @@ function addWing(group: Group, f: Facade, material: MeshStandardMaterial) {
   if (!wing) return;
   const wx = f.x + wing.dx;
   const wz = f.z + wing.dz;
-  const mesh = new Mesh(box, material);
-  mesh.position.set(wx + wing.w / 2, wing.h / 2, wz + wing.d / 2);
-  mesh.scale.set(wing.w, wing.h, wing.d);
+  const isHomeWing = f.glass === "home" || !!f.porch || wing.h <= 6.2;
+  const wingMat = isHomeWing ? baseWallMaterial(f) : material;
+  const mesh = new Mesh(
+    worldUvBox(
+      wx + wing.w / 2,
+      wing.h / 2,
+      wz + wing.d / 2,
+      wing.w,
+      wing.h,
+      wing.d,
+      isHomeWing ? 8 : 10,
+      isHomeWing ? 8 : 14,
+    ),
+    wingMat,
+  );
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   group.add(mesh);
@@ -1673,11 +1805,9 @@ function solidTower(facade: Facade) {
   const goldFinBoxes: BoxTuple[] = [];
   const cyanFinBoxes: BoxTuple[] = [];
   tiers.forEach((tier, index) => {
-    const material = facadeMaterial(index % 2 === 0 ? 5 : 0, tier.w, tier.h);
+    const material = facadeMaterial(index % 2 === 0 ? 5 : 0);
     const cz = -3 - tier.d / 2;
-    const mesh = new Mesh(box, material);
-    mesh.position.set(0, y + tier.h / 2, cz);
-    mesh.scale.set(tier.w, tier.h, tier.d);
+    const mesh = new Mesh(worldUvBox(0, y + tier.h / 2, cz, tier.w, tier.h, tier.d, 10, 14), material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);
@@ -1798,7 +1928,7 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
       root.add(solidTower(facade));
       continue;
     }
-    const material = facadeMaterial(facade.style, facade.w, facade.h);
+    const material = facadeMaterial(facade.style);
     if (facade.tiers) {
       addTiers(root, facade, material);
       const top = facade.tiers[facade.tiers.length - 1];
@@ -1817,9 +1947,19 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
     if (facade.enterable && facade.door) {
       root.add(hollow(facade, material, !!facade.glass));
     } else {
-      const mesh = new Mesh(box, material);
-      mesh.position.set(facade.x + facade.w / 2, facade.h / 2, facade.z + facade.d / 2);
-      mesh.scale.set(facade.w + 0.08, facade.h, facade.d + 0.08);
+      const mesh = new Mesh(
+        worldUvBox(
+          facade.x + facade.w / 2,
+          facade.h / 2,
+          facade.z + facade.d / 2,
+          facade.w + 0.08,
+          facade.h,
+          facade.d + 0.08,
+          10,
+          14,
+        ),
+        material,
+      );
       mesh.castShadow = quality !== "low";
       mesh.receiveShadow = quality !== "low";
       root.add(mesh);

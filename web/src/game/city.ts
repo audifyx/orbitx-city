@@ -1448,6 +1448,7 @@ function addRoads(boxes: Box[]) {
   for (const cx of CENTERS) {
     for (const cz of CENTERS) {
       if (cx === 0 && cz === 0) continue;
+      if (inMega(cx, cz)) continue;
       for (let i = 0; i < 5; i++) {
         const o = 5.5 + i * 0.85;
         put(boxes, cx, 0.11, cz + o, 8.6, 0.035, 0.42, "lane");

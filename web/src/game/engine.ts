@@ -698,12 +698,24 @@ export function createGame(
       }
       list.push(box);
     }
+    const FLAT_MATS = new Set<Mat>([
+      "lane",
+      "asphalt",
+      "sidewalk",
+      "sidewalkField",
+      "plaza",
+      "plazaField",
+      "grass",
+      "grassField",
+      "water",
+      "ceil",
+    ]);
     for (const [mat, list] of buckets) {
       if (!list.length) continue;
       const mesh = new InstancedMesh(unit, MATERIALS[mat], list.length);
       mesh.frustumCulled = false;
-      mesh.castShadow = quality !== "low" && mat !== "lane" && mat !== "asphalt";
-      mesh.receiveShadow = quality !== "low";
+      mesh.castShadow = quality !== "low" && !FLAT_MATS.has(mat);
+      mesh.receiveShadow = quality !== "low" && mat !== "water" && mat !== "ceil";
       if (mat === "water") {
         mesh.renderOrder = 2;
       }

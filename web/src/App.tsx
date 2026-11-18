@@ -5217,7 +5217,7 @@ function fallbackUniverses(): Universe[] {
     name: UNIVERSE_META[id].name,
     displayName: universeDisplayName(id),
     tagline: UNIVERSE_META[id].tagline,
-    cap: 150,
+    cap: 200,
     playerCount: 0,
     status: "open" as const,
     isHome: false,

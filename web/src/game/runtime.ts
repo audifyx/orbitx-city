@@ -787,6 +787,9 @@ interface Remote {
   state: NetState;
   seen: number;
   group: Group;
+  person: Group;
+  tag: Sprite;
+  ride: Group | null;
   prevX: number;
   prevZ: number;
 }
@@ -2801,13 +2804,14 @@ export function createRuntime(scene: Scene) {
       return;
     }
     const group = new Group();
-    group.add(makePerson(state.color, state.hat));
+    const person = makePerson(state.color, state.hat);
+    group.add(person);
     const tag = makeLabel(state.name, true);
     tag.position.y = 2.35;
     tag.name = "tag";
     group.add(tag);
     root.add(group);
-    remotes.set(state.id, { state, seen: performance.now(), group, prevX: state.x, prevZ: state.z });
+    remotes.set(state.id, { state, seen: performance.now(), group, person, tag, ride: null, prevX: state.x, prevZ: state.z });
   }
 
   async function begin(next: City, isPlay: boolean) {
@@ -7108,23 +7112,39 @@ export function createRuntime(scene: Scene) {
         remotes.delete(id);
         continue;
       }
-      const person = remote.group.children[0] as Group;
-      paintPerson(person, false, remote.state.look || "tjr", remote.state.color, remote.state.hat, remote.state.clothes);
+      const remoteServer = Number((remote.state as NetState & { server?: number }).server || 0);
+      if (remoteServer && currentUniverse && remoteServer !== currentUniverse) {
+        remote.group.visible = false;
+        continue;
+      }
       const blend = Math.min(1, dt * 8);
       remote.group.position.x += (remote.state.x - remote.group.position.x) * blend;
       remote.group.position.y += (remote.state.y - remote.group.position.y) * blend;
       remote.group.position.z += (remote.state.z - remote.group.position.z) * blend;
       remote.group.rotation.y = remote.state.yaw;
-      const remoteTag = remote.group.getObjectByName("tag");
-      if (remoteTag) remoteTag.visible = !hideNames;
+      const rdx = remote.group.position.x - body.x;
+      const rdz = remote.group.position.z - body.z;
+      const distSq = rdx * rdx + rdz * rdz;
+      // Cull distant remotes (>220u) in normal camera view so 200 players across NY/LA/FL/Home keep 60 FPS
+      if (!opts.orbit && distSq > 220 * 220) {
+        remote.group.visible = false;
+        remote.prevX = remote.group.position.x;
+        remote.prevZ = remote.group.position.z;
+        continue;
+      }
+      remote.group.visible = true;
+      const person = remote.person;
+      paintPerson(person, false, remote.state.look || "tjr", remote.state.color, remote.state.hat, remote.state.clothes);
+      remote.tag.visible = !hideNames && (opts.orbit || distSq <= 75 * 75);
       const ring = person.getObjectByName("ring");
       if (ring) ring.visible = !!remote.state.speaking;
-      let ride = remote.group.getObjectByName("ride");
+      let ride = remote.ride;
       if (remote.state.car) {
         if (!ride) {
           ride = makeCar(remote.state.skin || "black", 1);
           ride.name = "ride";
           remote.group.add(ride);
+          remote.ride = ride;
         }
         ride.visible = true;
         person.visible = false;
@@ -7138,7 +7158,7 @@ export function createRuntime(scene: Scene) {
       // A >5u jump in one frame is a teleport/respawn, not walking —
       // snap the walker neutral instead of flailing the legs at the
       // capped speed (walk-fix 2026-11-17).
-      if (!remote.state.car) {
+      if (!remote.state.car && (opts.orbit || distSq <= 100 * 100)) {
         const remoteJump = Math.hypot(remote.group.position.x - remote.prevX, remote.group.position.z - remote.prevZ);
         const remoteWalker = ensureWalker(person);
         if (remoteWalker) {
@@ -7465,7 +7485,7 @@ export function createRuntime(scene: Scene) {
     // `me.owned` via applyMe, or the offline wallet). Remote: the
     // presence state carries them (sanitizeState).
     const worn: Clothes = clothes ?? (trust ? clothesFromOwned(wallet.owned) : {});
-    const clothesKey = JSON.stringify(worn);
+    const clothesKey = `${worn.shirt || ""}:${worn.pants || ""}:${worn.shoes || ""}:${worn.outfit || ""}:${worn.glasses || ""}`;
     const key = `${id}|${color}|${hat}|${clothesKey}|${trust ? wallet.owned.join(",") : ""}|${looksReady()}`;
     if (dressed.get(group) === key) return;
     dressed.set(group, key);

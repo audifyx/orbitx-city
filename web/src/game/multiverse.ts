@@ -43,13 +43,13 @@ import type { ChatLine, NetState } from "./net";
 import { world, type CityMe } from "./world";
 
 /** One universe holds at most this many players at once. */
-export const MULTIVERSE_CAP = 150;
+export const MULTIVERSE_CAP = 200;
 
 /** The multiverse is a FIXED list — no auto-spinning new universes. */
 export const UNIVERSE_IDS = [1, 2, 3, 4, 5] as const;
 export type UniverseId = (typeof UNIVERSE_IDS)[number];
 
-/** Total players the multiverse holds at once: 5 universes x 150. */
+/** Total players the multiverse holds at once: 5 universes x 200. */
 export const MULTIVERSE_TOTAL_CAPACITY = UNIVERSE_IDS.length * MULTIVERSE_CAP;
 
 /**
@@ -77,7 +77,7 @@ export interface Universe {
   displayName: string;
   /** Picker subtitle, e.g. "The first universe". */
   tagline: string;
-  /** Always 150. */
+  /** Always 200. */
   cap: number;
   /** Players in this universe right now. */
   playerCount: number;
@@ -179,7 +179,7 @@ export function canJoin(universe: Universe): boolean {
   return !isFull(universe);
 }
 
-/** True when every one of the 5 universes is full (750 players online). */
+/** True when every one of the 5 universes is full (1,000 players online). */
 export function allUniversesFull(list: UniverseList): boolean {
   return list.universes.every(isFull);
 }
@@ -191,7 +191,7 @@ export function homeUniverse(list: UniverseList): Universe | undefined {
 
 /**
  * Shape raw `universe-list` rows into picker data: sorted by id, full
- * flag computed from the 150 cap, home flag from the player's home
+ * flag computed from the 200 cap, home flag from the player's home
  * universe. Unknown / out-of-range rows are dropped.
  */
 export function shapeUniverseList(
@@ -248,7 +248,7 @@ export function joinButtonLabel(universe: Universe): string {
 
 /** Line shown when all 5 universes are full. */
 export const ALL_UNIVERSES_FULL_MESSAGE =
-  "All 5 universes are full right now — 750 players online. Wait a few minutes and try again.";
+  "All 5 universes are full right now — 1,000 players online. Wait a few minutes and try again.";
 
 // ---------------------------------------------------------------------------
 // Client calls — typed `world.call` wrappers, same /api/city envelope

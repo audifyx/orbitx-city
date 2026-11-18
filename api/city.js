@@ -542,7 +542,7 @@ function officeTermLabel(termDays) {
 // Fixed list of 5 universes, same world in each. Progress lives per
 // (player, universe) in player_saves — never shared across universes.
 const SERVERS = [1, 2, 3, 4, 5];
-const MULTIVERSE_CAP = 150;
+const MULTIVERSE_CAP = 200;
 const MULTIVERSE_HEARTBEAT_MS = 5 * 60 * 1000;
 
 // --- City stats (admin-only) -------------------------------------------
@@ -2565,14 +2565,16 @@ async function readWorld() {
   if (cache) {
     const all = (await cache.hgetall("orbitx:world")) || {};
     const people = [];
+    const staleIds = [];
     for (const [id, raw] of Object.entries(all)) {
       const state = typeof raw === "string" ? JSON.parse(raw) : raw;
       if (!state || now - Number(state.seen || 0) > PRESENCE_MS) {
-        await cache.hdel("orbitx:world", id);
+        staleIds.push(id);
         continue;
       }
       people.push(state);
     }
+    if (staleIds.length) await cache.hdel("orbitx:world", ...staleIds);
     return people;
   }
   const people = [];
@@ -5968,7 +5970,7 @@ export async function POST(request) {
       }
     }
     if ((await activeCount(server)) >= MULTIVERSE_CAP) {
-      return json({ ok: false, message: `Universe ${server} is full — 150/150 players. Pick another universe.` }, 409);
+      return json({ ok: false, message: `Universe ${server} is full — ${MULTIVERSE_CAP}/${MULTIVERSE_CAP} players. Pick another universe.` }, 409);
     }
     const hadSave = !!(await saveKey(player.id, server));
     const save = await ensureSave(player, server);
@@ -6850,9 +6852,14 @@ export async function POST(request) {
     state.server = currentServerFor(body, player);
     if (body.ghost || body.state?.ghost) ensureGhost();
     await writePresence(state);
-    const people = await readWorld();
+    const [people, rawChat, bookings, events] = await Promise.all([
+      readWorld(),
+      readChat(),
+      readBookings(),
+      readEvents(),
+    ]);
     const here = people.find((item) => item.id === player.id);
-    const chat = (await readChat()).filter((line) => {
+    const chat = rawChat.filter((line) => {
       if (line.scope !== "near" || !here) return true;
       return Math.hypot((line.x || 0) - here.x, (line.z || 0) - here.z) < 22 || line.id === player.id;
     });
@@ -6869,8 +6876,8 @@ export async function POST(request) {
       me,
       people,
       chat: chat.slice(-40),
-      bookings: await readBookings(),
-      events: await readEvents(),
+      bookings,
+      events,
       lobbies: lobbiesFor(people, player),
       party,
       server: storageName(),

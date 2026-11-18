@@ -328,15 +328,23 @@ export function doorAnchorFor(
 export function buildRegionRoads(city: City, state: StateDef): void {
   const { x: cx, z: cz } = REGION_CENTERS[state.id];
   const span = REGION_HALF * 2;
+  const blockSpan = 26; // 36 spacing - 2 * ROAD_HALF (10) = 26 clear between cross-roads
+  const sidewalkSpan = 24.4; // stops cleanly at each intersection corner
   for (const c of REGION_ROAD_CENTERS) {
-    // N/S strip.
+    // N/S continuous asphalt strip.
     pushBox(city, cx + c, 0.06, cz, ROAD_HALF * 2, 0.12, span, "asphalt");
-    pushBox(city, cx + c - 6.5, 0.1, cz, 2, 0.12, span, "sidewalk");
-    pushBox(city, cx + c + 6.5, 0.1, cz, 2, 0.12, span, "sidewalk");
-    // E/W strip.
-    pushBox(city, cx, 0.06, cz + c, span, 0.12, ROAD_HALF * 2, "asphalt");
-    pushBox(city, cx, 0.1, cz + c - 6.5, span, 0.12, 2, "sidewalk");
-    pushBox(city, cx, 0.1, cz + c + 6.5, span, 0.12, 2, "sidewalk");
+    // E/W asphalt segmented between N/S roads so intersections never Z-fight.
+    for (const b of BLOCK_CENTERS) {
+      pushBox(city, cx + b, 0.06, cz + c, blockSpan, 0.12, ROAD_HALF * 2, "asphalt");
+      // Sidewalks along each block edge (never crossing road intersections).
+      pushBox(city, cx + c - 6.5, 0.1, cz + b, 2, 0.12, sidewalkSpan, "sidewalk");
+      pushBox(city, cx + c + 6.5, 0.1, cz + b, 2, 0.12, sidewalkSpan, "sidewalk");
+      pushBox(city, cx + b, 0.1, cz + c - 6.5, sidewalkSpan, 0.12, 2, "sidewalk");
+      pushBox(city, cx + b, 0.1, cz + c + 6.5, sidewalkSpan, 0.12, 2, "sidewalk");
+    }
+    // Outer 5u road stubs beyond ±185 to the ±190 region edge.
+    pushBox(city, cx - 187.5, 0.06, cz + c, 5, 0.12, ROAD_HALF * 2, "asphalt");
+    pushBox(city, cx + 187.5, 0.06, cz + c, 5, 0.12, ROAD_HALF * 2, "asphalt");
   }
   // Boulevard centre-line dashes on the two central avenues only.
   // At o=0 the two dashes would both sit on the region centre and
@@ -355,7 +363,7 @@ export function buildRegionRoads(city: City, state: StateDef): void {
 export function buildRegionCore(city: City, state: StateDef): void {
   const { x: cx, z: cz } = REGION_CENTERS[state.id];
   const t = state.theme;
-  pushBox(city, cx, 0.08, cz, 58, 0.08, 58, "plazaField");
+  pushBox(city, cx, 0.045, cz, 58, 0.09, 58, "plazaField");
   // Fountain: stone base + water + pillar.
   pushBox(city, cx, 0.5, cz, 8, 1, 8, "stone");
   pushBox(city, cx, 1.05, cz, 6, 0.3, 6, "water");

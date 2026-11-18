@@ -44,6 +44,8 @@ function styledMaterial(opts: {
   transparent?: boolean;
   opacity?: number;
   polygonOffset?: boolean;
+  polygonOffsetFactor?: number;
+  polygonOffsetUnits?: number;
   roughness?: number;
   metalness?: number;
 }) {
@@ -56,8 +58,8 @@ function styledMaterial(opts: {
     transparent: opts.transparent ?? false,
     opacity: opts.opacity ?? 1,
     polygonOffset: opts.polygonOffset ?? false,
-    polygonOffsetFactor: opts.polygonOffset ? -2 : 0,
-    polygonOffsetUnits: opts.polygonOffset ? -4 : 0,
+    polygonOffsetFactor: opts.polygonOffsetFactor ?? (opts.polygonOffset ? -2 : 0),
+    polygonOffsetUnits: opts.polygonOffsetUnits ?? (opts.polygonOffset ? -4 : 0),
   });
 }
 
@@ -244,18 +246,14 @@ function paintPavement(ctx: CanvasRenderingContext2D, rng: Rng) {
   ctx.fillRect(256, 256, 256, 256);
 }
 
-const ASPHALT_GREYS = ["#3a3f47", "#1f2329", "#4a5058", "#2e333b", "#6a7078", "#23272e"];
+const ASPHALT_GREYS = ["#353a42", "#22262d", "#434952", "#2c3139", "#525862", "#252930"];
 function paintAsphalt(ctx: CanvasRenderingContext2D, rng: Rng) {
-  ctx.fillStyle = "#2b2f36";
+  ctx.fillStyle = "#292d34";
   ctx.fillRect(0, 0, SIZE, SIZE);
-  // Very subtle large patches only — road strips stretch the texture
-  // along their length, and strong large features would streak. The fine
-  // aggregate below carries the realism.
-  mottling(ctx, rng, 16, ["#24282e", "#33383f", "#2e333b"], 0.05, 0.1, 60, 150);
-  // Dense stone aggregate: thousands of tiny light / dark stones.
-  speckle(ctx, rng, 11000, ASPHALT_GREYS, 0.3, 0.7, 1, 2.2);
-  // A few larger pale stones.
-  speckle(ctx, rng, 320, ["#7a8089", "#8a9099", "#5a6068"], 0.35, 0.6, 2, 3.4);
+  // Isotropic fine stone aggregate only (no large blotches that streak on
+  // long road strips).
+  speckle(ctx, rng, 16000, ASPHALT_GREYS, 0.32, 0.68, 1, 2.0);
+  speckle(ctx, rng, 900, ["#686e78", "#767c86", "#4e545d"], 0.28, 0.5, 1.2, 2.4);
 }
 
 /** Stone pavers, 4x4 per tile. On the plaza field (repeat 7, tile 8.3u)
@@ -461,6 +459,27 @@ function paintDirt(ctx: CanvasRenderingContext2D, rng: Rng) {
   speckle(ctx, rng, 500, ["#7a8a3a", "#5a6e2a", "#8a9a4a"], 0.2, 0.4, 1, 2.5);
 }
 
+function paintDarkSurface(ctx: CanvasRenderingContext2D, rng: Rng) {
+  ctx.fillStyle = "#141820";
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  mottling(ctx, rng, 18, ["#10141b", "#1a202b", "#151a23"], 0.14, 0.26, 36, 96);
+  speckle(ctx, rng, 4200, ["#222938", "#0c0f14", "#1b212e"], 0.18, 0.38, 1, 2);
+}
+
+function paintCreamPlaster(ctx: CanvasRenderingContext2D, rng: Rng) {
+  ctx.fillStyle = "#f4efe4";
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  mottling(ctx, rng, 24, ["#ede6d8", "#f8f4eb", "#e6dfd0"], 0.12, 0.22, 40, 110);
+  speckle(ctx, rng, 3400, ["#dfd7c6", "#ffffff", "#eae3d4"], 0.16, 0.34, 1, 2);
+}
+
+function paintCrimson(ctx: CanvasRenderingContext2D, rng: Rng) {
+  ctx.fillStyle = "#d92b3c";
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  mottling(ctx, rng, 22, ["#c22030", "#e8384a", "#b51c2b"], 0.15, 0.28, 32, 96);
+  speckle(ctx, rng, 3800, ["#f25262", "#9e1624", "#e03244"], 0.2, 0.42, 1, 2.2);
+}
+
 /* ------------------------------------------------------------------ */
 /* Build the textures (browser only) and the material record.         */
 /* ------------------------------------------------------------------ */
@@ -488,13 +507,16 @@ const TEX: Partial<Record<string, TexSpec>> = {
   grassField: { paint: paintGrass, repeat: 95, seed: 11 },
   cement: { paint: paintCement, repeat: 1, seed: 22 },
   pavement: { paint: paintPavement, repeat: 50, seed: 22 },
-  asphalt: { paint: paintAsphalt, repeat: 4, seed: 33 },
+  asphalt: { paint: paintAsphalt, repeat: 6, seed: 33 },
   pavers: { paint: paintPavers, repeat: 2, seed: 44 },
   paversField: { paint: paintPavers, repeat: 7, seed: 44 },
   brick: { paint: paintBrick, repeat: 1, seed: 55 },
   stone: { paint: paintStone, repeat: 1, seed: 66 },
   stucco: { paint: paintStucco, repeat: 1, seed: 77 },
+  creamPlaster: { paint: paintCreamPlaster, repeat: 2, seed: 78 },
   glass: { paint: paintGlass, repeat: 1, seed: 88 },
+  darkSurface: { paint: paintDarkSurface, repeat: 1, seed: 89 },
+  crimson: { paint: paintCrimson, repeat: 2, seed: 56 },
   concrete: { paint: paintConcrete, repeat: 1, seed: 99 },
   wood: { paint: paintWood, repeat: 1, seed: 111 },
   foliage: { paint: (c, r) => paintFoliage(c, r, false), repeat: 1, seed: 122 },
@@ -525,6 +547,8 @@ interface MatSpec {
   transparent?: boolean;
   opacity?: number;
   polygonOffset?: boolean;
+  polygonOffsetFactor?: number;
+  polygonOffsetUnits?: number;
   roughness?: number;
   metalness?: number;
 }
@@ -532,16 +556,16 @@ interface MatSpec {
 const SPECS: Record<Mat, MatSpec> = {
   asphalt: { color: 0x2a2f3a, tex: "asphalt" },
   sidewalk: { color: 0xcfd3da, tex: "cement" },
-  sidewalkField: { color: 0xcfd3da, tex: "pavement" },
+  sidewalkField: { color: 0xcfd3da, tex: "pavement", polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2 },
   plaza: { color: 0xe4e7ee, tex: "pavers" },
-  plazaField: { color: 0xe4e7ee, tex: "paversField" },
+  plazaField: { color: 0xe4e7ee, tex: "paversField", polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 },
   grass: { color: 0x46a844, tex: "grass" },
-  grassField: { color: 0x46a844, tex: "grassField" },
+  grassField: { color: 0x46a844, tex: "grassField", polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 4 },
   hedge: { color: 0x1d6e32, tex: "foliageDark" },
   leaves: { color: 0x37b24a, tex: "foliage" },
   leavesDark: { color: 0x1f8a34, tex: "foliageDark" },
   trunk: { color: 0x6b4a2e, tex: "wood" },
-  black: { color: 0x12151c, tex: "glass" },
+  black: { color: 0x12151c, tex: "darkSurface", roughness: 0.42, metalness: 0.35 },
   white: { color: 0xf4f6fa, tex: "stucco" },
   gray: { color: 0x3a404c, tex: "concrete" },
   cyan: {
@@ -562,7 +586,7 @@ const SPECS: Record<Mat, MatSpec> = {
     opacity: 0.82,
   },
   stone: { color: 0xd5dae2, tex: "stone" },
-  lane: { color: 0xf7f7f2, polygonOffset: true },
+  lane: { color: 0xf7f7f2, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 },
   hill: { color: 0x6a3b2c, tex: "dirt" },
   track: { color: 0x1c212b },
   wood: { color: 0x8a5a32, tex: "wood" },
@@ -571,17 +595,12 @@ const SPECS: Record<Mat, MatSpec> = {
     emissive: 0xff7a1a,
     emissiveIntensity: 0.85,
   },
-  cream: { color: 0xf4f0e6, tex: "brick" },
+  cream: { color: 0xf4f0e6, tex: "creamPlaster" },
   red: {
-    // Real brick, not a flat slab: the brick texture carries varied
-    // terracotta/tan courses, so red window frames, carpets, goods and
-    // accents read as a material instead of a flat glowing red box (the
-    // user called out plain solid-red boxes). The emissive stays — small
-    // red accents still pop at night — but the surface is textured now.
     color: 0xff4b5c,
-    emissive: 0xaa1830,
-    emissiveIntensity: 0.7,
-    tex: "brick",
+    emissive: 0x8a1428,
+    emissiveIntensity: 0.45,
+    tex: "crimson",
   },
   gold: {
     color: 0xe0b33a,
