@@ -1,6 +1,0 @@
-FRAME AT HUD: {"ready":true,"draws":1006,"fps":1,"player":{"x":0,"y":0,"z":62,"yaw":0,"swimming":false,"flying":false}}
-FRAME AT BUY: {"ready":true,"draws":1025,"fps":15,"player":{"x":0,"y":0,"z":62,"yaw":0,"swimming":false,"flying":false}}
-flyer buy: clicked
-SNAP AFTER BUY: {"worldCars":[{"id":"north","vehicleId":null,"x":0,"z":46},{"id":"dock-west-home","vehicleId":"boat-ferry","x":-391,"z":20.5},{"id":"dock-west-ny","vehicleId":"boat-ferry","x":-599,"z":20.5},{"id":"dock-east-home","vehicleId":"boat-ferry","x":391,"z":20.5},{"id":"dock-east-la","vehicleId":"boat-ferry","x":599,"z":20.5},{"id":"dock-south-home","vehicleId":"boat-ferry","x":20.5,"z":391},{"id":"dock-south-fl","vehicleId":"boat-ferry","x":20.5,"z":699},{"id":"shop-row","vehicleId":"fly-skyhopper","x":0,"z":56}],"activeVehicle":"fly-skyhopper","balance":54000,"prompt":""}
-PLAYER AFTER BUY: {"ready":true,"draws":1057,"fps":0,"player":{"x":0,"y":0,"z":62,"yaw":0,"swimming":false,"flying":false}}
-DIAG10 FAILED: timeout waiting for: driving flyer
