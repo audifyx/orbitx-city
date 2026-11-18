@@ -7699,6 +7699,10 @@ export function createRuntime(scene: Scene) {
     camera.position.copy(smoothed);
     camera.up.set(0, 1, 0);
     camera.lookAt(body.x, camMode === "selfie" ? body.y + 1.5 : focusY, body.z);
+    // Debug hook (same family as __ORBITX_PLAYER / __ORBITX_SNAP): live
+    // camera position + the pulled (collision-clamped) target, so a rig
+    // can tell a camera-inside-the-wall flicker from a player jitter.
+    (window as unknown as { __ORBITX_CAM?: { x: number; y: number; z: number; px: number; py: number; pz: number; dx: number; dy: number; dz: number } }).__ORBITX_CAM = { x: camera.position.x, y: camera.position.y, z: camera.position.z, px: pulled.x, py: pulled.y, pz: pulled.z, dx: desired.x, dy: desired.y, dz: desired.z };
     return true;
   }
 

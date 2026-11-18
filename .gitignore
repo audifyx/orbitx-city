@@ -11,3 +11,6 @@ world/out/
 .DS_Store
 tsconfig.tsbuildinfo
 rig/
+
+# rig scaffolding (local test servers + scripts), never shipped
+rig/
