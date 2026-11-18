@@ -192,7 +192,6 @@ export function homeBuiltins(home: HomeDef): BuiltinPiece[] {
   const s = door === "s" || door === "e" ? 1 : -1;
   const tv = tvSpot(home);
   const bed = bedSpot(home);
-  const fridge = fridgeSpot(home);
   const bedSE = door === "s" || door === "e";
   const backZ = door === "n" ? z0 + d - 1.38 : z0 + 1.38;
   const backX = door === "w" ? x0 + w - 1.38 : x0 + 1.38;

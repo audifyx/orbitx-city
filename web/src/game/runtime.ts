@@ -11719,21 +11719,6 @@ export function createRuntime(scene: Scene) {
         return { ok: false, message };
       }
     },
-    async buyFurniture(itemId: string) {
-      if (!world.online || !currentUniverse) return cribNeedsSignIn();
-      try {
-        const data = await world.furnitureBuy(itemId, currentUniverse);
-        applyMe();
-        triggerHaptic("success");
-        publish();
-        return String(data.message || "Bought.");
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Could not buy that.";
-        say(message);
-        triggerHaptic("error");
-        return message;
-      }
-    },
     editHome,
     async homeStyle(homeId: string, patch: { exterior?: string; roof?: string; yard?: string }) {
       if (!world.online || !currentUniverse) return cribNeedsSignIn();
