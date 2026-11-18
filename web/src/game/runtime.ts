@@ -5850,10 +5850,21 @@ export function createRuntime(scene: Scene) {
     // 2.4 rad/s so boost does not spin the car, and the low-speed turn is
     // gentle (no spinning while creeping). steerSm already carries the
     // moving sign, so reverse steers the same way as before.
-    const steerTarget = s * moving;
+    // Standstill pivot (2026-11-18): a bike nose-against a wall could not
+    // turn at all — `moving` is 0 below 0.4 u/s, so the bars did nothing
+    // and the only escape was reversing blindly. Open vehicles (bike /
+    // atv / skateboard) keep a gentle in-place pivot at full lock, so the
+    // rider can turn out of a tight spot; it blends out by 1.5 u/s and
+    // never applies to enclosed cars (a car cannot pivot in place).
+    const canPivot =
+      (car.group.userData.kind as string) === "bike" ||
+      (car.group.userData.kind as string) === "atv" ||
+      (car.group.userData.kind as string) === "skateboard";
+    const steerTarget = s * (moving !== 0 ? moving : canPivot ? 1 : 0);
     steerSm += (steerTarget - steerSm) * Math.min(1, dt * 7);
     const turnRadius = 9 / params.steer;
-    car.yaw += steerSm * Math.min(Math.abs(carSpeed) / turnRadius, 2.4) * dt;
+    const pivotRate = canPivot ? 0.55 * Math.max(0, 1 - Math.abs(carSpeed) / 1.5) : 0;
+    car.yaw += steerSm * Math.max(Math.min(Math.abs(carSpeed) / turnRadius, 2.4), pivotRate) * dt;
     // The chase camera recentres behind the car: when the player is not
     // actively looking around, chaseYaw decays back to 0.
     if (lookX === 0) chaseYaw *= Math.exp(-dt * 0.9);
