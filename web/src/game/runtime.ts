@@ -2508,7 +2508,14 @@ export function createRuntime(scene: Scene) {
   function openLift(anchor: Anchor) {
     const lift = lifts.find((item) => item.id === anchor.liftId);
     if (!lift || !lastBody) return;
-    const current = Math.max(0, lift.floors.indexOf(anchor.liftFloor ?? lift.floors[0]));
+    // anchor.liftFloor is already the floor INDEX (0 = lobby, 1 = Floor 2,
+    // …) — not an elevation. The old code did
+    // lift.floors.indexOf(anchor.liftFloor), which searches the index in
+    // the elevations array [0,8,12,16,20] and always missed (-1 → 0), so
+    // every ride from an upper floor yanked the player back to the lobby
+    // and re-rode from y=0 (rig-proven 2026-11-18: Floor 3 → Floor 4
+    // dropped to y≈0.05 before climbing to 16).
+    const current = Math.max(0, Math.min(lift.floors.length - 1, anchor.liftFloor ?? 0));
     liftPanel = { name: lift.name, floors: lift.floors, stops: lift.stops, current };
     const cab = liftCabs.get(lift.id);
     if (cab) {
