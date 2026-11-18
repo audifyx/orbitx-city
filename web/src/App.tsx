@@ -1670,11 +1670,7 @@ export default function App() {
     try {
       const res = await rt.billboardPreview(imageUrl, adProject || snap.name || "OrbitX", adText);
       if (res.ok) setAdPreviewUrl((res as { dataUrl?: string }).dataUrl || "");
-      else {
-        // A failed preview must not leave a stale preview on screen.
-        setAdPreviewUrl("");
-        setAdMsg(String((res as { message?: string }).message || "Preview failed."));
-      }
+      else setAdMsg(String((res as { message?: string }).message || "Preview failed."));
     } finally {
       // The preview is a data URL by now (the image is drawn to a
       // canvas inside billboardPreview), so the object URL can go.
