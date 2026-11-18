@@ -1,0 +1,38 @@
+FRAME AT HUD: {"ready":true,"draws":990,"fps":1,"player":{"x":0,"y":0,"z":62,"yaw":0,"swimming":false,"flying":false}}
+FRAME AT BUY: {"ready":true,"draws":969,"fps":6,"player":{"x":0,"y":0,"z":62,"yaw":0,"swimming":false,"flying":false}}
+flyer buy: clicked
+SNAP AFTER BUY: {"worldCars":[{"id":"north","vehicleId":null,"x":0,"z":46},{"id":"dock-west-home","vehicleId":"boat-ferry","x":-391,"z":20.5},{"id":"dock-west-ny","vehicleId":"boat-ferry","x":-599,"z":20.5},{"id":"dock-east-home","vehicleId":"boat-ferry","x":391,"z":20.5},{"id":"dock-east-la","vehicleId":"boat-ferry","x":599,"z":20.5},{"id":"dock-south-home","vehicleId":"boat-ferry","x":20.5,"z":391},{"id":"dock-south-fl","vehicleId":"boat-ferry","x":20.5,"z":699},{"id":"shop-row","vehicleId":"fly-skyhopper","x":0,"z":56}],"activeVehicle":"fly-skyhopper","balance":54000,"prompt":""}
+PLAYER AFTER BUY: {"ready":true,"draws":1001,"fps":1,"player":{"x":0,"y":0,"z":62,"yaw":0,"swimming":false,"flying":false}}
+entered flyer, driving=true
+takeoff click: clicked
+TAKEOFF 0s: {"y":0,"carFlying":true,"driving":true}
+TAKEOFF 2s: {"y":0,"carFlying":true,"driving":true}
+TAKEOFF 4s: {"y":2.7,"carFlying":true,"driving":true}
+TAKEOFF 6s: {"y":7.7,"carFlying":true,"driving":true}
+TAKEOFF 8s: {"y":7.7,"carFlying":true,"driving":true}
+TAKEOFF 10s: {"y":7.7,"carFlying":true,"driving":true}
+TAKEOFF 12s: {"y":7.7,"carFlying":true,"driving":true}
+TAKEOFF 14s: {"y":12.7,"carFlying":true,"driving":true}
+TAKEOFF 16s: {"y":17.201000000000057,"carFlying":true,"driving":true}
+TAKEOFF 18s: {"y":19.701000000000057,"carFlying":true,"driving":true}
+TAKEOFF 20s: {"y":24.701000000000057,"carFlying":true,"driving":true}
+TAKEOFF 22s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 24s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 26s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 28s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 30s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 32s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 34s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 36s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 38s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 40s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 42s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 44s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 46s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 48s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 50s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 52s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 54s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 56s: {"y":26.2,"carFlying":true,"driving":true}
+TAKEOFF 58s: {"y":26.2,"carFlying":true,"driving":true}
+DIAG10 DONE

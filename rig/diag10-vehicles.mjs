@@ -107,6 +107,14 @@ async function main() {
   results.playerAfterBuy = await readFrameState(page);
   console.log("SNAP AFTER BUY:", JSON.stringify(results.snapAfterBuy));
   console.log("PLAYER AFTER BUY:", JSON.stringify(results.playerAfterBuy));
+  // Close the Shop panel first (an open panel pauses the game and hides
+  // the HUD Use button — without this the Use press silently does nothing).
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll("button")].find((x) => (x.textContent || "").trim() === "Close");
+    if (b) b.click();
+  });
+  await waitFor(page, async () => !(await textOf(page)).includes("Cars — OrbitX Motors"), "Shop panel closes", 60000);
+  await sleep(2000);
   // Enter the flyer (Use once) and take off; poll y + carFlying + worldCars.
   await page.evaluate(() => {
     const b = [...document.querySelectorAll("button")].find((x) => (x.textContent || "").trim() === "Use");
