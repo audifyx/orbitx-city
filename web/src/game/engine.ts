@@ -41,6 +41,7 @@ declare global {
     __ORBITX_DRAWS?: number;
     __ORBITX_BOXES?: number;
     __ORBITX_PLAYER?: { x: number; y: number; z: number; yaw: number; swimming: boolean; flying: boolean };
+    __ORBITX_RIDER?: { visible: boolean; kind: string; pose: string; legL: number; armL: number; lean: number };
   }
 }
 
