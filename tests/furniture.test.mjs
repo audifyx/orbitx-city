@@ -42,10 +42,13 @@ test("furniture-list with no save: catalog + empty inventory", async () => {
   const session = await call("session", { id, name: "furn-guest" });
   const list = await call("furniture-list", { server: 1 }, session.data.token);
   assert.equal(list.data.ok, true);
-  assert.equal(list.data.catalog.length, 14);
+  assert.equal(list.data.catalog.length, 24);
   assert.deepEqual(list.data.owned, []);
   assert.deepEqual(list.data.placed, {});
   assert.ok(list.data.catalog.some((item) => item.id === "tv" && item.price === 450));
+  // Home Workshop additions (2026-11-18): 10 more pieces to place in 2D.
+  assert.ok(list.data.catalog.some((item) => item.id === "bookshelf" && item.price === 300));
+  assert.ok(list.data.catalog.some((item) => item.id === "pool-table" && item.price === 1100));
 });
 
 test("buy, place, persist, sell-back — full flow on one server", async () => {
