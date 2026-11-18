@@ -25,11 +25,14 @@ const server = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const body = Buffer.concat(chunks).toString("utf8");
+    let op = "?";
+    try { op = JSON.parse(body).op || "?"; } catch {}
     const headers = {};
     for (const [k, v] of Object.entries(req.headers)) if (v) headers[k] = Array.isArray(v) ? v.join(", ") : v;
     try {
       const out = await POST(new Request(`http://127.0.0.1:${PORT}/api/city`, { method: "POST", headers, body }));
       const text = await out.text();
+      try { fs.appendFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "api-8946.log"), `${new Date().toISOString()} op=${op} status=${out.status} ${text.slice(0, 160)}\n`); } catch {}
       res.writeHead(out.status, { "content-type": out.headers.get("content-type") || "application/json" });
       res.end(text);
     } catch (e) {
