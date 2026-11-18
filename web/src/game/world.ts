@@ -915,6 +915,31 @@ class CityWorld {
     return this.call("ad-submit", { orderId, signedTx });
   }
 
+  // Mini-Games Hub — 2-player PvP pot games in real ORBITX (Neon Arcade).
+  async arcadeLobby(address = "") {
+    return this.call("arcade-lobby", { address });
+  }
+
+  async arcadeCompose(game: string, tier: number, pick: string, address: string, idempotencyKey = "", joinId = "") {
+    return this.call("arcade-compose", { game, tier, pick, address, idempotencyKey, joinId });
+  }
+
+  async arcadeSubmit(gameId: string, signedTx: string) {
+    return this.call("arcade-submit", { gameId, signedTx });
+  }
+
+  async arcadeCancel(gameId: string) {
+    return this.call("arcade-cancel", { gameId });
+  }
+
+  async arcadeHistory() {
+    return this.call("arcade-history", {});
+  }
+
+  async arcadeLeaders() {
+    return this.call("arcade-leaders", {});
+  }
+
   // Office leases in real SOL: rent a suite in SOL, the payment buys
   // ORBITX and burns it all — same single-transaction buy+burn as
   // billboards. Compose/submit is the on-device PIN wallet path; buy is

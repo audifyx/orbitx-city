@@ -2393,6 +2393,7 @@ export async function arcadeLobby(ctx, player, body) {
   const games = [...store().arcadeGames.values()].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   return {
     ok: true,
+    you: userId,
     tiers,
     joinTimeoutMs: ARCADE_JOIN_TIMEOUT_MS,
     escrowNote: "Entries go to the arcade escrow. The winner takes the full pot — no house cut.",
@@ -2680,7 +2681,7 @@ export async function arcadeHistory(ctx, player) {
     }
     mine.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   }
-  return { ok: true, games: mine.slice(0, 20).map((g) => publicArcadeGame(g, dec)) };
+  return { ok: true, you: userId, games: mine.slice(0, 20).map((g) => publicArcadeGame(g, dec)) };
 }
 
 export async function arcadeLeaders(ctx, player) {
@@ -2710,5 +2711,5 @@ export async function arcadeLeaders(ctx, player) {
     }
   }
   const leaders = [...byId.values()].sort((a, b) => b.wins - a.wins || b.biggest - a.biggest).slice(0, 10);
-  return { ok: true, leaders, mine: userId ? byId.get(userId) || { id: userId, name: "", wins: 0, biggest: 0, games: 0 } : null };
+  return { ok: true, you: userId, leaders, mine: userId ? byId.get(userId) || { id: userId, name: "", wins: 0, biggest: 0, games: 0 } : null };
 }

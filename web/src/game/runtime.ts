@@ -207,7 +207,7 @@ export interface TrainPose {
   dwelling: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homeedit" | "workshop" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "minigames" | "hq" | "race" | "home" | "homeedit" | "workshop" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats";
 
 // UNIFIED SHOP: the Shop panel's category tabs. "grocery" is a tab
 // now, not a panel — the grocery store in the world opens the Shop on
@@ -4785,7 +4785,7 @@ export function createRuntime(scene: Scene) {
       } else if (zone.kind === "garage") panel = "garage";
       else if (zone.kind === "carshop") panel = "garage";
       else if (isDeptKind(zone.kind as string)) openEmergency(zone.kind as string, zone.name);
-      else if (zone.kind === "arcade") panel = "arcade";
+      else if (zone.kind === "arcade") panel = "minigames";
       else if (zone.kind === "project") {
         hqIndex = zone.slot;
         panel = "hq";
@@ -7667,7 +7667,7 @@ export function createRuntime(scene: Scene) {
         // home-edit prompt belongs here too, or the prompt shows just
         // the home name and never says "tap Use to edit your home"
         // (the zone-title branch below is never reached from here).
-        prompt = zone.id.startsWith("home-") && ownHomeId(zone.id) ? `${zoneTitle(zone)} — ${touch ? "tap Use to edit your home" : "press X to edit your home"}` : zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "grocery" ? "Press E — buy food at OrbitX Grocery" : zone.kind === "garage" ? "Press E to open the garage" : zone.kind === "carshop" ? "Press E — buy a car at OrbitX Motors" : isDeptKind(zone.kind as string) ? `Press E — ${zoneTitle(zone)}` : zone.kind === "arcade" ? "Press E — arcade, play money" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zone.kind === "restaurant" ? `Press E — order at ${zoneTitle(zone)}` : zone.kind === "gym" ? "Press E — gym desk · work out" : zoneTitle(zone);
+        prompt = zone.id.startsWith("home-") && ownHomeId(zone.id) ? `${zoneTitle(zone)} — ${touch ? "tap Use to edit your home" : "press X to edit your home"}` : zone.kind === "shop" ? "Press E to open the shop" : zone.kind === "grocery" ? "Press E — buy food at OrbitX Grocery" : zone.kind === "garage" ? "Press E to open the garage" : zone.kind === "carshop" ? "Press E — buy a car at OrbitX Motors" : isDeptKind(zone.kind as string) ? `Press E — ${zoneTitle(zone)}` : zone.kind === "arcade" ? "Press E — Mini-Games · win real ORBITX" : zone.kind === "project" ? "Press E — HQ screen" : zone.kind === "casino" ? `Press E — pull the lever (${CASINO_COST} City Sol)` : zone.kind === "hotel" ? (isRested() ? "Press E — hotel desk (already rested)" : `Press E — stay the night (${HOTEL_COST} City Sol)`) : zone.kind === "nightclub" ? "Press E — DJ booth, start a dance set" : zone.kind === "stadium" ? "Press E — start the sprint" : zone.kind === "museum" ? "Press E — museum info" : zone.kind === "restaurant" ? `Press E — order at ${zoneTitle(zone)}` : zone.kind === "gym" ? "Press E — gym desk · work out" : zoneTitle(zone);
       } else if (zone && nearExitDoor(body, zone)) {
         // By the inside of a closed door: E steps back outside.
         prompt = "Press E — Exit";
@@ -8949,6 +8949,101 @@ export function createRuntime(scene: Scene) {
       return await world.billboardImageUrl(name, size);
     } catch (err) {
       return { ok: false as const, message: err instanceof Error ? err.message : "Could not start the upload." };
+    }
+  }
+
+  // Mini-Games Hub — 2-player PvP pot games in real ORBITX. The entry
+  // leaves the ON-DEVICE wallet: the server composes the transfer to the
+  // arcade escrow, this device signs it with the PIN-unlocked key, the
+  // server verifies + broadcasts. Winner takes the full pot (both
+  // entries), no house cut. Same device-sign pattern as bookLocal.
+  type ArcadeGameKind = "coinflip" | "diceroll";
+  function arcadeWalletReady() {
+    if (!world.online) return "Sign in to play for real ORBITX.";
+    if (!hasLocalWallet()) return "No on-device wallet yet — create one in the Wallet panel first.";
+    if (!isLocalWalletUnlocked()) return "Unlock your on-device wallet with your PIN first.";
+    return "";
+  }
+
+  async function arcadeLobby() {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      return await world.arcadeLobby(hasLocalWallet() ? localWalletAddress() : "");
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Could not load the arcade." };
+    }
+  }
+
+  async function arcadeCreate(game: ArcadeGameKind, tier: number, pick: string) {
+    const blocked = arcadeWalletReady();
+    if (blocked) return { ok: false as const, message: blocked };
+    try {
+      const data = await world.arcadeCompose(game, tier, pick, localWalletAddress(), crypto.randomUUID());
+      const unsignedTx = String((data as { unsignedTx?: string }).unsignedTx || "");
+      if (!unsignedTx) throw new Error("The city did not return a transaction to sign.");
+      const signedTx = signVersionedTx(unsignedTx);
+      const done = await world.arcadeSubmit(String((data.game as { id?: string } | undefined)?.id || ""), signedTx);
+      const message = String((done as { message?: string }).message || "Entry in.");
+      say(message);
+      await refreshLocalWallet();
+      return { ok: true as const, message, game: (done as { game?: unknown }).game };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "The city refused the game.";
+      say(message);
+      return { ok: false as const, message };
+    }
+  }
+
+  async function arcadeJoin(gameId: string, game: ArcadeGameKind, tier: number, pick: string) {
+    const blocked = arcadeWalletReady();
+    if (blocked) return { ok: false as const, message: blocked };
+    try {
+      const data = await world.arcadeCompose(game, tier, pick, localWalletAddress(), crypto.randomUUID(), gameId);
+      const unsignedTx = String((data as { unsignedTx?: string }).unsignedTx || "");
+      if (!unsignedTx) throw new Error("The city did not return a transaction to sign.");
+      const signedTx = signVersionedTx(unsignedTx);
+      const done = await world.arcadeSubmit(gameId, signedTx);
+      const message = String((done as { message?: string }).message || "Joined.");
+      say(message);
+      await refreshLocalWallet();
+      return { ok: true as const, message, game: (done as { game?: unknown }).game };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "The city refused the join.";
+      say(message);
+      return { ok: false as const, message };
+    }
+  }
+
+  async function arcadeCancel(gameId: string) {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      const done = await world.arcadeCancel(gameId);
+      const message = String((done as { message?: string }).message || "Cancelled.");
+      say(message);
+      await refreshLocalWallet();
+      return { ok: true as const, message, game: (done as { game?: unknown }).game };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Cancel failed.";
+      say(message);
+      return { ok: false as const, message };
+    }
+  }
+
+  async function arcadeHistory() {
+    if (!world.online) return { ok: false as const, message: "Offline.", games: [] };
+    try {
+      return await world.arcadeHistory();
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Could not load your games.", games: [] };
+    }
+  }
+
+  async function arcadeLeaders() {
+    if (!world.online) return { ok: false as const, message: "Offline.", leaders: [] };
+    try {
+      return await world.arcadeLeaders();
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Could not load the leaderboard.", leaders: [] };
     }
   }
 
@@ -11209,6 +11304,12 @@ export function createRuntime(scene: Scene) {
     billboardOrbitxOrders,
     billboardImageUrl,
     billboardPreview,
+    arcadeLobby,
+    arcadeCreate,
+    arcadeJoin,
+    arcadeCancel,
+    arcadeHistory,
+    arcadeLeaders,
     quoteOfficeSol,
     leaseOfficeSol,
     leaseOfficeSolLocal,

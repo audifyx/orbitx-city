@@ -14,6 +14,7 @@ import { AboutPage, MenuFooter, MenuHeader, PrivacyPage, SettingsPage, TermsPage
 import { accountToken, ensureFreshAccountToken, refreshAccountToken, signOutAccount, type Account } from "./auth";
 import { DecorBar, EmoteWheel, FeaturePanel, PhoneExtra, RaceBanner, SpectateBar, featureTitle } from "./Features";
 import HomeWorkshop, { workshopSavePlan, type WorkshopDraft } from "./HomeWorkshop";
+import { MinigamesPanel } from "./MinigamesPanel";
 import { EMPTY_LEADERS, EMPTY_RACE } from "./game/life";
 import { CAR_SHOP, FLY_CONTROLS, VEHICLE_COLORS, getVehicle } from "./game/vehicles";
 // CARS expansion — customize / wash / repair / garage upgrades.
@@ -1773,6 +1774,7 @@ export default function App() {
           <button type="button" onClick={() => openShop("clothes")}>Shop</button>
           <button type="button" onClick={() => openShop("grocery")}>Grocery</button>
           <button type="button" onClick={() => open("jobs")}>Jobs</button>
+          <button type="button" onClick={() => open("minigames")}>Arcade</button>
           <button type="button" onClick={() => open("leaders")}>Leaders</button>
           <button type="button" onClick={() => open("ads")}>Ads</button>
           <button type="button" onClick={() => open("radio")}>Radio</button>
@@ -1932,6 +1934,7 @@ export default function App() {
                 {panel === "shop" && "OrbitX shop"}
                 {panel === "wardrobe" && "Wardrobe"}                {panel === "jobs" && "Jobs"}
                 {panel === "leaders" && "Leaderboards"}
+                {panel === "minigames" && "Mini-Games"}
                 {panel === "ads" && "Book a billboard"}
                 {panel === "radio" && "Radio"}
                 {panel === "voice" && "Voice chat"}
@@ -4370,6 +4373,7 @@ export default function App() {
             {panel === "profile" && <ProfilePanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             {panel === "stats" && <CityStatsPanel stats={snap.cityStats} loading={snap.cityStatsLoading} error={snap.cityStatsError} onRefresh={() => void gameRef.current?.runtime.loadCityStats()} />}
             {panel === "alerts" && <AlertsPanel snap={snap} rt={gameRef.current?.runtime ?? null} onOpenChat={() => open("chat")} />}
+            {panel === "minigames" && <MinigamesPanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             <FeaturePanel snap={{ ...snap, panel: panel as PanelName | "" }} rt={gameRef.current?.runtime ?? null} />
             {panel === "home" && (() => {
               const zoneId = snap.indoors || "";
