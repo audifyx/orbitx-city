@@ -11934,7 +11934,7 @@ export function createRuntime(scene: Scene) {
     publish();
   }
 
-  return {
+  const rt = {
     begin,
     cols: () => activeCols,
     colsNear,
@@ -13446,6 +13446,24 @@ export function createRuntime(scene: Scene) {
       listeners.clear();
     },
   };
+  // Rig / debug bridge (same pattern as window.__ORBITX_POWER): lets a
+  // data-layer probe switch looks and press powers without UI clicks, so
+  // one boot can verify many heroes. setLook is the same write path as
+  // the Profile panel (look + power-state reset + server rename).
+  (window as unknown as { __ORBITX_RT?: unknown }).__ORBITX_RT = {
+    setLook: (id: string) => {
+      const next = lookById(id).id;
+      lookId = next;
+      resetPowerState();
+      localStorage.setItem("orbitx-look", next);
+      if (world.online) void world.rename(wallet.name, next).then(() => applyMe());
+      if (profileView?.self) profileView.look = next;
+      publish();
+    },
+    powerPress: () => pressPower(),
+    powerRelease: () => releasePower(),
+  };
+  return rt;
 }
 
 export type Runtime = ReturnType<typeof createRuntime>;
