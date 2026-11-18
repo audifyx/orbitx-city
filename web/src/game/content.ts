@@ -65,6 +65,42 @@ export function adUsdPrice(board: string, days: number): number {
   return AD_PLAZA_BOARDS.has(board) ? base * AD_PLAZA_MULT : base;
 }
 
+// ORBITX billboards (2026-11-18, user-set): a flat $1 for 7 days, paid
+// in ORBITX straight from the buyer's in-app ORBITX balance — no SOL, no
+// swap, no plaza premium. 100% of the ORBITX paid is burned on-chain.
+// Same $1 on every one of the 25 boards.
+export const BILLBOARD_ORBITX_USD = 1;
+export const BILLBOARD_ORBITX_DAYS = 7;
+// Human zone label per board, for the Ads panel list. Keys must match the
+// board ids in DEFAULT_BILLBOARDS and AD_BOARDS (api/ads.js).
+export const BILLBOARD_ZONE: Record<string, string> = {
+  "plaza-east": "Plaza Central · East",
+  "plaza-west": "Plaza Central · West",
+  "hall-front": "Community Hall",
+  "district-row": "Project District · South",
+  "plaza-south-east": "Plaza South · East",
+  "plaza-south-west": "Plaza South · West",
+  "station-row": "Central Station",
+  "market-road": "Night Market Road",
+  "arcade-row": "Neon Arcade",
+  "garage-row": "Hover Garage",
+  "bank-row": "OrbitX Bank",
+  "harbor-row": "Harbor · Ferry Dock",
+  "north-east": "North Gate · East",
+  "north-west": "North Gate · West",
+  "district-north": "Project District · North",
+  "district-far-south": "Project District · Far South",
+  "ny-plaza-east": "New York · Plaza East",
+  "ny-plaza-west": "New York · Plaza West",
+  "ny-tower": "New York · Office Tower",
+  "la-plaza-east": "Los Angeles · Plaza East",
+  "la-plaza-west": "Los Angeles · Plaza West",
+  "la-tower": "Los Angeles · Office Tower",
+  "fl-plaza-east": "Florida · Plaza East",
+  "fl-plaza-west": "Florida · Plaza West",
+  "fl-tower": "Florida · Office Tower",
+};
+
 // Real-SOL office lease prices (USD, display only — the server quote is
 // authoritative at purchase). Mirrors OFFICE_SOL_USD_PRICE in api/ads.js:
 // every term stays under $5 by design.
@@ -200,6 +236,29 @@ export const DEFAULT_BILLBOARDS: BillboardInfo[] = [
     start: "2026-01-01",
     end: "2026-12-31",
   },
+  // 21 more boards (2026-11-18): every empty board shows the house
+  // "Advertise here" face until someone buys the week for $1 in ORBITX.
+  { id: "plaza-south-east", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "plaza-south-west", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "station-row", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "market-road", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "arcade-row", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "garage-row", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "bank-row", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "harbor-row", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "north-east", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "north-west", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "district-north", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "district-far-south", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "ny-plaza-east", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "ny-plaza-west", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "ny-tower", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "la-plaza-east", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "la-plaza-west", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "la-tower", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "fl-plaza-east", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "fl-plaza-west", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
+  { id: "fl-tower", project: "OrbitX", text: "ADVERTISE HERE · $1/WEEK", image: "", start: "2026-01-01", end: "2026-12-31" },
 ];
 
 export const DEFAULT_EVENTS: EventInfo[] = [

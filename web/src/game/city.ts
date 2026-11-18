@@ -5755,11 +5755,39 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     });
   });
 
+  // 25 bookable billboards (2026-11-18): the 4 originals plus 21 more.
+  // Placement follows the original pattern — a board stands 6.35u off a
+  // north-south road (or on a district row), facing the road (rotY ∓π/2),
+  // at y 6.6–8.2. State boards mirror the home plaza pattern at the state
+  // centers: NY (-800, 0), LA (800, 0), FL (0, 900) — plaza 58x58 at the
+  // center, office tower north at local (0, -58). Every id here must exist
+  // in DEFAULT_BILLBOARDS (content.ts) and AD_BOARDS (api/ads.js).
   const boards: BoardSlot[] = [
     { id: "plaza-east", x: 6.35, y: 7.2, z: 54, rotY: -Math.PI / 2 },
     { id: "plaza-west", x: -6.35, y: 6.6, z: 54, rotY: Math.PI / 2 },
     { id: "hall-front", x: 42.35, y: 7.4, z: 18, rotY: -Math.PI / 2 },
     { id: "district-row", x: -78.35, y: 8.2, z: -54, rotY: Math.PI / 2 },
+    { id: "plaza-south-east", x: 6.35, y: 7.2, z: 90, rotY: -Math.PI / 2 },
+    { id: "plaza-south-west", x: -6.35, y: 6.6, z: 90, rotY: Math.PI / 2 },
+    { id: "station-row", x: 6.35, y: 7.2, z: 72, rotY: -Math.PI / 2 },
+    { id: "market-road", x: -29.65, y: 7.0, z: 78, rotY: -Math.PI / 2 },
+    { id: "arcade-row", x: 42.35, y: 7.0, z: 54, rotY: -Math.PI / 2 },
+    { id: "garage-row", x: 78.35, y: 7.2, z: 54, rotY: -Math.PI / 2 },
+    { id: "bank-row", x: 78.35, y: 7.2, z: -54, rotY: -Math.PI / 2 },
+    { id: "harbor-row", x: 6.35, y: 7.2, z: 210, rotY: -Math.PI / 2 },
+    { id: "north-east", x: 6.35, y: 7.2, z: -90, rotY: -Math.PI / 2 },
+    { id: "north-west", x: -6.35, y: 6.6, z: -90, rotY: Math.PI / 2 },
+    { id: "district-north", x: -78.35, y: 8.2, z: 54, rotY: Math.PI / 2 },
+    { id: "district-far-south", x: -78.35, y: 8.2, z: -108, rotY: Math.PI / 2 },
+    { id: "ny-plaza-east", x: -793.65, y: 7.2, z: 54, rotY: -Math.PI / 2 },
+    { id: "ny-plaza-west", x: -806.35, y: 6.6, z: 54, rotY: Math.PI / 2 },
+    { id: "ny-tower", x: -793.65, y: 7.4, z: -54, rotY: -Math.PI / 2 },
+    { id: "la-plaza-east", x: 806.35, y: 7.2, z: 54, rotY: -Math.PI / 2 },
+    { id: "la-plaza-west", x: 793.65, y: 6.6, z: 54, rotY: Math.PI / 2 },
+    { id: "la-tower", x: 806.35, y: 7.4, z: -54, rotY: -Math.PI / 2 },
+    { id: "fl-plaza-east", x: 6.35, y: 7.2, z: 954, rotY: -Math.PI / 2 },
+    { id: "fl-plaza-west", x: -6.35, y: 6.6, z: 954, rotY: Math.PI / 2 },
+    { id: "fl-tower", x: 6.35, y: 7.4, z: 846, rotY: -Math.PI / 2 },
   ];
   return { anchors, boards, zones };
 }
