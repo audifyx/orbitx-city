@@ -7318,8 +7318,9 @@ export function createRuntime(scene: Scene) {
         const walkIn = anchor.kind === "shop" || anchor.kind === "grocery" || anchor.kind === "cafe" || anchor.kind === "hall" || anchor.kind === "project" || anchor.kind === "bank" || anchor.kind === "arcade" || anchor.kind === "market" || anchor.kind === "dock" || anchor.kind === "mall" || anchor.kind === "office" || anchor.kind === "cinema" || anchor.kind === "library" || anchor.kind === "gym" || anchor.kind === "park" || anchor.kind === "stadium" || anchor.kind === "museum" || anchor.kind === "casino" || anchor.kind === "nightclub" || anchor.kind === "hotel" || anchor.kind === "restaurant";        // The tower door announces itself as an office entrance, never as a
         // photo spot — the anchor branch already runs before the photo check
         // below, so the door wins wherever the two ranges meet.
-        // Closed doors (2026-11-12): no more "Walk in" — the door is
-        // solid, and E at the door spawns the player inside.
+        // Walk-through doors (2026-11-18): the door is a real gap in the
+        // wall — the player walks in; E at the door still spawns the
+        // player inside as a shortcut.
         prompt = anchor.kind === "garage" ? "Press E — Hover Garage" : anchor.kind === "carshop" ? "Press E — OrbitX Motors" : anchor.kind === "office" ? "Press E — Enter office" : walkIn ? `Press E — Enter ${title}` : `Press E — ${title}`;
       } else if (nearGate(body, 0, 8)) prompt = "Press E — street race";
       else if (sprint) prompt = `Sprint! Reach the gold line — ${((performance.now() - sprint.startAt) / 1000).toFixed(1)}s`;

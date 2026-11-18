@@ -422,21 +422,22 @@ function wallBox(cols: Collider[], x0: number, y0: number, z0: number, x1: numbe
   cols.push({ minX: x0, maxX: x1, minY: y0, maxY: y1, minZ: z0, maxZ: z1 });
 }
 
-function addWallCols(cols: Collider[], x0: number, y0: number, z0: number, w: number, h: number, d: number, _door: Face, passThrough?: Face) {
-  // Closed real doors (2026-11-12): every wall is solid, INCLUDING the
-  // door face. The door is a solid panel (addDoorPanel, in shellOpen), not
-  // a walk-through gap — the player walks up and presses E at the anchor
-  // to spawn inside (runtime stepInside), and E again inside to step out.
-  // The old 4-wide gap + lintel split made every building an open arch.
-  // The ONE exception is the pass-through face: a building astride a
-  // road or bridge line (e.g. a tower on a bridge line) keeps a 4-wide
-  // walk-through gap there so a car can drive the bridge route. The
-  // visual wall already leaves that gap open (hole() on passThrough in
-  // the shellOpen sample); the collider must match it, or the car stops
-  // at an invisible wall.
+function addWallCols(cols: Collider[], x0: number, y0: number, z0: number, w: number, h: number, d: number, door: Face, passThrough?: Face, closedDoor = false) {
+  // Walk-through doors (2026-11-18): the door face gets the same 4-wide
+  // x 3-high gap + lintel as a pass-through face — the player walks in
+  // through the door instead of stopping at a solid wall. The closed-door
+  // design (2026-11-12) stranded players at every entrance: the sign says
+  // "Walk in" but the wall said no, and pushing against it made the camera
+  // flicker at the wall face. The visual wall already leaves that gap open
+  // (hole() on the door face in the shellOpen sample, and pretty hollow()
+  // cuts the same gap); the collider must match it, or the player stops at
+  // an invisible wall. E at the anchor still works (runtime stepInside
+  // teleports inside) as a shortcut. The ONE exception is closedDoor
+  // (ORBITX Tower — a deliberate solid facade): every wall stays solid
+  // there and the door stays a solid panel.
   const top = y0 + h;
   const gap = 4;
-  const gapOn = (face: Face) => face === passThrough;
+  const gapOn = (face: Face) => !closedDoor && (face === passThrough || face === door);
   const faces: Face[] = ["n", "s", "e", "w"];
   for (const face of faces) {
     const alongX = face === "n" || face === "s";
@@ -465,12 +466,13 @@ function addWallCols(cols: Collider[], x0: number, y0: number, z0: number, w: nu
   }
 }
 
-/** A closed real door filling the 4-wide x 3-high gap on the `door` face:
- * wood slab + white frame posts and lintel + gold handle on both sides,
- * so the closed door reads as a door from the street and from inside.
- * The slab is solid in the wall plane (the colliders above are a full
- * wall); entry is E at the anchor, never a walk-through. */
-function addDoorPanel(boxes: Box[], x0: number, y0: number, z0: number, w: number, d: number, door: Face) {
+/** An open doorway on the `door` face: frame posts + lintel only, so the
+ * 4-wide walk-through gap in the wall colliders reads as a door from the
+ * street and from inside (the pretty hollow() frame dresses the same gap).
+ * With closedDoor (ORBITX Tower only) the old solid panel stays: wood
+ * slab + kick plate + grooves + gold handles, and the colliders above are
+ * a full wall — entry is E at the anchor, never a walk-through. */
+function addDoorPanel(boxes: Box[], x0: number, y0: number, z0: number, w: number, d: number, door: Face, closedDoor = false) {
   if (!door) return;
   const cx = x0 + w / 2;
   const cz = z0 + d / 2;
@@ -481,6 +483,14 @@ function addDoorPanel(boxes: Box[], x0: number, y0: number, z0: number, w: numbe
   const sz = alongX ? 0.3 : 3.6;
   const px = alongX ? cx : xc;
   const pz = alongX ? zc : cz;
+  // Frame: posts at the gap edges + lintel above — shared by the open
+  // doorway and the closed door.
+  const postA = alongX ? { x: cx - 1.95, z: pz, sx: 0.35, sz: 0.34 } : { x: px, z: cz - 1.95, sx: 0.34, sz: 0.35 };
+  const postB = alongX ? { x: cx + 1.95, z: pz, sx: 0.35, sz: 0.34 } : { x: px, z: cz + 1.95, sx: 0.34, sz: 0.35 };
+  put(boxes, postA.x, y0 + 1.55, postA.z, postA.sx, 3.1, postA.sz, "white");
+  put(boxes, postB.x, y0 + 1.55, postB.z, postB.sx, 3.1, postB.sz, "white");
+  put(boxes, px, y0 + 3.12, pz, alongX ? 4.3 : 0.34, 0.26, alongX ? 0.34 : 4.3, "white");
+  if (!closedDoor) return; // Open doorway: frame only, no slab.
   // Slab + kick plate + two panel grooves (thin, proud of the slab).
   put(boxes, px, y0 + 1.45, pz, sx, 2.9, sz, "wood");
   put(boxes, px, y0 + 0.14, pz, sx, 0.26, sz, "black");
@@ -495,12 +505,6 @@ function addDoorPanel(boxes: Box[], x0: number, y0: number, z0: number, w: numbe
       put(boxes, grooveIn, y0 + 1.5, cz + off, 0.06, 1.9, 0.09, "black");
     }
   }
-  // Frame: posts at the gap edges + lintel above the slab.
-  const postA = alongX ? { x: cx - 1.95, z: pz, sx: 0.35, sz: 0.34 } : { x: px, z: cz - 1.95, sx: 0.34, sz: 0.35 };
-  const postB = alongX ? { x: cx + 1.95, z: pz, sx: 0.35, sz: 0.34 } : { x: px, z: cz + 1.95, sx: 0.34, sz: 0.35 };
-  put(boxes, postA.x, y0 + 1.55, postA.z, postA.sx, 3.1, postA.sz, "white");
-  put(boxes, postB.x, y0 + 1.55, postB.z, postB.sx, 3.1, postB.sz, "white");
-  put(boxes, px, y0 + 3.12, pz, alongX ? 4.3 : 0.34, 0.26, alongX ? 0.34 : 4.3, "white");
   // Gold handle on both sides, toward one edge of the slab.
   const hx = alongX ? cx + 1.25 : px;
   const hz = alongX ? pz : cz + 1.25;
@@ -527,6 +531,7 @@ function shellOpen(
   roof: Mat,
   door: Face,
   passThrough?: Face,
+  closedDoor = false,
 ) {
   visualHide = true;
   emitX(boxes, x0, y0, z0, w, h, (u, ly) => sample(u, ly, "n", w));
@@ -537,9 +542,10 @@ function shellOpen(
   }
   put(boxes, x0 + w / 2, y0 + h + 0.5, z0 + d / 2, w, 1, d, roof);
   visualHide = false;
-  // The closed door panel fills the visual gap hole() left in the wall.
-  addDoorPanel(boxes, x0, y0, z0, w, d, door);
-  addWallCols(cols, x0, y0, z0, w, h, d, door, passThrough);
+  // The door panel fills the visual gap hole() left in the wall — an open
+  // frame for walk-through doors, a solid slab when closedDoor.
+  addDoorPanel(boxes, x0, y0, z0, w, d, door, closedDoor);
+  addWallCols(cols, x0, y0, z0, w, h, d, door, passThrough, closedDoor);
   cols.push({
     minX: x0,
     maxX: x0 + w,
@@ -765,7 +771,10 @@ function addTower(boxes: Box[], cols: Collider[]): { top: number; zone: Zone; an
   // Ground floor: a real furnished lobby behind a closed door (2026-11-12
   // interiors audit — the Tower was the one solid/empty building left).
   // The door is on the porch face ("s", z = SOUTH). Upper tiers stay
-  // sealed shells, as before.
+  // sealed shells, as before. The Tower keeps its closed door even after
+  // the 2026-11-18 walk-through change — it stays a deliberate solid
+  // facade (tower interiors are a separate feature); E at the anchor
+  // still spawns inside the lobby.
   y = t0.h;
   shellOpen(
     boxes,
@@ -779,6 +788,8 @@ function addTower(boxes: Box[], cols: Collider[]): { top: number; zone: Zone; an
     (u, ly, f, len) => (hole(f, "s", u, ly, len) ? "air" : towerSample(len)(u, ly)),
     "black",
     "s",
+    undefined,
+    true,
   );
   // Lobby finish: floor, ceiling + beams, clad + striped wallpaper,
   // plants flanking the door, gold rug, reception desk, sofas, paintings.
@@ -1289,9 +1300,10 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
           );
           const def = blockKindFor(fbx, fbz, style);
           zones.push(furnishBlock(boxes, cols, fbx, fbz, fbw, fbd, face, def, `block-${x0}-${z0}`));
-          // Closed door (2026-11-12): a block interior is only reachable
-          // through its door anchor now — E at the door spawns inside, E
-          // inside by the door steps back out. Anchor id = zone id.
+          // Walk-through door (2026-11-18): the block interior is entered
+          // by walking through the door gap; E at the door still spawns
+          // inside as a shortcut, E inside by the door steps back out.
+          // Anchor id = zone id.
           const blockAnchor = doorAnchor(`block-${x0}-${z0}`, def.name, def.kind, fbx, fbz, fbw, fbd, face);
           anchors.push(blockAnchor);
           // Yard path / hedges / tree / lamp, centred on the door (phase 2).

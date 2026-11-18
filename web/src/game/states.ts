@@ -273,7 +273,7 @@ export function pushCol(
  */
 export function pushWallColliders(
   city: City,
-  x0: number, z0: number, w: number, d: number, h: number, _door: Face,
+  x0: number, z0: number, w: number, d: number, h: number, door: Face,
 ): void {
   const t = 0.6;
   const midY = h / 2;
@@ -281,12 +281,42 @@ export function pushWallColliders(
     cx: number, cz: number, sx: number, sz: number,
     cy: number = midY, sy: number = h,
   ) => pushCol(city, cx, cy, cz, sx, sy, sz);
+  // Walk-through door (2026-11-18): the door face gets a centered 4-wide
+  // gap + a lintel above it (y 3..h) instead of a solid wall — the player
+  // walks in through the door. The other three walls stay solid.
+  const gap = 4;
+  const cx = x0 + w / 2;
+  const cz = z0 + d / 2;
   // North wall (z = z0) and south wall (z = z0 + d).
-  run(x0 + w / 2, z0 + t / 2, w, t);
-  run(x0 + w / 2, z0 + d - t / 2, w, t);
+  if (door === "n") {
+    run(x0 + (cx - gap / 2 - x0) / 2, z0 + t / 2, cx - gap / 2 - x0, t);
+    run(cx + gap / 2 + (x0 + w - (cx + gap / 2)) / 2, z0 + t / 2, x0 + w - (cx + gap / 2), t);
+    run(cx, z0 + t / 2, gap, t, 3 + (h - 3) / 2, h - 3);
+  } else {
+    run(x0 + w / 2, z0 + t / 2, w, t);
+  }
+  if (door === "s") {
+    run(x0 + (cx - gap / 2 - x0) / 2, z0 + d - t / 2, cx - gap / 2 - x0, t);
+    run(cx + gap / 2 + (x0 + w - (cx + gap / 2)) / 2, z0 + d - t / 2, x0 + w - (cx + gap / 2), t);
+    run(cx, z0 + d - t / 2, gap, t, 3 + (h - 3) / 2, h - 3);
+  } else {
+    run(x0 + w / 2, z0 + d - t / 2, w, t);
+  }
   // West wall (x = x0) and east wall (x = x0 + w).
-  run(x0 + t / 2, z0 + d / 2, t, d);
-  run(x0 + w - t / 2, z0 + d / 2, t, d);
+  if (door === "w") {
+    run(x0 + t / 2, z0 + (cz - gap / 2 - z0) / 2, t, cz - gap / 2 - z0);
+    run(x0 + t / 2, cz + gap / 2 + (z0 + d - (cz + gap / 2)) / 2, t, z0 + d - (cz + gap / 2));
+    run(x0 + t / 2, cz, t, gap, 3 + (h - 3) / 2, h - 3);
+  } else {
+    run(x0 + t / 2, z0 + d / 2, t, d);
+  }
+  if (door === "e") {
+    run(x0 + w - t / 2, z0 + (cz - gap / 2 - z0) / 2, t, cz - gap / 2 - z0);
+    run(x0 + w - t / 2, cz + gap / 2 + (z0 + d - (cz + gap / 2)) / 2, t, z0 + d - (cz + gap / 2));
+    run(x0 + w - t / 2, cz, t, gap, 3 + (h - 3) / 2, h - 3);
+  } else {
+    run(x0 + w - t / 2, z0 + d / 2, t, d);
+  }
 }
 
 /** Door face pointing from a plot toward the region centre (street-facing). */
@@ -403,8 +433,8 @@ export function buildRegionCore(city: City, state: StateDef): void {
   pushWallColliders(city, cx - tw / 2, cz - tw / 2, tw, tw, 8, "s");
   if (t.towerH > 8) pushCol(city, cx, (8 + t.towerH) / 2, cz, tw, t.towerH - 8, tw);
   city.zones.push(furnishStateLandmark(city, state));
-  // Closed door (2026-11-12): the landmark lobby is only reachable
-  // through its door anchor now — E at the door spawns inside.
+  // Walk-through door (2026-11-18): the landmark lobby is entered by
+  // walking through the door gap; E at the door still spawns inside.
   city.anchors.push(doorAnchorFor(`${state.id}-landmark`, `${state.name} Landmark`, "hall", cx - tw / 2, cz - tw / 2, tw, tw, "s", 0));
   // Gold beacon on top.
   pushBox(city, cx, t.towerH + 1, cz, 3, 2, 3, "gold");
@@ -956,9 +986,9 @@ export function buildDistrictBlocks(city: City, state: StateDef, rng: Rng): void
       if (h > GH) pushCol(city, cx + bx, (GH + h) / 2, cz + bz, fw, h - GH, fd);
       const def = STATE_BLOCK_KINDS[n % STATE_BLOCK_KINDS.length] as StateBlockKindDef;
       city.zones.push(furnishStateBlock(city, bx0, bz0, fw, fd, "s", def, district, facade.id));
-      // Closed door (2026-11-12): a state block interior is only reachable
-      // through its door anchor now — E at the door spawns inside, E
-      // inside by the door steps back out. Anchor id = zone id.
+      // Walk-through door (2026-11-18): a state block interior is entered
+      // by walking through the door gap; E at the door still spawns
+      // inside, E inside by the door steps back out. Anchor id = zone id.
       city.anchors.push(doorAnchorFor(facade.id, def.label, def.kind, bx0, bz0, fw, fd, "s", 0));
       // A gold band under the roofline for NY; a street awning for FL.
       if (t.cornice) pushBox(city, cx + bx, h - 0.4, cz + bz, fw + 0.2, 0.5, fd + 0.2, "gold");
@@ -1325,8 +1355,8 @@ export function buildOfficeTower(city: City, state: StateDef): void {
   // furnishStateTower — NOT a solid block (audit 2026-11-11: the solid
   // collider made the lift's Floors 2-4 and the 12 catalogued suites
   // unreachable, and embedded the lobby's front desk).
-  // Closed doors (2026-11-12): the upper mass has NO street door — the
-  // lobby door below is the only entrance, reached by the lift inside.
+  // The upper mass has NO street door — the lobby door below is the only
+  // entrance, reached by the lift inside.
   // Its old door:"s" drew a ground-floor gap into the lobby's back wall.
   const upW = 30;
   const upD = 20;

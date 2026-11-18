@@ -518,10 +518,15 @@ function shellWalls(
   h: number,
   _wallMat: Mat,
   door: Face,
-  doorW = 3,
+  // Walk-through door (2026-11-18): the person door is 4 wide, the same
+  // as the pretty facade's visual opening — the old 3-wide gap left an
+  // invisible half-wall on each side of the doorway. The closed-door
+  // collider that plugged the gap is gone; only the lintel above the
+  // open gap (y 3..h) stays.
+  doorW = 4,
   passThrough?: Face,
-  // The through-door is a car lane (4 wide), not a person door (3) —
-  // the facade overlay already cuts a 4-wide gap on both faces, so the
+  // The through-door is a car lane (4 wide), not a person door — the
+  // facade overlay already cuts a 4-wide gap on both faces, so the
   // physics must match the visual opening or the car hits an invisible
   // half-wall on each side of the doorway.
   passW = 4,
@@ -558,13 +563,13 @@ function shellWalls(
       col(parts, x, h / 2, cz, t, h, d);
     }
   }
-  // Closed door collider + lintel collider on the door face.
+  // Lintel collider above the open door gap (y 3..h) — the gap itself
+  // stays open so the player walks through. No closed-door collider.
   const alongX = door === "n" || door === "s";
   const dz = door === "n" ? z0 : door === "s" ? z0 + d : cz;
   const dx = door === "w" ? x0 : door === "e" ? x0 + w : cx;
   const px = alongX ? cx : dx;
   const pz = alongX ? dz : cz;
-  col(parts, px, 1.45, pz, alongX ? doorW - 0.1 : 0.35, 2.9, alongX ? 0.35 : doorW - 0.1);
   col(parts, px, 3 + (h - 3) / 2, pz, alongX ? doorW : t, h - 3, alongX ? t : doorW);
 }
 
@@ -989,7 +994,7 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
 
   // Shell + roof collider (pretty.ts renders the facade, cornice, roof, and crown).
   floorSlab(parts, x0, z0, TOWER_W, TOWER_D, 0.08, style.floor);
-  shellWalls(parts, x0, z0, TOWER_W, TOWER_D, TOWER_H, style.wall, door, 3, passThrough);
+  shellWalls(parts, x0, z0, TOWER_W, TOWER_D, TOWER_H, style.wall, door, 4, passThrough);
   col(parts, cx, TOWER_H + 0.2, cz, TOWER_W + 0.8, 0.4, TOWER_D + 0.8);
   // Glass lift shaft, NW corner, full height.
   box(parts, x0 + 5, TOWER_H / 2, z0 + 3, 0.3, TOWER_H, 4, "cyan");

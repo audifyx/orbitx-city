@@ -776,12 +776,10 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
       ? (door === "n" ? z : z + d) + outSign * 0.08
       : (door === "w" ? x : x + w) + outSign * 0.08;
 
-    const slab = new Mesh(box, DOOR_SLAB_MAT);
-    slab.position.set(px, 1.45, pz);
-    slab.scale.set(alongX ? 3.4 : 0.5, 2.9, alongX ? 0.5 : 3.4);
-    slab.castShadow = true;
-    slab.receiveShadow = true;
-    group.add(slab);
+    // Open doorway (2026-11-18): NO solid slab — the 4-wide door gap is
+    // a real walk-through, and the slab used to plug it visually while
+    // the wall colliders plugged it physically. The frame below (jambs,
+    // lintel, threshold, transom, lanterns) dresses the open gap.
 
     // Door frame jambs, lintel, threshold + transom frame merged in WHITE_MAT
     const hasTransom = h >= 4.2 && !(facade.storefront && facade.face === door);
@@ -814,10 +812,9 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
     }
     addMergedBoxes(group, frameBoxes, WHITE_MAT, true);
 
-    // Gold handles, brass kickplate & twin warm entrance sconces
+    // Brass threshold strip across the open doorway (visual only — the
+    // player walks over it). No gold handles: they hung on the old slab.
     const goldBoxes: BoxTuple[] = [
-      [alongX ? cx + 1.2 : px - 0.26, 1.15, alongX ? pz - 0.26 : cz + 1.2, 0.16, 0.16, 0.16],
-      [alongX ? cx + 1.2 : px + 0.26, 1.15, alongX ? pz + 0.26 : cz + 1.2, 0.16, 0.16, 0.16],
       [alongX ? cx : outPlane, 0.18, alongX ? outPlane : cz, alongX ? 3.2 : 0.08, 0.22, alongX ? 0.08 : 3.2],
     ];
     addMergedBoxes(group, goldBoxes, GOLD_MAT, false);
