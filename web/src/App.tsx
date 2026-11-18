@@ -433,6 +433,7 @@ const EMPTY: Snap = {
   trail: "none",
   vehicles: [],
   activeVehicle: null,
+  worldCars: [],
   activeCarOut: false,
   rental: null,
   garage: { slots: 0, workshop: false, showroom: false },
