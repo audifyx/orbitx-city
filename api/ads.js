@@ -108,7 +108,55 @@ export async function solUsdPrice() {
   throw new Error("The SOL price could not be read. Try again in a moment.");
 }
 
-export const AD_BOARDS = ["plaza-east", "plaza-west", "hall-front", "district-row"];
+export const AD_BOARDS = [
+  "plaza-east", "plaza-west", "hall-front", "district-row",
+  "plaza-south-east", "plaza-south-west", "station-row", "market-road",
+  "arcade-row", "garage-row", "bank-row", "harbor-row",
+  "north-east", "north-west", "district-north", "district-far-south",
+  "ny-plaza-east", "ny-plaza-west", "ny-tower",
+  "la-plaza-east", "la-plaza-west", "la-tower",
+  "fl-plaza-east", "fl-plaza-west", "fl-tower",
+];
+
+// ORBITX billboards (2026-11-18, user-set): a flat $1 for 7 days, paid
+// in ORBITX straight from the buyer's in-app ORBITX balance — no SOL, no
+// swap, no plaza premium. 100% of the ORBITX paid is burned on-chain,
+// same as the merch drop. The buyer needs an account; the burn amount is
+// $1 converted at the live ORBITX price (DexScreener), computed at quote
+// and re-checked at buy time.
+export const BILLBOARD_ORBITX_USD = envNum("BILLBOARD_ORBITX_USD", 1);
+export const BILLBOARD_ORBITX_DAYS = 7;
+export const BILLBOARD_IMAGE_BUCKET = "billboard-ads";
+export const BILLBOARD_IMAGE_MAX_MB = 5;
+const BILLBOARD_IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
+// An ORBITX-billboard image must be a Supabase Storage object in the
+// billboard-ads bucket (signed-upload flow) or a path inside this game.
+// Anything else is rejected — no hotlinked URLs on the boards.
+export function billboardImageOk(image) {
+  const url = String(image || "");
+  if (!url) return true; // text-only ad
+  const path = url.split("?")[0].split("#")[0];
+  if (path.startsWith("/")) return true;
+  try {
+    const parsed = new URL(url);
+    return parsed.pathname.includes(`/${BILLBOARD_IMAGE_BUCKET}/`);
+  } catch {
+    return false;
+  }
+}
+export function billboardImageExtOk(image) {
+  const path = String(image || "").split("?")[0].split("#")[0].toLowerCase();
+  return BILLBOARD_IMAGE_EXTS.some((ext) => path.endsWith(ext));
+}
+// Base units of ORBITX for `usd` dollars at `priceUsd` per ORBITX
+// (pure math — unit-tested, no network). priceUsd "" means the live price
+// could not be read; the caller fails cleanly instead of guessing.
+export function orbitxBaseAmount(usd, priceUsd, decimals) {
+  const price = Number(priceUsd);
+  if (!Number.isFinite(price) || price <= 0) return 0n;
+  const whole = Math.floor((Number(usd) / price) * 10 ** Number(decimals));
+  return BigInt(whole);
+}
 
 // Moderation: a denylist, checked at quote and buy time, plus an
 // owner/admin removal path. No approval queue by default — that, and the
@@ -325,6 +373,8 @@ export function publicOrder(order) {
     project: order.project,
     text: order.text,
     status: order.status,
+    kind: order.meta?.kind || "sol",
+    image: order.meta?.image || "",
     solLamports: order.solLamports,
     priceSol: Number(order.solLamports || 0) / LAMPORTS_PER_SOL,
     orbitxAmount: order.orbitxAmount || "",
@@ -348,6 +398,10 @@ async function boardAvailability(ctx, board, playerId) {
 }
 
 async function dexUsd() {
+  // ORBITX_USD pins a fixed price (tests, operators, rig). Otherwise the
+  // live DexScreener price, like the old flow.
+  const pinned = Number(process.env.ORBITX_USD);
+  if (Number.isFinite(pinned) && pinned > 0) return String(pinned);
   const mint = orbitxMint();
   if (!mint) return "";
   try {
@@ -574,6 +628,7 @@ export async function advanceAdOrder(ctx, order, player) {
       id: order.board,
       project: order.project,
       text: order.text,
+      image: order.meta?.image || "",
       start: todayStr(),
       end: endStr(order.days),
       burned: burnedUi,
@@ -974,6 +1029,181 @@ export async function adOrdersFor(ctx, player) {
   }
   mine.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   return { ok: true, orders: mine.slice(0, 10).map(publicOrder) };
+}
+
+// ===========================================================================
+// ORBITX billboards — $1 for 7 days, paid in ORBITX, 100% burned
+// ===========================================================================
+// The second ad product (2026-11-18, user-set): flat $1 for 7 days on
+// ANY of the 25 boards, paid in ORBITX straight from the buyer's in-app
+// wallet — no SOL, no swap, no plaza premium. The flow is the same state
+// machine shape as the SOL ads (processing -> burning -> live), but the
+// burn is a direct Token-2022 burn of already-held ORBITX via sendBurn
+// (the same helper the legacy burn-retry uses). The quote re-checks the
+// price at buy time; if the ORBITX price moved, the buy recomputes and
+// the order records the amount actually burned.
+//
+// An ORBITX order is an ad order with meta.kind = "orbitx-week" and
+// meta.image = the ad image URL ("" for text-only). The placement lands
+// in the same `bookings` table as the SOL ads (advanceAdOrder's
+// "burning" branch writes it, image included), so boardAvailability —
+// the single source of truth — refuses a second buy on a taken board no
+// matter which product holds it, and expiry is the same: readBookings
+// only returns rows with end >= today, so an expired placement reverts
+// to the house face with no cleanup.
+
+async function orbitxWalletBalance(ctx, player) {
+  const row = await walletRow(player.authUser);
+  if (!row) return { address: "", balance: 0n };
+  const dec = await decimals();
+  const accounts = await getTokenAccounts(row.address, orbitxMint());
+  let balance = 0n;
+  for (const account of accounts || []) {
+    const amount = BigInt(account?.amount || "0");
+    if (amount > balance) balance = amount;
+  }
+  return { address: row.address, balance, decimals: dec };
+}
+
+export async function billboardOrbitxQuote(ctx, player, body) {
+  if (!player.authUser) return fail("Create an account to book a billboard. Guests keep City Sol only.");
+  const board = String(body.board || body.id || "").slice(0, 40);
+  if (!AD_BOARDS.includes(board)) return fail("Pick one of the 25 billboards.");
+  const project = String(body.project || player.name || "").slice(0, 40);
+  const text = String(body.text || "").slice(0, 60);
+  const image = String(body.image || "").slice(0, 500);
+  const hit = denied(project, text);
+  if (hit) return fail(`That text is not allowed on a billboard ("${hit}").`);
+  if (!billboardImageOk(image)) return fail("That image must come from the billboard upload — upload it in the Ads panel first.");
+  if (image && !billboardImageExtOk(image)) return fail("That image must be a .jpg, .png, .webp, or .gif.");
+  const taken = await boardAvailability(ctx, board, player.id);
+  if (taken) return fail(`${taken.takenBy} has ${board} until ${taken.end}. Pick another board.`);
+  const priceUsd = await dexUsd();
+  if (!priceUsd) return fail("The ORBITX price could not be read. Try again in a moment.", 502);
+  const dec = await decimals();
+  const amount = orbitxBaseAmount(BILLBOARD_ORBITX_USD, priceUsd, dec);
+  if (amount <= 0n) return fail("The ORBITX price could not be read. Try again in a moment.", 502);
+  const { balance } = await orbitxWalletBalance(ctx, player);
+  const ui = Number(amount) / 10 ** dec;
+  return {
+    ok: true,
+    board,
+    days: BILLBOARD_ORBITX_DAYS,
+    priceUsd: BILLBOARD_ORBITX_USD,
+    priceUsdPerOrbitx: priceUsd,
+    orbitxAmount: amount.toString(),
+    orbitxUi: ui,
+    balanceUi: Number(balance) / 10 ** dec,
+    enough: balance >= amount,
+    endsAt: endStr(BILLBOARD_ORBITX_DAYS),
+  };
+}
+
+export async function billboardOrbitxBuy(ctx, player, body) {
+  if (!player.authUser) return fail("Create an account to book a billboard. Guests keep City Sol only.");
+  const board = String(body.board || body.id || "").slice(0, 40);
+  if (!AD_BOARDS.includes(board)) return fail("Pick one of the 25 billboards.");
+  const project = String(body.project || player.name || "").slice(0, 40);
+  const text = String(body.text || "").slice(0, 60);
+  const image = String(body.image || "").slice(0, 500);
+  const hit = denied(project, text);
+  if (hit) return fail(`That text is not allowed on a billboard ("${hit}").`);
+  if (!billboardImageOk(image)) return fail("That image must come from the billboard upload — upload it in the Ads panel first.");
+  if (image && !billboardImageExtOk(image)) return fail("That image must be a .jpg, .png, .webp, or .gif.");
+  const taken = await boardAvailability(ctx, board, player.id);
+  if (taken) return fail(`${taken.takenBy} has ${board} until ${taken.end}. Pick another board.`);
+  if (hitLimit(`billboard-orbitx:${player.authUser}`, AD_BUYS_PER_HOUR, 60 * 60 * 1000)) {
+    return fail("Too many billboard buys this hour. Wait and try again.", 429);
+  }
+  const idem = String(body.idempotencyKey || "").slice(0, 80);
+  if (!idem) return fail("Missing a confirm id. Open the billboard sheet again.");
+  const existing = await loadOrderByKey(ctx, idem);
+  if (existing) {
+    if (existing.status === "burning") {
+      await advanceAdOrder(ctx, existing, player);
+      return { ok: true, order: publicOrder(existing), message: "Burn sent. The city is watching it confirm." };
+    }
+    if (existing.status === "live") {
+      return { ok: true, order: publicOrder(existing), message: "Your billboard is live." };
+    }
+    if (existing.status !== "processing" || existing.burnSignature) {
+      // Finished, failed, or already has a burn signature: a re-burn
+      // would double-charge. Start over with a fresh confirm id.
+      return fail("That booking already finished or failed. Open the billboard sheet again for a fresh buy.");
+    }
+    // "processing" with no burn signature yet: the first attempt never
+    // sent, so re-run it on the same order and key below.
+  }
+  // Price at buy time, from the live ORBITX price.
+  const priceUsd = await dexUsd();
+  if (!priceUsd) return fail("The ORBITX price could not be read. Nothing was bought.", 502);
+  const dec = await decimals();
+  const amount = orbitxBaseAmount(BILLBOARD_ORBITX_USD, priceUsd, dec);
+  if (amount <= 0n) return fail("The ORBITX price could not be read. Nothing was bought.", 502);
+  const row = await walletRow(player.authUser);
+  if (!row) return fail("No in-app wallet yet. Create your wallet first, then book.");
+  const { balance } = await orbitxWalletBalance(ctx, player);
+  if (balance < amount) {
+    return fail(`You need ${(Number(amount) / 10 ** dec).toFixed(2)} ORBITX in your in-app wallet — you have ${(Number(balance) / 10 ** dec).toFixed(2)}. Top up first.`, 402);
+  }
+  const now = new Date().toISOString();
+  let order = existing;
+  if (!order) {
+    order = {
+      id: `ad_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+      userId: player.authUser,
+      playerId: player.id,
+      board,
+      days: BILLBOARD_ORBITX_DAYS,
+      project,
+      text,
+      status: "processing",
+      solLamports: 0,
+      orbitxAmount: amount.toString(),
+      swapSignature: "",
+      burnSignature: "",
+      idempotencyKey: idem,
+      error: "",
+      createdAt: now,
+      expiresAt: endStr(BILLBOARD_ORBITX_DAYS),
+      meta: { kind: "orbitx-week", image, owner: row.address },
+    };
+  } else {
+    order.board = board;
+    order.project = project;
+    order.text = text;
+    order.orbitxAmount = amount.toString();
+    order.meta = { ...(order.meta || {}), kind: "orbitx-week", image, owner: row.address };
+    order.status = "processing";
+    order.error = "";
+  }
+  await persistOrder(ctx, order);
+  try {
+    const burnSig = await sendBurn(ctx, order);
+    order.burnSignature = burnSig;
+    order.status = "burning";
+    order.error = "";
+  } catch (err) {
+    order.status = "burn-pending";
+    order.error = `The burn did not send (${err.message || "burn"}). Your ORBITX is still in your wallet — try again.`;
+    await persistOrder(ctx, order);
+    return { ok: false, status: 502, order: publicOrder(order), message: order.error };
+  }
+  await persistOrder(ctx, order);
+  return { ok: true, order: publicOrder(order), message: "Burn sent. The city is watching it confirm." };
+}
+
+export async function billboardOrbitxStatus(ctx, player, body) {
+  const order = await loadOrder(ctx, String(body.orderId || ""));
+  if (!order) return fail("That booking was not found.", 404);
+  if (order.userId !== player.authUser) return fail("That booking is not yours.", 403);
+  if (order.status === "burning") await advanceAdOrder(ctx, order, player);
+  return { ok: true, order: publicOrder(order) };
+}
+
+export async function billboardOrbitxOrders(ctx, player) {
+  const { orders } = await adOrdersFor(ctx, player);
+  return { ok: true, orders: (orders || []).filter((o) => o.kind === "orbitx-week") };
 }
 
 // ===========================================================================

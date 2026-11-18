@@ -3,7 +3,7 @@ import { neon } from "@neondatabase/serverless";
 import { createClient } from "@supabase/supabase-js";
 import { Redis } from "@upstash/redis";
 import { ensureDaily, handleLive, noteEarn } from "./live.js";
-import { adBuy, adCompose, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus, adSubmit, officeSolBuy, officeSolCompose, officeSolLeasesFor, officeSolQuote, officeSolStatus, officeSolSubmit } from "./ads.js";
+import { adBuy, adCompose, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus, adSubmit, billboardOrbitxBuy, billboardOrbitxOrders, billboardOrbitxQuote, billboardOrbitxStatus, officeSolBuy, officeSolCompose, officeSolLeasesFor, officeSolQuote, officeSolStatus, officeSolSubmit } from "./ads.js";
 import { authMode, checkReauth, handleAuthOp, looksLikeAccountToken, supabasePublic, verifyAccessToken } from "./auth.js";
 import { audit, chainShopEnabled, confirmSend, ensureWallet, exportWallet, latestBlockhash, networkName, publicBalance, quoteSend, submitSignedTx, walletView } from "./wallet.js";
 import { AccessToken } from "livekit-server-sdk";
@@ -1561,10 +1561,13 @@ async function ensureSchema() {
     id TEXT PRIMARY KEY,
     project TEXT NOT NULL,
     text TEXT NOT NULL,
+    image TEXT NOT NULL DEFAULT '',
     start TEXT NOT NULL,
     until TEXT NOT NULL,
     burned INTEGER NOT NULL
   )`;
+  // ORBITX billboards (2026-11-18): the ad image URL ("" = text-only).
+  await sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS image TEXT NOT NULL DEFAULT ''`;
   // Tower office leases, paid in City Sol only. One row per suite (the
   // suite id is the key), so a suite can hold exactly one active claim.
   // No SOL, no ORBITX, no burn anywhere in this table — buy+burn is
@@ -2671,9 +2674,9 @@ async function saveBooking(info) {
   const sql = db();
   if (sql) {
     await ensureSchema();
-    await sql`INSERT INTO bookings (id, project, text, start, until, burned)
-      VALUES (${info.id}, ${info.project}, ${info.text}, ${info.start}, ${info.end}, ${info.burned})
-      ON CONFLICT (id) DO UPDATE SET project = EXCLUDED.project, text = EXCLUDED.text, start = EXCLUDED.start, until = EXCLUDED.until, burned = EXCLUDED.burned`;
+    await sql`INSERT INTO bookings (id, project, text, image, start, until, burned)
+      VALUES (${info.id}, ${info.project}, ${info.text}, ${info.image || ""}, ${info.start}, ${info.end}, ${info.burned})
+      ON CONFLICT (id) DO UPDATE SET project = EXCLUDED.project, text = EXCLUDED.text, image = EXCLUDED.image, start = EXCLUDED.start, until = EXCLUDED.until, burned = EXCLUDED.burned`;
     return;
   }
   const cache = redis();
@@ -2692,14 +2695,14 @@ function liveBookings(rows) {
 async function readBookings() {
   const client = sb();
   if (client) {
-    const { data, error } = await client.from("bookings").select("id, project, text, start, end, burned, owner_id").gte("end", new Date().toISOString().slice(0, 10));
+    const { data, error } = await client.from("bookings").select("id, project, text, image, start, end, burned, owner_id").gte("end", new Date().toISOString().slice(0, 10));
     if (!error && data) return data;
     if (error) noteSupabase(error.message);
   }
   const sql = db();
   if (sql) {
     await ensureSchema();
-    const rows = await sql`SELECT id, project, text, start, until AS end, burned, owner_id FROM bookings WHERE until >= ${new Date().toISOString().slice(0, 10)}`;
+    const rows = await sql`SELECT id, project, text, image, start, until AS end, burned, owner_id FROM bookings WHERE until >= ${new Date().toISOString().slice(0, 10)}`;
     return rows;
   }
   const cache = redis();
@@ -5835,6 +5838,46 @@ async function radioUploadUrl(player, body) {
   return { ok: true, signedUrl: data.signedUrl, path, maxBytes: RADIO_MAX_BYTES };
 }
 
+// ORBITX billboard ad image upload (2026-11-18): same signed-upload
+// pattern as the radio — the server issues a signed URL for the
+// billboard-ads bucket, the browser uploads the file directly, and the
+// buy sends the public URL back. Images are at most 5 MB, jpg/png/webp/
+// gif only. Unlike the radio there is no register step: the buy validates
+// the URL (bucket + extension) and the board renders it straight from
+// Storage, so a failed upload simply never produces a valid buy.
+const BILLBOARD_IMAGE_BUCKET = "billboard-ads";
+const BILLBOARD_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const BILLBOARD_IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
+function billboardImageExt(name) {
+  const lower = String(name || "").toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  return dot >= 0 ? lower.slice(dot) : "";
+}
+
+async function billboardImageUrl(player, body) {
+  const client = sb();
+  if (!client) return { ok: false, message: "The city server is offline.", status: 503 };
+  if (!player.authUser) return { ok: false, message: "Create an account to upload a billboard image. Guests keep City Sol only.", status: 400 };
+  const name = String(body.name || body.filename || "").trim().slice(0, 80);
+  const size = Number(body.size || 0);
+  const ext = billboardImageExt(body.name || body.filename || "");
+  if (!name) return { ok: false, message: "Name the image.", status: 400 };
+  if (!BILLBOARD_IMAGE_EXTS.has(ext)) {
+    return { ok: false, message: "That is not a supported image (jpg, png, webp, gif).", status: 400 };
+  }
+  if (!Number.isFinite(size) || size <= 0 || size > BILLBOARD_IMAGE_MAX_BYTES) {
+    return { ok: false, message: "Images are at most 5 MB.", status: 400 };
+  }
+  const path = `ads/${player.id}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+  const { data, error } = await client.storage.from(BILLBOARD_IMAGE_BUCKET).createSignedUploadUrl(path);
+  if (error || !data?.signedUrl) {
+    noteSupabase(error?.message || "signed upload failed");
+    return { ok: false, message: "Could not start the upload. Try again.", status: 500 };
+  }
+  const publicUrl = client.storage.from(BILLBOARD_IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+  return { ok: true, signedUrl: data.signedUrl, path, publicUrl, maxBytes: BILLBOARD_IMAGE_MAX_BYTES };
+}
+
 async function radioRegister(player, body) {
   const client = sb();
   if (!client) return { ok: false, message: "The city server is offline.", status: 503 };
@@ -6301,6 +6344,13 @@ export async function POST(request) {
   }
   if (op === "book") return adReply(await adBuy(adCtx, player, body));
 
+  // ORBITX billboards (2026-11-18): flat $1 for 7 days, paid in ORBITX
+  // from the in-app wallet, 100% burned on-chain. No SOL, no swap.
+  if (op === "billboard-orbitx-quote") return adReply(await billboardOrbitxQuote(adCtx, player, body));
+  if (op === "billboard-orbitx-buy") return adReply(await billboardOrbitxBuy(adCtx, player, body));
+  if (op === "billboard-orbitx-status") return adReply(await billboardOrbitxStatus(adCtx, player, body));
+  if (op === "billboard-orbitx-orders") return adReply(await billboardOrbitxOrders(adCtx, player));
+
   // Office leases in real SOL (office-sol-*): rent a suite in SOL, the
   // payment buys ORBITX and burns it all — same single-transaction
   // buy+burn as billboards. The lease lands in the shared office_claims
@@ -6334,6 +6384,7 @@ export async function POST(request) {
   if (op === "radio-list") return radioReply(await radioList());
   if (op === "radio-upload-url") return radioReply(await radioUploadUrl(player, body));
   if (op === "radio-register") return radioReply(await radioRegister(player, body));
+  if (op === "billboard-image-url") return radioReply(await billboardImageUrl(player, body));
   if (op === "office-claim") {
     const server = body.server == null || body.server === "" ? 1 : parseServerId(body.server);
     if (!server) return json({ ok: false, message: "Pick a server (1-5)." }, 400);
