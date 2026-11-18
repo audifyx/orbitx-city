@@ -129,7 +129,7 @@ async function main() {
   // --- ATV: buy, enter, drive with draws sampling ---
   await openCarsTab(page);
   console.log("atv buy:", await buyCarByPrice(page, 1500));
-  const balAtv = await waitFor(page, async () => { const b = await readBalance(page); return b !== null && b !== 60000 ? b : null; }, "bal atv", 90000);
+  const balAtv = await waitFor(page, async () => { const b = await readBalance(page); return b !== null && b !== 60000 ? b : null; }, "bal atv", 180000);
   results.atvBalanceAfter = balAtv;
   await closePanel(page);
   await pressUse(page);
@@ -157,7 +157,7 @@ async function main() {
   // --- Board: buy, then diagnose the enter failure ---
   await openCarsTab(page);
   console.log("board buy:", await buyCarByPrice(page, 150));
-  const balBoard = await waitFor(page, async () => { const b = await readBalance(page); return b !== null && b !== balAtv ? b : null; }, "bal board", 90000);
+  const balBoard = await waitFor(page, async () => { const b = await readBalance(page); return b !== null && b !== balAtv ? b : null; }, "bal board", 180000);
   results.boardBalanceAfter = balBoard;
   await closePanel(page);
   results.boardSnap = await readSnap(page);
