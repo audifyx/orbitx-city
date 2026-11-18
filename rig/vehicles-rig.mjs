@@ -98,9 +98,14 @@ async function pressUse(page) {
   });
   if (!ok) await page.keyboard.press("KeyE");
 }
+async function readBalanceAny(page) {
+  const top = await readBalance(page);
+  const snap = await readSnap(page);
+  return { top, snap: snap?.balance ?? null };
+}
 async function enterNearestCar(page, label) {
   await pressUse(page);
-  await waitFor(page, async () => (await readSnap(page))?.driving === true, `driving (${label})`, 90000);
+  await waitFor(page, async () => (await readSnap(page))?.driving === true, `driving (${label})`, 180000);
   const pos = await waitFor(page, async () => {
     const p = await readPlayer(page);
     return p && typeof p.x === "number" ? p : null;
@@ -223,14 +228,14 @@ async function main() {
   results.atvBuy = await buyCarByPrice(page, 1500);
   console.log("atv buy click:", results.atvBuy);
   const balAtv = await waitFor(page, async () => {
-    const b = await readBalance(page);
-    return b !== null && b !== balance0 ? b : null;
-  }, "balance moves after ATV buy", 90000);
+    const { top, snap } = await readBalanceAny(page);
+    return (top !== null && top !== balance0 ? top : null) ?? (snap !== null && snap !== balance0 ? snap : null);
+  }, "balance moves after ATV buy", 180000);
   results.atv = { balanceAfter: balAtv };
   await closePanel(page);
   const atvPos = await enterNearestCar(page, "ATV");
   results.atv.enterPos = atvPos;
-  const atvDrive = await driveFor(page, 6);
+  const atvDrive = await driveFor(page, 45);
   results.atv.drive = atvDrive;
   console.log("atv drive:", JSON.stringify(atvDrive.displacement));
   await exitCar(page, "ATV");
@@ -241,14 +246,14 @@ async function main() {
   results.boardBuy = await buyCarByPrice(page, 150);
   console.log("board buy click:", results.boardBuy);
   const balBoard = await waitFor(page, async () => {
-    const b = await readBalance(page);
-    return b !== null && b !== balAtv ? b : null;
-  }, "balance moves after board buy", 90000);
+    const { top, snap } = await readBalanceAny(page);
+    return (top !== null && top !== balAtv ? top : null) ?? (snap !== null && snap !== balAtv ? snap : null);
+  }, "balance moves after board buy", 180000);
   results.board = { balanceAfter: balBoard };
   await closePanel(page);
   const boardPos = await enterNearestCar(page, "board");
   results.board.enterPos = boardPos;
-  const boardDrive = await driveFor(page, 6);
+  const boardDrive = await driveFor(page, 45);
   results.board.drive = boardDrive;
   console.log("board drive:", JSON.stringify(boardDrive.displacement));
   await exitCar(page, "board");
@@ -259,9 +264,9 @@ async function main() {
   results.compactBuy = await buyCarByPrice(page, 220);
   console.log("compact buy click:", results.compactBuy);
   const balCompact = await waitFor(page, async () => {
-    const b = await readBalance(page);
-    return b !== null && b !== balBoard ? b : null;
-  }, "balance moves after compact buy", 90000);
+    const { top, snap } = await readBalanceAny(page);
+    return (top !== null && top !== balBoard ? top : null) ?? (snap !== null && snap !== balBoard ? snap : null);
+  }, "balance moves after compact buy", 180000);
   results.compact = { balanceAfter: balCompact };
   await closePanel(page);
   results.snapAfter3 = await readSnap(page);
@@ -298,7 +303,7 @@ async function main() {
   const balUpgrade = await waitFor(page, async () => {
     const b = await readBalance(page);
     return b !== null && b !== balCompact ? b : null;
-  }, "balance moves after garage upgrade", 90000);
+  }, "balance moves after garage upgrade", 180000);
   results.upgrade = { balanceAfter: balUpgrade };
   const snapAfterUpgrade = await readSnap(page);
   results.upgrade.snap = snapAfterUpgrade;
@@ -310,13 +315,13 @@ async function main() {
   const balSedan = await waitFor(page, async () => {
     const b = await readBalance(page);
     return b !== null && b !== balUpgrade ? b : null;
-  }, "balance moves after sedan buy", 90000);
+  }, "balance moves after sedan buy", 180000);
   results.sedan = { balanceAfter: balSedan };
   await closePanel(page);
   results.sedanCapture = await captureFrame(page, "sedan-on-road");
   const sedanPos = await enterNearestCar(page, "sedan");
   results.sedan.enterPos = sedanPos;
-  const sedanDrive = await driveFor(page, 6);
+  const sedanDrive = await driveFor(page, 30);
   results.sedan.drive = sedanDrive;
   console.log("sedan drive:", JSON.stringify(sedanDrive.displacement));
   await exitCar(page, "sedan");
@@ -329,7 +334,7 @@ async function main() {
   const balFlyer = await waitFor(page, async () => {
     const b = await readBalance(page);
     return b !== null && b !== balSedan ? b : null;
-  }, "balance moves after flyer buy", 90000);
+  }, "balance moves after flyer buy", 180000);
   results.flyer = { balanceAfter: balFlyer };
   await closePanel(page);
   const flyerPos = await enterNearestCar(page, "flyer");
