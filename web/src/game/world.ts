@@ -134,7 +134,7 @@ class CityWorld {
   me: CityMe | null = null;
   people: CityPerson[] = [];
   chat: WorldChat[] = [];
-  bookings: { id: string; project: string; text: string; start: string; end: string }[] = [];
+  bookings: { id: string; project: string; text: string; image?: string; start: string; end: string; owner_id?: string }[] = [];
   events: { id: string; title: string; where: string; when: string; detail: string }[] = [];
   board: { name: string; burned: number }[] = [];
   mission = 0;
@@ -434,6 +434,28 @@ class CityWorld {
 
   async adOrders() {
     return this.call("ad-orders", {});
+  }
+
+  // ORBITX billboards (2026-11-18): flat $1 for 7 days, paid in ORBITX
+  // from the in-app wallet, 100% burned on-chain. No SOL, no swap.
+  async billboardOrbitxQuote(board: string, project: string, text: string, image: string) {
+    return this.call("billboard-orbitx-quote", { board, project, text, image });
+  }
+
+  async billboardOrbitxBuy(board: string, project: string, text: string, image: string, idempotencyKey = "") {
+    return this.call("billboard-orbitx-buy", { board, project, text, image, idempotencyKey });
+  }
+
+  async billboardOrbitxStatus(orderId: string) {
+    return this.call("billboard-orbitx-status", { orderId });
+  }
+
+  async billboardOrbitxOrders() {
+    return this.call("billboard-orbitx-orders", {});
+  }
+
+  async billboardImageUrl(name: string, size: number) {
+    return this.call("billboard-image-url", { name, size });
   }
 
   async radioList() {

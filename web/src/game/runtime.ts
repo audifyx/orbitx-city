@@ -26,6 +26,9 @@ import {
   BUSK_BEAT_MS,
   BUSK_PER_HIT,
   BUSK_SPOT,
+  BILLBOARD_ORBITX_DAYS,
+  BILLBOARD_ORBITX_USD,
+  BILLBOARD_ZONE,
   CASINO_COST,
   CASINO_TABLE,
   CLUB_DANCE_SPOT,
@@ -346,6 +349,8 @@ export interface AdOrder {
   project: string;
   text: string;
   status: string;
+  kind: string;
+  image: string;
   priceSol: number;
   orbitxAmount: string;
   swapSignature: string;
@@ -1076,23 +1081,84 @@ function paintBillboard(face: BillboardInfo) {
   texture.needsUpdate = true;
   if (ctx) {
     // Text board first so the sign is never blank while the image loads.
-    ctx.drawImage(paint([face.project, face.text], `${face.start} → ${face.end}`).image, 0, 0);
+    drawBillboardImageText(ctx, null, face);
   }
   const img = new Image();
   img.onload = () => {
     if (!ctx) return;
-    // Black field (the banner is a space scene on black) then the whole
-    // banner, contain-fit — no crop, no stretch, logo and links intact.
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, 512, 256);
-    const scale = Math.min(512 / img.width, 256 / img.height);
-    const w = img.width * scale;
-    const h = img.height * scale;
-    ctx.drawImage(img, (512 - w) / 2, (256 - h) / 2, w, h);
+    drawBillboardImageText(ctx, img, face);
+    texture.needsUpdate = true;
+  };
+  img.onerror = () => {
+    // Image failed to load: keep the text board (never a broken texture).
+    if (!ctx) return;
+    drawBillboardImageText(ctx, null, face);
     texture.needsUpdate = true;
   };
   img.src = face.image;
   return texture;
+}
+
+// Shared image+text layout for the board mesh AND the Ads panel preview:
+// the image on top (contain-fit on a black field), then a gold divider
+// and a text bar with the project in gold and the line in white. When
+// img is null (still loading, or failed to load) the text board fills
+// the whole canvas instead, so the sign is never blank or broken.
+function drawBillboardImageText(ctx: CanvasRenderingContext2D, img: HTMLImageElement | null, face: BillboardInfo) {
+  const title = (face.project || "").slice(0, 40);
+  const body = (face.text || "").slice(0, 60);
+  if (!img) {
+    ctx.drawImage(paint([title, body], `${face.start} → ${face.end}`).image, 0, 0);
+    return;
+  }
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, 512, 256);
+  const scale = Math.min(512 / img.width, 176 / img.height);
+  const w = img.width * scale;
+  const h = img.height * scale;
+  ctx.drawImage(img, (512 - w) / 2, (176 - h) / 2, w, h);
+  ctx.fillStyle = "#e0b33a";
+  ctx.fillRect(0, 176, 512, 4);
+  ctx.fillStyle = "#0b0b10";
+  ctx.fillRect(0, 180, 512, 76);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#e0b33a";
+  ctx.font = "700 30px system-ui, sans-serif";
+  ctx.fillText(title, 256, 210, 480);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "600 24px system-ui, sans-serif";
+  ctx.fillText(body, 256, 242, 480);
+}
+
+// Preview of exactly what a billboard will look like, for the Ads panel:
+// same layout as the mesh, rendered to a data URL. Text-only when no
+// image; a failed image load still previews the text board.
+async function billboardPreview(imageUrl: string, project: string, text: string) {
+  const face: BillboardInfo = {
+    id: "preview",
+    project: project.slice(0, 40),
+    text: text.slice(0, 60),
+    image: imageUrl,
+    start: new Date().toISOString().slice(0, 10),
+    end: new Date(Date.now() + BILLBOARD_ORBITX_DAYS * 86400000).toISOString().slice(0, 10),
+  };
+  if (!imageUrl) {
+    return { ok: true as const, dataUrl: paint([face.project, face.text], `${face.start} → ${face.end}`).image.toDataURL("image/png") };
+  }
+  const img = await new Promise<HTMLImageElement | null>((resolve) => {
+    const el = new Image();
+    el.crossOrigin = "anonymous";
+    el.onload = () => resolve(el);
+    el.onerror = () => resolve(null);
+    el.src = imageUrl;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return { ok: false as const, dataUrl: "", message: "Could not draw the preview." };
+  drawBillboardImageText(ctx, img, face);
+  return { ok: true as const, dataUrl: canvas.toDataURL("image/png") };
 }
 
 function labelTexture(text: string) {
@@ -2128,9 +2194,11 @@ export function createRuntime(scene: Scene) {
 
   function faceFor(info: BillboardInfo): BillboardInfo {
     const shared = world.bookings.find((item) => item.id === info.id);
-    // A paid booking is a text ad — it clears the house image so the
-    // buyer's own creative shows, not our banner.
-    if (shared) return { ...info, project: shared.project, text: shared.text, start: shared.start, end: shared.end, image: "" };
+    // A paid booking overrides the house face: the buyer's project, text
+    // AND image. ORBITX billboards carry an uploaded image; the old SOL
+    // ads are text-only, so their rows have image "" and the painter
+    // draws text alone. The house image is only for the house face.
+    if (shared) return { ...info, project: shared.project, text: shared.text, start: shared.start, end: shared.end, image: shared.image || "" };
     return bookings()[info.id] ?? info;
   }
 
@@ -3332,7 +3400,22 @@ export function createRuntime(scene: Scene) {
       netMode: world.online ? `Main world · ${world.server}` : net.mode,
       name: wallet.name,
       projects: content.projects,
-      billboards: content.billboards.map((item) => faceFor(item)),
+      billboards: content.billboards.map((item) => {
+        const face = faceFor(item);
+        // Availability rides on the snap so the Ads panel can list all
+        // 25 boards with zone + taken/mine without an extra round trip.
+        // A live booking (world.bookings only carries end >= today) means
+        // taken; expiry reverts to the house face automatically.
+        const booking = world.bookings.find((b) => b.id === item.id);
+        return {
+          ...face,
+          zone: BILLBOARD_ZONE[item.id] || item.id,
+          taken: !!booking,
+          takenEnd: booking?.end || "",
+          takenBy: booking?.project || "",
+          mine: !!booking && booking.owner_id === world.id,
+        };
+      }),
       events: world.online && world.events.length ? [...content.events, ...world.events] : content.events,
       shop: SHOP_CATALOG,
       foodCatalog,
@@ -8817,6 +8900,59 @@ export function createRuntime(scene: Scene) {
     }
   }
 
+  // ORBITX billboards: flat $1 for 7 days, paid in ORBITX from the
+  // in-app wallet, 100% burned on-chain. No SOL, no swap. The quote
+  // carries the ORBITX amount + the wallet balance + whether it covers
+  // it, so the panel can refuse an unaffordable buy before the burn.
+  async function quoteBillboardOrbitx(board: string, project: string, text: string, image: string) {
+    if (!world.online) return { ok: false as const, message: "Sign in to price a billboard in ORBITX. Guests use City Sol only." };
+    try {
+      return await world.billboardOrbitxQuote(board, project, text, image);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "The quote failed." };
+    }
+  }
+
+  async function buyBillboardOrbitx(board: string, project: string, text: string, image: string, idempotencyKey = "") {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      return await world.billboardOrbitxBuy(board, project, text, image, idempotencyKey);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "The buy failed." };
+    }
+  }
+
+  async function billboardOrbitxStatus(orderId: string) {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      return await world.billboardOrbitxStatus(orderId);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Status check failed." };
+    }
+  }
+
+  async function billboardOrbitxOrders() {
+    if (!world.online) return { ok: false as const, message: "Offline.", orders: [] as AdOrder[] };
+    try {
+      return await world.billboardOrbitxOrders();
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Could not load your billboard ads.", orders: [] as AdOrder[] };
+    }
+  }
+
+  // Upload a billboard ad image: the server issues a signed URL for the
+  // billboard-ads bucket, the browser PUTs the file straight to
+  // Storage, and the public URL comes back for the buy. Mirrors the
+  // radio upload (same signed-URL pattern, 5 MB image cap).
+  async function billboardImageUrl(name: string, size: number) {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      return await world.billboardImageUrl(name, size);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Could not start the upload." };
+    }
+  }
+
   // Office leases in real SOL: rent a suite in SOL, the payment buys
   // ORBITX and burns it all — same single-transaction buy+burn as
   // billboards. leaseOfficeSol pays from the server-held in-app wallet
@@ -11068,6 +11204,12 @@ export function createRuntime(scene: Scene) {
     adRetryBurn,
     adRemove,
     adOrders,
+    quoteBillboardOrbitx,
+    buyBillboardOrbitx,
+    billboardOrbitxStatus,
+    billboardOrbitxOrders,
+    billboardImageUrl,
+    billboardPreview,
     quoteOfficeSol,
     leaseOfficeSol,
     leaseOfficeSolLocal,
