@@ -13,6 +13,7 @@ import { IntroScene } from "./Intro";
 import { AboutPage, MenuFooter, MenuHeader, PrivacyPage, SettingsPage, TermsPage, type HomePage } from "./HomePages";
 import { accountToken, ensureFreshAccountToken, refreshAccountToken, signOutAccount, type Account } from "./auth";
 import { DecorBar, EmoteWheel, FeaturePanel, PhoneExtra, RaceBanner, SpectateBar, featureTitle } from "./Features";
+import HomeWorkshop, { workshopSavePlan, type WorkshopDraft } from "./HomeWorkshop";
 import { EMPTY_LEADERS, EMPTY_RACE } from "./game/life";
 import { CAR_SHOP, FLY_CONTROLS, VEHICLE_COLORS, getVehicle } from "./game/vehicles";
 // CARS expansion — customize / wash / repair / garage upgrades.
@@ -338,6 +339,8 @@ const EMPTY: Snap = {
   eventLabel: "",
   panel: "",
   homeEditId: "",
+  homeWorkshopId: "",
+  placedFurniture: {},
   lift: null,
   people: [],
   npcs: [],
@@ -728,6 +731,37 @@ export default function App() {
     const res = await rt.cribStatus();
     if (res.ok) setCrib(res.crib);
     else setCribMsg(String(res.message || ""));
+  };
+
+  // HOME WORKSHOP (2D editor): save a draft through the existing ops.
+  // Furniture first (a failed furniture save stops the chain), then the
+  // one-tap theme (bundle price) or the granular decor/style calls. The
+  // plan — cost + which ops — comes from workshopSavePlan, so the live
+  // "Save — X City Sol" preview and the real charge can never disagree.
+  const saveWorkshopDraft = async (homeId: string, draft: WorkshopDraft) => {
+    const rt = gameRef.current?.runtime;
+    if (!rt) return { ok: false, message: "No game running.", cost: 0 };
+    const homeCrib = cribForHome(crib, homeId);
+    if (!homeCrib) return { ok: false, message: "That home is not loaded yet.", cost: 0 };
+    const placed = snap.placedFurniture?.[homeId] ?? [];
+    const plan = workshopSavePlan(
+      { decor: homeCrib.decor, style: homeCrib.style, furniture: placed },
+      draft,
+    );
+    const messages: string[] = [];
+    if (plan.furnitureChanged) {
+      const savedFurniture = await rt.saveHomeFurniture(homeId, draft.furniture);
+      if (!savedFurniture.ok) return { ok: false, message: savedFurniture.message, cost: plan.cost };
+      messages.push(savedFurniture.message);
+    }
+    if (plan.themeKey) {
+      messages.push(await rt.homeTheme(homeId, plan.themeKey));
+    } else {
+      if (Object.keys(plan.decorPatch).length) messages.push(await rt.cribDecor(homeId, plan.decorPatch));
+      if (Object.keys(plan.stylePatch).length) messages.push(await rt.homeStyle(homeId, plan.stylePatch));
+    }
+    await refreshCrib();
+    return { ok: true, message: messages.filter(Boolean).join(" ") || "Saved.", cost: plan.cost };
   };
   const [officeLogo, setOfficeLogo] = useState("");
   const [officeSite, setOfficeSite] = useState("");
@@ -1820,7 +1854,7 @@ export default function App() {
           />
         </div>
       )}
-      {panel ? (
+      {panel && panel !== "workshop" ? (
         <section className="panel-wrap" id="panel">
           <div className="panel" role="dialog">
             <header>
@@ -3286,9 +3320,14 @@ export default function App() {
                         Manage
                       </button>
                     ) : row.manage === "home" ? (
-                      <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.openHomeEditor(row.key); }}>
-                        Manage
-                      </button>
+                      <>
+                        <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.openHomeEditor(row.key); }}>
+                          Manage
+                        </button>
+                        <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.openHomeWorkshop(row.key); }}>
+                          Workshop
+                        </button>
+                      </>
                     ) : row.manage === "offices" ? (
                       <button
                         type="button"
@@ -4770,6 +4809,21 @@ export default function App() {
                       Go to home
                     </button>
                   </article>
+                  <article>
+                    <div>
+                      <b>Open the 2D Workshop</b>
+                      <span>Edit this home on a top-down floor plan — drag furniture, paint rooms, restyle the outside — then see it in the 3D world</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic("tap");
+                        gameRef.current?.runtime.openHomeWorkshop(homeId);
+                      }}
+                    >
+                      Open Workshop
+                    </button>
+                  </article>
                   <h3>Inside — walls, floors, lights</h3>
                   <p className="muted">Paint, flooring and lighting — bought per change, applied the moment you pay.</p>
                   {([
@@ -5044,6 +5098,43 @@ export default function App() {
           </div>
         </section>
       ) : null}
+      {panel === "workshop" && (() => {
+        // Home Workshop — the dedicated 2D editing workspace, full-screen
+        // over the world. Takes the home id from snap.homeWorkshopId, like
+        // the editor takes homeEditId. The world is paused while it is open.
+        const homeId = snap.homeWorkshopId;
+        const def = homeId ? homeById(homeId) : null;
+        const homeCrib = homeId ? cribForHome(crib, homeId) : null;
+        if (!homeId || !def) return null;
+        if (!homeCrib) {
+          return (
+            <div className="ws-overlay">
+              <p className="ws-msg">Loading {def.name}…</p>
+            </div>
+          );
+        }
+        return (
+          <HomeWorkshop
+            home={def}
+            crib={homeCrib}
+            furniture={snap.placedFurniture?.[homeId] ?? []}
+            furnitureOwned={snap.furnitureOwned}
+            balance={snap.balance}
+            onSave={(draft) => saveWorkshopDraft(homeId, draft)}
+            onBuy={async (itemId) => {
+              const rt = gameRef.current?.runtime;
+              if (!rt) return "No game running.";
+              return rt.buyFurniture(itemId);
+            }}
+            onClose={() => gameRef.current?.runtime.closeHomeWorkshop()}
+            onView3D={() => {
+              gameRef.current?.runtime.closeHomeWorkshop();
+              gameRef.current?.runtime.goToProperty(homeId);
+            }}
+            triggerHaptic={triggerHaptic}
+          />
+        );
+      })()}
       {menu && intro && <IntroScene onDone={endIntro} />}
       {menu && !intro && (
         <section className={menuStep === "roster" || menuPage !== "home" ? "menu menu-roster" : "menu"} id="menu">

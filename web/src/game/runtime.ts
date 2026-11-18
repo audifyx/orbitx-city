@@ -205,7 +205,7 @@ export interface TrainPose {
   dwelling: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homeedit" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "hq" | "race" | "home" | "homeedit" | "workshop" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats";
 
 // UNIFIED SHOP: the Shop panel's category tabs. "grocery" is a tab
 // now, not a panel — the grocery store in the world opens the Shop on
@@ -637,6 +637,10 @@ export interface Snap {
   panel: PanelName | "";
   /** The home the Home Editor panel is editing ("" when it is closed). */
   homeEditId: string;
+  /** The home the Home Workshop (2D editor) is editing ("" when closed). */
+  homeWorkshopId: string;
+  /** Placed furniture per home, for the Home Workshop draft. */
+  placedFurniture: Record<string, HomeFurniturePiece[]>;
   lift: { name: string; floors: number[]; stops: string[]; current: number } | null;
   mission: number;
   board: { name: string; burned: number }[];
@@ -1835,6 +1839,7 @@ export function createRuntime(scene: Scene) {
   // snap.indoors, so it opens from anywhere (My Props, the world, the
   // home panel itself).
   let homeEditId = "";
+  let homeWorkshopId = "";
   // Wardrobe stores (style theme): which store tab the Shop opens on.
   // A store venue (Mega Mall shopfront anchor) sets panelStore + bumps
   // shopStoreNonce before opening the panel; App syncs on the nonce.
@@ -3342,6 +3347,10 @@ export function createRuntime(scene: Scene) {
       eventLabel: eventLeft > 0 ? `Fountain lights in ${Math.ceil(eventLeft)}` : burstLeft > 0 ? "Fountain lights" : "",
       panel,
       homeEditId,
+      homeWorkshopId,
+      placedFurniture: Object.fromEntries(
+        Object.entries(homeFurniture).map(([k, v]) => [k, v.map((p) => ({ ...p }))]),
+      ),
       lift: liftPanel,
       people: [...remotes.values()].map((remote) => ({
         id: remote.state.id,
@@ -10772,6 +10781,27 @@ export function createRuntime(scene: Scene) {
     publish();
   }
 
+  // Home Workshop: the dedicated 2D editing workspace. The world pauses
+  // behind it (the workshop is a workspace, not a glanceable panel) and
+  // unpauses when it closes. Takes the home id directly, like the editor.
+  function openHomeWorkshop(homeId: string) {
+    homeWorkshopId = homeId;
+    panel = "workshop";
+    paused = true;
+    stickX = 0;
+    stickY = 0;
+    holdGas = false;
+    holdBrake = false;
+    publish();
+  }
+
+  function closeHomeWorkshop() {
+    homeWorkshopId = "";
+    if (panel === "workshop") panel = "";
+    paused = false;
+    publish();
+  }
+
   function findOwnedHomeNear(body: Body | null): string {
     if (!body) return "";
     const z = zoneAt(body);
@@ -11671,6 +11701,39 @@ export function createRuntime(scene: Scene) {
     },
     toggleDecor,
     openHomeEditor,
+    openHomeWorkshop,
+    closeHomeWorkshop,
+    async saveHomeFurniture(homeId: string, pieces: HomeFurniturePiece[]) {
+      if (!world.online || !currentUniverse) return { ok: false, message: cribNeedsSignIn() };
+      try {
+        const data = await world.furnitureSave(homeId, pieces, currentUniverse);
+        applyMe();
+        publish();
+        const message = String(data.message || "Home saved.");
+        say(message);
+        return { ok: true, message };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not save the home.";
+        say(message);
+        triggerHaptic("error");
+        return { ok: false, message };
+      }
+    },
+    async buyFurniture(itemId: string) {
+      if (!world.online || !currentUniverse) return cribNeedsSignIn();
+      try {
+        const data = await world.furnitureBuy(itemId, currentUniverse);
+        applyMe();
+        triggerHaptic("success");
+        publish();
+        return String(data.message || "Bought.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not buy that.";
+        say(message);
+        triggerHaptic("error");
+        return message;
+      }
+    },
     editHome,
     async homeStyle(homeId: string, patch: { exterior?: string; roof?: string; yard?: string }) {
       if (!world.online || !currentUniverse) return cribNeedsSignIn();
