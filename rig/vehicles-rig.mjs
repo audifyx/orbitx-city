@@ -305,6 +305,14 @@ async function main() {
     return b !== null && b !== balCompact ? b : null;
   }, "balance moves after garage upgrade", 180000);
   results.upgrade = { balanceAfter: balUpgrade };
+  // The upgrade op resolves fast but the Shop UI re-renders on the next
+  // snap (~2s, diag9): wait for the sedan button to flip from
+  // "Garage full" to "Buy — 450 City Sol" before buying, like a real
+  // user would. Clicking in the <2s window is a rig artifact, not a bug.
+  await waitFor(page, async () => page.evaluate(() => {
+    const b = [...document.querySelectorAll("article button")].find((x) => (x.textContent || "").trim() === "Buy — 450 City Sol");
+    return b && !b.disabled ? true : null;
+  }), "sedan button flips to Buy after upgrade", 120000);
   const snapAfterUpgrade = await readSnap(page);
   results.upgrade.snap = snapAfterUpgrade;
   console.log("garage after upgrade:", JSON.stringify(snapAfterUpgrade?.garage));
