@@ -548,10 +548,14 @@ export default function App() {
   // only its status is mirrored here for the strip button + pairing card.
   const padRef = useRef<PadHost | null>(null);
   const [pad, setPad] = useState<PadStatus | null>(null);
+  // The pairing card can be minimized to a small pill WITHOUT touching
+  // the host — minimizing never disconnects the phone.
+  const [padMin, setPadMin] = useState(false);
   const startPad = useCallback(() => {
     const rt = gameRef.current?.runtime;
     if (!rt) return;
     padRef.current?.stop();
+    setPadMin(false);
     const host = new PadHost(rt, setPad);
     padRef.current = host;
     host.start();
@@ -560,7 +564,17 @@ export default function App() {
     padRef.current?.stop();
     padRef.current = null;
     setPad(null);
+    setPadMin(false);
   }, []);
+  // Strip button: no session -> start one; live session -> show/hide
+  // the card (never disconnects); a closed session -> retry.
+  const togglePadCard = useCallback(() => {
+    if (!pad || pad.phase === "closed") {
+      startPad();
+      return;
+    }
+    setPadMin((m) => !m);
+  }, [pad, startPad]);
   useEffect(() => {
     padRef.current?.sendState(snap.prompt ?? "", !!snap.canDriveLoopTrain);
   }, [snap.prompt, snap.canDriveLoopTrain]);
@@ -1879,7 +1893,22 @@ export default function App() {
         </div>
       )}
       {!menu && snap.prompt && !snap.hideHud ? <p className="prompt">{snap.prompt}</p> : null}
-      {pad ? (
+      {pad && padMin && pad.phase !== "closed" ? (
+        <button
+          type="button"
+          onClick={() => setPadMin(false)}
+          style={{
+            position: "fixed", top: 64, left: "50%", transform: "translateX(-50%)", zIndex: 70,
+            background: "#101014", border: "1px solid #2c2c34", borderRadius: 999,
+            padding: "6px 14px", color: "#ffffff", fontSize: 13, fontWeight: 700,
+            boxShadow: "0 6px 20px rgba(0,0,0,0.5)", cursor: "pointer",
+          }}
+        >
+          <span style={{ color: pad.phase === "paired" ? "#46a758" : "#f2b544" }}>●</span>{" "}
+          {pad.phase === "paired" ? "Pad connected" : pad.phase === "waiting" ? "Pad — tap to see code" : "Pad — connecting…"}
+        </button>
+      ) : null}
+      {pad && (!padMin || pad.phase === "closed") ? (
         <div
           style={{
             position: "fixed", top: 64, left: "50%", transform: "translateX(-50%)", zIndex: 70,
@@ -1907,6 +1936,9 @@ export default function App() {
           <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "center" }}>
             {pad.phase === "closed" ? (
               <button type="button" onClick={startPad} style={{ background: "#f2b544", color: "#14100a", border: 0, borderRadius: 10, fontWeight: 800, padding: "8px 14px" }}>Try again</button>
+            ) : null}
+            {pad.phase !== "closed" ? (
+              <button type="button" onClick={() => setPadMin(true)} style={{ background: "#f2b544", color: "#14100a", border: 0, borderRadius: 10, fontWeight: 800, padding: "8px 14px" }}>Minimize</button>
             ) : null}
             <button type="button" onClick={stopPad} style={{ background: "none", color: "#ffffff", border: "1px solid #2c2c34", borderRadius: 10, fontWeight: 700, padding: "8px 14px" }}>
               {pad.phase === "paired" ? "Disconnect" : "Close"}
@@ -1991,7 +2023,7 @@ export default function App() {
           {/* PHONE CONTROLLER: pair a phone as a wireless gamepad for
               this screen (relay on the City API). The button toggles the
               pairing card; the code + status render under the strip. */}
-          <button type="button" onClick={() => (pad ? stopPad() : startPad())}>
+          <button type="button" onClick={togglePadCard}>
             {pad?.phase === "paired" ? "Pad ✓" : "Pad"}
           </button>
           {/* CITY STATS: admin-only. The button only exists for the
