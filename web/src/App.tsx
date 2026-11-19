@@ -6780,7 +6780,7 @@ function Phone({ snap, rt, onLogout }: { snap: Snap; rt: Runtime | null; onLogou
       <h3>City tour</h3>
       <span>{snap.mission >= 6 ? "Tour complete." : `Stop ${snap.mission + 1} of 6 is marked on the objective.`}</span>
       <h3>Places</h3>
-      {snap.districts.filter((place) => ["shop", "cafe", "hall", "bank", "garage", "carshop", "arcade", "market", "dock", "project-0"].includes(place.id)).map((place) => (
+      {snap.districts.filter((place) => ["shop", "cafe", "hall", "bank", "garage", "carshop", "trading", "arcade", "market", "dock", "project-0"].includes(place.id)).map((place) => (
         <article key={place.id}>
           <div><b>{place.name}</b></div>
           <button type="button" onClick={() => { rt?.travel(place.id); }}>Go</button>
