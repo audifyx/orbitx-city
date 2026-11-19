@@ -51,21 +51,18 @@ async function jupFetch(url, options) {
 }
 
 /**
- * ExactIn quote: how much ORBITX does inLamports of SOL buy?
+ * ExactIn quote: how much outputMint does inAmount of inputMint buy?
  * Returns { inAmount, outAmount, otherAmountThreshold, quoteResponse }
  * with amounts as base-unit strings. otherAmountThreshold is the
- * guaranteed minimum output (outAmount minus slippage) — that is the
- * amount the burn instruction is built for, so the burn can never fail
- * for "not enough ORBITX in the account".
+ * guaranteed minimum output (outAmount minus slippage).
  */
-export async function getQuote(inLamports, slippageBps = 100) {
-  const mint = orbitxMint();
-  if (!mint) throw new Error("ORBITX_MINT is not set, so no quote was made.");
-  const amount = String(Math.round(Number(inLamports) || 0));
+export async function getQuoteFor(inputMint, outputMint, inAmount, slippageBps = 100) {
+  const amount = String(Math.round(Number(inAmount) || 0));
   if (!Number(amount) || Number(amount) <= 0) throw new Error("Quote amount must be positive.");
+  if (!inputMint || !outputMint) throw new Error("Quote needs an input and an output token.");
   const params = new URLSearchParams({
-    inputMint: SOL_MINT,
-    outputMint: mint,
+    inputMint: String(inputMint),
+    outputMint: String(outputMint),
     amount,
     slippageBps: String(slippageBps),
   });
@@ -80,6 +77,13 @@ export async function getQuote(inLamports, slippageBps = 100) {
     }
   }
   throw new Error(`Jupiter quote failed (${lastError?.message || "no route"}). Nothing was bought.`);
+}
+
+/** SOL -> ORBITX quote (billboard / ad flow): the old getQuote shape. */
+export async function getQuote(inLamports, slippageBps = 100) {
+  const mint = orbitxMint();
+  if (!mint) throw new Error("ORBITX_MINT is not set, so no quote was made.");
+  return getQuoteFor(SOL_MINT, mint, inLamports, slippageBps);
 }
 
 /** Ask Jupiter to build the swap transaction for a quote. Returns { swapTransaction, lastValidBlockHeight }. */

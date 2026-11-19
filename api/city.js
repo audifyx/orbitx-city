@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { Redis } from "@upstash/redis";
 import { ensureDaily, handleLive, noteEarn } from "./live.js";
 import { adBuy, adCompose, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus, adSubmit, arcadeCancel, arcadeCompose, arcadeHistory, arcadeLeaders, arcadeLobby, arcadeSubmit, billboardOrbitxBuy, billboardOrbitxOrders, billboardOrbitxQuote, billboardOrbitxStatus, officeSolBuy, officeSolCompose, officeSolLeasesFor, officeSolQuote, officeSolStatus, officeSolSubmit } from "./ads.js";
+import { tradeCompose, tradeHoldings, tradeQuote, tradeStatus, tradeSubmit } from "./trade.js";
 import { authMode, checkReauth, handleAuthOp, looksLikeAccountToken, supabasePublic, verifyAccessToken } from "./auth.js";
 import { audit, chainShopEnabled, confirmSend, ensureWallet, exportWallet, latestBlockhash, networkName, publicBalance, quoteSend, submitSignedTx, walletView } from "./wallet.js";
 import { AccessToken } from "livekit-server-sdk";
@@ -6384,6 +6385,21 @@ export async function POST(request) {
     return adReply(await adSubmit(adCtx, player, body));
   }
   if (op === "book") return adReply(await adBuy(adCtx, player, body));
+
+  // Trading Floor (2026-11-19): real Solana swaps via Jupiter. Quote is
+  // free; compose builds the swap for the on-device PIN wallet to sign;
+  // submit verifies + broadcasts. Same compose/submit shape as ads/arcade.
+  if (op === "trade-quote") return adReply(await tradeQuote(adCtx, player, body));
+  if (op === "trade-compose") {
+    if (!player.authUser) return json({ ok: false, message: "Create an account to trade. Guests keep City Sol only." }, 400);
+    return adReply(await tradeCompose(adCtx, player, body));
+  }
+  if (op === "trade-submit") {
+    if (!player.authUser) return json({ ok: false, message: "Create an account to trade. Guests keep City Sol only." }, 400);
+    return adReply(await tradeSubmit(adCtx, player, body));
+  }
+  if (op === "trade-status") return adReply(await tradeStatus(adCtx, player, body));
+  if (op === "trade-holdings") return adReply(await tradeHoldings(adCtx, player, body));
 
   // ORBITX billboards (2026-11-18): flat $1 for 7 days, paid in ORBITX
   // from the in-app wallet, 100% burned on-chain. No SOL, no swap.
