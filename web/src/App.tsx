@@ -594,8 +594,6 @@ export default function App() {
   const [radioBusy, setRadioBusy] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const radioAudioRef = useRef<HTMLAudioElement | null>(null);
-  const splashAudioRef = useRef<HTMLAudioElement | null>(null);
-  const splashTrackRef = useRef(0);
   const radioInputRef = useRef<HTMLInputElement | null>(null);
   const [offices, setOffices] = useState<OfficeSuiteState[]>([]);
   const [officeMsg, setOfficeMsg] = useState("");
@@ -842,42 +840,6 @@ export default function App() {
   useEffect(() => {
     if (menu) stopRadio();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menu]);
-
-  // Splash theme: the OrbitX City anthem (Suno tracks the user made)
-  // plays over the menu screens and stops when the player enters the
-  // city. Both versions rotate back to back so the menu stays mixed.
-  // Browsers block autoplay until the first tap or keypress, so the
-  // first interaction unlocks it.
-  useEffect(() => {
-    const tracks = ["/audio/splash-theme.mp3", "/audio/splash-theme-2.mp3"];
-    const audio = (splashAudioRef.current ??= new Audio());
-    audio.volume = 0.45;
-    if (!menu) {
-      audio.pause();
-      return;
-    }
-    let cancelled = false;
-    if (!audio.src || !audio.src.includes("splash-theme")) {
-      audio.src = tracks[splashTrackRef.current];
-    }
-    audio.onended = () => {
-      splashTrackRef.current = (splashTrackRef.current + 1) % tracks.length;
-      audio.src = tracks[splashTrackRef.current];
-      audio.play().catch(() => {});
-    };
-    const tryPlay = () => {
-      if (!cancelled) audio.play().catch(() => {});
-    };
-    tryPlay();
-    window.addEventListener("pointerdown", tryPlay);
-    window.addEventListener("keydown", tryPlay);
-    return () => {
-      cancelled = true;
-      audio.onended = null;
-      window.removeEventListener("pointerdown", tryPlay);
-      window.removeEventListener("keydown", tryPlay);
-    };
   }, [menu]);
 
   // House party: when a party starts, the in-game Radio starts playing the
