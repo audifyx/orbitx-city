@@ -7,9 +7,12 @@
 // wireless gamepad for the PC screen.
 //
 // Pairing: the relay issues a 4-digit room code (shown in the Pad card);
-// the phone opens /controller, types the code, and streams input at
-// ~20 Hz. If the pad disconnects, every held input is released so the
-// player never runs on without a driver.
+// the phone opens /controller, types the code, and streams input at up
+// to ~60 Hz. The camera stick sends a look RATE (deflection), which this
+// host integrates per animation frame — so camera motion stays smooth
+// even when relay messages arrive unevenly. Older pads that send look
+// deltas instead are still honored. If the pad disconnects, every held
+// input is released so the player never runs on without a driver.
 import type { Runtime } from "./runtime";
 
 export type PadStatus =
@@ -44,9 +47,15 @@ function clampLook(v: unknown): number {
   return Math.max(-80, Math.min(80, n));
 }
 
+/** Camera speed at full stick deflection, in addLook pixels per second. */
+const LOOK_RATE_PX_PER_SEC = 300;
+
 export class PadHost {
   private ws: WebSocket | null = null;
   private holds: Record<HoldKey, boolean> = { jump: false, down: false, gas: false, brake: false };
+  private lookRate: [number, number] = [0, 0];
+  private rafId = 0;
+  private lastFrameAt = 0;
   private lastStateKey = "";
   private stopped = false;
 
@@ -58,6 +67,9 @@ export class PadHost {
   start(): void {
     this.stopped = false;
     this.onStatus({ phase: "connecting" });
+    this.lastFrameAt = performance.now();
+    cancelAnimationFrame(this.rafId);
+    this.rafId = requestAnimationFrame(this.tick);
     let ws: WebSocket;
     try {
       ws = new WebSocket(relayUrl());
@@ -75,7 +87,7 @@ export class PadHost {
       }
     };
     ws.onmessage = (event) => {
-      let msg: { t?: unknown; code?: unknown; message?: unknown; stick?: unknown; look?: unknown; hold?: unknown; press?: unknown };
+      let msg: { t?: unknown; code?: unknown; message?: unknown; stick?: unknown; look?: unknown; lookRate?: unknown; hold?: unknown; press?: unknown };
       try {
         msg = JSON.parse(String(event.data));
       } catch {
@@ -109,10 +121,35 @@ export class PadHost {
     };
   }
 
-  private applyInput(msg: { stick?: unknown; look?: unknown; hold?: unknown; press?: unknown }): void {
+  /**
+   * Per-frame camera integration: the pad streams a look rate, and the
+   * turn is applied a frame-sized slice at a time. Network jitter changes
+   * when rate updates land, never how smooth the turn itself feels.
+   */
+  private tick = (now: number): void => {
+    if (this.stopped) return;
+    const dt = Math.min(0.05, Math.max(0, (now - this.lastFrameAt) / 1000));
+    this.lastFrameAt = now;
+    const [rx, ry] = this.lookRate;
+    if ((rx !== 0 || ry !== 0) && dt > 0) {
+      try {
+        this.runtime.addLook(rx * LOOK_RATE_PX_PER_SEC * dt, ry * LOOK_RATE_PX_PER_SEC * dt);
+      } catch {
+        /* runtime gone */
+      }
+    }
+    this.rafId = requestAnimationFrame(this.tick);
+  };
+
+  private applyInput(msg: { stick?: unknown; look?: unknown; lookRate?: unknown; hold?: unknown; press?: unknown }): void {
     const rt = this.runtime;
     if (Array.isArray(msg.stick)) rt.setStick(clampAxis(msg.stick[0]), clampAxis(msg.stick[1]));
-    if (Array.isArray(msg.look)) {
+    if (Array.isArray(msg.lookRate)) {
+      // Rate protocol: store the deflection; the tick loop applies it.
+      // Any legacy deltas in the same message are ignored on purpose —
+      // applying both would turn the camera twice.
+      this.lookRate = [clampAxis(msg.lookRate[0]), clampAxis(msg.lookRate[1])];
+    } else if (Array.isArray(msg.look)) {
       const dx = clampLook(msg.look[0]);
       const dy = clampLook(msg.look[1]);
       if (dx !== 0 || dy !== 0) rt.addLook(dx, dy);
@@ -150,6 +187,7 @@ export class PadHost {
   }
 
   private releaseAll(): void {
+    this.lookRate = [0, 0];
     try {
       this.runtime.setStick(0, 0);
     } catch {
@@ -169,6 +207,7 @@ export class PadHost {
 
   stop(): void {
     this.stopped = true;
+    cancelAnimationFrame(this.rafId);
     this.releaseAll();
     if (this.ws) {
       try {
