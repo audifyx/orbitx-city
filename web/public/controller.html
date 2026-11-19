@@ -258,7 +258,7 @@ function backToConnect(message) {
 }
 
 // --- sending ---
-let sendTimer = null;
+let sendRaf = 0;
 let lastSentKey = "";
 let lastSentAt = 0;
 function sendNow(extra) {
@@ -281,21 +281,21 @@ function sendNow(extra) {
 function startSender() {
   stopSender();
   lastSentKey = ""; lastSentAt = 0;
-  sendTimer = setInterval(() => {
+  const loop = () => {
     // Legacy drag deltas at the same total speed as before (about
-    // 312 px/s at full deflection), accumulated at the finer tick.
+    // 312 px/s at full deflection), accumulated per frame.
     state.lookAcc[0] += state.look[0] * 5;
     state.lookAcc[1] += -state.look[1] * 5;
-    const lr = [Math.round(state.look[0] * 1000) / 1000, Math.round(-state.look[1] * 1000) / 1000];
-    const key = JSON.stringify([state.stick, lr, state.hold]);
-    const lookActive = state.look[0] !== 0 || state.look[1] !== 0;
-    // Send on any change, continuously while the camera stick is held,
-    // and at least every 100 ms as a heartbeat so a lost packet can
-    // never leave the game holding a stale stick or camera rate.
-    if (key !== lastSentKey || lookActive || performance.now() - lastSentAt >= 100) sendNow();
-  }, 16);
+    // Stream every frame while paired: the game always holds a fresh
+    // stick/camera state, so input never steps when packets bunch up,
+    // and a released stick reads as zero within a frame instead of
+    // waiting for a change-gated send or a heartbeat.
+    sendNow();
+    sendRaf = requestAnimationFrame(loop);
+  };
+  sendRaf = requestAnimationFrame(loop);
 }
-function stopSender() { if (sendTimer) { clearInterval(sendTimer); sendTimer = null; } }
+function stopSender() { if (sendRaf) { cancelAnimationFrame(sendRaf); sendRaf = 0; } }
 
 function press(name) {
   if (navigator.vibrate) navigator.vibrate(8);

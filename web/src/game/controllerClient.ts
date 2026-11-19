@@ -55,12 +55,15 @@ function clampLook(v: unknown): number {
  * small deadzone, and velocity smoothing so turns ramp in and glide
  * out instead of snapping on and off.
  */
-const LOOK_MAX_YAW_PER_SEC = 2.35;
-const LOOK_MAX_PITCH_PER_SEC = 1.45;
+const LOOK_MAX_YAW_PER_SEC = 2.5;
+const LOOK_MAX_PITCH_PER_SEC = 1.55;
 const LOOK_DEADZONE = 0.09;
-const LOOK_ATTACK_PER_SEC = 13;
-const LOOK_RELEASE_PER_SEC = 8;
-const STICK_SMOOTH_PER_SEC = 13;
+const LOOK_ATTACK_PER_SEC = 26;
+const LOOK_RELEASE_PER_SEC = 20;
+/** If no input arrives for this long, the stream is treated as dead
+ * and every input is zeroed — a frozen phone can never leave the
+ * character walking or the camera turning on its own. */
+const INPUT_STALE_MS = 350;
 
 function shapeLook(d: number): number {
   const a = Math.abs(d);
@@ -74,9 +77,8 @@ export class PadHost {
   private holds: Record<HoldKey, boolean> = { jump: false, down: false, gas: false, brake: false };
   private lookTarget: [number, number] = [0, 0];
   private lookVel: [number, number] = [0, 0];
-  private stickTarget: [number, number] = [0, 0];
-  private stickSmooth: [number, number] = [0, 0];
-  private stickApplied: [number, number] = [0, 0];
+  private stickNow: [number, number] = [0, 0];
+  private lastInputAt = 0;
   private rafId = 0;
   private lastFrameAt = 0;
   private lastStateKey = "";
@@ -145,40 +147,41 @@ export class PadHost {
   }
 
   /**
-   * Per-frame input integration. The pad streams stick deflections; this
-   * loop chases them with exponential smoothing and applies frame-sized
-   * slices, so network jitter changes when updates land, never how the
-   * motion itself feels. The camera velocity ramps up fast (attack) and
-   * glides to a stop (release); the move stick is smoothed just enough
-   * to take the steps out of uneven packet arrival.
+   * Per-frame camera integration. The pad streams deflections
+   * continuously; the camera velocity chases the target with light
+   * exponential smoothing (fast attack, fast release, hard cutoff at
+   * rest) and is applied in frame-sized slices, so the turn rate is
+   * steady even when messages arrive unevenly — without the lag and
+   * after-drift that heavy smoothing caused. The move stick is NOT
+   * smoothed: it applies on arrival, the way it felt best. A watchdog
+   * zeroes everything if the stream goes silent, so a frozen phone
+   * can never leave the player moving on its own.
    */
   private tick = (now: number): void => {
     if (this.stopped) return;
     const dt = Math.min(0.05, Math.max(0, (now - this.lastFrameAt) / 1000));
     this.lastFrameAt = now;
     if (dt > 0) {
+      if (this.lastInputAt > 0 && now - this.lastInputAt > INPUT_STALE_MS) {
+        if (this.lookTarget[0] !== 0 || this.lookTarget[1] !== 0) this.lookTarget = [0, 0];
+        if (this.stickNow[0] !== 0 || this.stickNow[1] !== 0) {
+          this.stickNow = [0, 0];
+          try {
+            this.runtime.setStick(0, 0);
+          } catch {
+            /* runtime gone */
+          }
+        }
+      }
       for (let i = 0; i < 2; i++) {
         const rate = Math.abs(this.lookTarget[i]) > Math.abs(this.lookVel[i]) ? LOOK_ATTACK_PER_SEC : LOOK_RELEASE_PER_SEC;
         this.lookVel[i] += (this.lookTarget[i] - this.lookVel[i]) * (1 - Math.exp(-rate * dt));
-        if (Math.abs(this.lookVel[i]) < 0.0005 && this.lookTarget[i] === 0) this.lookVel[i] = 0;
+        if (this.lookTarget[i] === 0 && Math.abs(this.lookVel[i]) < 0.03) this.lookVel[i] = 0;
       }
       const [vx, vy] = this.lookVel;
       if (vx !== 0 || vy !== 0) {
         try {
           this.runtime.addLook(vx * LOOK_MAX_YAW_PER_SEC * dt, vy * LOOK_MAX_PITCH_PER_SEC * dt);
-        } catch {
-          /* runtime gone */
-        }
-      }
-      const k = 1 - Math.exp(-STICK_SMOOTH_PER_SEC * dt);
-      this.stickSmooth[0] += (this.stickTarget[0] - this.stickSmooth[0]) * k;
-      this.stickSmooth[1] += (this.stickTarget[1] - this.stickSmooth[1]) * k;
-      if (this.stickTarget[0] === 0 && Math.abs(this.stickSmooth[0]) < 0.002) this.stickSmooth[0] = 0;
-      if (this.stickTarget[1] === 0 && Math.abs(this.stickSmooth[1]) < 0.002) this.stickSmooth[1] = 0;
-      if (Math.abs(this.stickSmooth[0] - this.stickApplied[0]) > 0.0005 || Math.abs(this.stickSmooth[1] - this.stickApplied[1]) > 0.0005) {
-        this.stickApplied = [this.stickSmooth[0], this.stickSmooth[1]];
-        try {
-          this.runtime.setStick(this.stickApplied[0], this.stickApplied[1]);
         } catch {
           /* runtime gone */
         }
@@ -189,9 +192,11 @@ export class PadHost {
 
   private applyInput(msg: { stick?: unknown; look?: unknown; lookRate?: unknown; hold?: unknown; press?: unknown }): void {
     const rt = this.runtime;
+    this.lastInputAt = performance.now();
     if (Array.isArray(msg.stick)) {
-      // Stored as a target; the tick loop smooths toward it per frame.
-      this.stickTarget = [clampAxis(msg.stick[0]), clampAxis(msg.stick[1])];
+      // Applied immediately on arrival — no smoothing lag on movement.
+      this.stickNow = [clampAxis(msg.stick[0]), clampAxis(msg.stick[1])];
+      rt.setStick(this.stickNow[0], this.stickNow[1]);
     }
     if (Array.isArray(msg.lookRate)) {
       // Rate protocol: shape the deflection (deadzone + expo curve) and
@@ -239,9 +244,7 @@ export class PadHost {
   private releaseAll(): void {
     this.lookTarget = [0, 0];
     this.lookVel = [0, 0];
-    this.stickTarget = [0, 0];
-    this.stickSmooth = [0, 0];
-    this.stickApplied = [0, 0];
+    this.stickNow = [0, 0];
     try {
       this.runtime.setStick(0, 0);
     } catch {
