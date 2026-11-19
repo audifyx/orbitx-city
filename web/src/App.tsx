@@ -490,6 +490,8 @@ function shotMode(): PlayMode | null {
     shot === "race-run" ||
     shot === "hover" ||
     shot === "arcade" ||
+    shot === "trading" ||
+    shot === "trading-inside" ||
     shot === "daily" ||
     shot === "wallet" ||
     shot === "emote" ||

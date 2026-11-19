@@ -9221,6 +9221,23 @@ export function createRuntime(scene: Scene) {
       hideHud = shot === "spectate";
       hideNames = true;
       hideChat = true;
+    } else if (shot === "trading-inside") {
+      // Trading Floor interior: stand in the entrance lane looking east
+      // at both desk rows and the ticker board.
+      body.x = 55;
+      body.y = 0;
+      body.z = -5;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.02;
+    } else if (shot === "trading") {
+      // Trading Floor: stand at the middle back-row desk stool, facing
+      // east at the desk + ticker board, terminal open.
+      panel = "trading";
+      body.x = 61.5;
+      body.y = 0;
+      body.z = -5;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.02;
     } else if (shot === "mall") {
       body.x = 50;
       body.y = 0;
