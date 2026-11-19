@@ -55,12 +55,12 @@ function clampLook(v: unknown): number {
  * small deadzone, and velocity smoothing so turns ramp in and glide
  * out instead of snapping on and off.
  */
-const LOOK_MAX_YAW_PER_SEC = 2.6;
-const LOOK_MAX_PITCH_PER_SEC = 1.6;
-const LOOK_DEADZONE = 0.08;
-const LOOK_ATTACK_PER_SEC = 22;
-const LOOK_RELEASE_PER_SEC = 11;
-const STICK_SMOOTH_PER_SEC = 25;
+const LOOK_MAX_YAW_PER_SEC = 2.35;
+const LOOK_MAX_PITCH_PER_SEC = 1.45;
+const LOOK_DEADZONE = 0.09;
+const LOOK_ATTACK_PER_SEC = 13;
+const LOOK_RELEASE_PER_SEC = 8;
+const STICK_SMOOTH_PER_SEC = 13;
 
 function shapeLook(d: number): number {
   const a = Math.abs(d);

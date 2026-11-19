@@ -71,8 +71,10 @@
     position: absolute; left: 0; right: 0; top: -22px; text-align: center;
     font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: #9a9aa5;
   }
-  #moveStick { left: 20px; }
-  #lookStick { right: 20px; }
+  #moveStick { left: 20px; width: 168px; height: 168px; }
+  #moveStick .knob { width: 68px; height: 68px; margin: -34px 0 0 -34px; }
+  #lookStick { right: 16px; width: 200px; height: 200px; }
+  #lookStick .knob { width: 76px; height: 76px; margin: -38px 0 0 -38px; }
   #cluster {
     position: absolute; right: 18px; bottom: calc(196px + env(safe-area-inset-bottom));
     display: grid; grid-template-columns: 64px 64px; gap: 10px;
@@ -301,37 +303,14 @@ function press(name) {
 }
 
 // --- sticks ---
-function wireStick(el, apply) {
+// Both sticks are floating-origin: the stick centers wherever the
+// thumb lands, so there is no jump on touch-down (a fixed center made
+// the movement lurch every time the thumb landed off-center). The
+// camera stick is big with a long 84px throw, so the same thumb
+// movement produces a smaller, finer deflection; the game applies
+// the response curve and smoothing on top.
+function wireFloatStick(el, apply, RADIUS, KNOB_TRAVEL) {
   const knob = el.querySelector(".knob");
-  let pointer = null;
-  const update = (clientX, clientY) => {
-    const r = el.getBoundingClientRect();
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-    let x = (clientX - cx) / (r.width / 2);
-    let y = (cy - clientY) / (r.height / 2);
-    const mag = Math.hypot(x, y);
-    if (mag > 1) { x /= mag; y /= mag; }
-    knob.style.transform = `translate(${x * 40}px, ${-y * 40}px)`;
-    apply(x, y);
-  };
-  el.addEventListener("pointerdown", (e) => { pointer = e.pointerId; el.setPointerCapture(pointer); update(e.clientX, e.clientY); });
-  el.addEventListener("pointermove", (e) => { if (e.pointerId === pointer) update(e.clientX, e.clientY); });
-  const end = (e) => {
-    if (e.pointerId !== pointer) return;
-    pointer = null;
-    knob.style.transform = "";
-    apply(0, 0);
-  };
-  el.addEventListener("pointerup", end);
-  el.addEventListener("pointercancel", end);
-}
-// Camera stick: floating origin — the stick centers wherever the
-// thumb lands, so there is no jump on touch-down and small thumb
-// movements stay fine-grained. Deflection is measured over a 64px
-// throw; the game applies the response curve and smoothing.
-function wireFloatStick(el, apply) {
-  const knob = el.querySelector(".knob");
-  const RADIUS = 64, KNOB_TRAVEL = 42;
   let pointer = null, ox = 0, oy = 0, odx = 0, ody = 0;
   el.addEventListener("pointerdown", (e) => {
     pointer = e.pointerId;
@@ -361,8 +340,8 @@ function wireFloatStick(el, apply) {
   el.addEventListener("pointerup", end);
   el.addEventListener("pointercancel", end);
 }
-wireStick($("moveStick"), (x, y) => { state.stick = [x, y]; });
-wireFloatStick($("lookStick"), (x, y) => { state.look = [x, y]; });
+wireFloatStick($("moveStick"), (x, y) => { state.stick = [x, y]; }, 62, 40);
+wireFloatStick($("lookStick"), (x, y) => { state.look = [x, y]; }, 84, 56);
 
 // --- buttons ---
 function wireHold(el, key) {
