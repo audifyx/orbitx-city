@@ -79,7 +79,7 @@
   }
   .pbtn {
     height: 64px; border-radius: 16px; border: 2px solid var(--line); background: rgba(255,255,255,0.08);
-    font-size: 15px; font-weight: 800; touch-action: none;
+    font-size: 14px; font-weight: 800; touch-action: none; padding: 0 2px; overflow: hidden;
   }
   .pbtn.held { background: rgba(242,181,68,0.35); border-color: var(--gold); }
   #useBtn {
@@ -100,8 +100,9 @@
   .dbtn.held { background: rgba(242,181,68,0.35); border-color: var(--gold); }
   @media (orientation: portrait) {
     #driveRow { bottom: calc(196px + env(safe-area-inset-bottom)); }
-    #useBtn { bottom: calc(430px + env(safe-area-inset-bottom)); }
-    #cluster { bottom: calc(274px + env(safe-area-inset-bottom)); }
+    #useBtn { bottom: calc(430px + env(safe-area-inset-bottom)); right: 16px; }
+    #cluster { bottom: calc(274px + env(safe-area-inset-bottom)); right: 12px; grid-template-columns: 60px 60px; }
+    .pbtn { font-size: 13px; }
   }
 </style>
 </head>
