@@ -596,6 +596,7 @@ export default function App() {
   const radioAudioRef = useRef<HTMLAudioElement | null>(null);
   const splashAudioRef = useRef<HTMLAudioElement | null>(null);
   const splashTrackRef = useRef(0);
+  const zoneAudioRef = useRef<HTMLAudioElement | null>(null);
   const radioInputRef = useRef<HTMLInputElement | null>(null);
   const [offices, setOffices] = useState<OfficeSuiteState[]>([]);
   const [officeMsg, setOfficeMsg] = useState("");
@@ -879,6 +880,32 @@ export default function App() {
       window.removeEventListener("keydown", tryPlay);
     };
   }, [menu]);
+
+  // Zone music (Suno tracks the user made): Urgent Drive loops while
+  // the player is driving, Run It Up loops while the Mini-Games hub is
+  // open. The in-game radio wins — zone music stays silent while a
+  // radio track is playing.
+  useEffect(() => {
+    const audio = (zoneAudioRef.current ??= new Audio());
+    audio.loop = true;
+    audio.volume = 0.35;
+    if (menu || playingId) {
+      audio.pause();
+      return;
+    }
+    const want = snap.driving || snap.drivingTrain
+      ? "/audio/urgent-drive.mp3"
+      : panel === "minigames"
+        ? "/audio/run-it-up.mp3"
+        : null;
+    if (!want) {
+      audio.pause();
+      return;
+    }
+    if (!audio.src.includes(want)) audio.src = want;
+    audio.play().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menu, playingId, snap.driving, snap.drivingTrain, panel]);
 
   // House party: when a party starts, the in-game Radio starts playing the
   // first public track if nothing is playing; when the party ends, the
