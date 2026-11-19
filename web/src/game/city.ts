@@ -265,6 +265,10 @@ export interface Zone {
   // opens the kitchen panel (only in a home the player owns; the server
   // enforces ownership on cook). Set by furnishHome / buildHome.
   kitchen?: { x: number; z: number };
+  // Extra service points beyond the primary serviceX/serviceZ — for
+  // venues where Use should work at several spots (the Trading Floor's
+  // six desk stools). nearService() checks all of them.
+  servicePoints?: Array<{ x: number; z: number }>;
 }
 
 export interface City {
@@ -3152,6 +3156,15 @@ function furnishTrading(boxes: Box[], cols: Collider[], x0: number, z0: number, 
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "black");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
+  // Ceiling skirt: addCeiling's slab stops ~1.08 short of the walls,
+  // and this room sits INSIDE the mall — through that rim gap you saw
+  // the mall's slab edge, atrium chandelier and hanging lights floating
+  // over the room (the "glitch" look). Four strips at the same height
+  // seal the rim so the room reads as one black ceiling.
+  put(boxes, cx, 3.62, z0 + 0.5375, w, 0.14, 1.075, "ceil");
+  put(boxes, cx, 3.62, z0 + d - 0.5375, w, 0.14, 1.075, "ceil");
+  put(boxes, x0 + 0.5375, 3.62, cz, 1.075, 0.14, d - 2.15, "ceil");
+  put(boxes, x0 + w - 0.5375, 3.62, cz, 1.075, 0.14, d - 2.15, "ceil");
   // Finish: black walls with gold striped wallpaper, beams.
   wallpaperWalls(boxes, x0, z0, w, d, door, "black", "gold");
   ceilingBeams(boxes, x0, z0, w, d);
@@ -3162,9 +3175,13 @@ function furnishTrading(boxes: Box[], cols: Collider[], x0: number, z0: number, 
   // face "w" = the screen looks west (toward the door); face "e" = east.
   const desk = (mx: number, mz: number, face: Face) => {
     const screenX = face === "w" ? mx - 0.55 : mx + 0.55;
-    put(boxes, mx, 0.5, mz, 1.2, 1.0, 3.2, "black");
-    cols.push(col(mx, 0.5, mz, 1.2, 1.0, 3.2));
-    put(boxes, mx, 1.04, mz, 1.25, 0.08, 3.25, "gold");
+    // Desk depth 2.4 (was 3.2): the rows sit 4.5 apart, so the walk
+    // gaps between desks are ~2.1 wide — a phone joystick can thread
+    // them. At 3.2 the gaps were 1.3 and the middle front desk walled
+    // off the whole east half of the room.
+    put(boxes, mx, 0.5, mz, 1.2, 1.0, 2.4, "black");
+    cols.push(col(mx, 0.5, mz, 1.2, 1.0, 2.4));
+    put(boxes, mx, 1.04, mz, 1.25, 0.08, 2.45, "gold");
     put(boxes, mx + (face === "w" ? 0.35 : -0.35), 1.55, mz, 0.18, 1.0, 1.7, "black");
     put(boxes, screenX, 1.55, mz, 0.06, 0.8, 1.5, "cyanhot");
     put(boxes, mx + (face === "w" ? 0.35 : -0.35), 1.0, mz, 0.12, 0.06, 1.7, "gold");
@@ -3180,14 +3197,16 @@ function furnishTrading(boxes: Box[], cols: Collider[], x0: number, z0: number, 
   // Ticker board on the back (east) wall above the desks: black board,
   // gold frame, alternating cyan / gold / red price strips.
   const boardX = x0 + w - 1.35;
-  put(boxes, boardX, 3.0, cz, 0.15, 1.0, 15, "black");
-  put(boxes, boardX, 3.55, cz, 0.18, 0.08, 15.2, "gold");
-  put(boxes, boardX, 2.45, cz, 0.18, 0.08, 15.2, "gold");
+  // Board + sign sit UNDER the 3.62 ceiling: the sign originally hung
+  // at y 4.4, inside the ceiling void where nobody could see it.
+  put(boxes, boardX, 2.55, cz, 0.15, 0.9, 15, "black");
+  put(boxes, boardX, 3.02, cz, 0.18, 0.08, 15.2, "gold");
+  put(boxes, boardX, 2.08, cz, 0.18, 0.08, 15.2, "gold");
   const stripMats: Mat[] = ["cyanhot", "gold", "red", "cyanhot", "gold", "cyanhot", "red", "gold"];
   for (let i = 0; i < 8; i++) {
-    put(boxes, boardX - 0.08, 3.0, cz - 6.5 + i * 1.85, 0.06, 0.5, 1.5, stripMats[i % stripMats.length]);
+    put(boxes, boardX - 0.08, 2.55, cz - 6.5 + i * 1.85, 0.06, 0.5, 1.5, stripMats[i % stripMats.length]);
   }
-  roomSign("trading-board", boardX - 0.15, 4.4, cz, -Math.PI / 2, 10, 1.2, ["ORBITX EXCHANGE", "LIVE CHARTS · REAL SOL"], "Trade · Launch · Scan");
+  roomSign("trading-board", boardX - 0.15, 3.3, cz, -Math.PI / 2, 10, 0.5, ["ORBITX EXCHANGE", "LIVE CHARTS · REAL SOL"], "Trade · Launch · Scan");
   // Reception counter by the door (south-west corner, clear of the lane).
   put(boxes, x0 + 3.5, 0.55, z0 + d - 3.5, 3.5, 1.05, 1.2, "black");
   cols.push(col(x0 + 3.5, 0.55, z0 + d - 3.5, 3.5, 1.05, 1.2));
@@ -3204,6 +3223,15 @@ function furnishTrading(boxes: Box[], cols: Collider[], x0: number, z0: number, 
   const zone = spotZone("trading", "OrbitX Trading Floor", x0, z0, w, d, door);
   zone.serviceX = x0 + w - 4.5;
   zone.serviceZ = cz;
+  // EVERY desk opens the terminal, not just the middle back-row one:
+  // all six stools are service points (nearService checks them all).
+  // Before this, the only live spot was the back middle stool, walled
+  // off behind the front row — players stood at five of the six desks
+  // and got no prompt at all.
+  zone.servicePoints = [cz - 4.5, cz, cz + 4.5].flatMap((mz) => [
+    { x: x0 + w - 4.5, z: mz },
+    { x: x0 + w - 7.9, z: mz },
+  ]);
   return zone;
 }
 

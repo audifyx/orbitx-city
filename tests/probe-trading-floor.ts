@@ -27,6 +27,13 @@ check(z?.kind === "trading", `trading zone kind is trading (got ${z?.kind})`);
 check(Math.abs((z?.minX ?? 0) - 45.15) < 0.01 && Math.abs((z?.maxX ?? 0) - 64.85) < 0.01, `trading zone x rect 45.15..64.85 (got ${z?.minX}..${z?.maxX})`);
 check(Math.abs((z?.minZ ?? 0) - -14.85) < 0.01 && Math.abs((z?.maxZ ?? 0) - 4.85) < 0.01, `trading zone z rect -14.85..4.85 (got ${z?.minZ}..${z?.maxZ})`);
 check(Math.abs((z?.serviceX ?? 0) - 61.5) < 0.01 && Math.abs((z?.serviceZ ?? 0) - -5) < 0.01, `service point at the middle back-row desk stool (61.5, -5) (got ${z?.serviceX}, ${z?.serviceZ})`);
+// EVERY desk is a service point (2026-11-19 fix): the original build
+// only wired the middle back-row stool, and the front row walled it
+// off — players at the other five desks got no prompt, no terminal.
+const sps = (z?.servicePoints ?? []) as Array<{ x: number; z: number }>;
+check(sps.length === 6, `6 desk service points (got ${sps.length})`);
+check(sps.some((p) => Math.abs(p.x - 58.1) < 0.01 && Math.abs(p.z - -5) < 0.01), "front-row middle stool (58.1, -5) is a service point");
+check(sps.some((p) => Math.abs(p.x - 61.5) < 0.01 && Math.abs(p.z - -9.5) < 0.01), "back-row north stool (61.5, -9.5) is a service point");
 // Trading must precede the mall floor zones, or zoneAt() would return
 // mall-g for a player standing inside the floor.
 const tradingIdx = zones.findIndex((zz) => zz.id === "trading");
@@ -37,6 +44,10 @@ check(tradingIdx >= 0 && mallIdx >= 0 && tradingIdx < mallIdx, `trading zone pre
 const inRect = (b: any) => b.x >= 44 && b.x <= 66 && b.z >= -16 && b.z <= 6;
 const desks = boxes.filter((b: any) => inRect(b) && b.mat === "black" && Math.abs(b.sy - 1.0) < 0.01 && b.sx >= 1.1 && b.sx <= 1.3);
 check(desks.length === 6, `6 trading desks (got ${desks.length})`);
+check(desks.every((b: any) => b.sz >= 2.3 && b.sz <= 2.5), `desks slimmed to 2.4 deep so the row gaps are walkable (got ${desks.map((b: any) => b.sz).join(",")})`);
+// Ceiling skirt seals the rim gap (mall lights floated over the room).
+const skirt = boxes.filter((b: any) => b.mat === "ceil" && Math.abs(b.y - 3.62) < 0.1 && b.x - b.sx / 2 <= 44.6 && b.x + b.sx / 2 >= 44.6 && b.z - b.sz / 2 <= -5 && b.z + b.sz / 2 >= -5);
+check(skirt.length >= 1, "ceiling skirt covers the west rim point (44.5, -5)");
 const screens = boxes.filter((b: any) => inRect(b) && b.mat === "cyanhot" && b.sy >= 0.7 && b.sy <= 0.9);
 check(screens.length >= 6, `6+ glowing computer screens (got ${screens.length})`);
 const goldTrim = boxes.filter((b: any) => inRect(b) && b.mat === "gold" && b.sy <= 0.1);
