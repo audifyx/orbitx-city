@@ -883,8 +883,8 @@ export default function App() {
 
   // Zone music (Suno tracks the user made): Urgent Drive loops while
   // the player is driving, Run It Up loops while the Mini-Games hub is
-  // open. The in-game radio wins — zone music stays silent while a
-  // radio track is playing.
+  // open, Unconcerned Livin loops out in the city at night. The in-game
+  // radio wins — zone music stays silent while a radio track plays.
   useEffect(() => {
     const audio = (zoneAudioRef.current ??= new Audio());
     audio.loop = true;
@@ -897,7 +897,9 @@ export default function App() {
       ? "/audio/urgent-drive.mp3"
       : panel === "minigames"
         ? "/audio/run-it-up.mp3"
-        : null;
+        : snap.time === "night"
+          ? "/audio/unconcerned-livin.mp3"
+          : null;
     if (!want) {
       audio.pause();
       return;
@@ -905,7 +907,7 @@ export default function App() {
     if (!audio.src.includes(want)) audio.src = want;
     audio.play().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menu, playingId, snap.driving, snap.drivingTrain, panel]);
+  }, [menu, playingId, snap.driving, snap.drivingTrain, panel, snap.time]);
 
   // House party: when a party starts, the in-game Radio starts playing the
   // first public track if nothing is playing; when the party ends, the
