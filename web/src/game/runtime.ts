@@ -13272,6 +13272,25 @@ export function createRuntime(scene: Scene) {
     sendLocalSol(destination: string, amount: string) {
       return sendLocalSol(destination, amount);
     },
+    // Sign a versioned tx with the PIN-unlocked wallet (slot 0, the fee
+    // payer) and broadcast a signed tx — the two primitives the Trading
+    // Floor's Launch tab needs to sign + send the PumpPortal create tx.
+    signVersionedTx(unsignedTx: string) {
+      if (!isLocalWalletUnlocked()) return { ok: false as const, message: "Unlock your on-device wallet with your PIN first." };
+      try {
+        return { ok: true as const, signedTx: signVersionedTx(unsignedTx) };
+      } catch (err) {
+        return { ok: false as const, message: err instanceof Error ? err.message : "Signing failed." };
+      }
+    },
+    async submitSignedTx(signedTx: string) {
+      if (!isLocalWalletUnlocked()) return { ok: false as const, message: "Unlock your on-device wallet with your PIN first." };
+      try {
+        return await world.walletSubmit(signedTx, localWalletAddress());
+      } catch (err) {
+        return { ok: false as const, message: err instanceof Error ? err.message : "Broadcast failed." };
+      }
+    },
     toggleSpectator() {
       spectator = !spectator;
       if (spectator) {

@@ -206,6 +206,25 @@ export function signVersionedTx(unsignedBase64: string): string {
   return b64encode(out);
 }
 
+/**
+ * Sign one non-fee-payer slot of a versioned (v0) transaction with a
+ * supplied secret (e.g. a freshly generated mint keypair for a token
+ * launch — the mint is a signer, not the fee payer). The other slots
+ * are left untouched, so the fee payer can sign after (slot 0 via
+ * signVersionedTx). Returns the tx base64 with that slot filled.
+ */
+export function signVersionedTxSlot(unsignedBase64: string, secret: Uint8Array, slot: number): string {
+  const bytes = b64decode(unsignedBase64);
+  const { value: sigCount, next: sigStart } = readVarint(bytes, 0);
+  if (slot < 0 || slot >= sigCount) throw new Error("That transaction has no such signature slot.");
+  const message = bytes.subarray(sigStart + sigCount * 64);
+  if (!message.length) throw new Error("That transaction has no message to sign.");
+  const sig = nacl.sign.detached(message, secret);
+  const out = new Uint8Array(bytes);
+  out.set(sig, sigStart + slot * 64);
+  return b64encode(out);
+}
+
 function compact(n: number): Uint8Array {
   const out: number[] = [];
   let left = n;

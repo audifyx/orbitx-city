@@ -15,6 +15,7 @@ import { accountToken, ensureFreshAccountToken, refreshAccountToken, signOutAcco
 import { DecorBar, EmoteWheel, FeaturePanel, PhoneExtra, RaceBanner, SpectateBar, featureTitle } from "./Features";
 import HomeWorkshop, { workshopSavePlan, type WorkshopDraft } from "./HomeWorkshop";
 import { MinigamesPanel } from "./MinigamesPanel";
+import { TradingFloorPanel } from "./TradingFloorPanel";
 import { EMPTY_LEADERS, EMPTY_RACE } from "./game/life";
 import { CAR_SHOP, FLY_CONTROLS, VEHICLE_COLORS, getVehicle } from "./game/vehicles";
 // CARS expansion — customize / wash / repair / garage upgrades.
@@ -1980,6 +1981,7 @@ export default function App() {
                 {panel === "wardrobe" && "Wardrobe"}                {panel === "jobs" && "Jobs"}
                 {panel === "leaders" && "Leaderboards"}
                 {panel === "minigames" && "Mini-Games"}
+                {panel === "trading" && "OrbitX Trading Floor"}
                 {panel === "ads" && "Book a billboard"}
                 {panel === "radio" && "Radio"}
                 {panel === "voice" && "Voice chat"}
@@ -2007,7 +2009,7 @@ export default function App() {
               </strong>
               <button type="button" onClick={close}>Close</button>
             </header>
-            {panel !== "radio" && <p className="demo">Shop, jobs, property, and the arcade use City Sol only. They are not the in-app Solana wallet and cannot be cashed out.</p>}
+            {panel !== "radio" && panel !== "trading" && <p className="demo">Shop, jobs, property, and the arcade use City Sol only. They are not the in-app Solana wallet and cannot be cashed out.</p>}
             {panel === "shop" && (
               <div className="list">
                 <p>Balance {shopData?.shop.balance ?? snap.balance} City Sol · Burned total {snap.burned}</p>
@@ -4419,6 +4421,7 @@ export default function App() {
             {panel === "stats" && <CityStatsPanel stats={snap.cityStats} loading={snap.cityStatsLoading} error={snap.cityStatsError} onRefresh={() => void gameRef.current?.runtime.loadCityStats()} />}
             {panel === "alerts" && <AlertsPanel snap={snap} rt={gameRef.current?.runtime ?? null} onOpenChat={() => open("chat")} />}
             {panel === "minigames" && <MinigamesPanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
+            {panel === "trading" && <TradingFloorPanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             <FeaturePanel snap={{ ...snap, panel: panel as PanelName | "" }} rt={gameRef.current?.runtime ?? null} />
             {panel === "home" && (() => {
               const zoneId = snap.indoors || "";
