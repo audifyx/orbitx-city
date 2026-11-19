@@ -221,7 +221,7 @@ export interface TrainPose {
   dwelling: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "minigames" | "hq" | "race" | "home" | "homeedit" | "workshop" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "minigames" | "hq" | "race" | "home" | "homeedit" | "workshop" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats" | "trading";
 
 // UNIFIED SHOP: the Shop panel's category tabs. "grocery" is a tab
 // now, not a panel — the grocery store in the world opens the Shop on
@@ -2329,6 +2329,7 @@ export function createRuntime(scene: Scene) {
     if (zone.kind === "garage") return "Hover-cars live here";
     if (zone.kind === "carshop") return "27 cars · City Sol only";
     if (zone.kind === "arcade") return "Ten cabinets, one high score";
+    if (zone.kind === "trading") return "Trade real SOL · Live charts · Launch · Scan";
     if (zone.kind === "market") return "Stalls and neon";
     if (zone.kind === "dock") return "Pier is open";
     if (zone.kind === "mall") return "Shops · food court · mezzanine";
@@ -5018,6 +5019,7 @@ export function createRuntime(scene: Scene) {
       else if (zone.kind === "carshop") panel = "garage";
       else if (isDeptKind(zone.kind as string)) openEmergency(zone.kind as string, zone.name);
       else if (zone.kind === "arcade") panel = "minigames";
+      else if (zone.kind === "trading") panel = "trading";
       else if (zone.kind === "project") {
         hqIndex = zone.slot;
         panel = "hq";
@@ -9843,6 +9845,67 @@ export function createRuntime(scene: Scene) {
     }
   }
 
+  // Trading Floor — real Solana swaps (SOL <-> any token) from the
+  // on-device PIN wallet. Same shape as the arcade/ad flows: the server
+  // quotes + composes the Jupiter swap, this device signs it once, the
+  // server verifies + broadcasts. No per-trade cap beyond the wallet
+  // itself. A trade is real money — the terminal always shows the quote
+  // and asks for a confirm before anything is signed.
+  function tradeWalletReady() {
+    if (!world.online) return "Sign in to trade real SOL.";
+    if (!hasLocalWallet()) return "No on-device wallet yet — create one in the Wallet panel first.";
+    if (!isLocalWalletUnlocked()) return "Unlock your on-device wallet with your PIN first.";
+    return "";
+  }
+
+  async function tradeQuote(inputMint: string, outputMint: string, amount: string, slippageBps = 100) {
+    if (!world.online) return { ok: false as const, message: "Sign in to price a trade." };
+    try {
+      return await world.tradeQuote(inputMint, outputMint, amount, slippageBps);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "The quote failed." };
+    }
+  }
+
+  async function tradeExecute(inputMint: string, outputMint: string, amount: string, slippageBps = 100) {
+    const blocked = tradeWalletReady();
+    if (blocked) return { ok: false as const, message: blocked };
+    try {
+      const data = await world.tradeCompose(inputMint, outputMint, amount, localWalletAddress(), crypto.randomUUID(), slippageBps);
+      const unsignedTx = String((data as { unsignedTx?: string }).unsignedTx || "");
+      if (!unsignedTx) throw new Error("The city did not return a transaction to sign.");
+      const signedTx = signVersionedTx(unsignedTx);
+      const done = await world.tradeSubmit(String((data.trade as { id?: string } | undefined)?.id || ""), signedTx);
+      const message = String((done as { message?: string }).message || "Swap sent.");
+      say(message);
+      await refreshLocalWallet();
+      return { ok: true as const, message, trade: (done as { trade?: unknown }).trade, signature: String((done as { signature?: string }).signature || "") };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "The city refused the trade.";
+      say(message);
+      return { ok: false as const, message };
+    }
+  }
+
+  async function tradeStatus(tradeId: string) {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      return await world.tradeStatus(tradeId);
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Status check failed." };
+    }
+  }
+
+  async function tradeHoldings() {
+    if (!world.online) return { ok: false as const, message: "Offline.", holdings: [] };
+    if (!hasLocalWallet()) return { ok: false as const, message: "No on-device wallet yet.", holdings: [] };
+    try {
+      return await world.tradeHoldings(localWalletAddress());
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "Could not load holdings.", holdings: [] };
+    }
+  }
+
   // Office leases in real SOL: rent a suite in SOL, the payment buys
   // ORBITX and burns it all — same single-transaction buy+burn as
   // billboards. leaseOfficeSol pays from the server-held in-app wallet
@@ -12113,6 +12176,10 @@ export function createRuntime(scene: Scene) {
     arcadeCancel,
     arcadeHistory,
     arcadeLeaders,
+    tradeQuote,
+    tradeExecute,
+    tradeStatus,
+    tradeHoldings,
     quoteOfficeSol,
     leaseOfficeSol,
     leaseOfficeSolLocal,

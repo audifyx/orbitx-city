@@ -940,6 +940,29 @@ class CityWorld {
     return this.call("arcade-leaders", {});
   }
 
+  // Trading Floor — real Solana swaps (SOL <-> any token) via Jupiter.
+  // Compose/submit is the on-device PIN wallet path: the server quotes
+  // + composes, the device signs once, the server verifies + broadcasts.
+  async tradeQuote(inputMint: string, outputMint: string, amount: string, slippageBps = 100) {
+    return this.call("trade-quote", { inputMint, outputMint, amount, slippageBps });
+  }
+
+  async tradeCompose(inputMint: string, outputMint: string, amount: string, address: string, idempotencyKey = "", slippageBps = 100) {
+    return this.call("trade-compose", { inputMint, outputMint, amount, address, idempotencyKey, slippageBps });
+  }
+
+  async tradeSubmit(tradeId: string, signedTx: string) {
+    return this.call("trade-submit", { tradeId, signedTx });
+  }
+
+  async tradeStatus(tradeId: string) {
+    return this.call("trade-status", { tradeId });
+  }
+
+  async tradeHoldings(address: string) {
+    return this.call("trade-holdings", { address });
+  }
+
   // Office leases in real SOL: rent a suite in SOL, the payment buys
   // ORBITX and burns it all — same single-transaction buy+burn as
   // billboards. Compose/submit is the on-device PIN wallet path; buy is
