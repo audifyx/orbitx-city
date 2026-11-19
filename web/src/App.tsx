@@ -594,6 +594,7 @@ export default function App() {
   const [radioBusy, setRadioBusy] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const radioAudioRef = useRef<HTMLAudioElement | null>(null);
+  const splashAudioRef = useRef<HTMLAudioElement | null>(null);
   const radioInputRef = useRef<HTMLInputElement | null>(null);
   const [offices, setOffices] = useState<OfficeSuiteState[]>([]);
   const [officeMsg, setOfficeMsg] = useState("");
@@ -840,6 +841,32 @@ export default function App() {
   useEffect(() => {
     if (menu) stopRadio();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menu]);
+
+  // Splash theme: the OrbitX City anthem (Suno track the user made)
+  // loops over the menu screens and stops when the player enters the
+  // city. Browsers block autoplay until the first tap or keypress, so
+  // the first interaction unlocks it.
+  useEffect(() => {
+    const audio = (splashAudioRef.current ??= new Audio("/audio/splash-theme.mp3"));
+    audio.loop = true;
+    audio.volume = 0.45;
+    if (!menu) {
+      audio.pause();
+      return;
+    }
+    let cancelled = false;
+    const tryPlay = () => {
+      if (!cancelled) audio.play().catch(() => {});
+    };
+    tryPlay();
+    window.addEventListener("pointerdown", tryPlay);
+    window.addEventListener("keydown", tryPlay);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("pointerdown", tryPlay);
+      window.removeEventListener("keydown", tryPlay);
+    };
   }, [menu]);
 
   // House party: when a party starts, the in-game Radio starts playing the
