@@ -2176,12 +2176,12 @@ function reservedPlot(x0: number, x1: number, z0: number, z1: number) {
     // build a block here.
     [187, 207, 48, 66],
     [78, 98, 230, 250],
-    // Trading Floor (2026-11-19): the OrbitX exchange hall — the lot
-    // directly south of the Neon Arcade (43,7,22,22, door west onto the
-    // x=36 road), one block from the plaza. Verified CLEAR (lot check:
-    // only two low wooden benches). Reserved so no generated block spawns
-    // here. Do NOT build a block here.
-    [43, 65, 7, 29],
+    // Trading Floor (2026-11-19): the OrbitX exchange hall — a store
+    // INSIDE the Mega Mall, north half (44,-16,22,22, door south into the
+    // mall hall, one block from the plaza). The south-wall stores sit at
+    // z 24.6, so the floor lives in the mall's north half, clear of them.
+    // Reserved so no generated block spawns here. Do NOT build a block here.
+    [44, 66, -16, 6],
     // Mega mall + mega OrbitX office superblocks.
     [43, 101, -29, 29],
     [-101, -43, -29, 29],
@@ -3155,8 +3155,8 @@ function furnishTrading(boxes: Box[], cols: Collider[], x0: number, z0: number, 
   // Finish: black walls with gold striped wallpaper, beams.
   wallpaperWalls(boxes, x0, z0, w, d, door, "black", "gold");
   ceilingBeams(boxes, x0, z0, w, d);
-  // Gold runner down the door lane (west door → service point).
-  put(boxes, cx - 1, 0.145, cz, 15, 0.05, 3, "gold");
+  // Gold runner down the door lane (south door → service point, north-south).
+  put(boxes, cx, 0.145, cz + 5.5, 3, 0.05, 11, "gold");
   // A trading desk: black slab, gold edge, an OrbitX computer (black
   // monitor + glowing cyan chart screen facing the room) and a keyboard.
   // face "w" = the screen looks west (toward the door); face "e" = east.
@@ -3188,16 +3188,23 @@ function furnishTrading(boxes: Box[], cols: Collider[], x0: number, z0: number, 
     put(boxes, boardX - 0.08, 3.0, cz - 6.5 + i * 1.85, 0.06, 0.5, 1.5, stripMats[i % stripMats.length]);
   }
   roomSign("trading-board", boardX - 0.15, 4.4, cz, -Math.PI / 2, 10, 1.2, ["ORBITX EXCHANGE", "LIVE CHARTS · REAL SOL"], "Trade · Launch · Scan");
-  // Reception counter by the door (north-west corner, clear of the lane).
-  put(boxes, x0 + 3.5, 0.55, z0 + 3.5, 3.5, 1.05, 1.2, "black");
-  cols.push(col(x0 + 3.5, 0.55, z0 + 3.5, 3.5, 1.05, 1.2));
-  put(boxes, x0 + 3.5, 1.15, z0 + 3.5, 3.7, 0.12, 1.35, "gold");
-  put(boxes, x0 + 3.5, 1.5, z0 + 3.5, 2.0, 0.6, 0.1, "cyanhot");
-  floorLamp(boxes, cols, x0 + 2.6, z0 + d - 2.6);
+  // Reception counter by the door (south-west corner, clear of the lane).
+  put(boxes, x0 + 3.5, 0.55, z0 + d - 3.5, 3.5, 1.05, 1.2, "black");
+  cols.push(col(x0 + 3.5, 0.55, z0 + d - 3.5, 3.5, 1.05, 1.2));
+  put(boxes, x0 + 3.5, 1.15, z0 + d - 3.5, 3.7, 0.12, 1.35, "gold");
+  put(boxes, x0 + 3.5, 1.5, z0 + d - 3.5, 2.0, 0.6, 0.1, "cyanhot");
+  // Floor lamp in the north-west corner; plants by the door come from
+  // doorCornerPlants (south wall), so no duplicate plant here.
+  floorLamp(boxes, cols, x0 + 2.6, z0 + 2.6);
   pottedPlant(boxes, cols, x0 + w - 2.6, z0 + 2.6);
-  pottedPlant(boxes, cols, x0 + 2.6, z0 + d - 2.6);
   doorCornerPlants(boxes, cols, x0, z0, w, d, door);
-  return spotZone("trading", "OrbitX Trading Floor", x0, z0, w, d, door);
+  // The door faces the mall hall (south); the terminal lives at the
+  // middle desk of the back row, so the service point is pinned to that
+  // desk's stool instead of the default opposite-the-door spot.
+  const zone = spotZone("trading", "OrbitX Trading Floor", x0, z0, w, d, door);
+  zone.serviceX = x0 + w - 4.5;
+  zone.serviceZ = cz;
+  return zone;
 }
 
 // Night Market (door north): four stalls on the side walls, the service
@@ -5750,10 +5757,12 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     addVenue(boxes, cols, 210, -80, 26, 22, 8, "w", "carshop"),
     addVenue(boxes, cols, 43, 43, 22, 22, 8, "w", "arcade"),
     // TRADING FLOOR (2026-11-19): OrbitX exchange hall — real trading,
-    // launchpad + scanner, on the lot directly south of the arcade
-    // (43,7,22,22, door west onto the x=36 road), one block from the
-    // plaza. Lot reserved in reservedPlot; verified clear.
-    addVenue(boxes, cols, 43, 7, 22, 22, 9, "w", "trading"),
+    // launchpad + scanner, a store INSIDE the Mega Mall's north half
+    // (44,-16,22,22, door south into the mall hall), one block from the
+    // plaza. The west door was blocked by the mall's west wall (same
+    // plane) and the south-wall stores sit at z 24.6, so the floor lives
+    // in the mall's north half with its door facing the hall.
+    addVenue(boxes, cols, 44, -16, 22, 22, 9, "s", "trading"),
     addVenue(boxes, cols, -29, 79, 22, 22, 7, "n", "market"),
     // GROCERY (2026-11-12): OrbitX Grocery, the lot south of the shop
     // (7,79,22,22, door north onto the z=72 road) — between the Night
@@ -5845,6 +5854,11 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     // opens the car-shop panel (buy / select cars). Anchor: id "carshop",
     // (208.6, -69), yaw π/2.
     doorAnchor("carshop", "OrbitX Motors", "carshop", 210, -80, 26, 22, "w"),
+    // TRADING FLOOR: OrbitX exchange hall door (south wall of the
+    // 44,-16 lot). E here walks the player in from the mall hall; E at
+    // the middle desk opens the terminal. Anchor: id "trading",
+    // (55, 7.4), yaw 0.
+    doorAnchor("trading", "OrbitX Trading Floor", "trading", 44, -16, 22, 22, "s"),
     { id: "arcade", name: "Neon Arcade", kind: "arcade", x: 41.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
     { id: "market", name: "Night Market", kind: "market", x: -18, y: 0, z: 77.6, yaw: Math.PI, slot: 0 },
     // GROCERY: OrbitX Grocery door (north wall of the 7,79 lot). E here
