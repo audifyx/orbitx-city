@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0a0a0c" />
+<title>OrbitX City — Phone Controller</title>
+<style>
+  :root {
+    --gold: #f2b544;
+    --ink: #ffffff;
+    --panel: #15151a;
+    --line: #2c2c34;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0a0a0c; color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden; overscroll-behavior: none;
+  }
+  button { font-family: inherit; color: var(--ink); }
+
+  /* ---------- connect view ---------- */
+  #connect {
+    height: 100dvh; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 14px; padding: 24px; text-align: center;
+  }
+  #connect h1 { font-size: 22px; margin: 0; letter-spacing: 0.4px; }
+  #connect h1 .gold { color: var(--gold); }
+  #connect p { margin: 0; color: #c9c9d1; font-size: 14px; line-height: 1.45; max-width: 340px; }
+  #code {
+    width: 210px; font-size: 40px; font-weight: 800; letter-spacing: 14px; text-align: center;
+    background: var(--panel); color: var(--ink); border: 2px solid var(--line); border-radius: 14px;
+    padding: 10px 0 10px 14px; outline: none;
+  }
+  #code:focus { border-color: var(--gold); }
+  #go {
+    width: 210px; font-size: 18px; font-weight: 800; padding: 14px 0; border: 0; border-radius: 14px;
+    background: var(--gold); color: #14100a; cursor: pointer;
+  }
+  #go:disabled { opacity: 0.5; }
+  #cstatus { min-height: 20px; font-size: 14px; color: #ffb3b3; }
+  #cstatus.ok { color: #9be29b; }
+
+  /* ---------- pad view ---------- */
+  #pad { height: 100dvh; display: none; flex-direction: column; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #topbar {
+    display: flex; align-items: center; gap: 10px; padding: calc(6px + env(safe-area-inset-top)) 12px 6px;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  #dot { width: 10px; height: 10px; border-radius: 50%; background: #e5484d; flex: none; }
+  #dot.on { background: #46a758; }
+  #prompt { flex: 1; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #driveBtn {
+    display: none; background: var(--gold); color: #14100a; border: 0; border-radius: 10px;
+    font-weight: 800; font-size: 14px; padding: 8px 14px;
+  }
+  #quitBtn { background: none; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; padding: 7px 11px; }
+  #stage { flex: 1; position: relative; }
+  .stick {
+    position: absolute; bottom: calc(26px + env(safe-area-inset-bottom)); width: 148px; height: 148px;
+    border-radius: 50%; background: rgba(255,255,255,0.06); border: 2px solid var(--line);
+    touch-action: none;
+  }
+  .stick .knob {
+    position: absolute; left: 50%; top: 50%; width: 62px; height: 62px; margin: -31px 0 0 -31px;
+    border-radius: 50%; background: rgba(255,255,255,0.22); border: 2px solid rgba(255,255,255,0.45);
+  }
+  .stick .tag {
+    position: absolute; left: 0; right: 0; top: -22px; text-align: center;
+    font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: #9a9aa5;
+  }
+  #moveStick { left: 20px; }
+  #lookStick { right: 20px; }
+  #cluster {
+    position: absolute; right: 18px; bottom: calc(196px + env(safe-area-inset-bottom));
+    display: grid; grid-template-columns: 64px 64px; gap: 10px;
+  }
+  .pbtn {
+    height: 64px; border-radius: 16px; border: 2px solid var(--line); background: rgba(255,255,255,0.08);
+    font-size: 15px; font-weight: 800; touch-action: none;
+  }
+  .pbtn.held { background: rgba(242,181,68,0.35); border-color: var(--gold); }
+  #useBtn {
+    position: absolute; right: 24px; bottom: calc(352px + env(safe-area-inset-bottom));
+    width: 92px; height: 92px; border-radius: 50%; background: var(--gold); color: #14100a;
+    border: 0; font-size: 19px; font-weight: 900; touch-action: none;
+    box-shadow: 0 4px 18px rgba(242,181,68,0.35);
+  }
+  #useBtn.held { filter: brightness(1.2); }
+  #driveRow {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: calc(26px + env(safe-area-inset-bottom)); display: flex; gap: 12px;
+  }
+  .dbtn {
+    width: 104px; height: 56px; border-radius: 14px; border: 2px solid var(--line);
+    background: rgba(255,255,255,0.08); font-size: 15px; font-weight: 800; touch-action: none;
+  }
+  .dbtn.held { background: rgba(242,181,68,0.35); border-color: var(--gold); }
+  @media (orientation: portrait) {
+    #driveRow { bottom: calc(196px + env(safe-area-inset-bottom)); }
+    #useBtn { bottom: calc(430px + env(safe-area-inset-bottom)); }
+    #cluster { bottom: calc(274px + env(safe-area-inset-bottom)); }
+  }
+</style>
+</head>
+<body>
+
+<div id="connect">
+  <h1>ORBITX <span class="gold">CITY</span> CONTROLLER</h1>
+  <p>Open OrbitX City on your PC, tap the <b>Pad</b> button in the game, and type the 4-digit code it shows.</p>
+  <input id="code" inputmode="numeric" autocomplete="off" maxlength="4" placeholder="0000" />
+  <button id="go">Connect</button>
+  <div id="cstatus"></div>
+  <p style="font-size:12px;color:#8a8a94">Tip: turn your phone sideways for the full pad.</p>
+</div>
+
+<div id="pad">
+  <div id="topbar">
+    <span id="dot"></span>
+    <span id="prompt">Connected — play on your PC screen</span>
+    <button id="driveBtn">Drive train</button>
+    <button id="quitBtn">Disconnect</button>
+  </div>
+  <div id="stage">
+    <div class="stick" id="moveStick"><span class="tag">MOVE</span><span class="knob"></span></div>
+    <div class="stick" id="lookStick"><span class="tag">CAMERA</span><span class="knob"></span></div>
+    <div id="cluster">
+      <button class="pbtn" id="jumpBtn">Jump</button>
+      <button class="pbtn" id="flyBtn">Fly</button>
+      <button class="pbtn" id="downBtn">Down</button>
+      <button class="pbtn" id="camBtn">Camera</button>
+    </div>
+    <button id="useBtn">USE</button>
+    <div id="driveRow">
+      <button class="dbtn" id="brakeBtn">Brake</button>
+      <button class="dbtn" id="gasBtn">Gas</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const params = new URLSearchParams(location.search);
+const RELAY = params.get("relay") || "wss://orbitx-city-api.onrender.com/relay";
+
+const $ = (id) => document.getElementById(id);
+const connectView = $("connect"), padView = $("pad");
+const codeInput = $("code"), goBtn = $("go"), cstatus = $("cstatus");
+const dot = $("dot"), promptEl = $("prompt"), driveBtn = $("driveBtn");
+
+codeInput.value = params.get("code") || localStorage.getItem("orbitx-pad-code") || "";
+
+let ws = null;
+let code = "";
+let paired = false;
+let retryTimer = null;
+let retryCount = 0;
+
+// --- pad state ---
+const state = {
+  stick: [0, 0],        // move stick: x right+, y up+ (game convention)
+  look: [0, 0],         // look stick deflection: x right+, y up+
+  lookAcc: [0, 0],      // accumulated look deltas to send (drag-style px)
+  hold: { jump: false, down: false, gas: false, brake: false },
+};
+
+function setStatus(text, ok) {
+  cstatus.textContent = text;
+  cstatus.className = ok ? "ok" : "";
+}
+
+function connect() {
+  code = (codeInput.value || "").trim();
+  if (!/^\d{4}$/.test(code)) { setStatus("Enter the 4-digit code from the PC screen."); return; }
+  localStorage.setItem("orbitx-pad-code", code);
+  goBtn.disabled = true;
+  setStatus("Connecting…");
+  openSocket();
+}
+
+function openSocket() {
+  try { ws = new WebSocket(RELAY); } catch (e) { scheduleRetry(); return; }
+  ws.onopen = () => { ws.send(JSON.stringify({ t: "join", code })); };
+  ws.onmessage = (ev) => {
+    let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.t === "paired") {
+      paired = true; retryCount = 0;
+      showPad();
+    } else if (msg.t === "error") {
+      setStatus(msg.message || "Could not connect.");
+      goBtn.disabled = false;
+      try { ws.close(); } catch {}
+    } else if (msg.t === "host-gone") {
+      backToConnect("The game closed the controller room. Tap Pad in the game for a new code.");
+    } else if (msg.t === "state") {
+      if (typeof msg.prompt === "string" && msg.prompt) promptEl.textContent = msg.prompt;
+      driveBtn.style.display = msg.canDrive ? "block" : "none";
+    }
+  };
+  ws.onclose = () => {
+    dot.className = "";
+    if (paired) { promptEl.textContent = "Connection lost — reconnecting…"; scheduleRetry(); }
+  };
+  ws.onerror = () => { try { ws.close(); } catch {} };
+}
+
+function scheduleRetry() {
+  if (retryTimer) return;
+  if (++retryCount > 20) { backToConnect("Could not reconnect — check the code and try again."); return; }
+  retryTimer = setTimeout(() => { retryTimer = null; openSocket(); }, 2000);
+}
+
+function showPad() {
+  connectView.style.display = "none";
+  padView.style.display = "flex";
+  dot.className = "on";
+  promptEl.textContent = "Connected — play on your PC screen";
+  if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(() => {});
+  startSender();
+}
+
+function backToConnect(message) {
+  paired = false;
+  stopSender();
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+  if (ws) { try { ws.close(); } catch {} ws = null; }
+  padView.style.display = "none";
+  connectView.style.display = "flex";
+  goBtn.disabled = false;
+  setStatus(message || "");
+}
+
+// --- sending ---
+let sendTimer = null;
+function sendNow(extra) {
+  if (!ws || ws.readyState !== 1 || !paired) return;
+  const msg = Object.assign({
+    t: "input",
+    stick: state.stick,
+    look: [Math.round(state.lookAcc[0]), Math.round(state.lookAcc[1])],
+    hold: state.hold,
+  }, extra || {});
+  state.lookAcc = [0, 0];
+  try { ws.send(JSON.stringify(msg)); } catch {}
+}
+function startSender() {
+  stopSender();
+  sendTimer = setInterval(() => {
+    // Rate-based camera: deflecting the look stick feeds drag deltas,
+    // the same input the game's own look pad produces.
+    state.lookAcc[0] += state.look[0] * 16;
+    state.lookAcc[1] += -state.look[1] * 16;
+    sendNow();
+  }, 50);
+}
+function stopSender() { if (sendTimer) { clearInterval(sendTimer); sendTimer = null; } }
+
+function press(name) {
+  if (navigator.vibrate) navigator.vibrate(8);
+  sendNow({ press: name });
+}
+
+// --- sticks ---
+function wireStick(el, apply) {
+  const knob = el.querySelector(".knob");
+  let pointer = null;
+  const update = (clientX, clientY) => {
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    let x = (clientX - cx) / (r.width / 2);
+    let y = (cy - clientY) / (r.height / 2);
+    const mag = Math.hypot(x, y);
+    if (mag > 1) { x /= mag; y /= mag; }
+    knob.style.transform = `translate(${x * 40}px, ${-y * 40}px)`;
+    apply(x, y);
+  };
+  el.addEventListener("pointerdown", (e) => { pointer = e.pointerId; el.setPointerCapture(pointer); update(e.clientX, e.clientY); });
+  el.addEventListener("pointermove", (e) => { if (e.pointerId === pointer) update(e.clientX, e.clientY); });
+  const end = (e) => {
+    if (e.pointerId !== pointer) return;
+    pointer = null;
+    knob.style.transform = "";
+    apply(0, 0);
+  };
+  el.addEventListener("pointerup", end);
+  el.addEventListener("pointercancel", end);
+}
+wireStick($("moveStick"), (x, y) => { state.stick = [x, y]; });
+wireStick($("lookStick"), (x, y) => { state.look = [x, y]; });
+
+// --- buttons ---
+function wireHold(el, key) {
+  const on = (e) => { e.preventDefault(); el.classList.add("held"); state.hold[key] = true; sendNow(); };
+  const off = () => { el.classList.remove("held"); state.hold[key] = false; sendNow(); };
+  el.addEventListener("pointerdown", on);
+  el.addEventListener("pointerup", off);
+  el.addEventListener("pointerleave", off);
+  el.addEventListener("pointercancel", off);
+  el.addEventListener("contextmenu", (e) => e.preventDefault());
+}
+function wirePress(el, name) {
+  el.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    el.classList.add("held");
+    press(name);
+    setTimeout(() => el.classList.remove("held"), 150);
+  });
+  el.addEventListener("contextmenu", (e) => e.preventDefault());
+}
+wireHold($("jumpBtn"), "jump");
+wireHold($("downBtn"), "down");
+wireHold($("gasBtn"), "gas");
+wireHold($("brakeBtn"), "brake");
+wirePress($("useBtn"), "use");
+wirePress($("flyBtn"), "fly");
+wirePress($("camBtn"), "camera");
+wirePress(driveBtn, "drive");
+
+goBtn.addEventListener("click", connect);
+codeInput.addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
+codeInput.addEventListener("input", () => { codeInput.value = codeInput.value.replace(/\D/g, "").slice(0, 4); });
+$("quitBtn").addEventListener("click", () => backToConnect(""));
+
+// Stop the page scrolling/zooming under the pad.
+document.addEventListener("touchmove", (e) => { if (paired) e.preventDefault(); }, { passive: false });
+document.addEventListener("gesturestart", (e) => e.preventDefault());
+
+if (params.get("code")) connect();
+</script>
+</body>
+</html>

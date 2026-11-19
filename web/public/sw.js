@@ -4,7 +4,7 @@
 // v21 (2026-11-18): MEGA PUSH — building-entry doors, vehicle fixes, bus+train
 // operator jobs, Home Workshop 2D editor, 25 ORBITX billboards, Arcade PvP
 // pot games (Coin Flip + Dice Roll).
-const CACHE = "orbitx-city-v26";
+const CACHE = "orbitx-city-v27";
 const PRECACHE = [
   "/",
   "/index.html",
@@ -46,6 +46,10 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   // API: never serve stale data — network only.
   if (url.pathname.startsWith("/api/")) return;
+  // The phone-controller page is standalone: never let it anywhere near
+  // the shell cache (a navigation to it would be stored as /index.html
+  // and poison the game shell).
+  if (url.pathname === "/controller" || url.pathname === "/controller.html") return;
   // Cross-origin: leave alone.
   if (url.origin !== self.location.origin) return;
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
 import type { AdOrder, CityStats, MyPropertyClaim, OfficeSolLease, PanelName, RadioTrack, Runtime, ShopCatalogData, ShopTab, Snap } from "./game/runtime";
 import { EMPTY_CITY_PEOPLE, FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/runtime";
+import { PadHost, type PadStatus } from "./game/controllerClient";
 import { PROXIMITY_RANGE, VOICE_FILTERS } from "./game/voice";
 import { allLooks, loadLooks, lookName } from "./game/avatar";
 import { BILLBOARD_ORBITX_DAYS, BILLBOARD_ORBITX_USD, GROCERY_FOOD_BY_ID, GYM_WORKOUTS, OFFICE_SUITES, RECIPES, RESTAURANT_BY_ID, RESTAURANT_MENUS, adUsdPrice, foodSpeedMult, hungerLabel, officeSolUsdPrice } from "./game/content";
@@ -543,6 +544,27 @@ export default function App() {
   const [webglMissing, setWebglMissing] = useState(false);
   const [snap, setSnap] = useState<Snap>(EMPTY);
   const [panel, setPanel] = useState<AppPanel>("");
+  // Phone-as-controller (Pad): the relay host lives outside React state;
+  // only its status is mirrored here for the strip button + pairing card.
+  const padRef = useRef<PadHost | null>(null);
+  const [pad, setPad] = useState<PadStatus | null>(null);
+  const startPad = useCallback(() => {
+    const rt = gameRef.current?.runtime;
+    if (!rt) return;
+    padRef.current?.stop();
+    const host = new PadHost(rt, setPad);
+    padRef.current = host;
+    host.start();
+  }, []);
+  const stopPad = useCallback(() => {
+    padRef.current?.stop();
+    padRef.current = null;
+    setPad(null);
+  }, []);
+  useEffect(() => {
+    padRef.current?.sendState(snap.prompt ?? "", !!snap.canDriveLoopTrain);
+  }, [snap.prompt, snap.canDriveLoopTrain]);
+  useEffect(() => () => padRef.current?.stop(), []);
   const [adText, setAdText] = useState("ORBITX LIVE");
   const [adId, setAdId] = useState("plaza-east");
   const [adDays, setAdDays] = useState<1 | 7 | 30>(7);
@@ -1790,6 +1812,41 @@ export default function App() {
         </div>
       )}
       {!menu && snap.prompt && !snap.hideHud ? <p className="prompt">{snap.prompt}</p> : null}
+      {pad ? (
+        <div
+          style={{
+            position: "fixed", top: 64, left: "50%", transform: "translateX(-50%)", zIndex: 70,
+            background: "#101014", border: "2px solid #f2b544", borderRadius: 14,
+            padding: "14px 20px", color: "#ffffff", textAlign: "center", maxWidth: "92vw",
+            boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
+          }}
+        >
+          {pad.phase === "connecting" ? (
+            <p style={{ margin: 0, fontWeight: 700 }}>Connecting to the controller relay…</p>
+          ) : null}
+          {pad.phase === "waiting" ? (
+            <>
+              <p style={{ margin: "0 0 2px", fontWeight: 700 }}>Phone controller code</p>
+              <p style={{ margin: "2px 0", fontSize: 38, fontWeight: 900, letterSpacing: 10, color: "#f2b544" }}>{pad.code}</p>
+              <p style={{ margin: "2px 0 0", fontSize: 13, color: "#c9c9d1" }}>
+                On your phone, open <b>orbitx-city.pages.dev/controller</b> and type this code.
+              </p>
+            </>
+          ) : null}
+          {pad.phase === "paired" ? (
+            <p style={{ margin: 0, fontWeight: 700 }}>Phone connected — you are live. Play on this screen, drive from your phone.</p>
+          ) : null}
+          {pad.phase === "closed" ? <p style={{ margin: 0, fontWeight: 700 }}>{pad.message}</p> : null}
+          <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "center" }}>
+            {pad.phase === "closed" ? (
+              <button type="button" onClick={startPad} style={{ background: "#f2b544", color: "#14100a", border: 0, borderRadius: 10, fontWeight: 800, padding: "8px 14px" }}>Try again</button>
+            ) : null}
+            <button type="button" onClick={stopPad} style={{ background: "none", color: "#ffffff", border: "1px solid #2c2c34", borderRadius: 10, fontWeight: 700, padding: "8px 14px" }}>
+              {pad.phase === "paired" ? "Disconnect" : "Close"}
+            </button>
+          </div>
+        </div>
+      ) : null}
       {!menu && !snap.hideHud && (
         <div className="actions">
           <button type="button" onClick={() => openShop("clothes")}>Shop</button>
@@ -1864,6 +1921,12 @@ export default function App() {
             </button>
           ) : null}
           <button type="button" onClick={() => open("phone")}>Phone</button>
+          {/* PHONE CONTROLLER: pair a phone as a wireless gamepad for
+              this screen (relay on the City API). The button toggles the
+              pairing card; the code + status render under the strip. */}
+          <button type="button" onClick={() => (pad ? stopPad() : startPad())}>
+            {pad?.phase === "paired" ? "Pad ✓" : "Pad"}
+          </button>
           {/* CITY STATS: admin-only. The button only exists for the
               signed-in audifyx@gmail.com account — everyone else never
               sees the page at all, and the server 403s/404s any direct
