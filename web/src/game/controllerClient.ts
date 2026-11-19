@@ -47,13 +47,36 @@ function clampLook(v: unknown): number {
   return Math.max(-80, Math.min(80, n));
 }
 
-/** Camera speed at full stick deflection, in addLook pixels per second. */
-const LOOK_RATE_PX_PER_SEC = 300;
+/**
+ * Camera tuning. addLook() takes RADIANS (mouse look multiplies pixels
+ * by 0.0022 before calling it; keyboard look runs at 1.7 rad/s yaw).
+ * The stick gets a slightly hotter yaw than the keys and a gentler
+ * pitch, an expo response curve for fine control near the center, a
+ * small deadzone, and velocity smoothing so turns ramp in and glide
+ * out instead of snapping on and off.
+ */
+const LOOK_MAX_YAW_PER_SEC = 2.6;
+const LOOK_MAX_PITCH_PER_SEC = 1.6;
+const LOOK_DEADZONE = 0.08;
+const LOOK_ATTACK_PER_SEC = 22;
+const LOOK_RELEASE_PER_SEC = 11;
+const STICK_SMOOTH_PER_SEC = 25;
+
+function shapeLook(d: number): number {
+  const a = Math.abs(d);
+  if (a <= LOOK_DEADZONE) return 0;
+  const t = (a - LOOK_DEADZONE) / (1 - LOOK_DEADZONE);
+  return Math.sign(d) * Math.pow(t, 1.6);
+}
 
 export class PadHost {
   private ws: WebSocket | null = null;
   private holds: Record<HoldKey, boolean> = { jump: false, down: false, gas: false, brake: false };
-  private lookRate: [number, number] = [0, 0];
+  private lookTarget: [number, number] = [0, 0];
+  private lookVel: [number, number] = [0, 0];
+  private stickTarget: [number, number] = [0, 0];
+  private stickSmooth: [number, number] = [0, 0];
+  private stickApplied: [number, number] = [0, 0];
   private rafId = 0;
   private lastFrameAt = 0;
   private lastStateKey = "";
@@ -122,20 +145,43 @@ export class PadHost {
   }
 
   /**
-   * Per-frame camera integration: the pad streams a look rate, and the
-   * turn is applied a frame-sized slice at a time. Network jitter changes
-   * when rate updates land, never how smooth the turn itself feels.
+   * Per-frame input integration. The pad streams stick deflections; this
+   * loop chases them with exponential smoothing and applies frame-sized
+   * slices, so network jitter changes when updates land, never how the
+   * motion itself feels. The camera velocity ramps up fast (attack) and
+   * glides to a stop (release); the move stick is smoothed just enough
+   * to take the steps out of uneven packet arrival.
    */
   private tick = (now: number): void => {
     if (this.stopped) return;
     const dt = Math.min(0.05, Math.max(0, (now - this.lastFrameAt) / 1000));
     this.lastFrameAt = now;
-    const [rx, ry] = this.lookRate;
-    if ((rx !== 0 || ry !== 0) && dt > 0) {
-      try {
-        this.runtime.addLook(rx * LOOK_RATE_PX_PER_SEC * dt, ry * LOOK_RATE_PX_PER_SEC * dt);
-      } catch {
-        /* runtime gone */
+    if (dt > 0) {
+      for (let i = 0; i < 2; i++) {
+        const rate = Math.abs(this.lookTarget[i]) > Math.abs(this.lookVel[i]) ? LOOK_ATTACK_PER_SEC : LOOK_RELEASE_PER_SEC;
+        this.lookVel[i] += (this.lookTarget[i] - this.lookVel[i]) * (1 - Math.exp(-rate * dt));
+        if (Math.abs(this.lookVel[i]) < 0.0005 && this.lookTarget[i] === 0) this.lookVel[i] = 0;
+      }
+      const [vx, vy] = this.lookVel;
+      if (vx !== 0 || vy !== 0) {
+        try {
+          this.runtime.addLook(vx * LOOK_MAX_YAW_PER_SEC * dt, vy * LOOK_MAX_PITCH_PER_SEC * dt);
+        } catch {
+          /* runtime gone */
+        }
+      }
+      const k = 1 - Math.exp(-STICK_SMOOTH_PER_SEC * dt);
+      this.stickSmooth[0] += (this.stickTarget[0] - this.stickSmooth[0]) * k;
+      this.stickSmooth[1] += (this.stickTarget[1] - this.stickSmooth[1]) * k;
+      if (this.stickTarget[0] === 0 && Math.abs(this.stickSmooth[0]) < 0.002) this.stickSmooth[0] = 0;
+      if (this.stickTarget[1] === 0 && Math.abs(this.stickSmooth[1]) < 0.002) this.stickSmooth[1] = 0;
+      if (Math.abs(this.stickSmooth[0] - this.stickApplied[0]) > 0.0005 || Math.abs(this.stickSmooth[1] - this.stickApplied[1]) > 0.0005) {
+        this.stickApplied = [this.stickSmooth[0], this.stickSmooth[1]];
+        try {
+          this.runtime.setStick(this.stickApplied[0], this.stickApplied[1]);
+        } catch {
+          /* runtime gone */
+        }
       }
     }
     this.rafId = requestAnimationFrame(this.tick);
@@ -143,12 +189,16 @@ export class PadHost {
 
   private applyInput(msg: { stick?: unknown; look?: unknown; lookRate?: unknown; hold?: unknown; press?: unknown }): void {
     const rt = this.runtime;
-    if (Array.isArray(msg.stick)) rt.setStick(clampAxis(msg.stick[0]), clampAxis(msg.stick[1]));
+    if (Array.isArray(msg.stick)) {
+      // Stored as a target; the tick loop smooths toward it per frame.
+      this.stickTarget = [clampAxis(msg.stick[0]), clampAxis(msg.stick[1])];
+    }
     if (Array.isArray(msg.lookRate)) {
-      // Rate protocol: store the deflection; the tick loop applies it.
+      // Rate protocol: shape the deflection (deadzone + expo curve) and
+      // store it as the velocity target; the tick loop does the rest.
       // Any legacy deltas in the same message are ignored on purpose —
       // applying both would turn the camera twice.
-      this.lookRate = [clampAxis(msg.lookRate[0]), clampAxis(msg.lookRate[1])];
+      this.lookTarget = [shapeLook(clampAxis(msg.lookRate[0])), shapeLook(clampAxis(msg.lookRate[1]))];
     } else if (Array.isArray(msg.look)) {
       const dx = clampLook(msg.look[0]);
       const dy = clampLook(msg.look[1]);
@@ -187,7 +237,11 @@ export class PadHost {
   }
 
   private releaseAll(): void {
-    this.lookRate = [0, 0];
+    this.lookTarget = [0, 0];
+    this.lookVel = [0, 0];
+    this.stickTarget = [0, 0];
+    this.stickSmooth = [0, 0];
+    this.stickApplied = [0, 0];
     try {
       this.runtime.setStick(0, 0);
     } catch {

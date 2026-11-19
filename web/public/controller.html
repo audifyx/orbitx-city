@@ -325,8 +325,44 @@ function wireStick(el, apply) {
   el.addEventListener("pointerup", end);
   el.addEventListener("pointercancel", end);
 }
+// Camera stick: floating origin — the stick centers wherever the
+// thumb lands, so there is no jump on touch-down and small thumb
+// movements stay fine-grained. Deflection is measured over a 64px
+// throw; the game applies the response curve and smoothing.
+function wireFloatStick(el, apply) {
+  const knob = el.querySelector(".knob");
+  const RADIUS = 64, KNOB_TRAVEL = 42;
+  let pointer = null, ox = 0, oy = 0, odx = 0, ody = 0;
+  el.addEventListener("pointerdown", (e) => {
+    pointer = e.pointerId;
+    el.setPointerCapture(pointer);
+    const r = el.getBoundingClientRect();
+    ox = e.clientX; oy = e.clientY;
+    odx = ox - (r.left + r.width / 2);
+    ody = oy - (r.top + r.height / 2);
+    knob.style.transform = `translate(${odx}px, ${ody}px)`;
+    apply(0, 0);
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== pointer) return;
+    let x = (e.clientX - ox) / RADIUS;
+    let y = (oy - e.clientY) / RADIUS;
+    const mag = Math.hypot(x, y);
+    if (mag > 1) { x /= mag; y /= mag; }
+    knob.style.transform = `translate(${odx + x * KNOB_TRAVEL}px, ${ody - y * KNOB_TRAVEL}px)`;
+    apply(x, y);
+  });
+  const end = (e) => {
+    if (e.pointerId !== pointer) return;
+    pointer = null;
+    knob.style.transform = "";
+    apply(0, 0);
+  };
+  el.addEventListener("pointerup", end);
+  el.addEventListener("pointercancel", end);
+}
 wireStick($("moveStick"), (x, y) => { state.stick = [x, y]; });
-wireStick($("lookStick"), (x, y) => { state.look = [x, y]; });
+wireFloatStick($("lookStick"), (x, y) => { state.look = [x, y]; });
 
 // --- buttons ---
 function wireHold(el, key) {
