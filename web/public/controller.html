@@ -79,7 +79,7 @@
   }
   .pbtn {
     height: 64px; border-radius: 16px; border: 2px solid var(--line); background: rgba(255,255,255,0.08);
-    font-size: 14px; font-weight: 800; touch-action: none; padding: 0 2px; overflow: hidden;
+    font-size: 15px; font-weight: 800; touch-action: none;
   }
   .pbtn.held { background: rgba(242,181,68,0.35); border-color: var(--gold); }
   #useBtn {
@@ -100,9 +100,8 @@
   .dbtn.held { background: rgba(242,181,68,0.35); border-color: var(--gold); }
   @media (orientation: portrait) {
     #driveRow { bottom: calc(196px + env(safe-area-inset-bottom)); }
-    #useBtn { bottom: calc(430px + env(safe-area-inset-bottom)); right: 16px; }
-    #cluster { bottom: calc(274px + env(safe-area-inset-bottom)); right: 12px; grid-template-columns: 60px 60px; }
-    .pbtn { font-size: 13px; }
+    #useBtn { bottom: calc(430px + env(safe-area-inset-bottom)); }
+    #cluster { bottom: calc(274px + env(safe-area-inset-bottom)); }
   }
 </style>
 </head>
@@ -158,13 +157,6 @@ let code = "";
 let paired = false;
 let retryTimer = null;
 let retryCount = 0;
-// Persistence: once paired, the pad heals itself — socket drops, tab
-// switches and full tab discards all end in an automatic rejoin with the
-// saved code. Only the Disconnect button (or the game closing the room)
-// stops it.
-let wantConnected = false;
-let everPaired = false;
-let hiddenAt = 0;
 
 // --- pad state ---
 const state = {
@@ -183,7 +175,6 @@ function connect() {
   code = (codeInput.value || "").trim();
   if (!/^\d{4}$/.test(code)) { setStatus("Enter the 4-digit code from the PC screen."); return; }
   localStorage.setItem("orbitx-pad-code", code);
-  wantConnected = true;
   goBtn.disabled = true;
   setStatus("Connecting…");
   openSocket();
@@ -195,10 +186,9 @@ function openSocket() {
   ws.onmessage = (ev) => {
     let msg; try { msg = JSON.parse(ev.data); } catch { return; }
     if (msg.t === "paired") {
-      paired = true; retryCount = 0; wantConnected = true; everPaired = true;
+      paired = true; retryCount = 0;
       showPad();
     } else if (msg.t === "error") {
-      wantConnected = false;
       setStatus(msg.message || "Could not connect.");
       goBtn.disabled = false;
       try { ws.close(); } catch {}
@@ -211,27 +201,15 @@ function openSocket() {
   };
   ws.onclose = () => {
     dot.className = "";
-    if (wantConnected) { promptEl.textContent = "Connection lost — reconnecting…"; scheduleRetry(); }
+    if (paired) { promptEl.textContent = "Connection lost — reconnecting…"; scheduleRetry(); }
   };
   ws.onerror = () => { try { ws.close(); } catch {} };
 }
 
 function scheduleRetry() {
-  if (retryTimer || !wantConnected) return;
-  retryCount++;
-  const delay = Math.min(5000, 800 + retryCount * 400);
-  retryTimer = setTimeout(() => { retryTimer = null; if (wantConnected) openSocket(); }, delay);
-}
-
-// Force a fresh socket + rejoin. Used when the page comes back into
-// view: a backgrounded phone page's socket is often silently dead even
-// when it still claims to be open, so returning always re-pairs clean.
-function rejoin() {
-  if (!wantConnected || !everPaired || !/^\d{4}$/.test(code)) return;
-  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
-  retryCount = 0;
-  if (ws) { try { ws.onclose = null; ws.close(); } catch {} ws = null; }
-  openSocket();
+  if (retryTimer) return;
+  if (++retryCount > 20) { backToConnect("Could not reconnect — check the code and try again."); return; }
+  retryTimer = setTimeout(() => { retryTimer = null; openSocket(); }, 2000);
 }
 
 function showPad() {
@@ -245,7 +223,6 @@ function showPad() {
 
 function backToConnect(message) {
   paired = false;
-  wantConnected = false;
   stopSender();
   if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
   if (ws) { try { ws.close(); } catch {} ws = null; }
@@ -257,41 +234,26 @@ function backToConnect(message) {
 
 // --- sending ---
 let sendTimer = null;
-let lastSentKey = "";
-let lastSentAt = 0;
 function sendNow(extra) {
   if (!ws || ws.readyState !== 1 || !paired) return;
   const msg = Object.assign({
     t: "input",
     stick: state.stick,
     look: [Math.round(state.lookAcc[0]), Math.round(state.lookAcc[1])],
-    // Camera as a rate: the game integrates it per frame, so the turn
-    // stays smooth even when these messages arrive unevenly. The legacy
-    // look deltas above ride along for older game builds.
-    lookRate: [Math.round(state.look[0] * 1000) / 1000, Math.round(-state.look[1] * 1000) / 1000],
     hold: state.hold,
   }, extra || {});
   state.lookAcc = [0, 0];
-  lastSentKey = JSON.stringify([msg.stick, msg.lookRate, msg.hold]);
-  lastSentAt = performance.now();
   try { ws.send(JSON.stringify(msg)); } catch {}
 }
 function startSender() {
   stopSender();
-  lastSentKey = ""; lastSentAt = 0;
   sendTimer = setInterval(() => {
-    // Legacy drag deltas at the same total speed as before (about
-    // 312 px/s at full deflection), accumulated at the finer tick.
-    state.lookAcc[0] += state.look[0] * 5;
-    state.lookAcc[1] += -state.look[1] * 5;
-    const lr = [Math.round(state.look[0] * 1000) / 1000, Math.round(-state.look[1] * 1000) / 1000];
-    const key = JSON.stringify([state.stick, lr, state.hold]);
-    const lookActive = state.look[0] !== 0 || state.look[1] !== 0;
-    // Send on any change, continuously while the camera stick is held,
-    // and at least every 100 ms as a heartbeat so a lost packet can
-    // never leave the game holding a stale stick or camera rate.
-    if (key !== lastSentKey || lookActive || performance.now() - lastSentAt >= 100) sendNow();
-  }, 16);
+    // Rate-based camera: deflecting the look stick feeds drag deltas,
+    // the same input the game's own look pad produces.
+    state.lookAcc[0] += state.look[0] * 16;
+    state.lookAcc[1] += -state.look[1] * 16;
+    sendNow();
+  }, 50);
 }
 function stopSender() { if (sendTimer) { clearInterval(sendTimer); sendTimer = null; } }
 
@@ -361,28 +323,11 @@ codeInput.addEventListener("keydown", (e) => { if (e.key === "Enter") connect();
 codeInput.addEventListener("input", () => { codeInput.value = codeInput.value.replace(/\D/g, "").slice(0, 4); });
 $("quitBtn").addEventListener("click", () => backToConnect(""));
 
-// --- stay connected until manual Disconnect ---
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) { hiddenAt = performance.now(); return; }
-  // Back in view: re-take the wake lock, and if we were away more than
-  // a couple of seconds, re-pair on a fresh socket.
-  if (navigator.wakeLock && paired) navigator.wakeLock.request("screen").catch(() => {});
-  if (wantConnected && performance.now() - hiddenAt > 2000) rejoin();
-});
-window.addEventListener("pageshow", () => { if (wantConnected) rejoin(); });
-window.addEventListener("focus", () => {
-  if (wantConnected && (!ws || ws.readyState > 1)) rejoin();
-});
-window.addEventListener("online", () => { if (wantConnected) rejoin(); });
-
 // Stop the page scrolling/zooming under the pad.
 document.addEventListener("touchmove", (e) => { if (paired) e.preventDefault(); }, { passive: false });
 document.addEventListener("gesturestart", (e) => e.preventDefault());
 
-// Auto-connect when the code is already known (URL or a previous
-// session) — after a tab discard the browser reloads this page and the
-// pad rejoins by itself, no typing.
-if (params.get("code") || /^\d{4}$/.test(codeInput.value || "")) connect();
+if (params.get("code")) connect();
 </script>
 </body>
 </html>
