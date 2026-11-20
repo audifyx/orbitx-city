@@ -2171,26 +2171,37 @@ export function createRuntime(scene: Scene) {
       }
     }
   }
+  // Traffic circuits MUST sit on the road grid (city.ts CENTERS:
+  // -180..180 in 36-steps, roads 10 wide, asphalt top ~0.08). The first
+  // version ran at ±56/±150/±20 — mid-block, through buildings — which
+  // read as cars falling through the ground and driving wrong. These
+  // three rings use full-span avenues only (never x=0/z=0, which the
+  // plaza swallows, and never ±72, which the mall swallows).
   const TRAFFIC_LOOPS: Array<Array<{ x: number; z: number }>> = [
     [
-      { x: -56, z: 50 },
-      { x: 56, z: 50 },
-      { x: 56, z: -50 },
-      { x: -56, z: -50 },
+      { x: -36, z: 36 },
+      { x: 36, z: 36 },
+      { x: 36, z: -36 },
+      { x: -36, z: -36 },
     ],
     [
-      { x: 150, z: 150 },
-      { x: -150, z: 150 },
-      { x: -150, z: -150 },
-      { x: 150, z: -150 },
+      { x: 144, z: 144 },
+      { x: -144, z: 144 },
+      { x: -144, z: -144 },
+      { x: 144, z: -144 },
     ],
     [
-      { x: -100, z: 20 },
-      { x: 100, z: 20 },
-      { x: 100, z: -20 },
-      { x: -100, z: -20 },
+      { x: -108, z: 108 },
+      { x: 108, z: 108 },
+      { x: 108, z: -108 },
+      { x: -108, z: -108 },
     ],
   ];
+  // Cars sit at the same height as player-driven cars (~0.12), on top
+  // of the asphalt instead of sunk to the ground plane.
+  const ROAD_Y = 0.1;
+  const ROAD_LINES = [-180, -144, -108, -72, -36, 0, 36, 72, 108, 144, 180];
+  const nearestRoadLine = (v: number) => ROAD_LINES.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
   let beacon: Mesh | null = null;
   let packageMesh: Mesh | null = null;
   let rider: Group | null = null;
@@ -3523,7 +3534,7 @@ export function createRuntime(scene: Scene) {
       // above the door line — reads as a real driver from outside.
       driver.position.set(-0.36, -0.52, 0.1);
       group.add(driver);
-      group.position.set(start.x, 0, start.z);
+      group.position.set(start.x, ROAD_Y, start.z);
       root.add(group);
       const nextPt = route[(cast.startSeg + 1) % route.length];
       traffic.push({
@@ -5101,7 +5112,7 @@ export function createRuntime(scene: Scene) {
   function tickTraffic(dt: number) {
     for (const car of traffic) {
       if (clock < car.stoppedUntil) {
-        car.group.position.set(car.x, 0, car.z);
+        car.group.position.set(car.x, ROAD_Y, car.z);
         car.group.rotation.y = car.yaw;
         continue;
       }
@@ -5109,7 +5120,7 @@ export function createRuntime(scene: Scene) {
       const dx = target.x - car.x;
       const dz = target.z - car.z;
       const dist = Math.hypot(dx, dz);
-      if (dist < 1.6) {
+      if (dist < 3.5) {
         car.seg = (car.seg + 1) % car.route.length;
         continue;
       }
@@ -5117,13 +5128,13 @@ export function createRuntime(scene: Scene) {
       let diff = want - car.yaw;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
-      const maxTurn = 1.7 * dt;
+      const maxTurn = 2.2 * dt;
       car.yaw += Math.max(-maxTurn, Math.min(maxTurn, diff));
       const align = Math.max(0.3, Math.cos(diff));
       const step = Math.min(dist, car.speed * align * dt);
       car.x += Math.sin(car.yaw) * step;
       car.z += Math.cos(car.yaw) * step;
-      car.group.position.set(car.x, 0, car.z);
+      car.group.position.set(car.x, ROAD_Y, car.z);
       car.group.rotation.y = car.yaw;
     }
   }
@@ -5195,8 +5206,15 @@ export function createRuntime(scene: Scene) {
     let nearestCop = Infinity;
     for (const cop of copCars) {
       const chasing = wanted > 0;
-      const tx = chasing ? body.x : cop.parkX;
-      const tz = chasing ? body.z : cop.parkZ;
+      let tx = chasing ? body.x : cop.parkX;
+      let tz = chasing ? body.z : cop.parkZ;
+      // From far off, aim for the intersection nearest the player so
+      // the chase runs down streets instead of through blocks; close
+      // in, it's a direct pursuit.
+      if (chasing && Math.hypot(body.x - cop.x, body.z - cop.z) > 30) {
+        tx = nearestRoadLine(body.x);
+        tz = nearestRoadLine(body.z);
+      }
       const dx = tx - cop.x;
       const dz = tz - cop.z;
       const dist = Math.hypot(dx, dz);
@@ -5216,7 +5234,7 @@ export function createRuntime(scene: Scene) {
           cop.z += Math.cos(cop.yaw) * step;
         }
       }
-      cop.group.position.set(cop.x, 0, cop.z);
+      cop.group.position.set(cop.x, ROAD_Y, cop.z);
       cop.group.rotation.y = cop.yaw;
     }
     if (wanted <= 0) {
