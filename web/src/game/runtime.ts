@@ -44,11 +44,11 @@ import {
   MUSEUM_BONUS,
   MUSEUM_EXHIBITS,
   MUSEUM_REWARD,
+  CHARGE_POINTS,
   EV_PRICE_PER_PCT,
-  EV_SPOT,
   FUEL_FILL_MS,
   FUEL_PRICE_PER_PCT,
-  FUEL_SPOT,
+  GAS_STATIONS,
   NPC_DEFAULT_LINES,
   NPC_DEFAULT_PATROL,
   NPC_LINES,
@@ -2447,6 +2447,10 @@ export function createRuntime(scene: Scene) {
   let fillEndsAt = 0;
   let fillCar: (typeof cars)[number] | null = null;
   let fillEv = false;
+  // FUEL NETWORK: the station / charge point the running fill belongs
+  // to — fills are anchored to the point the player used, not one
+  // hardcoded spot.
+  let fillSpot: { x: number; z: number } | null = null;
   const fuelWarned = new Set<string>();
   const prevCarPos = new Map<string, { x: number; z: number }>();
   let tourLock = false;
@@ -3591,14 +3595,18 @@ export function createRuntime(scene: Scene) {
     const danceTag = makeLabel("Dance floor", true);
     danceTag.position.set(DANCE_SPOT.x, 2.6, DANCE_SPOT.z);
     root.add(danceTag);
-    // FUEL: station labels — the OrbitX Fuel canopy on the Motors lot
-    // and the EV charge posts on the plaza's east edge.
-    const fuelTag = makeLabel("OrbitX Fuel", true);
-    fuelTag.position.set(FUEL_SPOT.x, 4.9, FUEL_SPOT.z);
-    root.add(fuelTag);
-    const evTag = makeLabel("EV Charging", true);
-    evTag.position.set(EV_SPOT.x, 2.4, EV_SPOT.z);
-    root.add(evTag);
+    // FUEL NETWORK: one floating label per gas station canopy and per
+    // charge point, all from the content.ts lists.
+    for (const station of GAS_STATIONS) {
+      const tag = makeLabel(station.name, true);
+      tag.position.set(station.x, 4.9, station.z);
+      root.add(tag);
+    }
+    for (const point of CHARGE_POINTS) {
+      const tag = makeLabel(point.name, true);
+      tag.position.set(point.x, 2.4, point.z);
+      root.add(tag);
+    }
     for (const spot of PHOTO_SPOTS) {
       const tag = makeLabel("Photo spot", true);
       tag.position.set(spot.x, 2.2, spot.z);
@@ -5360,9 +5368,29 @@ export function createRuntime(scene: Scene) {
     }
   }
 
-  function startFill(ev: boolean) {
+  // FUEL NETWORK: the nearest point of a list to (x, z), and an
+  // 8-wind compass word for the way it lies (north = -z in this city).
+  function nearestPoint<T extends { x: number; z: number }>(list: T[], x: number, z: number): T {
+    let best = list[0];
+    let bestD = Infinity;
+    for (const point of list) {
+      const d = Math.hypot(point.x - x, point.z - z);
+      if (d < bestD) {
+        bestD = d;
+        best = point;
+      }
+    }
+    return best;
+  }
+
+  function compassTo(fx: number, fz: number, tx: number, tz: number): string {
+    const winds = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"];
+    const idx = ((Math.round(Math.atan2(tx - fx, -(tz - fz)) / (Math.PI / 4)) % 8) + 8) % 8;
+    return winds[idx];
+  }
+
+  function startFill(ev: boolean, spot: { x: number; z: number }) {
     if (fillEndsAt > 0) return;
-    const spot = ev ? EV_SPOT : FUEL_SPOT;
     let best: (typeof cars)[number] | null = null;
     let bestD = 9;
     for (const car of cars) {
@@ -5377,7 +5405,14 @@ export function createRuntime(scene: Scene) {
       return;
     }
     if (carIsEv(best) !== ev) {
-      say(ev ? "That one runs on gas — the pumps at OrbitX Fuel are on the Motors lot." : "That one's electric — chargers are on the plaza's east edge.");
+      // Wrong fuel for this point: point at the nearest right one, by name.
+      if (ev) {
+        const station = nearestPoint(GAS_STATIONS, best.x, best.z);
+        say(`That one runs on gas — nearest pumps: ${station.name}, to the ${compassTo(best.x, best.z, station.x, station.z)}.`);
+      } else {
+        const point = nearestPoint(CHARGE_POINTS, best.x, best.z);
+        say(`That one's electric — nearest chargers: ${point.name}, to the ${compassTo(best.x, best.z, point.x, point.z)}.`);
+      }
       return;
     }
     if (fuelOf(best) > 97) {
@@ -5386,6 +5421,7 @@ export function createRuntime(scene: Scene) {
     }
     fillCar = best;
     fillEv = ev;
+    fillSpot = spot;
     fillEndsAt = Date.now() + FUEL_FILL_MS;
     say(ev ? "Charging… hold still a few seconds." : "Filling the tank… hold still a few seconds.");
     publish();
@@ -5404,18 +5440,26 @@ export function createRuntime(scene: Scene) {
           }
           if (fuelOf(car) <= 0 && !fuelWarned.has(car.id)) {
             fuelWarned.add(car.id);
-            say(carIsEv(car) ? "Battery's flat — limp mode. Crawl to the plaza chargers." : "Out of fuel — limp mode. Crawl to OrbitX Fuel on the Motors lot.");
+            // Limp mode points at the nearest correct point of the network.
+            if (carIsEv(car)) {
+              const point = nearestPoint(CHARGE_POINTS, car.x, car.z);
+              say(`Battery's flat — limp mode. Nearest chargers: ${point.name} — head ${compassTo(car.x, car.z, point.x, point.z)}.`);
+            } else {
+              const station = nearestPoint(GAS_STATIONS, car.x, car.z);
+              say(`Out of fuel — limp mode. Nearest gas: ${station.name} — head ${compassTo(car.x, car.z, station.x, station.z)}.`);
+            }
           }
           if (fuelOf(car) > 5) fuelWarned.delete(car.id);
         }
         prevCarPos.set(car.id, { x: car.x, z: car.z });
       }
     }
-    if (!fillEndsAt || !fillCar) return;
-    const spot = fillEv ? EV_SPOT : FUEL_SPOT;
+    if (!fillEndsAt || !fillCar || !fillSpot) return;
+    const spot = fillSpot;
     if (Math.hypot(body.x - spot.x, body.z - spot.z) > 4 || Math.hypot(fillCar.x - spot.x, fillCar.z - spot.z) > 10) {
       fillEndsAt = 0;
       fillCar = null;
+      fillSpot = null;
       say("Stepped away — the fill is off.");
       publish();
       return;
@@ -5427,6 +5471,7 @@ export function createRuntime(scene: Scene) {
       const paid = spend(wallet, cost, fillEv ? "ev-charge" : "fuel");
       fillEndsAt = 0;
       fillCar = null;
+      fillSpot = null;
       if (!paid.ok) {
         say(paid.message);
         publish();
@@ -5761,14 +5806,19 @@ export function createRuntime(scene: Scene) {
       startWash();
       return;
     }
-    // FUEL: fill the nearest parked car at the pumps / charge posts.
-    if (Math.hypot(body.x - FUEL_SPOT.x, body.z - FUEL_SPOT.z) < 3.2) {
-      startFill(false);
-      return;
+    // FUEL NETWORK: fill the nearest parked car at any pump / charge
+    // post in the city — whichever point the player is standing at.
+    for (const station of GAS_STATIONS) {
+      if (Math.hypot(body.x - station.x, body.z - station.z) < 3.2) {
+        startFill(false, station);
+        return;
+      }
     }
-    if (Math.hypot(body.x - EV_SPOT.x, body.z - EV_SPOT.z) < 3.2) {
-      startFill(true);
-      return;
+    for (const point of CHARGE_POINTS) {
+      if (Math.hypot(body.x - point.x, body.z - point.z) < 3.2) {
+        startFill(true, point);
+        return;
+      }
     }
     // FOOD: work out on the gym floor, cook at your own kitchen counter.
     // The gym floor spot opens the same panel as the front desk; the
