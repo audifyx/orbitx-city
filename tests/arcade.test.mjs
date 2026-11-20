@@ -81,7 +81,7 @@ test("compose validates before anything is built", async () => {
   const base = { address: a.address, idempotencyKey: "val-key-1" };
   const badGame = await arcadeCompose(ctx(), p, { ...base, game: "slots", tier: 1, pick: "heads" });
   assert.equal(badGame.ok, false);
-  assert.match(badGame.message, /Coin Flip or Dice Roll/);
+  assert.match(badGame.message, /Mini-Games Hub/);
   const badTier = await arcadeCompose(ctx(), p, { ...base, game: "coinflip", tier: 3, pick: "heads" });
   assert.equal(badTier.ok, false);
   assert.match(badTier.message, /\$1, \$2, \$5, or \$10/);
