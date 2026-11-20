@@ -17,6 +17,8 @@ import { DecorBar, EmoteWheel, FeaturePanel, PhoneExtra, RaceBanner, SpectateBar
 import HomeWorkshop, { workshopSavePlan, type WorkshopDraft } from "./HomeWorkshop";
 import { MinigamesPanel } from "./MinigamesPanel";
 import { TradingFloorPanel } from "./TradingFloorPanel";
+import PhoneOS from "./PhoneOS";
+import { addGalleryShot, appendPhoneMessage } from "./phoneStore";
 import { EMPTY_LEADERS, EMPTY_RACE } from "./game/life";
 import { CAR_SHOP, FLY_CONTROLS, VEHICLE_COLORS, getVehicle } from "./game/vehicles";
 // CARS expansion — customize / wash / repair / garage upgrades.
@@ -422,6 +424,7 @@ const EMPTY: Snap = {
   business: null,
   spectator: false,
   hideHud: false,
+  photoMode: false,
   hideNames: false,
   hideChat: false,
   orbit: false,
@@ -552,6 +555,11 @@ export default function App() {
   const [webglMissing, setWebglMissing] = useState(false);
   const [snap, setSnap] = useState<Snap>(EMPTY);
   const [panel, setPanel] = useState<AppPanel>("");
+  // ORBITX OS phone: mounted lazily on first open, then kept mounted
+  // (hidden) so the platform webviews keep their session and place.
+  const [phoneMounted, setPhoneMounted] = useState(false);
+  // Photo Mode shutter flash (keyed so repeat shots re-animate).
+  const [photoFlash, setPhotoFlash] = useState(0);
   // Phone-as-controller (Pad): the relay host lives outside React state;
   // only its status is mirrored here for the strip button + pairing card.
   const padRef = useRef<PadHost | null>(null);
@@ -849,9 +857,8 @@ export default function App() {
     });
   }, [panel]);
 
-  // Keep the radio playlist fresh while the Radio panel is open.
-  useEffect(() => {
-    if (panel !== "radio") return;
+  // Shared by the Radio panel and the phone's Music app.
+  const loadRadioTracks = useCallback(() => {
     const rt = gameRef.current?.runtime;
     if (!rt) return;
     setRadioMsg("");
@@ -859,6 +866,17 @@ export default function App() {
       if (res.ok) setRadioTracks(((res as { tracks?: RadioTrack[] }).tracks || []) as RadioTrack[]);
       else setRadioMsg(String((res as { message?: string }).message || "Could not load the radio."));
     });
+  }, []);
+
+  // Keep the radio playlist fresh while the Radio panel is open.
+  useEffect(() => {
+    if (panel !== "radio") return;
+    loadRadioTracks();
+  }, [panel, loadRadioTracks]);
+
+  // ORBITX OS phone: mount on first open (and never unmount again).
+  useEffect(() => {
+    if (panel === "phone") setPhoneMounted(true);
   }, [panel]);
 
   // Stop the radio when the player leaves the game (back to the menu).
@@ -1156,6 +1174,11 @@ export default function App() {
         if (lock) document.exitPointerLock();
       }
     });
+    // ORBITX OS phone: real game events (story, jobs, fuel, wanted)
+    // land in the phone's on-device message store as texts.
+    const offPhone = game.runtime.onPhoneEvent((event) => {
+      appendPhoneMessage(event.from, event.text);
+    });
     const mode = shotMode();
     const startSeed = parseSeed(params.get("seed") ?? "1");
     setSeed(startSeed);
@@ -1170,6 +1193,7 @@ export default function App() {
       if (localStorage.getItem("orbitx-intro") !== "off") game.setIntro(true);
     }
     return () => {
+      offPhone();
       off();
       game.dispose();
       gameRef.current = null;
@@ -1681,6 +1705,41 @@ export default function App() {
     });
   };
 
+  // PHOTO MODE shutter: capture the frame at full size (download) and
+  // file a downscaled thumbnail in the phone's gallery.
+  const takePhoto = async () => {
+    const game = gameRef.current;
+    if (!game) return;
+    triggerHaptic("tap");
+    const blob = await game.capturePhoto();
+    if (!blob) return;
+    setPhotoFlash(Date.now());
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `orbitx-city-${new Date().toISOString().replace(/[:.]/g, "-")}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    try {
+      const bmp = await createImageBitmap(blob);
+      const scale = Math.min(1, 480 / Math.max(bmp.width, bmp.height));
+      const w = Math.max(1, Math.round(bmp.width * scale));
+      const h = Math.max(1, Math.round(bmp.height * scale));
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(bmp, 0, 0, w, h);
+        addGalleryShot(c.toDataURL("image/jpeg", 0.72));
+      }
+      bmp.close();
+    } catch {
+      // The gallery is a bonus — the download already saved the shot.
+    }
+    triggerHaptic("success");
+  };
+
   const uploadRadio = async () => {
     const file = radioFile;
     if (!file) return;
@@ -2148,7 +2207,7 @@ export default function App() {
       {/* Minimap over an open panel (touch only): the touch UI hides
           while a panel is open, but the map stays visible above the
           panel — docked bottom-right, Eat still works. */}
-      {!menu && !snap.hideHud && snap.touch && panel && (
+      {!menu && !snap.hideHud && snap.touch && panel && panel !== "phone" && (
         <div className="minimap-panel-dock">
           <Minimap
             me={snap.me}
@@ -2165,7 +2224,47 @@ export default function App() {
           />
         </div>
       )}
-      {panel && panel !== "workshop" ? (
+      {/* ORBITX OS: the Phone button opens the in-game phone, not a
+          panel — the phone carries its own frame and chrome. It stays
+          mounted after the first open (hidden) so the platform
+          webviews keep their session. Places moved into its Map app;
+          the classic phone content lives on in its People app. */}
+      {phoneMounted ? (
+        <PhoneOS
+          open={panel === "phone"}
+          snap={snap}
+          rt={gameRef.current?.runtime ?? null}
+          onClose={close}
+          onOpenPanel={(name) => open(name)}
+          socialNode={<Phone snap={snap} rt={gameRef.current?.runtime ?? null} onLogout={() => {
+            void signOutAccount().then(() => {
+              close();
+              setWho(null);
+              setGate("login");
+              setMenu(true);
+              setMenuStep("home");
+              gameRef.current?.start(parseSeed(seedText || "1"), "orbit");
+            });
+          }} />}
+          radio={{ tracks: radioTracks, playingId, msg: radioMsg, onPlay: playRadio, onStop: stopRadio, onLoad: loadRadioTracks }}
+          onPhotoMode={() => {
+            setPanel("");
+            gameRef.current?.runtime.enterPhotoMode();
+          }}
+          triggerHaptic={triggerHaptic}
+        />
+      ) : null}
+      {/* PHOTO MODE: clean frame (HUD is hidden by the runtime) plus
+          the camera controls. */}
+      {snap.photoMode ? (
+        <PhotoOverlay
+          rt={gameRef.current?.runtime ?? null}
+          onShutter={() => void takePhoto()}
+          onExit={() => gameRef.current?.runtime.exitPhotoMode()}
+        />
+      ) : null}
+      {photoFlash ? <div key={photoFlash} className="pm-flash" /> : null}
+      {panel && panel !== "workshop" && panel !== "phone" ? (
         <section className="panel-wrap" id="panel">
           <div className="panel" role="dialog">
             <header>
@@ -2192,7 +2291,6 @@ export default function App() {
                 {panel === "district-offices" && "District offices"}
                 {panel === "events" && "Events"}
                 {panel === "chat" && "Chat"}
-                {panel === "phone" && "Phone"}
                 {panel === "menu" && "Menu"}
                 {panel === "restaurant" && (RESTAURANT_BY_ID[snap.foodPlace]?.name ?? "Restaurant")}
                 {panel === "kitchen" && "Your kitchen"}
@@ -4618,16 +4716,6 @@ export default function App() {
                 <button type="submit">Send</button>
               </form>
             )}
-            {panel === "phone" && <Phone snap={snap} rt={gameRef.current?.runtime ?? null} onLogout={() => {
-              void signOutAccount().then(() => {
-                close();
-                setWho(null);
-                setGate("login");
-                setMenu(true);
-                setMenuStep("home");
-                gameRef.current?.start(parseSeed(seedText || "1"), "orbit");
-              });
-            }} />}
             {panel === "voice" && <VoicePanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             {panel === "players" && <PlayersPanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
             {panel === "profile" && <ProfilePanel snap={snap} rt={gameRef.current?.runtime ?? null} />}
@@ -7010,13 +7098,7 @@ function Phone({ snap, rt, onLogout }: { snap: Snap; rt: Runtime | null; onLogou
       <PhoneExtra snap={snap} rt={rt} />
       <h3>City tour</h3>
       <span>{snap.mission >= 6 ? "Tour complete." : `Stop ${snap.mission + 1} of 6 is marked on the objective.`}</span>
-      <h3>Places</h3>
-      {snap.districts.filter((place) => ["shop", "cafe", "hall", "bank", "garage", "carshop", "trading", "arcade", "market", "dock", "project-0"].includes(place.id)).map((place) => (
-        <article key={place.id}>
-          <div><b>{place.name}</b></div>
-          <button type="button" onClick={() => { rt?.travel(place.id); }}>Go</button>
-        </article>
-      ))}
+      {/* Places moved to the OrbitX OS phone's Map app (rides included). */}
       <h3>Burn board</h3>
       {snap.board.length === 0 ? <span>Burn some City Sol and your name can land here.</span> : null}
       {snap.board.map((row) => (
@@ -7089,6 +7171,112 @@ function Phone({ snap, rt, onLogout }: { snap: Snap; rt: Runtime | null; onLogou
           />
         </label>
       ) : null}
+    </div>
+  );
+}
+
+// PHOTO MODE controls: drag to look, stick / WASD to fly, Q/E or the
+// Up/Down holds for altitude, big shutter. The HUD is already hidden
+// (runtime hideHud) — this overlay is the only thing on the frame.
+function PhotoOverlay({ rt, onShutter, onExit }: { rt: Runtime | null; onShutter: () => void; onExit: () => void }) {
+  const last = useRef<{ x: number; y: number } | null>(null);
+  const stickBase = useRef<HTMLDivElement>(null);
+  const [knob, setKnob] = useState({ x: 0, y: 0 });
+
+  // Desktop keys: WASD/arrows move, Q/E down/up. The engine's own keys
+  // are cleared while paused, so the overlay owns these.
+  useEffect(() => {
+    if (!rt) return;
+    const keys = new Set<string>();
+    const MOVE_KEYS = ["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+    const apply = () => {
+      const x = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0);
+      const y = (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0);
+      rt.photoSetMove(x, y);
+      rt.photoSetVertical((keys.has("KeyE") ? 1 : 0) - (keys.has("KeyQ") ? 1 : 0));
+    };
+    const down = (e: KeyboardEvent) => {
+      if (!MOVE_KEYS.includes(e.code)) return;
+      e.preventDefault();
+      keys.add(e.code);
+      apply();
+    };
+    const up = (e: KeyboardEvent) => {
+      if (!MOVE_KEYS.includes(e.code)) return;
+      keys.delete(e.code);
+      apply();
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      rt.photoSetMove(0, 0);
+      rt.photoSetVertical(0);
+    };
+  }, [rt]);
+
+  const stickMove = (clientX: number, clientY: number) => {
+    const rect = stickBase.current?.getBoundingClientRect();
+    if (!rect || !rt) return;
+    let x = (clientX - (rect.left + rect.width / 2)) / (rect.width / 2);
+    let y = (rect.top + rect.height / 2 - clientY) / (rect.height / 2);
+    const mag = Math.hypot(x, y);
+    if (mag > 1) {
+      x /= mag;
+      y /= mag;
+    }
+    setKnob({ x, y });
+    rt.photoSetMove(x, y);
+  };
+
+  return (
+    <div className="pm-overlay">
+      <div
+        className="pm-look"
+        onPointerDown={(event) => {
+          if ((event.target as HTMLElement).closest("button, .pm-stick")) return;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          last.current = { x: event.clientX, y: event.clientY };
+        }}
+        onPointerMove={(event) => {
+          if (!last.current || !rt) return;
+          rt.photoLook((event.clientX - last.current.x) * 0.0045, (event.clientY - last.current.y) * 0.0045);
+          last.current = { x: event.clientX, y: event.clientY };
+        }}
+        onPointerUp={() => {
+          last.current = null;
+        }}
+      />
+      <p className="pm-hint">Photo Mode — drag to look · stick or WASD to fly · Q / E for down / up</p>
+      <button type="button" className="pm-btn pm-exit" onClick={onExit}>Done</button>
+      <div className="pm-bar">
+        <div
+          className="pm-stick"
+          ref={stickBase}
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            event.stopPropagation();
+            stickMove(event.clientX, event.clientY);
+          }}
+          onPointerMove={(event) => {
+            if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+            stickMove(event.clientX, event.clientY);
+          }}
+          onPointerUp={(event) => {
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+            setKnob({ x: 0, y: 0 });
+            rt?.photoSetMove(0, 0);
+          }}
+        >
+          <span className="knob" style={{ transform: `translate(${knob.x * 26}px, ${-knob.y * 26}px)` }} />
+        </div>
+        <button type="button" className="pm-shutter" aria-label="Take photo" onClick={onShutter} />
+        <div className="pm-vert">
+          <Hold label="Up" onDown={() => rt?.photoSetVertical(1)} onUp={() => rt?.photoSetVertical(0)} />
+          <Hold label="Down" onDown={() => rt?.photoSetVertical(-1)} onUp={() => rt?.photoSetVertical(0)} />
+        </div>
+      </div>
     </div>
   );
 }

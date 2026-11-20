@@ -3597,6 +3597,38 @@ body.touch .touch-ui {
 }
 .pm-bar > * { pointer-events: auto; }
 .pm-vert { display: flex; flex-direction: column; gap: 8px; }
+.pm-vert button {
+  min-width: 56px;
+  height: 46px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(8, 8, 12, 0.66);
+  color: #fff;
+  font-weight: 800;
+  font-size: 13px;
+  cursor: pointer;
+  backdrop-filter: blur(3px);
+}
+.pm-stick {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.65);
+  background: rgba(8, 8, 12, 0.5);
+  touch-action: none;
+  backdrop-filter: blur(3px);
+}
+.pm-stick .knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 42px;
+  height: 42px;
+  margin: -21px 0 0 -21px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+}
 .pm-btn {
   min-width: 52px;
   height: 52px;
