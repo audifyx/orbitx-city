@@ -1,24 +1,24 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { world, type EarlyAccessStatus } from "./game/world";
 
 // EARLY ACCESS gate screen (pre-launch burn gate). This is the front
 // door: when the server says the gate is active and this account has
 // not unlocked yet, a locked player lands here straight off the splash
 // (App routes the menu's first step to the gate) — and Play/roster
-// entry routes here too. Buy ORBITX → burn it to the incinerator from
-// the wallet you will verify with → paste the Solscan link and the
-// server checks the burn on-chain. The unlock lives on the account, so
-// guests get the account-required card and are routed to sign-in first.
-// Once the server reports the gate inactive (launch day), this screen
-// never renders and the entry flow is untouched.
+// entry routes here too. The burn runs on the player's IN-GAME wallet:
+// send ORBITX to the in-game wallet address shown here, tap BURN
+// SUPPLY, and the server burns the $5 worth straight out of that
+// wallet and unlocks the account. Players who exported the wallet and
+// burned the tokens themselves can instead prove that burn with its
+// Solscan link (the fallback below — it is still checked against the
+// in-game wallet address; there is no external/connect wallet flow).
+// The unlock lives on the account, so guests get the account-required
+// card and are routed to sign-in first. Once the server reports the
+// gate inactive (launch day), this screen never renders and the entry
+// flow is untouched.
 
 export const INCINERATOR_ADDRESS = "1nc1nerator11111111111111111111111111111111";
 const DEX_URL = "https://orbitx.world/ORBITX_DEX/";
-
-interface SolanaProvider {
-  publicKey?: { toString(): string } | null;
-  connect: () => Promise<{ publicKey?: { toString(): string } } | unknown>;
-}
 
 /** Pull the base58 signature out of a Solscan tx URL, or accept a raw one. */
 export function extractSignature(input: string): string | null {
@@ -26,10 +26,6 @@ export function extractSignature(input: string): string | null {
   const fromUrl = text.match(/solscan\.io\/tx\/([1-9A-HJ-NP-Za-km-z]{32,128})/);
   if (fromUrl) return fromUrl[1];
   return /^[1-9A-HJ-NP-Za-km-z]{43,128}$/.test(text) ? text : null;
-}
-
-export function isWalletAddress(input: string): boolean {
-  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(input.trim());
 }
 
 function formatPrice(priceUsd: number): string {
@@ -50,7 +46,8 @@ interface EarlyAccessGateProps {
   // behind this screen to go back to. The header chrome above the
   // gate still carries sign-out / account switching.
   landing?: boolean;
-  // A verify succeeded: App records the unlock and re-reads the status.
+  // A burn or verify succeeded: App records the unlock and re-reads
+  // the status.
   onUnlocked: (proof: { amountTokens: number; usd: number }) => void;
   // Guest tapped the sign-in route — App shows the login UI.
   onNeedAccount: () => void;
@@ -62,21 +59,55 @@ interface EarlyAccessGateProps {
 }
 
 export function EarlyAccessGate({ status, signedIn, landing = false, onUnlocked, onNeedAccount, onBack, onEnter }: EarlyAccessGateProps) {
-  const [wallet, setWallet] = useState("");
-  const [txInput, setTxInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState("");
-  const [note, setNote] = useState("");
-  const [copied, setCopied] = useState(false);
   const [proof, setProof] = useState<{ amountTokens: number; usd: number } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // The in-game (server) wallet: the session populates world.chain,
+  // and walletView() is the same refresh the Bank/Wallet panel uses —
+  // run it on mount and on demand so a player who just sent ORBITX to
+  // the address sees the balance land here.
+  const [chain, setChain] = useState(() => world.chain);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshChain = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await world.walletView();
+    } catch {
+      // Keep the last known read — the burn op is the authority, and
+      // its own message will say if the wallet is not ready.
+    }
+    setChain(world.chain);
+    setRefreshing(false);
+  }, []);
+  useEffect(() => {
+    // walletView is account-only; guests get the account card below
+    // and never reach the wallet block.
+    if (!signedIn) return;
+    void refreshChain();
+  }, [signedIn, refreshChain]);
+
+  // BURN SUPPLY (in-game burn).
+  const [pin, setPin] = useState("");
+  const [burning, setBurning] = useState(false);
+  const [burnError, setBurnError] = useState("");
+
+  // Fallback: prove a self-made burn (exported wallet) by Solscan link.
+  const [showFallback, setShowFallback] = useState(false);
+  const [txInput, setTxInput] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState("");
 
   const usdRequired = status.gate.usdRequired || 5;
+  const tokensNeeded = status.gate.tokensApprox || 0;
+  const address = chain?.address || "";
+  const orbitxBalance = chain?.orbitx ?? null;
+  const shortfall =
+    orbitxBalance != null && tokensNeeded > 0 && orbitxBalance < tokensNeeded ? tokensNeeded - orbitxBalance : 0;
 
   const copyAddress = () => {
-    if (!navigator.clipboard?.writeText) return;
+    if (!address || !navigator.clipboard?.writeText) return;
     void navigator.clipboard
-      .writeText(INCINERATOR_ADDRESS)
+      .writeText(address)
       .then(() => {
         setCopied(true);
         window.setTimeout(() => setCopied(false), 2000);
@@ -84,52 +115,41 @@ export function EarlyAccessGate({ status, signedIn, landing = false, onUnlocked,
       .catch(() => setCopied(false));
   };
 
-  // Read-only connect: ask the injected provider (Phantom / Solflare)
-  // for its public key and fill the address field with it. Nothing is
-  // ever signed — verification reads the burn on-chain server-side.
-  const connectWallet = async () => {
-    setError("");
-    setNote("");
-    const w = window as unknown as {
-      solana?: SolanaProvider;
-      solflare?: SolanaProvider & { solana?: SolanaProvider };
-    };
-    const provider = w.solana ?? w.solflare?.solana ?? w.solflare;
-    if (!provider || typeof provider.connect !== "function") {
-      setNote("No wallet extension found in this browser — paste the address of the wallet you burned from instead. It verifies exactly the same.");
-      return;
-    }
-    setConnecting(true);
+  const burn = async () => {
+    setBurnError("");
+    setBurning(true);
     try {
-      const result = (await provider.connect()) as { publicKey?: { toString(): string } } | null;
-      const key = result?.publicKey ?? provider.publicKey;
-      const address = key ? key.toString() : "";
-      if (address) {
-        setWallet(address);
-        setNote("Wallet connected — address filled in. Connecting only reads your public address; nothing was signed.");
+      const result = await world.earlyAccessBurn(pin.trim());
+      if (result.unlocked) {
+        const next = { amountTokens: result.amountTokens, usd: result.usd };
+        setProof(next);
+        setPin("");
+        onUnlocked(next);
+        void refreshChain();
       } else {
-        setError("The wallet connected but shared no address. Paste the address you burned from instead.");
+        setBurnError("The server did not unlock this account. Check your balance and try again.");
       }
-    } catch {
-      setError("Wallet connection was cancelled. Paste the address instead — verification works the same.");
+    } catch (err) {
+      // The API's standard error shape: the server's message, verbatim
+      // (e.g. how much ORBITX the wallet is short of the burn).
+      setBurnError(err instanceof Error ? err.message : "The burn failed. Try again in a moment.");
     } finally {
-      setConnecting(false);
+      setBurning(false);
     }
   };
 
   const verify = async () => {
-    setError("");
-    const address = wallet.trim();
-    if (!isWalletAddress(address)) {
-      setError("That wallet address does not look right — connect your wallet or paste the address you burned from.");
+    setVerifyError("");
+    if (!address) {
+      setVerifyError("Your in-game wallet is not ready yet — refresh the balance above and try again.");
       return;
     }
     const signature = extractSignature(txInput);
     if (!signature) {
-      setError("Paste the Solscan link for the burn transaction (or the transaction signature itself).");
+      setVerifyError("Paste the Solscan link for the burn transaction (or the transaction signature itself).");
       return;
     }
-    setBusy(true);
+    setVerifying(true);
     try {
       const result = await world.earlyAccessVerify(address, signature);
       if (result.unlocked) {
@@ -137,13 +157,13 @@ export function EarlyAccessGate({ status, signedIn, landing = false, onUnlocked,
         setProof(next);
         onUnlocked(next);
       } else {
-        setError("The server did not unlock this account for that transaction. Check the burn and try again.");
+        setVerifyError("The server did not unlock this account for that transaction. Check the burn and try again.");
       }
     } catch (err) {
       // The API's standard error shape: the server's message, verbatim.
-      setError(err instanceof Error ? err.message : "Verification failed. Try again in a moment.");
+      setVerifyError(err instanceof Error ? err.message : "Verification failed. Try again in a moment.");
     } finally {
-      setBusy(false);
+      setVerifying(false);
     }
   };
 
@@ -160,37 +180,50 @@ export function EarlyAccessGate({ status, signedIn, landing = false, onUnlocked,
           ORBITX price <b>{formatPrice(status.gate.priceUsd)}</b>
         </span>
         <span className="ea-chip">
-          ${usdRequired} ≈ <b>{formatTokens(status.gate.tokensApprox)} ORBITX</b>
+          ${usdRequired} ≈ <b>{formatTokens(tokensNeeded)} ORBITX</b>
         </span>
       </div>
 
       <ol className="ea-steps">
         <li>
-          <b>1 · Buy ORBITX</b>
+          <b>1 · Send ORBITX to your in-game wallet</b>
           <span>
-            Get at least ${usdRequired} of ORBITX.{" "}
+            Send at least ≈{formatTokens(tokensNeeded)} ORBITX (${usdRequired}) to your in-game wallet
+            {signedIn ? " address below" : ""} — from an exchange or any other wallet. It has to arrive in{" "}
+            <b>this</b> wallet; the burn spends from here. Need ORBITX?{" "}
             <a href={DEX_URL} target="_blank" rel="noreferrer">
               Open the OrbitX DEX ↗
             </a>{" "}
             — or anywhere ORBITX trades.
           </span>
+          {signedIn ? (
+            <>
+              <span className="ea-addrrow">
+                <code className="ea-addr">{address || "Creating the wallet…"}</code>
+                <button type="button" className="ea-small" onClick={copyAddress} disabled={!address}>
+                  {copied ? "Copied ✓" : "Copy"}
+                </button>
+              </span>
+              <span className="ea-row">
+                <span className="ea-note">
+                  In-game balance:{" "}
+                  <b>{orbitxBalance == null ? "not read yet" : `${formatTokens(orbitxBalance)} ORBITX`}</b>
+                  {chain?.network ? ` · ${chain.network}` : ""}
+                </span>
+                <button type="button" className="ea-small" onClick={() => void refreshChain()} disabled={refreshing}>
+                  {refreshing ? "Refreshing…" : "Refresh balance"}
+                </button>
+              </span>
+            </>
+          ) : null}
         </li>
         <li>
-          <b>2 · Burn it</b>
+          <b>2 · Burn it here</b>
           <span>
-            Send it to the incinerator address below <b>from the wallet you will verify with</b>. That send is the
-            burn — the tokens are gone for good, and the transaction is your proof.
+            Tap <b>BURN SUPPLY</b> below and the city burns ≈{formatTokens(tokensNeeded)} ORBITX (${usdRequired})
+            straight out of your in-game wallet, on-chain. Burned is forever — and this account unlocks the moment
+            it lands.
           </span>
-          <span className="ea-addrrow">
-            <code className="ea-addr">{INCINERATOR_ADDRESS}</code>
-            <button type="button" className="ea-small" onClick={copyAddress}>
-              {copied ? "Copied ✓" : "Copy"}
-            </button>
-          </span>
-        </li>
-        <li>
-          <b>3 · Verify</b>
-          <span>Connect that same wallet (or paste its address), paste the Solscan link for the burn, and verify.</span>
         </li>
       </ol>
 
@@ -208,46 +241,75 @@ export function EarlyAccessGate({ status, signedIn, landing = false, onUnlocked,
       ) : signedIn ? (
         <div className="ea-verify">
           <label className="ea-field">
-            Wallet you burned from
-            <span className="ea-row">
-              <input
-                value={wallet}
-                onChange={(event) => setWallet(event.target.value)}
-                placeholder="Wallet address"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <button type="button" className="ea-connect" disabled={connecting} onClick={() => void connectWallet()}>
-                {connecting ? "Connecting…" : "Connect wallet"}
-              </button>
-            </span>
-          </label>
-          <label className="ea-field">
-            Burn transaction — Solscan link or signature
+            Wallet PIN — only if your wallet asks for one
             <input
-              value={txInput}
-              onChange={(event) => setTxInput(event.target.value)}
-              placeholder="https://solscan.io/tx/…"
-              autoComplete="off"
-              spellCheck={false}
+              id="ea-pin"
+              type="password"
+              inputMode="numeric"
+              autoComplete="current-password"
+              value={pin}
+              onChange={(event) => setPin(event.target.value)}
+              placeholder="Leave blank if you never set one"
             />
           </label>
-          {note ? <p className="ea-note">{note}</p> : null}
-          {error ? (
-            <p className="ea-error" role="alert">
-              {error}
+          {shortfall > 0 ? (
+            <p className="ea-note">
+              Your in-game wallet is about {formatTokens(shortfall)} ORBITX short of the ≈
+              {formatTokens(tokensNeeded)} needed — send more to the address above, refresh the balance, then burn.
             </p>
           ) : null}
-          <button type="button" className="menu-cta ea-cta" disabled={busy} onClick={() => void verify()}>
-            {busy ? "CHECKING THE BURN…" : "VERIFY & UNLOCK"}
+          {burnError ? (
+            <p className="ea-error" role="alert">
+              {burnError}
+            </p>
+          ) : null}
+          <button type="button" className="menu-cta ea-cta" disabled={burning} onClick={() => void burn()}>
+            {burning ? "BURNING…" : "BURN SUPPLY"}
           </button>
+          <button
+            type="button"
+            className="ea-back"
+            aria-expanded={showFallback}
+            onClick={() => setShowFallback((open) => !open)}
+          >
+            Exported your wallet and burned it yourself?
+          </button>
+          {showFallback ? (
+            <>
+              <p className="ea-note">
+                Then prove that burn here. It is checked against your in-game wallet address — the burn has to
+                have come <b>from</b> this wallet:
+              </p>
+              <span className="ea-addrrow">
+                <code className="ea-addr">{address || "Creating the wallet…"}</code>
+              </span>
+              <label className="ea-field">
+                Burn transaction — Solscan link or signature
+                <input
+                  value={txInput}
+                  onChange={(event) => setTxInput(event.target.value)}
+                  placeholder="https://solscan.io/tx/…"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              {verifyError ? (
+                <p className="ea-error" role="alert">
+                  {verifyError}
+                </p>
+              ) : null}
+              <button type="button" className="menu-cta ea-cta" disabled={verifying} onClick={() => void verify()}>
+                {verifying ? "CHECKING THE BURN…" : "VERIFY & UNLOCK"}
+              </button>
+            </>
+          ) : null}
         </div>
       ) : (
         <div className="ea-need-account">
           <p>
-            <b>An account is required.</b> The unlock lives on your OrbitX City account — a guest session can't hold
-            it. Sign in or create an account first, then burn and verify here; the unlock stays on that account for
-            good.
+            <b>An account is required.</b> The burn spends from your in-game wallet, and the unlock lives on your
+            OrbitX City account — a guest session can't hold either. Sign in or create an account first, then send
+            ORBITX to your in-game wallet and burn it here; the unlock stays on that account for good.
           </p>
           <button type="button" className="menu-cta ea-cta" onClick={onNeedAccount}>
             SIGN IN / CREATE ACCOUNT

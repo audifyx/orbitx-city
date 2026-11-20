@@ -131,6 +131,13 @@ export interface EarlyAccessVerifyResult {
   usd: number;
 }
 
+export interface EarlyAccessBurnResult {
+  unlocked: boolean;
+  amountTokens: number;
+  usd: number;
+  signature: string;
+}
+
 export function parseEarlyAccessStatus(data: Record<string, unknown>): EarlyAccessStatus {
   const gate = (data.gate && typeof data.gate === "object" ? data.gate : {}) as Record<string, unknown>;
   return {
@@ -1049,6 +1056,24 @@ class CityWorld {
       unlocked: Boolean(data.unlocked),
       amountTokens: Number(data.amountTokens) || 0,
       usd: Number(data.usd) || 0,
+    };
+  }
+
+  // EARLY ACCESS: burn from the in-game wallet. The server burns the
+  // gate's $5 worth of ORBITX out of THIS account's in-game (server)
+  // wallet and unlocks the account — no external wallet involved.
+  // `pin` is the wallet PIN for PIN-locked wallets, sent under the
+  // same field name the ads / trade PIN prompts use; the field is
+  // omitted when the player entered none. The server throws its own
+  // message (e.g. the shortfall on a low balance) and the gate shows
+  // it verbatim.
+  async earlyAccessBurn(pin: string): Promise<EarlyAccessBurnResult> {
+    const data = await this.call("early-access-burn", pin ? { pin } : {});
+    return {
+      unlocked: Boolean(data.unlocked),
+      amountTokens: Number(data.amountTokens) || 0,
+      usd: Number(data.usd) || 0,
+      signature: String(data.signature || ""),
     };
   }
 
