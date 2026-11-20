@@ -37,6 +37,16 @@ const PERSONAS: Record<string, VoicePersona> = {
   Wren: { gemini: "Leda", female: true, pitch: 1.22, rate: 1.04 },
   Nadia: { gemini: "Aoede", female: true, pitch: 1.06, rate: 0.97 },
   Felix: { gemini: "Orus", female: false, pitch: 0.95, rate: 1.06 },
+  Ada: { gemini: "Kore", female: true, pitch: 1.0, rate: 0.95 },
+  Milo: { gemini: "Puck", female: false, pitch: 1.08, rate: 1.08 },
+  Jax: { gemini: "Fenrir", female: false, pitch: 0.86, rate: 0.98 },
+  Sal: { gemini: "Algenib", female: false, pitch: 0.92, rate: 0.95 },
+  Zed: { gemini: "Algenib", female: false, pitch: 1.04, rate: 1.1 },
+  Lux: { gemini: "Leda", female: true, pitch: 1.16, rate: 1.1 },
+  Comet: { gemini: "Orus", female: false, pitch: 1.0, rate: 1.04 },
+  Bex: { gemini: "Erinome", female: true, pitch: 1.04, rate: 1.02 },
+  Gus: { gemini: "Charon", female: false, pitch: 0.9, rate: 1.0 },
+  Park: { gemini: "Fenrir", female: false, pitch: 0.84, rate: 0.94 },
 };
 
 const ROLE_PERSONAS: Array<[RegExp, VoicePersona]> = [

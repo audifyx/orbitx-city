@@ -586,6 +586,145 @@ export const NPC_LINES: Record<string, NpcInfo> = {
       [0, 2],
     ],
   },
+  // WORKING WORLD: citizens with real posts — they stand their station
+  // all day (tiny patrols behind counters), work the room, and talk.
+  Ada: {
+    role: "Bank teller, OrbitX Bank",
+    lines: [
+      "Welcome to OrbitX Bank. Deposits, savings, City Sol — window's open.",
+      "Everything here's a demo ledger, so your real wallet never moves. City Sol only.",
+      "Between you and me, the vault's the safest spot in the city. Nobody's ever robbed us. Yet.",
+    ],
+    patrol: [
+      [0, 0],
+      [1.2, 0],
+      [-1.2, 0],
+      [0, 0.8],
+    ],
+  },
+  Milo: {
+    role: "Cashier, OrbitX Grocery",
+    lines: [
+      "Grocery's stocked — fruit, snacks, the good stuff's by the checkout.",
+      "I scan, you pay City Sol, everybody eats. Simple shift, honest work.",
+      "Night crowd cleans out the snack shelf by nine. Every single night.",
+    ],
+    patrol: [
+      [0, 0],
+      [1.5, 0],
+      [-1.5, 0],
+    ],
+  },
+  Jax: {
+    role: "Mechanic, OrbitX Motors",
+    lines: [
+      "Motors is open. If it rolls, hovers or flies, I can keep it running.",
+      "Fuel tanks and charge ports — check yours before a long run to the states.",
+      "That hover rig in the back? Custom build. Don't touch the paint.",
+    ],
+    patrol: [
+      [0, 0],
+      [0, 2],
+      [0, -2],
+    ],
+  },
+  Sal: {
+    role: "Dock worker, Harbor Office",
+    lines: [
+      "Harbor Office — ferry schedules, dock work, best view in the city.",
+      "Ferry's free and runs all day. States are twenty minutes across the water.",
+      "Crates come in at dawn. I know every boat by its horn.",
+    ],
+    patrol: [
+      [0, 0],
+      [2.5, 0],
+      [-2.5, 0],
+    ],
+  },
+  Zed: {
+    role: "Vendor, Night Market",
+    lines: [
+      "Night Market — my stall's the warm one. Everything's City Sol.",
+      "I set up at sunset and the harbor crowd finds me by the lights.",
+      "Haggle if you want. Pia taught me, so good luck.",
+    ],
+    patrol: [
+      [0, 0],
+      [1.8, 0],
+      [-1.8, 0],
+      [0, -1.5],
+    ],
+  },
+  Lux: {
+    role: "Arcade attendant, Neon Arcade",
+    lines: [
+      "Neon Arcade — cabinets are free, high scores are forever.",
+      "Felix holds every record in here. Somebody please humble him.",
+      "Reflex light pays fast hands. Watch for gold, then strike.",
+    ],
+    patrol: [
+      [0, 0],
+      [0, 1.8],
+      [0, -1.8],
+    ],
+  },
+  Comet: {
+    role: "Commuter",
+    lines: [
+      "South end to the plaza, every day. The walk keeps me honest.",
+      "You see the whole city on this route — harbor behind you, towers ahead.",
+      "One day I'll buy a hover car. Today's not that day.",
+    ],
+    patrol: [
+      [0, 0],
+      [0, -140],
+      [2, -140],
+      [2, 0],
+    ],
+  },
+  Bex: {
+    role: "Commuter",
+    lines: [
+      "East side, best side. I walk this stretch every morning.",
+      "The states changed everything — half my street works across the water now.",
+      "Mind the traffic out here. Drivers treat the ring like a racetrack.",
+    ],
+    patrol: [
+      [0, 0],
+      [60, 0],
+      [60, 4],
+      [0, 4],
+    ],
+  },
+  Gus: {
+    role: "Mail carrier",
+    lines: [
+      "Mail route: shop row, bank row, and every door between. Rain or shine.",
+      "Parcels pay good City Sol if you're looking for work — ask Sol at the shop.",
+      "I know every address in this city. Every single one.",
+    ],
+    patrol: [
+      [0, 0],
+      [48, 0],
+      [48, -108],
+      [0, -108],
+    ],
+  },
+  Park: {
+    role: "Police officer, Plaza beat",
+    lines: [
+      "Officer Park. Plaza beat's mine — keep it friendly and we get along.",
+      "We pull over speeders and joyriders. The ticket book's real, the fines are City Sol.",
+      "Thinking about the badge? The department takes good drivers. Ask at the station.",
+    ],
+    patrol: [
+      [0, 0],
+      [14, 0],
+      [14, 37],
+      [-8, 37],
+      [-8, 0],
+    ],
+  },
 };
 
 // Fallback lines for any citizen without an entry above.

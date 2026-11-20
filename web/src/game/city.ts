@@ -6067,6 +6067,17 @@ export function buildCity(seed: number): City {
       { name: "Wren", color: "cyan", x: 117, z: 209 },
       { name: "Nadia", color: "sunset", x: 74, z: -50 },
       { name: "Felix", color: "silver", x: 38, z: 58 },
+      // WORKING WORLD: post workers (at their stations) + commuters.
+      { name: "Ada", color: "cyan", x: 80.5, z: -54 },
+      { name: "Milo", color: "gold", x: 18, z: 74 },
+      { name: "Jax", color: "red", x: 212, z: -69 },
+      { name: "Sal", color: "white", x: 0, z: 207 },
+      { name: "Zed", color: "sunset", x: -18, z: 74 },
+      { name: "Lux", color: "cyan", x: 44.5, z: 54 },
+      { name: "Comet", color: "white", x: 6, z: 204 },
+      { name: "Bex", color: "gold", x: -74, z: 163 },
+      { name: "Gus", color: "silver", x: 12, z: 54 },
+      { name: "Park", color: "black", x: 10, z: 17 },
     ],
   };
 
