@@ -57,6 +57,7 @@ import {
   PARCEL_REWARD,
   PHOTO_REWARD,
   PHOTO_SPOTS,
+  RACE_ROUTES,
   STADIUM_BASE,
   STADIUM_FINISH_X,
   STADIUM_MIN,
@@ -74,6 +75,7 @@ import {
   type EventInfo,
   type MuseumExhibit,
   type PhotoSpot,
+  type RaceRoute,
   loadContent,
 } from "./content";
 import { burnAmount, earn, loadWallet, saveWallet, spend } from "./economy";
@@ -792,6 +794,31 @@ export interface Snap {
   trainNear: boolean;
   /** STORY MODE: current chapter + next step for the Missions panel. */
   story: { chapter: number; total: number; title: string; intro: string; stepLabel: string; stepsDone: number; stepsTotal: number; done: boolean };
+  /** CHECKPOINT TRIALS: live solo time-trial state for the race HUD
+   * (null when no trial is armed/running). targetX/targetZ feed the
+   * minimap marker; dist is metres to the current target. */
+  trial: {
+    phase: "tostart" | "countdown" | "racing";
+    routeId: string;
+    routeName: string;
+    /** 1-based index of the current target (checkpoints + finish). */
+    target: number;
+    targets: number;
+    targetX: number;
+    targetZ: number;
+    isFinish: boolean;
+    dist: number;
+    timeMs: number;
+    countdown: number;
+    lastSplit: string;
+  } | null;
+  /** CHECKPOINT TRIALS: display rows for the panels (route + pars +
+   * the player's local best in ms, null = never finished). */
+  raceRoutes: { id: string; name: string; blurb: string; checkpoints: number; gold: number; silver: number; bronze: number; best: number | null }[];
+  /** DAILY QUESTS (local): today's three quests, progress + rewards. */
+  dailies: { id: string; label: string; need: number; have: number; done: boolean; reward: number }[];
+  dailiesDone: number;
+  dailyBonusPaid: boolean;
   photos: { taken: number; spots: string[] };
   wishes: number;
   // Mission chain + new earning (fix-client): server is the authority.
@@ -2221,6 +2248,410 @@ export function createRuntime(scene: Scene) {
         storyHeat = false;
         advanceStory();
       }
+    }
+  }
+  // CHECKPOINT TRIALS: solo time trials over RACE_ROUTES. State lives
+  // here beside the story state; the run is driven by tickTrial riding
+  // the same per-frame plumbing as tickStory. The server street race
+  // (raceNext / GATES) is a separate system and is never touched —
+  // a trial refuses to arm while one is running. Bests are local
+  // (localStorage), medals pay City Sol through earn().
+  const RACE_BESTS_KEY = "orbitx-city-race-bests-v1";
+  const raceBests: Record<string, number> = (() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(RACE_BESTS_KEY) || "{}") as Record<string, number>;
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  })();
+  function saveRaceBests() {
+    try {
+      localStorage.setItem(RACE_BESTS_KEY, JSON.stringify(raceBests));
+    } catch {
+      /* private mode */
+    }
+  }
+  function fmtRaceMs(ms: number): string {
+    const t = Math.max(0, Math.round(ms));
+    const m = Math.floor(t / 60000);
+    const s = Math.floor((t % 60000) / 1000);
+    const d = Math.floor((t % 1000) / 100);
+    return `${m}:${String(s).padStart(2, "0")}.${d}`;
+  }
+  interface TrialState {
+    route: RaceRoute;
+    targets: { x: number; z: number }[];
+    phase: "tostart" | "countdown" | "racing";
+    targetIdx: number;
+    timeMs: number;
+    countdownLeft: number;
+    footSecs: number;
+    lastSplit: string;
+    needCarWarned: boolean;
+  }
+  let trial: TrialState | null = null;
+  // The one glowing pillar: a tall translucent beam + ground ring,
+  // created lazily (root exists by the time any tick runs) and moved /
+  // recoloured to whatever the trial is pointing at.
+  let trialPillar: Group | null = null;
+  let trialPillarMat: MeshLambertMaterial | null = null;
+  function ensureTrialPillar(): Group {
+    if (trialPillar) return trialPillar;
+    trialPillarMat = new MeshLambertMaterial({
+      color: 0xe0b33a,
+      emissive: 0xe0b33a,
+      emissiveIntensity: 0.55,
+      transparent: true,
+      opacity: 0.38,
+      side: DoubleSide,
+      depthWrite: false,
+    });
+    const group = new Group();
+    const beam = new Mesh(new CylinderGeometry(2.2, 2.2, 34, 20, 1, true), trialPillarMat);
+    beam.position.y = 17;
+    group.add(beam);
+    const ring = new Mesh(new TorusGeometry(3.4, 0.16, 8, 36), trialPillarMat);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.25;
+    group.add(ring);
+    group.visible = false;
+    root.add(group);
+    trialPillar = group;
+    return group;
+  }
+  function paintTrialPillar(x: number, z: number, color: number) {
+    const pillar = ensureTrialPillar();
+    pillar.position.set(x, 0, z);
+    pillar.visible = true;
+    if (trialPillarMat) {
+      trialPillarMat.color.setHex(color);
+      trialPillarMat.emissive.setHex(color);
+      trialPillarMat.opacity = 0.34 + 0.1 * Math.abs(Math.sin(Date.now() / 420));
+    }
+  }
+  function hideTrialPillar() {
+    if (trialPillar) trialPillar.visible = false;
+  }
+  function endTrial(message: string) {
+    trial = null;
+    hideTrialPillar();
+    say(message);
+    publish();
+  }
+  function finishTrial() {
+    const t = trial;
+    if (!t) return;
+    const ms = Math.round(t.timeMs);
+    const secs = ms / 1000;
+    const [goldS, silverS, bronzeS] = t.route.pars;
+    const medal = secs <= goldS ? "GOLD" : secs <= silverS ? "SILVER" : secs <= bronzeS ? "BRONZE" : "";
+    const pay = medal === "GOLD" ? t.route.rewards[0] : medal === "SILVER" ? t.route.rewards[1] : medal === "BRONZE" ? t.route.rewards[2] : t.route.rewards[3];
+    const prevBest = raceBests[t.route.id];
+    const isBest = prevBest === undefined || ms < prevBest;
+    if (isBest) {
+      raceBests[t.route.id] = ms;
+      saveRaceBests();
+    }
+    trial = null;
+    hideTrialPillar();
+    say(earn(wallet, pay, `Race — ${t.route.name}`));
+    notify("RACE", `${t.route.name} — ${fmtRaceMs(ms)}${medal ? ` · ${medal} medal` : ""} · +${pay} City Sol${isBest ? " · NEW BEST" : ""}`, "job");
+    triggerHaptic("success");
+    if (medal === "GOLD") {
+      phoneEvent("job", "Lux", `GOLD on ${t.route.name} — ${fmtRaceMs(ms)}. Clean run. The whole city saw that.`);
+    }
+    dailyEvent("race");
+    publish();
+  }
+  function tickTrial(dt: number, body: Body) {
+    if (!trial) {
+      hideTrialPillar();
+      return;
+    }
+    const t = trial;
+    // Re-entering a panel mid-run abandons it — the run lives in the
+    // world, not in a menu.
+    if (panel && (t.phase === "racing" || t.phase === "countdown")) {
+      endTrial(`Run abandoned — ${t.route.name} is over.`);
+      return;
+    }
+    if (t.phase === "tostart") {
+      const start = t.route.points[0];
+      paintTrialPillar(start.x, start.z, 0xe0b33a);
+      const dist = Math.hypot(body.x - start.x, body.z - start.z);
+      if (dist <= 8) {
+        if (driving) {
+          t.phase = "countdown";
+          t.countdownLeft = 3;
+          say(`${t.route.name} — get ready…`);
+        } else if (!t.needCarWarned) {
+          t.needCarWarned = true;
+          say("You need a car for a checkpoint race — hop in and roll onto the start pillar.");
+        }
+      } else if (dist > 14) {
+        t.needCarWarned = false;
+      }
+      return;
+    }
+    if (t.phase === "countdown") {
+      const start = t.route.points[0];
+      paintTrialPillar(start.x, start.z, 0xe0b33a);
+      const dist = Math.hypot(body.x - start.x, body.z - start.z);
+      if (!driving || dist > 10) {
+        t.phase = "tostart";
+        t.countdownLeft = 3;
+        say("Countdown cancelled — stay in the car, on the start pillar.");
+        return;
+      }
+      t.countdownLeft -= dt;
+      if (t.countdownLeft <= 0) {
+        t.phase = "racing";
+        t.timeMs = 0;
+        t.targetIdx = 0;
+        t.footSecs = 0;
+        say("GO!");
+        triggerHaptic("success");
+      }
+      return;
+    }
+    // Racing: checkpoints bank one at a time, in order. Wrong pillars
+    // do nothing — only the lit target counts.
+    t.timeMs += dt * 1000;
+    if (!driving) {
+      t.footSecs += dt;
+      if (t.footSecs > 10) {
+        endTrial("Run abandoned — you left the car too long.");
+        return;
+      }
+    } else {
+      t.footSecs = 0;
+    }
+    const target = t.targets[t.targetIdx];
+    const isFinish = t.targetIdx === t.targets.length - 1;
+    paintTrialPillar(target.x, target.z, isFinish ? 0xe0b33a : 0x19d8ff);
+    if (Math.hypot(body.x - target.x, body.z - target.z) <= 7) {
+      if (isFinish) {
+        finishTrial();
+        return;
+      }
+      const banked = t.targetIdx + 1;
+      t.targetIdx += 1;
+      t.lastSplit = `Checkpoint ${banked} of ${t.targets.length - 1} — ${fmtRaceMs(t.timeMs)}`;
+      say(t.lastSplit);
+      triggerHaptic("tap");
+    }
+  }
+  // DAILY QUESTS (local): three quests a day, picked deterministically
+  // per player per local date from a pool backed ONLY by events the
+  // story plumbing already emits — dailyEvent sits beside storyEvent
+  // at its call sites and tickDailies rides beside tickStory. State is
+  // localStorage (orbitx-city-dailies-v1), the same trust model as
+  // story progress; rewards pay through earn() like story chapters.
+  const DAILIES_KEY = "orbitx-city-dailies-v1";
+  const DAILY_BONUS = 100;
+  interface DailyQuest {
+    id: string;
+    kind: string;
+    label: string;
+    need: number;
+    reward: number;
+    npc?: string;
+    x?: number;
+    z?: number;
+    have: number;
+    done: boolean;
+  }
+  interface DailyState {
+    date: string;
+    quests: DailyQuest[];
+    bonusPaid: boolean;
+    driveM: number;
+    rideSecs: number;
+    earnSol: number;
+    lastBalance: number;
+  }
+  let daily: DailyState | null = null;
+  let dailySaveAt = 0;
+  function dailyDateStr(): string {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  function hashSeed(text: string): number {
+    let h = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }
+  function mulberry32(seed: number): () => number {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function buildDailyQuests(rng: () => number): DailyQuest[] {
+    const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(rng() * arr.length)];
+    const npc = pick(["Ada", "Pip", "Jax", "Milo", "Park", "Lux", "Sal", "Zed"] as const);
+    const landmark = pick(PHOTO_LANDMARKS);
+    const station = pick([...GAS_STATIONS, ...CHARGE_POINTS]);
+    const pool: DailyQuest[] = [
+      { id: "drive", kind: "drive", label: "Drive 600m around the city", need: 600, reward: 30, have: 0, done: false },
+      { id: "talk3", kind: "talk", label: "Talk to 3 people", need: 3, reward: 25, have: 0, done: false },
+      { id: "talknpc", kind: "talknpc", npc, label: `Say hello to ${npc}`, need: 1, reward: 25, have: 0, done: false },
+      { id: "clockin", kind: "job", label: "Clock into any job", need: 1, reward: 20, have: 0, done: false },
+      { id: "jobtask", kind: "jobtask", label: "Complete 2 job tasks", need: 2, reward: 40, have: 0, done: false },
+      { id: "fuel", kind: "fuel", label: "Fill a tank or charge a battery", need: 1, reward: 25, have: 0, done: false },
+      { id: "photo", kind: "photo", label: "Take a photo (Photo Mode or a Safari landmark)", need: 1, reward: 25, have: 0, done: false },
+      { id: "visitplace", kind: "visit", x: landmark.x, z: landmark.z, label: `Visit ${landmark.name}`, need: 1, reward: 20, have: 0, done: false },
+      { id: "visitstation", kind: "visit", x: station.x, z: station.z, label: `Stop by ${station.name}`, need: 1, reward: 20, have: 0, done: false },
+      { id: "ride", kind: "ride", label: "Ride the bus or train (30s aboard)", need: 30, reward: 25, have: 0, done: false },
+      { id: "earn", kind: "earn", label: "Earn 150 City Sol", need: 150, reward: 40, have: 0, done: false },
+      { id: "ticket", kind: "ticket", label: "Write a traffic ticket (pull a car over: H, then E)", need: 1, reward: 45, have: 0, done: false },
+      { id: "race", kind: "race", label: "Finish a checkpoint race", need: 1, reward: 40, have: 0, done: false },
+    ];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      const tmp = pool[i];
+      pool[i] = pool[j];
+      pool[j] = tmp;
+    }
+    return pool.slice(0, 3);
+  }
+  function saveDailies() {
+    if (!daily) return;
+    try {
+      localStorage.setItem(DAILIES_KEY, JSON.stringify(daily));
+    } catch {
+      /* private mode */
+    }
+  }
+  function loadDailies(): DailyState {
+    const today = dailyDateStr();
+    if (daily && daily.date === today) return daily;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(DAILIES_KEY) || "null") as DailyState | null;
+      if (parsed && parsed.date === today && Array.isArray(parsed.quests) && parsed.quests.length === 3) {
+        daily = parsed;
+        return daily;
+      }
+    } catch {
+      /* regenerate below */
+    }
+    const key = world.me?.id || world.me?.name || "guest";
+    const rng = mulberry32(hashSeed(`${key}|${today}`));
+    daily = {
+      date: today,
+      quests: buildDailyQuests(rng),
+      bonusPaid: false,
+      driveM: 0,
+      rideSecs: 0,
+      earnSol: 0,
+      lastBalance: wallet.balance,
+    };
+    saveDailies();
+    return daily;
+  }
+  function completeDailyQuest(st: DailyState, quest: DailyQuest) {
+    quest.done = true;
+    quest.have = quest.need;
+    say(earn(wallet, quest.reward, `Daily quest — ${quest.label}`));
+    notify("DAILY", `Quest done: ${quest.label} (+${quest.reward} City Sol)`, "job");
+    triggerHaptic("success");
+    if (st.quests.every((q) => q.done) && !st.bonusPaid) {
+      st.bonusPaid = true;
+      say(earn(wallet, DAILY_BONUS, "Daily quests — all three done"));
+      phoneEvent("job", "OrbitX City", `All 3 daily quests done — ${DAILY_BONUS} City Sol bonus paid. New quests land at midnight.`);
+    }
+    saveDailies();
+  }
+  function bumpDaily(kind: string, amount = 1) {
+    const st = loadDailies();
+    let changed = false;
+    for (const quest of st.quests) {
+      if (quest.done || quest.kind !== kind) continue;
+      quest.have = Math.min(quest.need, quest.have + amount);
+      changed = true;
+      if (quest.have >= quest.need) completeDailyQuest(st, quest);
+    }
+    if (changed) {
+      saveDailies();
+      publish();
+    }
+  }
+  function dailyEvent(kind: string, npcName?: string) {
+    if (kind === "talk") {
+      bumpDaily("talk");
+      const st = loadDailies();
+      for (const quest of st.quests) {
+        if (!quest.done && quest.kind === "talknpc" && quest.npc === npcName) {
+          quest.have = quest.need;
+          completeDailyQuest(st, quest);
+          saveDailies();
+          publish();
+        }
+      }
+      return;
+    }
+    bumpDaily(kind);
+  }
+  let dailyPrevX = Number.NaN;
+  let dailyPrevZ = Number.NaN;
+  let dailyPrevPhase = 0;
+  let dailyPrevJob = "";
+  function tickDailies(dt: number, body: Body) {
+    const st = loadDailies();
+    let dirty = false;
+    // Drive distance: body movement while driving (teleport jumps are
+    // not driving — a single tick never legitimately moves 30u+).
+    if (driving && Number.isFinite(dailyPrevX)) {
+      const moved = Math.hypot(body.x - dailyPrevX, body.z - dailyPrevZ);
+      if (moved > 0 && moved < 30) {
+        st.driveM += moved;
+        dirty = true;
+      }
+    }
+    dailyPrevX = body.x;
+    dailyPrevZ = body.z;
+    // Time aboard the bus / train.
+    if (ridingBus || ridingTrain) {
+      st.rideSecs += dt;
+      dirty = true;
+    }
+    // Earnings: only upward balance moves count (pay landing). Quest
+    // rewards themselves land here too — a finished quest nudging the
+    // earn quest along is a kindness, not a loophole worth policing.
+    if (wallet.balance > st.lastBalance) {
+      st.earnSol += wallet.balance - st.lastBalance;
+      dirty = true;
+    }
+    st.lastBalance = wallet.balance;
+    // Job tasks: the shift phase counter climbing is a task banked.
+    if (job && dailyPrevJob === job && phase > dailyPrevPhase) {
+      bumpDaily("jobtask", phase - dailyPrevPhase);
+    }
+    dailyPrevPhase = phase;
+    dailyPrevJob = job;
+    // Mirror the continuous accumulators into their quests, and run
+    // the visit checks against the player's feet.
+    for (const quest of st.quests) {
+      if (quest.done) continue;
+      if (quest.kind === "drive") quest.have = Math.min(quest.need, Math.floor(st.driveM));
+      else if (quest.kind === "ride") quest.have = Math.min(quest.need, Math.floor(st.rideSecs));
+      else if (quest.kind === "earn") quest.have = Math.min(quest.need, Math.floor(st.earnSol));
+      else if (quest.kind === "visit" && quest.x !== undefined && quest.z !== undefined) {
+        if (Math.hypot(body.x - quest.x, body.z - quest.z) <= 10) quest.have = quest.need;
+      } else continue;
+      if (quest.have >= quest.need) completeDailyQuest(st, quest);
+    }
+    if (dirty && Date.now() - dailySaveAt > 5000) {
+      dailySaveAt = Date.now();
+      saveDailies();
     }
   }
   // Traffic circuits MUST sit on the road grid (city.ts CENTERS:
@@ -3889,6 +4320,40 @@ export function createRuntime(scene: Scene) {
           done: false,
         };
       })(),
+      trial: trial
+        ? (() => {
+            const start = trial.route.points[0];
+            const current = trial.targets[Math.min(trial.targetIdx, trial.targets.length - 1)] ?? start;
+            const shown = trial.phase === "racing" ? current : start;
+            return {
+              phase: trial.phase,
+              routeId: trial.route.id,
+              routeName: trial.route.name,
+              target: trial.phase === "racing" ? trial.targetIdx + 1 : 0,
+              targets: trial.targets.length,
+              targetX: shown.x,
+              targetZ: shown.z,
+              isFinish: trial.phase === "racing" && trial.targetIdx === trial.targets.length - 1,
+              dist: lastBody ? Math.round(Math.hypot(lastBody.x - shown.x, lastBody.z - shown.z)) : 0,
+              timeMs: Math.round(trial.timeMs),
+              countdown: Math.max(0, Math.ceil(trial.countdownLeft)),
+              lastSplit: trial.lastSplit,
+            };
+          })()
+        : null,
+      raceRoutes: RACE_ROUTES.map((route) => ({
+        id: route.id,
+        name: route.name,
+        blurb: route.blurb,
+        checkpoints: route.loop ? route.points.length : route.points.length - 1,
+        gold: route.pars[0],
+        silver: route.pars[1],
+        bronze: route.pars[2],
+        best: raceBests[route.id] ?? null,
+      })),
+      dailies: daily ? daily.quests.map((q) => ({ id: q.id, label: q.label, need: q.need, have: Math.floor(q.have), done: q.done, reward: q.reward })) : [],
+      dailiesDone: daily ? daily.quests.filter((q) => q.done).length : 0,
+      dailyBonusPaid: daily ? daily.bonusPaid : false,
       ridingBoard: driving && carIndex >= 0 && !!driveParams && driveParams.pushToGo,
       ridingTrain,
       transport: {
@@ -4937,9 +5402,11 @@ export function createRuntime(scene: Scene) {
     prefetchNpcLines(talk.name, talk.role, talkLines);
     publish();
     storyEvent("talk", npc.name);
+    dailyEvent("talk", npc.name);
   }
 
   function takePhoto(spot: PhotoSpot) {
+    dailyEvent("photo");
     photosTaken += 1;
     const first = !photoSpots.includes(spot.id);
     if (first) photoSpots.push(spot.id);
@@ -5541,6 +6008,7 @@ export function createRuntime(scene: Scene) {
       setFuel(car, 100);
       fuelWarned.delete(car.id);
       storyEvent("fuel");
+      dailyEvent("fuel");
       burst(spot.x, 2.2, spot.z);
       say(fillEv ? `Charged to full — ${cost} City Sol.` : `Tank filled — ${cost} City Sol.`);
       triggerHaptic("jobPay");
@@ -5855,6 +6323,7 @@ export function createRuntime(scene: Scene) {
       speakNpc(stoppedCar.name, "Driver", "Sorry, officer — won't happen again.");
       triggerHaptic("jobPay");
       storyEvent("ticket");
+      dailyEvent("ticket");
       publish();
       return;
     }
@@ -8119,6 +8588,7 @@ export function createRuntime(scene: Scene) {
       publish();
       return;
     }
+    dailyEvent("photo");
     void sendPhoto(place, spot.x, spot.z);
   }
 
@@ -8772,6 +9242,8 @@ export function createRuntime(scene: Scene) {
       tickRob(body);
       tickCops(dt, body);
       tickStory(dt, body);
+      tickTrial(dt, body);
+      tickDailies(dt, body);
     }
     // PEOPLE: a party or a guest that ran out while no panel was open
     // clears itself — no stale guest standing in the home, no party tag
@@ -13110,6 +13582,7 @@ export function createRuntime(scene: Scene) {
       if (id === "mail") resolveMailStops();
       riderOn = false;
       storyEvent("job");
+      dailyEvent("job");
       // Already aboard as a passenger? Clocking in takes the wheel / the
       // controls at once — no need to get off and climb back in.
       if (id === "bus" && ridingBus && !drivingBus) {
@@ -14208,6 +14681,42 @@ export function createRuntime(scene: Scene) {
       raceNext = -1;
       raceHoldUntil = 0;
       void world.raceLeave().then((data) => say(String(data.message || "Left."))).catch((err) => say(err.message));
+    },
+    // CHECKPOINT TRIALS: arm a solo time trial from a panel. The panel
+    // closes (same as request("close")) and the start pillar lights up;
+    // the countdown starts when the player rolls onto it in a car.
+    startTrial(routeId: string) {
+      const route = RACE_ROUTES.find((r) => r.id === routeId);
+      if (!route) return;
+      if (raceNext >= 0) {
+        say("Finish the street race first — one race at a time.");
+        return;
+      }
+      const targets = route.points.slice(1);
+      if (route.loop) targets.push(route.points[0]);
+      trial = {
+        route,
+        targets,
+        phase: "tostart",
+        targetIdx: 0,
+        timeMs: 0,
+        countdownLeft: 3,
+        footSecs: 0,
+        lastSplit: "",
+        needCarWarned: false,
+      };
+      panel = "";
+      paused = false;
+      say(`${route.name} — drive to the gold start pillar${driving ? "" : " (you'll need a car)"}.`);
+      publish();
+    },
+    abandonTrial() {
+      if (!trial) return;
+      endTrial(`Run abandoned — ${trial.route.name} is over.`);
+    },
+    // DAILY QUESTS: the phone's Photo Mode shutter files its photo here.
+    notePhotoTaken() {
+      dailyEvent("photo");
     },
     arcadeDeal() {
       return world.arcadePlay().then((data) => {
