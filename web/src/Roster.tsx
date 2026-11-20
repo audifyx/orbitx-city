@@ -253,6 +253,7 @@ export function CharacterSelect({ seedText, setSeedText, webglMissing, busy, onP
               key={item.id}
               type="button"
               className={`char-card${itemIndex === index ? " on" : ""}`}
+              data-group={item.group ?? "kol"}
               aria-pressed={itemIndex === index}
               onClick={() => setIndex(itemIndex)}
             >
