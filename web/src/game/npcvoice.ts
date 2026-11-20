@@ -94,11 +94,201 @@ const GENERIC_BARKS = [
   "Fountain at sunset. Trust me.",
 ];
 
-export function barkLineFor(name: string, role: string, seed: number): string {
+export function barkLineFor(name: string, role: string, seed: number, tod: TimeOfDayName = "day"): string {
+  const working = WORKING_BARKS[name];
+  if (working) {
+    const lines = working[tod] ?? working.day;
+    return lines[Math.abs(seed) % lines.length];
+  }
   for (const [pattern, lines] of BARKS) {
     if (pattern.test(role) || pattern.test(name)) return lines[Math.abs(seed) % lines.length];
   }
   return GENERIC_BARKS[Math.abs(seed) % GENERIC_BARKS.length];
+}
+
+// ---- Working-NPC dialogue depth ---------------------------------------
+// The ten citizens with real posts get their own ambient barks — two
+// per time of day (the game's day / sunset / night), so the city
+// sounds different as the light changes — plus a daily rumor each:
+// seeded per NPC + date by the caller, hinting at real things to do.
+export type TimeOfDayName = "day" | "sunset" | "night";
+
+const WORKING_BARKS: Record<string, Record<TimeOfDayName, string[]>> = {
+  Ada: {
+    day: ["Window two's free — no line today.", "Books balanced by noon, that's the rule."],
+    sunset: ["Last deposits before the light goes.", "Vault checks at sundown. Every sundown."],
+    night: ["Night ledger's quieter. I like it.", "Bank never really sleeps, friend."],
+  },
+  Milo: {
+    day: ["Fresh stock on aisle two.", "Morning rush cleaned out the fruit again."],
+    sunset: ["Snack shelf's getting low — right on schedule.", "Dinner crowd's coming. I can feel it."],
+    night: ["Night crowd cleans out the snacks by nine. Watch.", "Closing soon — grab what you need."],
+  },
+  Jax: {
+    day: ["Motors is open — bring me something broken.", "Check your tank before the long runs."],
+    sunset: ["Last spray of the day going on soon.", "Golden hour makes every paint look good."],
+    night: ["Shop lights stay on for the night owls.", "Hover rig hums different at night."],
+  },
+  Sal: {
+    day: ["Crates came in at dawn — all sorted.", "Ferry's running clean today."],
+    sunset: ["Harbor at sunset. Best office in the city.", "Last boats coming in with the light."],
+    night: ["Dock's quiet. Just the water and me.", "Night tide's a working tide."],
+  },
+  Zed: {
+    day: ["Setting up early pays off later.", "Market wakes up slow, spends fast."],
+    sunset: ["My stall's the warm one — follow the lights.", "Sunset crowd spends best. Pia taught me that."],
+    night: ["Night Market's in full swing now.", "Last deals of the night — haggle me."],
+  },
+  Lux: {
+    day: ["Cabinets are warm. Records are waiting.", "Felix was in early. Set the bar again."],
+    sunset: ["Arcade glows better as it gets dark.", "Reflex light's calling your name."],
+    night: ["Night scores count double. Not really. Still.", "High-score board never sleeps."],
+  },
+  Park: {
+    day: ["Plaza beat's quiet. Keep it that way.", "Slow down near the plaza, friend."],
+    sunset: ["Evening patrol — headlights on, speeds down.", "Sunset brings the joyriders out. I'm watching."],
+    night: ["Night beat's mine. All quiet so far.", "Stars are out. The wrong kind gets you mine."],
+  },
+  Gus: {
+    day: ["Route's half done by mid-morning.", "Parcels wait for nobody. Neither do I."],
+    sunset: ["Last run of the day — bank row and back.", "Golden light, full bag. Good day."],
+    night: ["Night mail's mostly mysteries.", "Every door in this city. I know them all."],
+  },
+  Pip: {
+    day: ["Pumps are live — pull under the canopy.", "Full service, all day. I got you."],
+    sunset: ["Road-trip hour. Top them off, people.", "Sunset at the pumps — prettiest shift."],
+    night: ["Night drivers run it dry. Ask me how I know.", "Canopy lights on for the night crowd."],
+  },
+  Dom: {
+    day: ["Ring's open. Sal's waiting when you are.", "Train hard or watch — both welcome."],
+    sunset: ["Evening card's the real card.", "Bruno warms up at sundown. Scary sight."],
+    night: ["Champions are made after dark.", "Belt doesn't sleep. Neither does Bruno."],
+  },
+};
+
+// Daily rumors — one per NPC per day (caller seeds by name + date).
+// Every line points at something real in the game.
+const RUMORS: Record<string, string[]> = {
+  Ada: [
+    "Heard the vault crew talking — somebody's been eyeing my bank. The heist crews plan in the Jobs panel, they say.",
+    "A teller's secret: the Modes board in Jobs pays better than half the shifts in this city.",
+  ],
+  Milo: [
+    "Word is Zed pays top City Sol for a driver who can handle a marked car. Jobs panel — Hijack, they call it.",
+    "Somebody's always short a delivery driver. The board in the Jobs panel never stops humming.",
+  ],
+  Jax: [
+    "Bring me a hijack story sometime — those marked cars? I prep half of them. Don't tell Park.",
+    "Fresh paint hides a lot of history. The paint shop's mine, if a car ever needs to look… different.",
+  ],
+  Sal: [
+    "Dock talk: the harbor hideout's seen more heist loot than the vault ever held. Allegedly.",
+    "Ferry's free, friend — but the real money runs on four wheels and a wanted level.",
+  ],
+  Zed: [
+    "Between us? My buyer's always looking for a wheelman. Hijack Mode — Jobs panel. Tell them Zed sent you.",
+    "Heist money spends the same as honest money at my stall. Better stories, though.",
+  ],
+  Lux: [
+    "The checkpoint trials pay medals, but the street whispers say Hijack runs pay better per minute.",
+    "Felix set a trial record again. The trials board's in Jobs — go humble him.",
+  ],
+  Park: [
+    "Department memo says heist crews are casing the bank. If I catch one, the fine's the least of it.",
+    "We've got a pool on who brings in the next hijack artist. Do not make it you.",
+  ],
+  Gus: [
+    "I deliver to every door — including a certain hideout the heist crews use. Mum's the word.",
+    "Parcels, packages… the taxi board's the same work with better tips, if you drive.",
+  ],
+  Pip: [
+    "Hijack crews top off here before a run. Full tank, full stars, full payout — that's the recipe.",
+    "Limp mode mid-escape is a sad way to meet Park. Keep the tank honest, friend.",
+  ],
+  Dom: [
+    "Fighters talk — the Champion's Circuit made half the gym try Hijack runs for training money.",
+    "You want real progression? Citizen Rank climbs fastest on story and modes. Ask anyone.",
+  },
+};
+
+const GENERIC_RUMORS = [
+  "Heard the Trading Floor in the Mega Mall never closes. Real trades, in a game. Wild times.",
+  "Somebody said the weekly quests pay the big City Sol. Jobs panel, top of the list.",
+  "Photo Mode from the phone — people are making their own wallpapers now.",
+];
+
+export function rumorLineFor(name: string, seed: number): string {
+  const lines = RUMORS[name] ?? GENERIC_RUMORS;
+  return lines[Math.abs(seed) % lines.length];
+}
+
+// Reaction barks — fear when the heat is on, witnesses after a crime.
+const SCARED_BARKS = [
+  "Whoa — easy, easy! I'm not looking!",
+  "Stars?! Nope — I saw nothing!",
+  "Backing up — backing WAY up!",
+  "Park! PARK! Over here!",
+];
+
+export function scaredBarkFor(name: string, seed: number): string {
+  if (name === "Park") return "I see those stars, friend. Ditch the heat or pay the fine — your call.";
+  return SCARED_BARKS[Math.abs(seed) % SCARED_BARKS.length];
+}
+
+const WITNESS_BANK_BARKS = [
+  "Someone just hit the bank!",
+  "The vault — they went for the vault!",
+  "Call Park! The bank's been robbed!",
+];
+
+const WITNESS_BARKS = [
+  "Hey! That till was just robbed!",
+  "I saw that! Somebody call Park!",
+  "Right in front of me — unbelievable!",
+];
+
+export function witnessBarkFor(kind: "bank" | "crime", seed: number): string {
+  const lines = kind === "bank" ? WITNESS_BANK_BARKS : WITNESS_BARKS;
+  return lines[Math.abs(seed) % lines.length];
+}
+
+// Talk greetings that replace a working NPC's first line: a warm one
+// after you finished their favor today, otherwise a nod to your
+// Citizen Rank once you've made a name (Hustler+), with a distinct
+// line for a City Legend.
+const WARM_GREETINGS: Record<string, string> = {
+  Ada: "There's my favourite customer. That favour you ran? The books noticed. So did I.",
+  Milo: "Hey — the shelf-stocker supreme returns. Seriously, you saved my shift today.",
+  Jax: "Any friend of the bay's a friend of mine. You did me solid today — I don't forget.",
+  Sal: "Harbour royalty, right here. That run you did for me? Dock crew's still talking.",
+  Zed: "My favourite set of wheels. You move product like nobody in this market.",
+  Lux: "The high-score heart returns. What you did for the arcade? Legendary behaviour.",
+  Park: "Officer — citizen. What you did today? That's how a beat stays friendly. Appreciated.",
+  Gus: "The only other person who knows this route like I do. Thanks for today.",
+  Pip: "Top-off's on me next time. Not really — but the thanks is real. You came through.",
+  Dom: "Champion's hands, champion's heart. The gym remembers who shows up.",
+};
+
+export function warmGreetingFor(name: string): string | null {
+  return WARM_GREETINGS[name] ?? null;
+}
+
+const HUSTLER_GREETINGS = [
+  "Morning, big shot — word travels in this city.",
+  "There's the hustle himself. City's noticing you.",
+  "Well, well — the rising name. What can I do for you?",
+];
+
+const LEGEND_GREETINGS = [
+  "The City Legend, in my little corner of it. Honoured.",
+  "Careful, everyone — royalty just walked up.",
+  "They tell stories about you at closing time. Good ones.",
+];
+
+export function rankGreetingFor(rank: number, seed: number): string | null {
+  if (rank >= 10) return LEGEND_GREETINGS[Math.abs(seed) % LEGEND_GREETINGS.length];
+  if (rank >= 5) return HUSTLER_GREETINGS[Math.abs(seed) % HUSTLER_GREETINGS.length];
+  return null;
 }
 
 // --- enable flag (persisted) ---
