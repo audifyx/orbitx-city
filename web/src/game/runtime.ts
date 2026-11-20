@@ -770,6 +770,10 @@ export interface Snap {
   wanted: number;
   /** COPS: a traffic car is close enough to pull over. */
   trafficNear: boolean;
+  /** HIJACK: the loop bus is close enough to grab. */
+  busNear: boolean;
+  /** HIJACK: the OrbitX Line is stopped at a station within reach. */
+  trainNear: boolean;
   photos: { taken: number; spots: string[] };
   wishes: number;
   // Mission chain + new earning (fix-client): server is the authority.
@@ -3711,6 +3715,11 @@ export function createRuntime(scene: Scene) {
       fuelEv: driving && carIndex >= 0 && cars[carIndex] ? carIsEv(cars[carIndex]) : false,
       wanted,
       trafficNear: lastBody ? !!nearestTrafficCar(lastBody, 16) : false,
+      busNear: !ridingBus && lastBody ? Math.hypot(bus.x - lastBody.x, bus.z - lastBody.z) < 9 : false,
+      trainNear:
+        !ridingTrain && trainState.stopped && lastBody
+          ? Math.hypot(trainState.x - lastBody.x, TRAIN_LINE_Z - lastBody.z) < 10
+          : false,
       ridingBoard: driving && carIndex >= 0 && !!driveParams && driveParams.pushToGo,
       ridingTrain,
       transport: {
@@ -12892,6 +12901,66 @@ export function createRuntime(scene: Scene) {
       car.ticketed = false;
       say(`${car.name} is pulling over — walk to the driver's window and press E to write the ticket.`);
       publish();
+    },
+    // HIJACK: take the loop bus wherever it is — moving or dwelling —
+    // no job, no shift, just the wheel and two wanted stars.
+    hijackBus() {
+      const body = lastBody;
+      if (!body || ridingBus || drivingBus) return;
+      if (Math.hypot(bus.x - body.x, bus.z - body.z) > 9) {
+        say("Get closer to the bus to hijack it.");
+        publish();
+        return;
+      }
+      ridingBus = true;
+      drivingBus = true;
+      body.flying = false;
+      body.vy = 0;
+      bus.setOperator(true);
+      wanted = Math.min(5, wanted + 2);
+      notify("CRIME", `You hijacked the City Loop bus — wanted level ${wanted}.`, "job");
+      say("Bus hijacked! Gas to go, Brake to slow. The cops are rolling…");
+      triggerHaptic("door");
+      publish();
+    },
+    // HIJACK: take the OrbitX Line while it dwells at a station.
+    hijackTrain() {
+      const body = lastBody;
+      if (!body || ridingTrain || drivingLine) return;
+      if (!trainState.stopped) {
+        say("The OrbitX Line only stops at stations — be on the platform when it pulls in.");
+        publish();
+        return;
+      }
+      if (Math.hypot(trainState.x - body.x, TRAIN_LINE_Z - body.z) > 10) {
+        say("Get to the platform — the train's too far to hijack.");
+        publish();
+        return;
+      }
+      ridingTrain = true;
+      drivingLine = true;
+      body.flying = false;
+      body.vy = 0;
+      body.x = trainState.x;
+      body.z = TRAIN_LINE_Z;
+      body.y = trainTrackY(trainState.x) + 0.35;
+      body.yaw = trainState.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+      trainHoldLeft = TRAIN_OPERATOR_HOLD_S;
+      wanted = Math.min(5, wanted + 2);
+      notify("CRIME", `You hijacked the OrbitX Line — wanted level ${wanted}.`, "job");
+      say("Train hijacked! Gas to go, Brake to slow. The cops are rolling…");
+      triggerHaptic("door");
+      publish();
+    },
+    // HIJACK (either): whichever vehicle is in reach — bus first.
+    hijack() {
+      const body = lastBody;
+      if (!body) return;
+      if (!ridingBus && Math.hypot(bus.x - body.x, bus.z - body.z) <= 9) {
+        this.hijackBus();
+        return;
+      }
+      this.hijackTrain();
     },
     // VOICES: panel hooks — stop speech when the talk closes, and the
     // player's voice on/off toggle.

@@ -296,6 +296,8 @@ const EMPTY: Snap = {
   fuelEv: false,
   wanted: 0,
   trafficNear: false,
+  busNear: false,
+  trainNear: false,
   ridingBoard: false,
   ridingTrain: false,
   transport: {
@@ -2108,6 +2110,13 @@ export default function App() {
             {/* COPS: pull over nearby traffic (also the H key). */}
             {snap.trafficNear ? (
               <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.pullOver(); }}>Pull over</button>
+            ) : null}
+            {/* HIJACK: grab the bus or the Line train (also the J key). */}
+            {snap.busNear ? (
+              <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.hijackBus(); }}>Hijack bus</button>
+            ) : null}
+            {snap.trainNear ? (
+              <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.hijackTrain(); }}>Hijack train</button>
             ) : null}
             <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.cycleCamera(); }}>Camera</button>
             {/* Chat / Shop / Grocery / Emote / Clip used to live here — moved
