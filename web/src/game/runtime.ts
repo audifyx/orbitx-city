@@ -668,6 +668,8 @@ export interface Snap {
   homeEditId: string;
   /** The home the Home Workshop (2D editor) is editing ("" when closed). */
   homeWorkshopId: string;
+  /** True while the workshop's unsaved draft is being previewed in 3D. */
+  homeWorkshopPreview: boolean;
   /** Placed furniture per home, for the Home Workshop draft. */
   placedFurniture: Record<string, HomeFurniturePiece[]>;
   lift: { name: string; floors: number[]; stops: string[]; current: number } | null;
@@ -2019,6 +2021,13 @@ export function createRuntime(scene: Scene) {
   let furnitureOwned: string[] = [];
   let homeFurniture: Record<string, HomeFurniturePiece[]> = {};
   let carrying: HomeFurniturePiece | null = null;
+  // Home Workshop 3D preview: while a preview runs, homeFurniture[homeId]
+  // holds the UNSAVED draft list so the player can walk through it. The
+  // saved list is stashed here and restored on exit. Visual only — the
+  // preview never writes to the server, and the applyMe adopt below
+  // keeps the preview list for this home (same guard as carrying).
+  let workshopPreviewHomeId = "";
+  let workshopPreviewSaved: HomeFurniturePiece[] | null = null;
   // A home is "own" only when this universe's save owns it.
   function ownHomeId(homeId: string): boolean {
     return (world.me?.homes?.homes || []).some(
@@ -2937,7 +2946,11 @@ export function createRuntime(scene: Scene) {
           nextPlaced[hId] = [...list];
         }
       }
-      homeFurniture = carrying && decorHomeId ? { ...nextPlaced, [decorHomeId]: homeFurniture[decorHomeId] || [] } : nextPlaced;
+      homeFurniture = workshopPreviewHomeId
+        ? { ...nextPlaced, [workshopPreviewHomeId]: homeFurniture[workshopPreviewHomeId] || [] }
+        : carrying && decorHomeId
+          ? { ...nextPlaced, [decorHomeId]: homeFurniture[decorHomeId] || [] }
+          : nextPlaced;
       rebuildCrazy();
     }
     // CRIB: adopt the server's energy on first load, or when it jumps up
@@ -3936,6 +3949,7 @@ export function createRuntime(scene: Scene) {
       panel,
       homeEditId,
       homeWorkshopId,
+      homeWorkshopPreview: workshopPreviewHomeId !== "",
       placedFurniture: Object.fromEntries(
         Object.entries(homeFurniture).map(([k, v]) => [k, v.map((p) => ({ ...p }))]),
       ),
@@ -12517,9 +12531,49 @@ export function createRuntime(scene: Scene) {
   }
 
   function closeHomeWorkshop() {
+    restoreWorkshopPreview();
     homeWorkshopId = "";
     if (panel === "workshop") panel = "";
     paused = false;
+    publish();
+  }
+
+  // Put the saved furniture list back after a workshop 3D preview, so
+  // the world never keeps rendering an unsaved draft by accident.
+  function restoreWorkshopPreview() {
+    if (!workshopPreviewHomeId) return;
+    homeFurniture = {
+      ...homeFurniture,
+      [workshopPreviewHomeId]: (workshopPreviewSaved || []).map((p) => ({ ...p })),
+    };
+    workshopPreviewHomeId = "";
+    workshopPreviewSaved = null;
+  }
+
+  // Home Workshop 3D preview of the UNSAVED draft. With a piece list:
+  // stash the saved list, swap the draft in for rendering (lifeview
+  // rebuilds on the stamp change), unpause and clear the panel so App
+  // does not re-pause on the publish — App then teleports the player
+  // into the home with goToProperty. The workshop itself stays mounted
+  // (homeWorkshopId is untouched) and App hides it while
+  // snap.homeWorkshopPreview is true. With null: restore the saved
+  // list, re-pause and hand the panel back to the workshop. NEVER a
+  // server write — saving still goes through saveHomeFurniture only.
+  function previewHomeFurniture(homeId: string, pieces: HomeFurniturePiece[] | null) {
+    if (pieces) {
+      if (workshopPreviewHomeId !== homeId) {
+        restoreWorkshopPreview();
+        workshopPreviewSaved = (homeFurniture[homeId] || []).map((p) => ({ ...p }));
+        workshopPreviewHomeId = homeId;
+      }
+      homeFurniture = { ...homeFurniture, [homeId]: pieces.map((p) => ({ ...p })) };
+      paused = false;
+      if (panel === "workshop") panel = "";
+    } else if (workshopPreviewHomeId) {
+      restoreWorkshopPreview();
+      paused = true;
+      panel = "workshop";
+    }
     publish();
   }
 
@@ -13566,6 +13620,7 @@ export function createRuntime(scene: Scene) {
     openHomeEditor,
     openHomeWorkshop,
     closeHomeWorkshop,
+    previewHomeFurniture,
     async saveHomeFurniture(homeId: string, pieces: HomeFurniturePiece[]) {
       if (!world.online || !currentUniverse) return { ok: false, message: cribNeedsSignIn() };
       try {
