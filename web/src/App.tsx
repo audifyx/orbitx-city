@@ -298,6 +298,7 @@ const EMPTY: Snap = {
   trafficNear: false,
   busNear: false,
   trainNear: false,
+  story: { chapter: 1, total: 3, title: "", intro: "", stepLabel: "", stepsDone: 0, stepsTotal: 0, done: false },
   ridingBoard: false,
   ridingTrain: false,
   transport: {
@@ -2827,6 +2828,26 @@ export default function App() {
                     </article>
                   );
                 })}
+                <h3>Story mode</h3>
+                <p className="muted">
+                  A three-chapter story through the living city — meet the cast, learn how the city works, then run wild. 700 City Sol across the chapters.
+                </p>
+                {snap.story.done ? (
+                  <article>
+                    <div>
+                      <b>Story complete</b>
+                      <span>You ran the whole city — first day to wild side. The cast knows your name now.</span>
+                    </div>
+                  </article>
+                ) : (
+                  <article>
+                    <div>
+                      <b>Chapter {snap.story.chapter} of {snap.story.total} — {snap.story.title}</b>
+                      <span>{snap.story.intro}</span>
+                      <span>Next: {snap.story.stepLabel} · Step {snap.story.stepsDone + 1} of {snap.story.stepsTotal}</span>
+                    </div>
+                  </article>
+                )}
                 <h3>Job missions</h3>
                 <p className="muted">
                   Six missions, in order — each one pays City Sol into this universe&apos;s save. 800 in total. Steps are confirmed by the city server: visit a place, say hello in chat, take a car for a drive, work a job, claim your daily, or buy from the shop.

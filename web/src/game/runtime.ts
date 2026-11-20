@@ -62,6 +62,7 @@ import {
   STADIUM_MIN,
   STADIUM_PER_SEC,
   STADIUM_START,
+  STORY_CHAPTERS,
   WASH_COOLDOWN_MS,
   WASH_MS,
   WASH_PAY,
@@ -774,6 +775,8 @@ export interface Snap {
   busNear: boolean;
   /** HIJACK: the OrbitX Line is stopped at a station within reach. */
   trainNear: boolean;
+  /** STORY MODE: current chapter + next step for the Missions panel. */
+  story: { chapter: number; total: number; title: string; intro: string; stepLabel: string; stepsDone: number; stepsTotal: number; done: boolean };
   photos: { taken: number; spots: string[] };
   wishes: number;
   // Mission chain + new earning (fix-client): server is the authority.
@@ -2097,6 +2100,77 @@ export function createRuntime(scene: Scene) {
     parkZ: number;
   }
   const copCars: CopCar[] = [];
+  // STORY MODE: chapter/step progress through the living city,
+  // persisted locally. Steps complete from real play via storyEvent.
+  const STORY_KEY = "orbitx-city-story-v1";
+  const storyProgress: { chapter: number; step: number } = (() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(STORY_KEY) || "null") as { chapter?: number; step?: number } | null;
+      return { chapter: parsed?.chapter ?? 0, step: parsed?.step ?? 0 };
+    } catch {
+      return { chapter: 0, step: 0 };
+    }
+  })();
+  let storyDriveSecs = 0;
+  let storyHeat = false;
+  function currentStoryChapter() {
+    return STORY_CHAPTERS[storyProgress.chapter] ?? null;
+  }
+  function currentStoryStep() {
+    const chapter = currentStoryChapter();
+    return chapter ? chapter.steps[storyProgress.step] ?? null : null;
+  }
+  function saveStory() {
+    try {
+      localStorage.setItem(STORY_KEY, JSON.stringify(storyProgress));
+    } catch {
+      /* private mode */
+    }
+  }
+  function advanceStory() {
+    const chapter = currentStoryChapter();
+    if (!chapter) return;
+    storyProgress.step += 1;
+    storyDriveSecs = 0;
+    if (storyProgress.step >= chapter.steps.length) {
+      storyProgress.chapter += 1;
+      storyProgress.step = 0;
+      say(earn(wallet, chapter.reward, `Story — ${chapter.title}`));
+      const next = currentStoryChapter();
+      notify(
+        "STORY",
+        next ? `Chapter complete: ${chapter.title}. Next — ${next.title}.` : `Story complete! You finished "${chapter.title}" — you run this city now.`,
+        "job",
+      );
+    } else {
+      say(`Story: ${chapter.steps[storyProgress.step].label}`);
+    }
+    saveStory();
+    publish();
+  }
+  function storyEvent(kind: string, npcName?: string) {
+    const step = currentStoryStep();
+    if (!step || step.kind !== kind) return;
+    if (kind === "talk" && step.npc && step.npc !== npcName) return;
+    advanceStory();
+  }
+  function tickStory(dt: number, body: Body) {
+    const step = currentStoryStep();
+    if (!step) return;
+    if (step.kind === "drive") {
+      if (driving) {
+        storyDriveSecs += dt;
+        if (storyDriveSecs >= (step.seconds ?? 20)) advanceStory();
+      }
+    } else if (step.kind === "visit") {
+      if (Math.hypot(body.x - (step.x ?? 0), body.z - (step.z ?? 0)) < (step.radius ?? 6)) advanceStory();
+    } else if (step.kind === "escape") {
+      if (storyHeat && wanted === 0) {
+        storyHeat = false;
+        advanceStory();
+      }
+    }
+  }
   const TRAFFIC_LOOPS: Array<Array<{ x: number; z: number }>> = [
     [
       { x: -56, z: 50 },
@@ -3720,6 +3794,23 @@ export function createRuntime(scene: Scene) {
         !ridingTrain && trainState.stopped && lastBody
           ? Math.hypot(trainState.x - lastBody.x, TRAIN_LINE_Z - lastBody.z) < 10
           : false,
+      story: (() => {
+        const chapter = currentStoryChapter();
+        if (!chapter) {
+          return { chapter: STORY_CHAPTERS.length, total: STORY_CHAPTERS.length, title: "", intro: "", stepLabel: "", stepsDone: 0, stepsTotal: 0, done: true };
+        }
+        const step = currentStoryStep();
+        return {
+          chapter: storyProgress.chapter + 1,
+          total: STORY_CHAPTERS.length,
+          title: chapter.title,
+          intro: chapter.intro,
+          stepLabel: step?.label ?? "",
+          stepsDone: storyProgress.step,
+          stepsTotal: chapter.steps.length,
+          done: false,
+        };
+      })(),
       ridingBoard: driving && carIndex >= 0 && !!driveParams && driveParams.pushToGo,
       ridingTrain,
       transport: {
@@ -4765,6 +4856,7 @@ export function createRuntime(scene: Scene) {
     speakNpc(talk.name, talk.role, talk.line);
     prefetchNpcLines(talk.name, talk.role, talkLines);
     publish();
+    storyEvent("talk", npc.name);
   }
 
   function takePhoto(spot: PhotoSpot) {
@@ -5079,6 +5171,8 @@ export function createRuntime(scene: Scene) {
       say(earn(wallet, payout, "Robbery"));
       notify("CRIME", `You robbed ${npc.name} — wanted level ${wanted}. The cops are rolling.`, "job");
       triggerHaptic("jobPay");
+      storyHeat = true;
+      storyEvent("rob");
       publish();
     }
   }
@@ -5308,6 +5402,7 @@ export function createRuntime(scene: Scene) {
       }
       setFuel(car, 100);
       fuelWarned.delete(car.id);
+      storyEvent("fuel");
       burst(spot.x, 2.2, spot.z);
       say(fillEv ? `Charged to full — ${cost} City Sol.` : `Tank filled — ${cost} City Sol.`);
       triggerHaptic("jobPay");
@@ -5621,6 +5716,7 @@ export function createRuntime(scene: Scene) {
       say(earn(wallet, fine, `Ticket — ${stoppedCar.name}`));
       speakNpc(stoppedCar.name, "Driver", "Sorry, officer — won't happen again.");
       triggerHaptic("jobPay");
+      storyEvent("ticket");
       publish();
       return;
     }
@@ -8470,6 +8566,7 @@ export function createRuntime(scene: Scene) {
       tickFuel(body);
       tickRob(body);
       tickCops(dt, body);
+      tickStory(dt, body);
     }
     // PEOPLE: a party or a guest that ran out while no panel was open
     // clears itself — no stale guest standing in the home, no party tag
@@ -12745,6 +12842,7 @@ export function createRuntime(scene: Scene) {
       mailStops = [];
       if (id === "mail") resolveMailStops();
       riderOn = false;
+      storyEvent("job");
       // Already aboard as a passenger? Clocking in takes the wheel / the
       // controls at once — no need to get off and climb back in.
       if (id === "bus" && ridingBus && !drivingBus) {
@@ -12921,6 +13019,8 @@ export function createRuntime(scene: Scene) {
       notify("CRIME", `You hijacked the City Loop bus — wanted level ${wanted}.`, "job");
       say("Bus hijacked! Gas to go, Brake to slow. The cops are rolling…");
       triggerHaptic("door");
+      storyHeat = true;
+      storyEvent("hijack");
       publish();
     },
     // HIJACK: take the OrbitX Line while it dwells at a station.
@@ -12950,6 +13050,8 @@ export function createRuntime(scene: Scene) {
       notify("CRIME", `You hijacked the OrbitX Line — wanted level ${wanted}.`, "job");
       say("Train hijacked! Gas to go, Brake to slow. The cops are rolling…");
       triggerHaptic("door");
+      storyHeat = true;
+      storyEvent("hijack");
       publish();
     },
     // HIJACK (either): whichever vehicle is in reach — bus first.

@@ -878,6 +878,61 @@ export const FUEL_FILL_MS = 3000;
 export const FUEL_PRICE_PER_PCT = 0.5;
 export const EV_PRICE_PER_PCT = 0.35;
 
+// ---- STORY MODE: a chapter chain through the living city --------------
+// Shown under Missions in the Jobs panel. Steps complete from real play
+// (talking, driving, working, filling, ticketing, robbing, escaping,
+// hijacking); finishing a chapter pays its reward in City Sol.
+export interface StoryStep {
+  kind: "talk" | "visit" | "drive" | "job" | "fuel" | "ticket" | "rob" | "escape" | "hijack";
+  label: string;
+  npc?: string;
+  x?: number;
+  z?: number;
+  radius?: number;
+  seconds?: number;
+}
+export interface StoryChapter {
+  title: string;
+  intro: string;
+  reward: number;
+  steps: StoryStep[];
+}
+export const STORY_CHAPTERS: StoryChapter[] = [
+  {
+    title: "First Day in OrbitX",
+    intro: "Every legend starts with a walk around the block. Meet the faces, take a drive, pick up a shift.",
+    reward: 150,
+    steps: [
+      { kind: "talk", npc: "Rio", label: "Meet Rio at the fountain" },
+      { kind: "talk", npc: "Mina", label: "Say hello to Mina at Cafe Nova" },
+      { kind: "drive", seconds: 20, label: "Take any car for a drive (20 seconds)" },
+      { kind: "job", label: "Clock into any job" },
+    ],
+  },
+  {
+    title: "The Working City",
+    intro: "The city runs on people who show up. Bankers, attendants, officers — learn how the place actually works.",
+    reward: 200,
+    steps: [
+      { kind: "talk", npc: "Ada", label: "Meet Ada at OrbitX Bank" },
+      { kind: "talk", npc: "Pip", label: "Meet Pip at OrbitX Fuel" },
+      { kind: "fuel", label: "Fill a tank or charge a battery" },
+      { kind: "ticket", label: "Pull a driver over and write a ticket (H key, then E at their window)" },
+    ],
+  },
+  {
+    title: "The Wild Side",
+    intro: "You know the city's rules now. Time to break a few — and live to tell it.",
+    reward: 350,
+    steps: [
+      { kind: "talk", npc: "Park", label: "Meet Officer Park on the plaza" },
+      { kind: "rob", label: "Rob a bank, shop or grocery (Talk, then Rob)" },
+      { kind: "escape", label: "Lose the heat — wanted level back to zero" },
+      { kind: "hijack", label: "Hijack the bus or the train (J key when close)" },
+    ],
+  },
+];
+
 // ---- FOOD: cooking, restaurants, gym, hunger (City Sol only) ----------
 // Shared contract with the server (api/city.js FOOD section — the server
 // is the price authority; this file is the client's display copy).
