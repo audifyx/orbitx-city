@@ -44,6 +44,12 @@ import {
   MUSEUM_BONUS,
   MUSEUM_EXHIBITS,
   MUSEUM_REWARD,
+  BOXING_BREAK_SECS,
+  BOXING_OPPONENTS,
+  BOXING_RING,
+  BOXING_ROUND_SECS,
+  BOXING_ROUNDS,
+  BOXING_TRAINER,
   CHARGE_POINTS,
   EV_PRICE_PER_PCT,
   FUEL_FILL_MS,
@@ -71,6 +77,7 @@ import {
   WISH_SPOT,
   foodSpeedMult,
   type BillboardInfo,
+  type BoxingOpponent,
   type CityContent,
   type EventInfo,
   type MuseumExhibit,
@@ -231,7 +238,7 @@ export interface TrainPose {
   dwelling: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "minigames" | "hq" | "race" | "home" | "homeedit" | "workshop" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats" | "trading" | "paint";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "minigames" | "hq" | "race" | "home" | "homeedit" | "workshop" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats" | "trading" | "paint" | "boxing";
 
 // UNIFIED SHOP: the Shop panel's category tabs. "grocery" is a tab
 // now, not a panel — the grocery store in the world opens the Shop on
@@ -825,6 +832,25 @@ export interface Snap {
     countdown: number;
     lastSplit: string;
   } | null;
+  /** BOXING: live fight state for the fight HUD (null when no fight is
+   * running). HP/stamina are 0..100 percents; message is the centre
+   * announcement ("ROUND 2", "KNOCKOUT!") while it lasts. */
+  boxing: {
+    phase: "intro" | "fight" | "break" | "over";
+    oppName: string;
+    round: number;
+    rounds: number;
+    clock: number;
+    youHp: number;
+    oppHp: number;
+    youSt: number;
+    oppSt: number;
+    message: string;
+  } | null;
+  /** BOXING: fight-card rows for the panel (entry, win pay, your local
+   * record against each opponent) + the Champion Belt flag. */
+  boxingCard: { id: string; name: string; title: string; entry: number; win: number; wins: number; losses: number }[];
+  boxingBelt: boolean;
   /** CHECKPOINT TRIALS: display rows for the panels (route + pars +
    * the player's local best in ms, null = never finished). */
   raceRoutes: { id: string; name: string; blurb: string; checkpoints: number; gold: number; silver: number; bronze: number; best: number | null }[];
@@ -2384,6 +2410,690 @@ export function createRuntime(scene: Scene) {
     dailyEvent("race");
     publish();
   }
+  // BOXING: real fights at the ring south of the stadium (city.ts
+  // addBoxingRing, data in content.ts BOXING_*). Same shape as the
+  // trials: an armed runtime state machine riding the per-frame ticks,
+  // entry charged through spend(), wins paid through earn(), records
+  // local. Opening a panel mid-fight or leaving the ring forfeits —
+  // the fight lives in the world, not in a menu.
+  const BOXING_KEY = "orbitx-city-boxing-v1";
+  interface BoxingRecords {
+    wins: Record<string, number>;
+    losses: Record<string, number>;
+    belt: boolean;
+  }
+  const boxingRecords: BoxingRecords = (() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(BOXING_KEY) || "{}") as Partial<BoxingRecords>;
+      return { wins: parsed.wins ?? {}, losses: parsed.losses ?? {}, belt: !!parsed.belt };
+    } catch {
+      return { wins: {}, losses: {}, belt: false };
+    }
+  })();
+  function saveBoxingRecords() {
+    try {
+      localStorage.setItem(BOXING_KEY, JSON.stringify(boxingRecords));
+    } catch {
+      /* private mode — records live for the session */
+    }
+  }
+  type BoxingPose = "guard" | "jab" | "heavy" | "block" | "hit" | "stagger" | "dodge" | "down" | "win";
+  const BOXING_POSE_DUR: Record<BoxingPose, number> = { guard: 0, jab: 0.22, heavy: 0.5, block: 0, hit: 0.3, stagger: 0.55, dodge: 0.3, down: 999, win: 999 };
+  interface BoxingFighter {
+    hp: number;
+    maxHp: number;
+    /** Stamina 0..100 — punches cost it, blocking drains it, rest restores it. */
+    st: number;
+    pose: BoxingPose;
+    poseAt: number;
+    punchAt: number;
+    dodgeUntil: number;
+    dodgeCdUntil: number;
+    blockUntil: number;
+    blocking: boolean;
+  }
+  function freshBoxingFighter(hp: number): BoxingFighter {
+    return { hp, maxHp: hp, st: 100, pose: "guard", poseAt: -9, punchAt: 0, dodgeUntil: 0, dodgeCdUntil: 0, blockUntil: 0, blocking: false };
+  }
+  interface BoxingStrike {
+    at: number;
+    from: "you" | "opp";
+    kind: "jab" | "heavy";
+    weak: boolean;
+  }
+  interface BoxingState {
+    opp: BoxingOpponent;
+    phase: "intro" | "fight" | "break" | "over";
+    round: number;
+    phaseLeft: number;
+    you: BoxingFighter;
+    oppF: BoxingFighter;
+    oppX: number;
+    oppZ: number;
+    oppPrevX: number;
+    oppPrevZ: number;
+    moveX: number;
+    moveZ: number;
+    circleDir: number;
+    aiAt: number;
+    strikes: BoxingStrike[];
+    message: string;
+    messageUntil: number;
+    result: "" | "win" | "loss" | "draw" | "forfeit";
+    settled: boolean;
+  }
+  let boxing: BoxingState | null = null;
+  let boxingBlockHeld = false;
+  let boxingShiftHeld = false;
+  /** Last raw move axes (for the dodge dash direction). */
+  let boxingAxes = { f: 0, s: 0 };
+  let boxingOppGroup: Group | null = null;
+  let boxingFigs: { trainer: Group; crowd: Group[] } | null = null;
+  const YOU_JAB: [number, number] = [4, 6];
+  const YOU_HEAVY: [number, number] = [10, 15];
+
+  function clampRing(v: number, centre: number) {
+    return Math.min(centre + BOXING_RING.half, Math.max(centre - BOXING_RING.half, v));
+  }
+  function nearBoxingTrainer(body: Body) {
+    return Math.hypot(body.x - BOXING_TRAINER.x, body.z - BOXING_TRAINER.z) < 3.2;
+  }
+
+  // The ringside cast: Coach Dom + four spectators, built once per boot
+  // (root is rebuilt on restart, so boot calls this after the citizens).
+  function ensureBoxingFigures() {
+    if (boxingFigs) return;
+    const trainer = makePerson(BOXING_TRAINER.color, "cap");
+    const ttag = makeLabel(BOXING_TRAINER.name, true);
+    ttag.position.y = 2.35;
+    trainer.add(ttag);
+    trainer.position.set(BOXING_TRAINER.x, 0.06, BOXING_TRAINER.z);
+    trainer.rotation.y = Math.atan2(BOXING_RING.x - BOXING_TRAINER.x, BOXING_RING.z - BOXING_TRAINER.z);
+    root.add(trainer);
+    const crowd: Group[] = [];
+    const spots: Array<{ x: number; z: number; color: string }> = [
+      { x: 164.6, z: 245.2, color: "cyan" },
+      { x: 175.6, z: 245.4, color: "sunset" },
+      { x: 160.9, z: 238, color: "gold" },
+      { x: 179.1, z: 237, color: "white" },
+    ];
+    for (const s of spots) {
+      const g = makePerson(s.color, "none");
+      g.position.set(s.x, 0.06, s.z);
+      g.rotation.y = Math.atan2(BOXING_RING.x - s.x, BOXING_RING.z - s.z);
+      root.add(g);
+      crowd.push(g);
+    }
+    const tag = makeLabel("OrbitX Boxing");
+    tag.position.set(BOXING_RING.x, 4.6, BOXING_RING.z);
+    root.add(tag);
+    boxingFigs = { trainer, crowd };
+  }
+
+  // The ring bell + a soft punch thump, plain WebAudio — no assets.
+  let boxingAudio: AudioContext | null = null;
+  function bellSound(strikes = 1) {
+    try {
+      if (!boxingAudio) boxingAudio = new AudioContext();
+      const ctx = boxingAudio;
+      if (ctx.state === "suspended") void ctx.resume();
+      for (let i = 0; i < strikes; i++) {
+        const t0 = ctx.currentTime + i * 0.38;
+        for (const [freq, gain] of [[1318, 0.2], [1975, 0.09]] as Array<[number, number]>) {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.value = freq;
+          g.gain.setValueAtTime(gain, t0);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
+          osc.connect(g);
+          g.connect(ctx.destination);
+          osc.start(t0);
+          osc.stop(t0 + 0.55);
+        }
+      }
+    } catch {
+      /* no audio — the bell is a garnish */
+    }
+  }
+  function thumpSound() {
+    try {
+      if (!boxingAudio) boxingAudio = new AudioContext();
+      const ctx = boxingAudio;
+      if (ctx.state === "suspended") void ctx.resume();
+      const t0 = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(120, t0);
+      osc.frequency.exponentialRampToValueAtTime(48, t0 + 0.09);
+      g.gain.setValueAtTime(0.16, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.1);
+      osc.connect(g);
+      g.connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.11);
+    } catch {
+      /* garnish */
+    }
+  }
+
+  // Punch poses in the applyEmoteLimbs idiom: negative rotation.x swings
+  // an arm forward, rotation.z flares it out (+ left / − right). Runs
+  // AFTER animateWalk, so the pose wins while it plays.
+  function applyBoxingLimbs(handle: WalkerHandle, f: BoxingFighter) {
+    const { armL, armR } = handle;
+    const t = clock - f.poseAt;
+    const timed = f.pose !== "guard" && f.pose !== "block" && t >= 0 && t < BOXING_POSE_DUR[f.pose];
+    const pose: BoxingPose = timed ? f.pose : f.blocking ? "block" : "guard";
+    // Guard baseline with a light bounce.
+    let lx = -1.02 + Math.sin(clock * 6.5) * 0.045;
+    let lz = 0.3;
+    let rx = -1.12 + Math.cos(clock * 6.5) * 0.045;
+    let rz = -0.3;
+    if (pose === "block") {
+      lx = -1.32; lz = 0.52; rx = -1.32; rz = -0.52;
+    } else if (pose === "jab") {
+      const k = Math.sin(Math.min(1, t / 0.22) * Math.PI);
+      lx = -1.02 - 0.85 * k;
+      lz = 0.3 - 0.26 * k;
+    } else if (pose === "heavy") {
+      const p = Math.min(1, t / 0.5);
+      if (p < 0.45) {
+        const k = p / 0.45;
+        rx = -1.12 + 0.75 * k;
+        rz = -0.3 - 0.45 * k;
+      } else {
+        const k = Math.sin(Math.min(1, (p - 0.45) / 0.55) * Math.PI);
+        rx = -0.37 - 1.5 * k;
+        rz = -0.75 + 0.65 * k;
+      }
+    } else if (pose === "hit") {
+      const k = Math.sin(Math.min(1, t / 0.3) * Math.PI);
+      lx = -1.02 + 0.55 * k;
+      rx = -1.12 + 0.55 * k;
+      lz = 0.3 + 0.2 * k;
+      rz = -0.3 - 0.2 * k;
+    } else if (pose === "stagger") {
+      lx = -0.4;
+      rx = -0.45;
+      lz = 0.55;
+      rz = -0.55;
+    } else if (pose === "dodge") {
+      lx = -1.1; lz = 0.42; rx = -1.2; rz = -0.42;
+    } else if (pose === "win") {
+      lx = -0.2; lz = 2.65; rx = -0.2; rz = -2.65;
+    } else if (pose === "down") {
+      lx = 0.4; lz = 1.2; rx = 0.4; rz = -1.2;
+    }
+    armL.rotation.x = lx;
+    armL.rotation.z = lz;
+    armR.rotation.x = rx;
+    armR.rotation.z = rz;
+  }
+  /** Body lean for hit/stagger/dodge, added over the walk cycle. */
+  function boxingTilt(f: BoxingFighter): { x: number; z: number } {
+    const t = clock - f.poseAt;
+    if (f.pose === "hit" && t >= 0 && t < 0.3) return { x: 0.16 * Math.sin((t / 0.3) * Math.PI), z: 0 };
+    if (f.pose === "stagger" && t >= 0 && t < 0.55) return { x: 0.26 * Math.sin((t / 0.55) * Math.PI), z: 0.12 * Math.sin((t / 0.55) * Math.PI * 2) };
+    if (f.pose === "dodge" && t >= 0 && t < 0.3) return { x: 0, z: 0.22 };
+    return { x: 0, z: 0 };
+  }
+  /** Limbs + facing + lean for one fighter. Call after animateWalk. */
+  function applyBoxingPose(handle: WalkerHandle, group: Group, f: BoxingFighter, faceX: number, faceZ: number, gx: number, gz: number) {
+    applyBoxingLimbs(handle, f);
+    group.rotation.y = Math.atan2(faceX - gx, faceZ - gz);
+    if (f.pose === "down") {
+      group.rotation.x = -1.35;
+      group.rotation.z = 0;
+    } else {
+      const tilt = boxingTilt(f);
+      group.rotation.x += tilt.x;
+      group.rotation.z += tilt.z;
+    }
+  }
+
+  function throwBoxingPunch(who: "you" | "opp", kind: "jab" | "heavy") {
+    const b = boxing;
+    if (!b || b.phase !== "fight") return;
+    const f = who === "you" ? b.you : b.oppF;
+    if (clock < f.punchAt || clock < f.dodgeUntil || f.blocking || f.pose === "down") return;
+    const cost = kind === "jab" ? 6 : 15;
+    const weak = f.st < cost;
+    f.st = Math.max(0, f.st - cost);
+    f.pose = kind;
+    f.poseAt = clock;
+    f.punchAt = clock + (kind === "jab" ? 0.36 : 0.66) * (weak ? 1.3 : 1);
+    // The strike lands a beat after the pose starts (the heavy winds
+    // up first) — a dodge or a step out of range in that window is a
+    // clean whiff, and a whiffed heavy leaves the thrower open.
+    b.strikes.push({ at: clock + (kind === "jab" ? 0.09 : 0.24), from: who, kind, weak });
+  }
+
+  function resolveBoxingStrike(s: BoxingStrike, body: Body) {
+    const b = boxing;
+    if (!b || b.phase !== "fight") return;
+    const atk = s.from === "you" ? b.you : b.oppF;
+    const def = s.from === "you" ? b.oppF : b.you;
+    const atkX = s.from === "you" ? body.x : b.oppX;
+    const atkZ = s.from === "you" ? body.z : b.oppZ;
+    const defX = s.from === "you" ? b.oppX : body.x;
+    const defZ = s.from === "you" ? b.oppZ : body.z;
+    if (Math.hypot(defX - atkX, defZ - atkZ) > 2.05) return; // whiffed — air
+    if (clock < def.dodgeUntil) return; // slipped it clean
+    const table = s.from === "you" ? (s.kind === "jab" ? YOU_JAB : YOU_HEAVY) : s.kind === "jab" ? b.opp.jabDmg : b.opp.heavyDmg;
+    let dmg = Math.max(1, Math.round((table[0] + Math.random() * (table[1] - table[0])) * (s.weak ? 0.55 : 1)));
+    if (def.blocking) {
+      dmg = Math.max(1, Math.round(dmg * 0.25));
+      def.st = Math.max(0, def.st - 5);
+      def.pose = "hit";
+      def.poseAt = clock;
+    } else {
+      def.pose = def.hp - dmg > 0 && def.hp <= def.maxHp * 0.3 && dmg >= 8 ? "stagger" : "hit";
+      def.poseAt = clock;
+    }
+    def.hp -= dmg;
+    void atk;
+    burst(defX, BOXING_RING.top + 1.25, defZ);
+    thumpSound();
+    triggerHaptic(s.from === "you" ? "tap" : "bump");
+    if (def.hp <= 0) {
+      def.hp = 0;
+      boxingKnockout(s.from);
+    }
+  }
+
+  function boxingKnockout(winnerFrom: "you" | "opp") {
+    const b = boxing;
+    if (!b) return;
+    const loser = winnerFrom === "you" ? b.oppF : b.you;
+    loser.pose = "down";
+    loser.poseAt = clock;
+    if (winnerFrom === "you") {
+      b.you.pose = "win";
+      b.you.poseAt = clock;
+    }
+    b.phase = "over";
+    b.phaseLeft = 4;
+    b.result = winnerFrom === "you" ? "win" : "loss";
+    b.message = winnerFrom === "you" ? `KNOCKOUT — you put ${b.opp.name} down!` : `KNOCKDOWN — ${b.opp.name} puts you down!`;
+    b.messageUntil = clock + 3.8;
+    bellSound(3);
+    settleBoxing();
+  }
+
+  function boxingDecision() {
+    const b = boxing;
+    if (!b) return;
+    const youPct = b.you.hp / b.you.maxHp;
+    const oppPct = b.oppF.hp / b.oppF.maxHp;
+    b.phase = "over";
+    b.phaseLeft = 4;
+    if (Math.abs(youPct - oppPct) <= 0.03) {
+      b.result = "draw";
+      b.message = "DRAW — the judges can't split you.";
+    } else if (youPct > oppPct) {
+      b.result = "win";
+      b.you.pose = "win";
+      b.you.poseAt = clock;
+      b.message = `DECISION — you outboxed ${b.opp.name}!`;
+    } else {
+      b.result = "loss";
+      b.message = `DECISION — ${b.opp.name} takes it on the cards.`;
+    }
+    b.messageUntil = clock + 3.8;
+    bellSound(3);
+    settleBoxing();
+  }
+
+  /** Records + payout, exactly once per fight. */
+  function settleBoxing() {
+    const b = boxing;
+    if (!b || b.settled) return;
+    b.settled = true;
+    const id = b.opp.id;
+    if (b.result === "win") {
+      boxingRecords.wins[id] = (boxingRecords.wins[id] ?? 0) + 1;
+      say(earn(wallet, b.opp.winPay, `Boxing — beat ${b.opp.name}`));
+      notify("BOXING", `You beat ${b.opp.name} (${b.opp.title}) — +${b.opp.winPay} City Sol. Your record vs ${b.opp.name}: ${boxingRecords.wins[id]}W-${boxingRecords.losses[id] ?? 0}L.`, "job");
+      triggerHaptic("jobPay");
+      if (id === "bruno" && !boxingRecords.belt) {
+        boxingRecords.belt = true;
+        phoneEvent("job", BOXING_TRAINER.name, "You took the belt off Bruno. CHAMPION. The whole city knows your name now. — Coach Dom");
+        notify("CHAMPION", "You beat Bruno — the OrbitX City Champion Belt is yours.", "job");
+      }
+    } else if (b.result === "loss") {
+      boxingRecords.losses[id] = (boxingRecords.losses[id] ?? 0) + 1;
+      say(`${b.opp.name} takes it — your ${b.opp.entry} City Sol entry is gone. Shake it off, come back, take it back.`);
+    } else if (b.result === "draw") {
+      const refund = Math.floor(b.opp.entry / 2);
+      if (refund > 0) say(earn(wallet, refund, "Boxing — draw refund"));
+    }
+    saveBoxingRecords();
+    publish();
+  }
+
+  function endBoxing() {
+    if (boxingOppGroup) {
+      root.remove(boxingOppGroup);
+      boxingOppGroup = null;
+    }
+    boxing = null;
+    boxingBlockHeld = false;
+  }
+
+  function forfeitBoxing(reason: string) {
+    const b = boxing;
+    if (!b) return;
+    boxingRecords.losses[b.opp.id] = (boxingRecords.losses[b.opp.id] ?? 0) + 1;
+    saveBoxingRecords();
+    const entry = b.opp.entry;
+    endBoxing();
+    say(`Forfeit — ${reason} Your ${entry} City Sol entry is lost.`);
+    publish();
+  }
+
+  function startBoxingFight(id: string) {
+    const opp = BOXING_OPPONENTS.find((o) => o.id === id);
+    if (!opp || boxing || !lastBody) return;
+    if (driving || drivingBus || drivingTrain || riding || ridingBus || ridingTrain || lastBody.flying) {
+      say("The ring is for fighters on foot — park the ride first.");
+      return;
+    }
+    if (trial) {
+      say("One contest at a time — finish or abandon the time trial first.");
+      return;
+    }
+    if (robEndsAt > Date.now()) {
+      say("Hands busy — the robbery comes first.");
+      return;
+    }
+    const paid = spend(wallet, opp.entry, `boxing-${opp.id}-${Date.now()}`, false);
+    if (!paid.ok) {
+      say(paid.message);
+      triggerHaptic("error");
+      publish();
+      return;
+    }
+    panel = "";
+    paused = false;
+    ensureBoxingFigures();
+    if (boxingOppGroup) root.remove(boxingOppGroup);
+    boxingOppGroup = makePerson(opp.color, opp.hat);
+    const tag = makeLabel(opp.name, true);
+    tag.position.y = 2.35;
+    boxingOppGroup.add(tag);
+    boxingOppGroup.position.set(BOXING_RING.x, BOXING_RING.top, BOXING_RING.z - 2.6);
+    root.add(boxingOppGroup);
+    boxing = {
+      opp,
+      phase: "intro",
+      round: 1,
+      phaseLeft: 2.6,
+      you: freshBoxingFighter(100),
+      oppF: freshBoxingFighter(opp.hp),
+      oppX: BOXING_RING.x,
+      oppZ: BOXING_RING.z - 2.6,
+      oppPrevX: BOXING_RING.x,
+      oppPrevZ: BOXING_RING.z - 2.6,
+      moveX: 0,
+      moveZ: 0,
+      circleDir: 1,
+      aiAt: 0,
+      strikes: [],
+      message: "ROUND 1",
+      messageUntil: clock + 2.2,
+      result: "",
+      settled: false,
+    };
+    lastBody.x = BOXING_RING.x;
+    lastBody.z = BOXING_RING.z + 2.6;
+    lastBody.y = BOXING_RING.top;
+    lastBody.vy = 0;
+    lastBody.yaw = 0;
+    bellSound(1);
+    say(`${opp.name}, ${opp.title} — entry paid (${opp.entry} City Sol). Three rounds. Touch gloves!`);
+    triggerHaptic("tap");
+    publish();
+  }
+
+  function boxingHit(kind: "jab" | "heavy") {
+    if (boxing && boxing.phase === "fight") throwBoxingPunch("you", kind);
+  }
+  function boxingBlock(down: boolean) {
+    boxingBlockHeld = down;
+  }
+  function boxingDodge() {
+    const b = boxing;
+    if (!b || b.phase !== "fight" || !lastBody) return;
+    const f = b.you;
+    if (clock < f.dodgeCdUntil || f.st < 12 || f.pose === "down") return;
+    f.st -= 12;
+    f.dodgeUntil = clock + 0.28;
+    f.dodgeCdUntil = clock + 0.8;
+    f.pose = "dodge";
+    f.poseAt = clock;
+    let dx = 0;
+    let dz = 0;
+    if (Math.hypot(boxingAxes.f, boxingAxes.s) > 0.25) {
+      const sy = Math.sin(lastBody.yaw);
+      const cy = Math.cos(lastBody.yaw);
+      dx = sy * boxingAxes.f + cy * boxingAxes.s;
+      dz = -cy * boxingAxes.f + sy * boxingAxes.s;
+      const m = Math.hypot(dx, dz) || 1;
+      dx /= m;
+      dz /= m;
+    } else {
+      dx = lastBody.x - b.oppX;
+      dz = lastBody.z - b.oppZ;
+      const m = Math.hypot(dx, dz) || 1;
+      dx /= m;
+      dz /= m;
+    }
+    lastBody.x = clampRing(lastBody.x + dx * 1.5, BOXING_RING.x);
+    lastBody.z = clampRing(lastBody.z + dz * 1.5, BOXING_RING.z);
+    triggerHaptic("tap");
+  }
+
+  function boxingAiThink(body: Body) {
+    const b = boxing;
+    if (!b) return;
+    const o = b.opp;
+    const f = b.oppF;
+    const dx = body.x - b.oppX;
+    const dz = body.z - b.oppZ;
+    const dist = Math.hypot(dx, dz) || 0.001;
+    const ux = dx / dist;
+    const uz = dz / dist;
+    f.blocking = clock < f.blockUntil;
+    const yourFresh = (b.you.pose === "jab" || b.you.pose === "heavy") && clock - b.you.poseAt < 0.3;
+    // Answers first: slip your heavy, shell up against your flurry.
+    if (dist <= 2.1 && yourFresh && b.you.pose === "heavy" && Math.random() < o.dodgeChance) {
+      f.dodgeUntil = clock + 0.3;
+      f.pose = "dodge";
+      f.poseAt = clock;
+      const side = Math.random() < 0.5 ? 1 : -1;
+      b.oppX = clampRing(b.oppX + -uz * side * 1.3, BOXING_RING.x);
+      b.oppZ = clampRing(b.oppZ + ux * side * 1.3, BOXING_RING.z);
+      b.moveX = 0;
+      b.moveZ = 0;
+      return;
+    }
+    if (dist <= 2.1 && yourFresh && Math.random() < o.blockChance) {
+      f.blockUntil = clock + 0.5;
+      f.blocking = true;
+      b.moveX = 0;
+      b.moveZ = 0;
+      return;
+    }
+    // Tired fighters back off and guard.
+    if (f.st < 22 && dist < 2.6) {
+      b.moveX = -ux;
+      b.moveZ = -uz;
+      if (Math.random() < 0.4) f.blockUntil = clock + 0.4;
+      return;
+    }
+    if (dist > 1.85) {
+      const weave = Math.sin(clock * 1.7) * 0.35;
+      let mx = ux + -uz * weave;
+      let mz = uz + ux * weave;
+      const m = Math.hypot(mx, mz) || 1;
+      b.moveX = mx / m;
+      b.moveZ = mz / m;
+      return;
+    }
+    // In range: attack (more when behind on the cards) or circle.
+    const behind = f.hp / f.maxHp < b.you.hp / b.you.maxHp - 0.15;
+    const aggro = o.aggression * (behind ? 1.35 : 1);
+    if (Math.random() < aggro) {
+      throwBoxingPunch("opp", Math.random() < 0.72 ? "jab" : "heavy");
+      b.moveX = 0;
+      b.moveZ = 0;
+    } else {
+      if (Math.random() < 0.2) b.circleDir = -b.circleDir;
+      b.moveX = -uz * b.circleDir;
+      b.moveZ = ux * b.circleDir;
+    }
+  }
+
+  function boxingAiMove(dt: number, body: Body) {
+    const b = boxing;
+    if (!b || b.phase !== "fight" || b.oppF.pose === "down") return;
+    const f = b.oppF;
+    const speed = b.opp.speed * (f.st < 25 ? 0.7 : 1) * (f.blocking ? 0.45 : 1);
+    let nx = clampRing(b.oppX + b.moveX * speed * dt, BOXING_RING.x);
+    let nz = clampRing(b.oppZ + b.moveZ * speed * dt, BOXING_RING.z);
+    // Keep the bodies apart — no walking through each other.
+    const dx = nx - body.x;
+    const dz = nz - body.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.85 && d > 0.0001) {
+      nx = clampRing(body.x + (dx / d) * 0.85, BOXING_RING.x);
+      nz = clampRing(body.z + (dz / d) * 0.85, BOXING_RING.z);
+    }
+    b.oppX = nx;
+    b.oppZ = nz;
+  }
+
+  function tickBoxing(dt: number, body: Body) {
+    // Ringside life: the crowd idles, and bounces when a fight is on.
+    if (boxingFigs) {
+      const excited = boxing && boxing.phase === "fight" ? 0.09 : 0.03;
+      boxingFigs.crowd.forEach((g, i) => {
+        g.position.y = 0.06 + Math.abs(Math.sin(clock * 2.2 + i * 1.7)) * excited;
+        g.rotation.z = Math.sin(clock * 1.8 + i) * 0.03;
+      });
+    }
+    const b = boxing;
+    if (!b) return;
+    // Rails (mirror the trials): a panel or leaving the ring forfeits.
+    if (b.phase !== "over") {
+      if (panel) {
+        forfeitBoxing("you opened a panel mid-fight.");
+        return;
+      }
+      if (driving || drivingBus || drivingTrain || riding || ridingBus || ridingTrain || body.flying) {
+        forfeitBoxing("you left the ring.");
+        return;
+      }
+      if (Math.abs(body.x - BOXING_RING.x) > BOXING_RING.half + 7 || Math.abs(body.z - BOXING_RING.z) > BOXING_RING.half + 7) {
+        forfeitBoxing("you left the ring.");
+        return;
+      }
+    }
+    // The ropes: nobody leaves the canvas while a fight is armed.
+    body.x = clampRing(body.x, BOXING_RING.x);
+    body.z = clampRing(body.z, BOXING_RING.z);
+    b.you.blocking = b.phase === "fight" && (boxingBlockHeld || boxingShiftHeld);
+    // Opponent figure: place, face the player, walk + pose.
+    if (boxingOppGroup) {
+      const g = boxingOppGroup;
+      const speed = Math.min(30, Math.hypot(b.oppX - b.oppPrevX, b.oppZ - b.oppPrevZ) / Math.max(dt, 0.001));
+      b.oppPrevX = b.oppX;
+      b.oppPrevZ = b.oppZ;
+      g.position.set(b.oppX, BOXING_RING.top, b.oppZ);
+      // animateWalk's lean is additive — reset like applyEmote does.
+      g.rotation.x = 0;
+      g.rotation.z = 0;
+      g.rotation.y = Math.atan2(body.x - b.oppX, body.z - b.oppZ);
+      const walker = ensureWalker(g);
+      if (walker) {
+        if (b.oppF.pose === "down") {
+          resetWalkPose(walker);
+          applyBoxingPose(walker, g, b.oppF, body.x, body.z, b.oppX, b.oppZ);
+        } else {
+          animateWalk(walker, speed, dt, speed > 0.05, false);
+          applyBoxingPose(walker, g, b.oppF, body.x, body.z, b.oppX, b.oppZ);
+        }
+      }
+    }
+    b.phaseLeft -= dt;
+    if (b.phase === "intro") {
+      if (b.phaseLeft <= 0) {
+        b.phase = "fight";
+        b.phaseLeft = BOXING_ROUND_SECS;
+        b.message = `ROUND ${b.round} — FIGHT!`;
+        b.messageUntil = clock + 1.6;
+        bellSound(1);
+        publish();
+      }
+      return;
+    }
+    if (b.phase === "fight") {
+      for (const f of [b.you, b.oppF]) f.st = Math.min(100, f.st + (f.blocking ? 3 : 9) * dt);
+      for (let i = b.strikes.length - 1; i >= 0; i--) {
+        if (clock >= b.strikes[i].at) {
+          const s = b.strikes.splice(i, 1)[0];
+          resolveBoxingStrike(s, body);
+          if (!boxing || b.phase !== "fight") return;
+        }
+      }
+      if (clock >= b.aiAt) {
+        b.aiAt = clock + b.opp.reaction * (0.85 + Math.random() * 0.3);
+        boxingAiThink(body);
+      }
+      boxingAiMove(dt, body);
+      if (b.phaseLeft <= 0) {
+        if (b.round >= BOXING_ROUNDS) {
+          boxingDecision();
+        } else {
+          b.phase = "break";
+          b.phaseLeft = BOXING_BREAK_SECS;
+          b.strikes.length = 0;
+          bellSound(1);
+          b.message = `End of round ${b.round} — breathe.`;
+          b.messageUntil = clock + 2.4;
+          for (const f of [b.you, b.oppF]) {
+            f.hp = Math.min(f.maxHp, f.hp + f.maxHp * 0.2);
+            f.st = Math.min(100, f.st + 50);
+          }
+          publish();
+        }
+      }
+      return;
+    }
+    if (b.phase === "break") {
+      if (b.phaseLeft <= 0) {
+        b.round++;
+        b.phase = "intro";
+        b.phaseLeft = 2.4;
+        b.message = `ROUND ${b.round}`;
+        b.messageUntil = clock + 2;
+        body.x = BOXING_RING.x;
+        body.z = BOXING_RING.z + 2.6;
+        b.oppX = BOXING_RING.x;
+        b.oppZ = BOXING_RING.z - 2.6;
+        publish();
+      }
+      return;
+    }
+    // over: hold the result beat, then clear the ring.
+    if (b.phaseLeft <= 0) {
+      endBoxing();
+      publish();
+    }
+  }
+
   function tickTrial(dt: number, body: Body) {
     if (!trial) {
       hideTrialPillar();
@@ -4026,6 +4736,9 @@ export function createRuntime(scene: Scene) {
     lifts = next.lifts;
     npcs.length = 0;
     traffic.length = 0;
+    boxing = null;
+    boxingOppGroup = null;
+    boxingFigs = null;
     talk = null;
     talkLines = [];
     talkNpc = -1;
@@ -4043,6 +4756,9 @@ export function createRuntime(scene: Scene) {
       const waypoints = patrol.map(([dx, dz]) => ({ x: citizen.x + dx, z: citizen.z + dz }));
       npcs.push({ group, name: citizen.name, homeX: citizen.x, homeZ: citizen.z, x: citizen.x, z: citizen.z, prevX: citizen.x, prevZ: citizen.z, yaw: index, waypoints, wp: 1 % waypoints.length, waitUntil: 0, followUntil: 0, fleeUntil: 0, fleeX: 0, fleeZ: 0, gatherUntil: 0, gatherX: 0, gatherZ: 0 });
     });
+    // BOXING: Coach Dom + the ringside crowd take their places south of
+    // the stadium (the opponent figure is built per fight).
+    ensureBoxingFigures();
     // NPC TRAFFIC: six citizens out driving the avenue loops, each in a
     // real catalog car with a visible driver in the seat.
     const TRAFFIC_CAST: Array<{ vehicle: string; color: string; driver: string; loop: number; startSeg: number; speed: number }> = [
@@ -4385,6 +5101,30 @@ export function createRuntime(scene: Scene) {
         bronze: route.pars[2],
         best: raceBests[route.id] ?? null,
       })),
+      boxing: boxing
+        ? {
+            phase: boxing.phase,
+            oppName: boxing.opp.name,
+            round: boxing.round,
+            rounds: BOXING_ROUNDS,
+            clock: Math.max(0, Math.ceil(boxing.phaseLeft)),
+            youHp: Math.max(0, Math.round((boxing.you.hp / boxing.you.maxHp) * 100)),
+            oppHp: Math.max(0, Math.round((boxing.oppF.hp / boxing.oppF.maxHp) * 100)),
+            youSt: Math.round(boxing.you.st),
+            oppSt: Math.round(boxing.oppF.st),
+            message: clock < boxing.messageUntil ? boxing.message : "",
+          }
+        : null,
+      boxingCard: BOXING_OPPONENTS.map((o) => ({
+        id: o.id,
+        name: o.name,
+        title: o.title,
+        entry: o.entry,
+        win: o.winPay,
+        wins: boxingRecords.wins[o.id] ?? 0,
+        losses: boxingRecords.losses[o.id] ?? 0,
+      })),
+      boxingBelt: boxingRecords.belt,
       dailies: daily ? daily.quests.map((q) => ({ id: q.id, label: q.label, need: q.need, have: Math.floor(q.have), done: q.done, reward: q.reward })) : [],
       dailiesDone: daily ? daily.quests.filter((q) => q.done).length : 0,
       dailyBonusPaid: daily ? daily.bonusPaid : false,
@@ -6386,6 +7126,9 @@ export function createRuntime(scene: Scene) {
     const who = body ?? lastBody;
     if (!who || !playing || paused || typing) return;
     body = who;
+    // BOXING: no doors, cars or counters mid-fight — E does nothing
+    // (and the fight's rails forfeit a panel open anyway).
+    if (boxing) return;
     // Riding the bus: E gets off, but only at a stop — the prompt names it.
     // The driver gets off the same way (the wheel goes back to the loop).
     if (ridingBus) {
@@ -6460,6 +7203,12 @@ export function createRuntime(scene: Scene) {
     const bedHomeId = nearOwnBed(body);
     if (bedHomeId) {
       void sleepInBed(bedHomeId);
+      return;
+    }
+    // BOXING: Coach Dom at ringside opens the fight card.
+    if (!boxing && nearBoxingTrainer(body)) {
+      panel = "boxing";
+      publish();
       return;
     }
     // Order matters: a door / zone service point / lift call wins over a car
@@ -7350,11 +8099,25 @@ export function createRuntime(scene: Scene) {
   }
 
   function moveAxes(keys: Set<string>) {
-    if (Math.hypot(stickX, stickY) > 0.15) return { f: stickY, s: stickX };
-    const forward = (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0);
-    const strafe = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0);
-    const mag = Math.hypot(forward, strafe) || 1;
-    return { f: forward / (forward || strafe ? mag : 1), s: strafe / (forward || strafe ? mag : 1) };
+    let axes: { f: number; s: number };
+    if (Math.hypot(stickX, stickY) > 0.15) {
+      axes = { f: stickY, s: stickX };
+    } else {
+      const forward = (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0);
+      const strafe = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0);
+      const mag = Math.hypot(forward, strafe) || 1;
+      axes = { f: forward / (forward || strafe ? mag : 1), s: strafe / (forward || strafe ? mag : 1) };
+    }
+    // BOXING: Shift blocks on the keyboard (the touch Block button sets
+    // the same state through boxingBlock), and in the ring nobody
+    // sprints — footwork is capped, slower still behind a guard.
+    boxingShiftHeld = keys.has("ShiftLeft") || keys.has("ShiftRight");
+    if (boxing) {
+      boxingAxes = axes;
+      const scale = boxing.you.blocking ? 0.35 : 0.62;
+      return { f: axes.f * scale, s: axes.s * scale };
+    }
+    return axes;
   }
 
   function drive(dt: number, body: Body, keys: Set<string>, blocked: (x: number, z: number) => boolean) {
@@ -9579,6 +10342,7 @@ export function createRuntime(scene: Scene) {
       tickCops(dt, body);
       tickStory(dt, body);
       tickTrial(dt, body);
+      tickBoxing(dt, body);
       tickDailies(dt, body);
     }
     // PEOPLE: a party or a guest that ran out while no panel was open
@@ -9925,6 +10689,9 @@ export function createRuntime(scene: Scene) {
         animateWalk(localWalker, horizontalSpeed, dt, (horizontalSpeed > 0.3 || stickMoving) && body.onGround, body.flying);
         // A playing emote poses the limbs over the (idle) walk cycle.
         if (emoteNow) applyEmoteLimbs(localWalker, emoteNow);
+        // BOXING: while a fight is armed, the guard/punch poses own the
+        // limbs and the fighter faces their opponent.
+        if (boxing) applyBoxingPose(localWalker, localBody, boxing.you, boxing.oppX, boxing.oppZ, body.x, body.z);
       }
       // Riding pose (2026-11-18): seat the visible rider on the driven
       // vehicle. The walk cycle is skipped while driving, so nothing
@@ -10052,6 +10819,16 @@ export function createRuntime(scene: Scene) {
       if (Date.now() < raceHoldUntil) prompt = "Countdown — hold still";
       else if (raceNext >= 0) prompt = `Next gate ${raceNext + 1} of ${GATES.length}`;
       else if (holdPrompt) prompt = holdPrompt;
+      else if (boxing)
+        prompt =
+          boxing.phase === "fight"
+            ? `${boxing.opp.name} — Jab J · Heavy K · Block L / Shift · Dodge Space`
+            : boxing.phase === "intro"
+              ? `${boxing.opp.name} — get ready…`
+              : boxing.phase === "break"
+                ? `End of round ${boxing.round} — breathe`
+                : boxing.message;
+      else if (nearBoxingTrainer(body)) prompt = "Press E — OrbitX Boxing fight card";
       else if (decorating && lot) prompt = "Decorate — place, rotate, or remove. X closes it.";
       else if (driving && nearGate(body, 0, 8)) prompt = "Press E — hover time trial";
       else if (driving) prompt = "Press E to get out";
@@ -10764,6 +11541,18 @@ export function createRuntime(scene: Scene) {
       body.yaw = 0;
       body.pitch = 0.08;
       camMode = "first";
+    } else if (shot === "boxing" || shot === "boxing-fight") {
+      body.flying = false;
+      body.x = 166;
+      body.y = 0;
+      body.z = 232;
+      body.yaw = Math.atan2(BOXING_RING.x - body.x, -(BOXING_RING.z - body.z));
+      body.pitch = 0.06;
+      if (shot === "boxing") {
+        panel = "boxing";
+      } else {
+        startBoxingFight("sal");
+      }
     } else if (shot === "garage") {
       // E-priority probe: the OrbitX Motors door anchor (208.6, -69) is
       // 6.6 units from the shop-row car (202, -69), inside the car's
@@ -15093,6 +15882,23 @@ export function createRuntime(scene: Scene) {
     abandonTrial() {
       if (!trial) return;
       endTrial(`Run abandoned — ${trial.route.name} is over.`);
+    },
+    // BOXING: pick a fight from the fight card (Coach Dom, ringside
+    // south of the stadium). Entry is charged on start through spend().
+    startBoxingFight(id: string) {
+      startBoxingFight(id);
+    },
+    boxingHit(kind: "jab" | "heavy") {
+      boxingHit(kind);
+    },
+    boxingBlock(down: boolean) {
+      boxingBlock(down);
+    },
+    boxingDodge() {
+      boxingDodge();
+    },
+    boxingActive() {
+      return boxing !== null;
     },
     // DAILY QUESTS: the phone's Photo Mode shutter files its photo here.
     notePhotoTaken() {

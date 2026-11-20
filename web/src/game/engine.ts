@@ -818,6 +818,19 @@ export function createGame(
     }
     keys.add(event.code);
     if (!playing) return;
+    // BOXING: while a fight is armed, J/K/L/Space are the fight keys —
+    // no jobs panel, no train hijack, no orbit cam, no jump.
+    if (runtime.boxingActive()) {
+      if (event.code === "KeyJ" && !event.repeat) runtime.boxingHit("jab");
+      if (event.code === "KeyK" && !event.repeat) runtime.boxingHit("heavy");
+      if (event.code === "KeyL") runtime.boxingBlock(true);
+      if (event.code === "Space") {
+        if (!event.repeat) runtime.boxingDodge();
+        keys.delete("Space");
+        event.preventDefault();
+      }
+      if (event.code === "KeyJ" || event.code === "KeyK" || event.code === "KeyL" || event.code === "Space") return;
+    }
     if (event.code === "KeyF" && !event.repeat) runtime.toggleFly(player);
     if (event.code === "KeyE" && !event.repeat) runtime.interact(player);
     // K takes the driver's seat of the loop train dwelling at the Loop
@@ -869,6 +882,7 @@ export function createGame(
     keys.delete(event.code);
     if (event.code === "KeyY") runtime.powerRelease();
     if (event.code === "KeyV") runtime.setTalking(false);
+    if (event.code === "KeyL") runtime.boxingBlock(false);
   }
   let wheelX = 0;
   let wheelY = 0;
