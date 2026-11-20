@@ -318,6 +318,8 @@ const EMPTY: Snap = {
   favors: [],
   favorTarget: null,
   boardRun: null,
+  modeRun: null,
+  modes: { hijackBest: 0, hijackRuns: 0, heistBest: 0, heistsDone: 0, totalEarned: 0, heistCooldownSecs: 0, unlocked: false },
   ridingBoard: false,
   ridingTrain: false,
   transport: {
@@ -1947,6 +1949,30 @@ export default function App() {
           </button>
         </div>
       ) : null}
+      {!menu && snap.modeRun && !snap.hideHud ? (
+        <div className="trial-hud">
+          {snap.modeRun.kind === "hijack" ? (
+            <span>
+              🚗 <b>Hijack</b> — {snap.modeRun.label} · <b>{snap.modeRun.accrued} City Sol</b> on the clock · ×{snap.modeRun.mult.toFixed(1)} stars
+              {snap.modeRun.phase === "driving" ? ` · ⏱ ${snap.modeRun.capLeftSecs}s of scoring left` : snap.modeRun.phase === "marked" ? ` · ${snap.modeRun.dist}m` : ""}
+            </span>
+          ) : (
+            <span>
+              🏦 <b>Heist</b> — {snap.modeRun.label} · {snap.modeRun.dist}m
+              {snap.modeRun.phase === "crack" ? (
+                <>
+                  {" "}· <span className="quest-bar"><i style={{ width: `${snap.modeRun.crackPct}%` }} /></span> {snap.modeRun.crackPct}%{snap.modeRun.loot > 0 ? ` · loot ${snap.modeRun.loot} City Sol${snap.modeRun.inZone ? " — hold for more, or run" : ""}` : ""}
+                </>
+              ) : (
+                <> · <b>{snap.modeRun.loot} City Sol</b> on you</>
+              )}
+            </span>
+          )}
+          <button type="button" onClick={() => gameRef.current?.runtime.abandonMode()}>
+            Call it off
+          </button>
+        </div>
+      ) : null}
       {!menu && snap.boxing && !snap.hideHud ? (
         <div className="boxing-hud">
           <div className="boxing-bars">
@@ -2189,7 +2215,7 @@ export default function App() {
               foodStamina={snap.foodStamina}
               energy={snap.energy}
               energyLabel={snap.energyLabel}
-              jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : snap.boardRun ? { x: snap.boardRun.targetX, z: snap.boardRun.targetZ } : snap.favorTarget}
+              jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : snap.boardRun ? { x: snap.boardRun.targetX, z: snap.boardRun.targetZ } : snap.modeRun ? { x: snap.modeRun.targetX, z: snap.modeRun.targetZ } : snap.favorTarget}
               foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
               onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
               docked
@@ -2264,7 +2290,7 @@ export default function App() {
           foodStamina={snap.foodStamina}
           energy={snap.energy}
           energyLabel={snap.energyLabel}
-          jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : snap.boardRun ? { x: snap.boardRun.targetX, z: snap.boardRun.targetZ } : snap.favorTarget}
+          jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : snap.boardRun ? { x: snap.boardRun.targetX, z: snap.boardRun.targetZ } : snap.modeRun ? { x: snap.modeRun.targetX, z: snap.modeRun.targetZ } : snap.favorTarget}
           foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
           onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
         />
@@ -2282,7 +2308,7 @@ export default function App() {
             foodStamina={snap.foodStamina}
             energy={snap.energy}
             energyLabel={snap.energyLabel}
-            jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : snap.boardRun ? { x: snap.boardRun.targetX, z: snap.boardRun.targetZ } : snap.favorTarget}
+            jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : snap.boardRun ? { x: snap.boardRun.targetX, z: snap.boardRun.targetZ } : snap.modeRun ? { x: snap.modeRun.targetX, z: snap.modeRun.targetZ } : snap.favorTarget}
             foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
             onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
             docked
@@ -3062,6 +3088,50 @@ export default function App() {
                         <span>Pick up a fare, get them there quick for the tip. Pays 50–160 City Sol by distance + tip.</span>
                       </div>
                       <button type="button" onClick={() => { gameRef.current?.runtime.startTaxi(); close(); }}>Accept fare</button>
+                    </article>
+                  </>
+                )}
+                <h3>Modes</h3>
+                <p className="muted">
+                  Scored street modes, paid in City Sol. Street Rep: {snap.modes.totalEarned} City Sol earned from modes · best hijack {snap.modes.hijackBest} · {snap.modes.heistsDone} heist{snap.modes.heistsDone === 1 ? "" : "s"} banked. One run at a time — a mode locks out the board, trials and fights until it ends.
+                </p>
+                {snap.modeRun ? (
+                  <article>
+                    <div>
+                      <b>{snap.modeRun.kind === "hijack" ? "Hijack — running" : "Heist — running"}</b>
+                      <span>
+                        {snap.modeRun.kind === "hijack"
+                          ? `${snap.modeRun.label} · ${snap.modeRun.accrued} City Sol on the clock at ×${snap.modeRun.mult.toFixed(1)}.`
+                          : snap.modeRun.phase === "crack"
+                            ? `Crack ${snap.modeRun.crackPct}% · loot so far ${snap.modeRun.loot} City Sol.`
+                            : `Carrying ${snap.modeRun.loot} City Sol — ${snap.modeRun.label}.`}
+                      </span>
+                    </div>
+                    <button type="button" onClick={() => gameRef.current?.runtime.abandonMode()}>Call it off</button>
+                  </article>
+                ) : (
+                  <>
+                    <article>
+                      <div>
+                        <b>Hijack</b>
+                        <span>
+                          Zed&apos;s buyer marks a car across town. Take it and the score runs — distance × your wanted stars (up to ×3.5), five minutes of scoring. Ditch the car and lose the cops to bank it; get busted and you keep 10%.
+                          {snap.modes.hijackBest > 0 ? ` Best banked: ${snap.modes.hijackBest} City Sol over ${snap.modes.hijackRuns} run${snap.modes.hijackRuns === 1 ? "" : "s"}.` : ""}
+                        </span>
+                      </div>
+                      <button type="button" onClick={() => { gameRef.current?.runtime.startHijack(); close(); }}>Start hijack</button>
+                    </article>
+                    <article>
+                      <div>
+                        <b>Bank Heist</b>
+                        <span>
+                          Plan a run on OrbitX Bank: hold the vault crack for 20 seconds to secure 400 City Sol — every extra 5 seconds of greed adds 100 (700 max) while the alarm raises your stars. Bank it at the hideout; busted with the loot and it&apos;s gone. One heist every 10 minutes.
+                          {snap.modes.heistCooldownSecs > 0 ? ` The bank is hot — ${Math.ceil(snap.modes.heistCooldownSecs / 60)} min left to lay low.` : snap.modes.heistBest > 0 ? ` Best take: ${snap.modes.heistBest} City Sol.` : ""}
+                        </span>
+                      </div>
+                      <button type="button" disabled={snap.modes.heistCooldownSecs > 0} onClick={() => { gameRef.current?.runtime.startHeist(); close(); }}>
+                        {snap.modes.heistCooldownSecs > 0 ? `Hot — ${Math.ceil(snap.modes.heistCooldownSecs / 60)}m` : "Plan heist"}
+                      </button>
                     </article>
                   </>
                 )}
@@ -6678,6 +6748,7 @@ function ProfilePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
       <div className="profile-stats">
         {view.self && view.balance != null ? stat("City Sol", fmt(view.balance), "your balance") : null}
         {view.self ? stat("Citizen Rank", `${snap.rank.rank} — ${snap.rank.title}`, `${snap.rank.xp} XP earned`) : null}
+        {view.self ? stat("Street Rep", `${snap.modes.totalEarned} City Sol from modes`, `best hijack ${snap.modes.hijackBest} · ${snap.modes.heistsDone} heist${snap.modes.heistsDone === 1 ? "" : "s"} banked`) : null}
         {stat("Total earned", `${fmt(view.earned)} City Sol`, "all time")}
         {stat("Total spent", `${fmt(view.spent)} City Sol`, "counted since this update")}
         {stat("Houses", String(view.homes.length), "owned")}
