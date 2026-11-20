@@ -5972,6 +5972,68 @@ async function radioRegister(player, body) {
 
 const HEARTBEAT = new Set(["sync", "digest", "me", "board"]);
 
+// NPC VOICES: Google Gemini TTS for scripted citizen lines. Public
+// content (the lines ship in the game bundle), so the op needs no
+// session — it is bounded by a text cap, a voice-name whitelist and an
+// in-memory audio cache. Without a Google AI key configured the op
+// answers ok:false and the game falls back to the device's own Google
+// voices, so this ships dark and lights up when the key lands.
+const ttsCache = new Map();
+function pcmToWavBase64(pcmBase64, sampleRate) {
+  const pcm = Buffer.from(pcmBase64, "base64");
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]).toString("base64");
+}
+async function ttsOp(body) {
+  const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_TTS_API_KEY || "";
+  if (!key) return { ok: false, message: "Voice service not configured.", status: 501 };
+  const text = String(body.text || "").slice(0, 300).trim();
+  const voice = String(body.voice || "Kore");
+  if (!text) return { ok: false, message: "Nothing to say.", status: 400 };
+  if (!/^[A-Za-z]{3,24}$/.test(voice)) return { ok: false, message: "Unknown voice.", status: 400 };
+  const cacheKey = `${voice}:${text}`;
+  const hit = ttsCache.get(cacheKey);
+  if (hit) return { ok: true, audio: hit, cached: true };
+  try {
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text }] }],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
+        },
+      }),
+    });
+    if (!response.ok) return { ok: false, message: "Voice service busy.", status: 502 };
+    const data = await response.json();
+    const part = data?.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
+    if (!part) return { ok: false, message: "No audio came back.", status: 502 };
+    const mime = String(part.inlineData.mimeType || "");
+    const rateMatch = /rate=(\d+)/.exec(mime);
+    const audio = pcmToWavBase64(part.inlineData.data, rateMatch ? Number(rateMatch[1]) : 24000);
+    if (ttsCache.size > 400) ttsCache.delete(ttsCache.keys().next().value);
+    ttsCache.set(cacheKey, audio);
+    return { ok: true, audio };
+  } catch {
+    return { ok: false, message: "Voice service unreachable.", status: 502 };
+  }
+}
+
 export async function POST(request) {
   let body = {};
   try {
@@ -5980,6 +6042,13 @@ export async function POST(request) {
     return json({ ok: false, message: "Send JSON." }, 400);
   }
   const op = String(body.op || "");
+  if (op === "tts") {
+    const result = await ttsOp(body);
+    const status = result.status || 200;
+    const payload = { ...result };
+    delete payload.status;
+    return json(payload, status);
+  }
   if (op.startsWith("auth-")) {
     const result = await handleAuthOp(op, body);
     if (!result) return json({ ok: false, message: "Unknown auth request." }, 400);
