@@ -809,7 +809,11 @@ export function createGame(
 
   function onKeyDown(event: KeyboardEvent) {
     if (runtime.typing() || runtime.paused()) {
-      if (event.code === "Escape") runtime.request("close");
+      if (event.code === "Escape") {
+        // Esc closes the emote wheel first; panels keep their close.
+        if (runtime.wheeling()) runtime.setWheel(false);
+        else runtime.request("close");
+      }
       return;
     }
     keys.add(event.code);
@@ -834,16 +838,18 @@ export function createGame(
     if (event.code === "KeyV") runtime.setTalking(true);
     if (event.code === "Digit1") runtime.emote("wave");
     if (event.code === "Digit2") runtime.emote("dance");
-    if (event.code === "Digit3") runtime.emote("cheer");
-    if (event.code === "Digit4") runtime.emote("sit");
-    if (event.code === "Digit5") runtime.emote("spin");
-    if (event.code === "Digit6") runtime.emote("bow");
-    if (event.code === "Digit7") runtime.emote("clap");
-    if (event.code === "Digit8") runtime.emote("robot");
+    if (event.code === "Digit3") runtime.emote("laugh");
+    if (event.code === "Digit4") runtime.emote("cheer");
+    if (event.code === "Digit5") runtime.emote("point");
+    if (event.code === "Digit6") runtime.emote("flex");
+    if (event.code === "Digit7") runtime.emote("sit");
+    if (event.code === "Digit8") runtime.emote("facepalm");
     if (event.code === "KeyZ" && !event.repeat) {
+      // Tap-to-open / tap-again-to-close (the wheel is tap-to-pick
+      // now, not hold-and-release).
       wheelX = 0;
       wheelY = 0;
-      runtime.setWheel(true);
+      runtime.setWheel(!runtime.wheeling());
     }
     if (event.code === "KeyX" && !event.repeat) runtime.editHome();
     if (event.code === "KeyO" && !event.repeat) runtime.toggleSpectator();
@@ -852,14 +858,17 @@ export function createGame(
     if (event.code === "KeyU" && !event.repeat) runtime.toggleHud();
     if (event.code === "KeyI" && !event.repeat) runtime.toggleNames();
     if (event.code === "KeyL" && !event.repeat) runtime.toggleOrbit();
-    if (event.code === "Escape") runtime.request("close");
+    if (event.code === "Escape") {
+      // Esc closes the emote wheel first; panels keep their close.
+      if (runtime.wheeling()) runtime.setWheel(false);
+      else runtime.request("close");
+    }
     if (event.code === "Space") event.preventDefault();
   }
   function onKeyUp(event: KeyboardEvent) {
     keys.delete(event.code);
     if (event.code === "KeyY") runtime.powerRelease();
     if (event.code === "KeyV") runtime.setTalking(false);
-    if (event.code === "KeyZ") runtime.commitWheel();
   }
   let wheelX = 0;
   let wheelY = 0;
@@ -887,6 +896,13 @@ export function createGame(
     if (touch || event.button !== 0 || !playing || runtime.paused() || runtime.typing()) return;
     const target = event.target as HTMLElement | null;
     if (target?.closest("button, a, input, textarea, .panel, .menu")) return;
+    // Emote wheel open (desktop, pointer-locked aim): a canvas click
+    // commits the aimed slice instead of starting a camera drag. The
+    // wheel's own DOM buttons are caught by the guard above.
+    if (runtime.wheeling()) {
+      runtime.commitWheel();
+      return;
+    }
     dragging = true;
     dragX = event.clientX;
     dragY = event.clientY;

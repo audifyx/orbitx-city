@@ -1992,9 +1992,23 @@ body.touch .touch-ui {
   position: fixed;
   z-index: 7;
   left: 50%;
-  top: 70%;
+  top: 46%;
   width: 0;
   height: 0;
+}
+
+.wheel::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: min(80vw, 300px);
+  height: min(80vw, 300px);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(8, 12, 20, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  pointer-events: none;
 }
 
 .wheel button,
@@ -2003,7 +2017,7 @@ body.touch .touch-ui {
   left: 0;
   top: 0;
   transform: translate(-50%, -50%);
-  min-width: 72px;
+  min-width: 64px;
 }
 
 .wheel span {

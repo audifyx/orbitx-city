@@ -135,7 +135,7 @@ import {
   type OwnedVehicle,
   type VehicleMods,
 } from "./vehicles";
-import { ensureWalker, animateWalk, resetWalkPose, makeCameraSmoother } from "./movement";
+import { ensureWalker, animateWalk, resetWalkPose, makeCameraSmoother, type WalkerHandle } from "./movement";
 import { triggerHaptic, isHapticsEnabled, setHapticsEnabled } from "./haptics";
 import { emergencyJobById, jobObjective, jobTargetFor, jobTaskCountFor } from "./emergency";
 import {
@@ -171,6 +171,7 @@ import { DOCKS, REGION_CENTERS, REGION_ROAD_CENTERS, ROAD_HALF } from "./states"
 import { isWater, WATER_SURFACE_Y } from "./water";
 import {
   EMOTES,
+  EMOTE_DURATIONS,
   FURNITURE,
   GATES,
   type DailyCard,
@@ -2074,6 +2075,13 @@ export function createRuntime(scene: Scene) {
   let clean = false;
   let wheelOpen = false;
   let wheelIndex = 0;
+  // EMOTE WHEEL: an emote the player picked (wheel tap / digit key) —
+  // as opposed to one an activity set (dance floor, busking). Picked
+  // emotes cancel when the player moves off the spot, drives, or a
+  // panel pauses the game; activity emotes end with their activity.
+  let emotePicked = false;
+  let emoteStartX = 0;
+  let emoteStartZ = 0;
   let decorating = false;
   let decorKind = "couch";
   let decorRot = 0;
@@ -5292,18 +5300,127 @@ export function createRuntime(scene: Scene) {
     group.rotation.x = 0;
     group.rotation.z = 0;
     group.rotation.y = baseYaw;
-    if (emote === "wave") group.rotation.z = Math.sin(clock * 8) * 0.35;
+    if (emote === "wave") group.rotation.z = Math.sin(clock * 8) * 0.1;
     else if (emote === "dance") group.rotation.y = baseYaw + Math.sin(clock * 6) * 0.6;
+    else if (emote === "laugh") group.rotation.x = -0.14 + Math.sin(clock * 16) * 0.05;
     else if (emote === "cheer") group.rotation.x = -0.25 + Math.sin(clock * 10) * 0.15;
-    else if (emote === "sit") group.rotation.x = 0.7;
+    else if (emote === "point") group.rotation.x = 0.08;
+    else if (emote === "flex") group.rotation.z = Math.sin(clock * 5) * 0.05;
+    else if (emote === "sit") group.rotation.x = 0.14;
+    else if (emote === "facepalm") group.rotation.x = 0.34 + Math.sin(clock * 30) * 0.015;
+    // Legacy poses: off the wheel since v41, but a remote on an older
+    // build can still send them — keep them readable, never a glitch.
     else if (emote === "spin") group.rotation.y = clock * 4;
     else if (emote === "bow") group.rotation.x = 0.9;
     else if (emote === "clap") group.rotation.z = Math.sin(clock * 14) * 0.22;
     else if (emote === "robot") group.rotation.y = baseYaw + (Math.sin(clock * 3) > 0 ? 0.5 : -0.5);
     if (emote === "dance") return Math.abs(Math.sin(clock * 8)) * 0.3;
-    if (emote === "sit") return -0.4;
+    if (emote === "sit") return -0.42;
     if (emote === "cheer") return Math.abs(Math.sin(clock * 10)) * 0.12;
+    if (emote === "laugh") return Math.abs(Math.sin(clock * 16)) * 0.03;
     return 0;
+  }
+
+  // EMOTE LIMBS: the walker arms/legs, posed per emote. Runs AFTER
+  // animateWalk (which writes the walk swing every frame and would
+  // stomp these), so a picked pose wins while it plays and the walk
+  // cycle takes the limbs back the frame the emote ends. Sign rules
+  // match the riding poses: negative rotation.x swings a limb forward,
+  // rotation.z flares an arm outward (+ on the left, − on the right) —
+  // keep rotating past horizontal and the arm ends up raised.
+  function applyEmoteLimbs(handle: WalkerHandle, emote: string) {
+    const { legL, legR, armL, armR } = handle;
+    if (emote === "wave") {
+      // Right arm up, waving side to side.
+      armR.rotation.z = -2.5;
+      armR.rotation.x = Math.sin(clock * 10) * 0.45;
+    } else if (emote === "dance") {
+      // Arms up, alternating with the beat.
+      const sway = Math.sin(clock * 6);
+      armL.rotation.z = 1.9 + sway * 0.5;
+      armR.rotation.z = -1.9 + sway * 0.5;
+      armL.rotation.x = sway * 0.6;
+      armR.rotation.x = -sway * 0.6;
+    } else if (emote === "laugh") {
+      // Both hands clutch the belly.
+      armL.rotation.x = -0.85;
+      armR.rotation.x = -0.85;
+      armL.rotation.z = 0.35;
+      armR.rotation.z = -0.35;
+    } else if (emote === "cheer") {
+      // Both arms overhead, pumping.
+      const pump = Math.sin(clock * 10) * 0.15;
+      armL.rotation.z = 2.7 + pump;
+      armR.rotation.z = -2.7 - pump;
+      armL.rotation.x = -0.2;
+      armR.rotation.x = -0.2;
+    } else if (emote === "point") {
+      // Right arm straight out front.
+      armR.rotation.x = -1.5;
+      armR.rotation.z = -0.05;
+    } else if (emote === "flex") {
+      // Strongman: arms up and out, pulsing.
+      const pulse = Math.sin(clock * 5) * 0.08;
+      armL.rotation.z = 2.2;
+      armR.rotation.z = -2.2;
+      armL.rotation.x = -0.5 - pulse;
+      armR.rotation.x = -0.5 - pulse;
+    } else if (emote === "sit") {
+      // Thighs forward (same angle as the riding seat), hands on knees.
+      legL.rotation.x = -1.35;
+      legR.rotation.x = -1.35;
+      armL.rotation.x = -0.55;
+      armR.rotation.x = -0.55;
+    } else if (emote === "facepalm") {
+      // Right hand to the face.
+      armR.rotation.x = -2.3;
+      armR.rotation.z = -0.35;
+    }
+  }
+
+  // EMOTE WHEEL: start a player-picked emote. Refused while the
+  // player's hands are genuinely busy — driving, riding, a robbery
+  // channel, a cop bust in progress, or a dance/busk set (those run
+  // their own emotes). Returns false when refused.
+  function startEmote(name: string): boolean {
+    if (driving || drivingBus || drivingTrain || riding || ridingBus || ridingTrain) {
+      say("Not while you're riding — hop off first.");
+      return false;
+    }
+    if (robEndsAt > Date.now()) {
+      say("Hands busy — the robbery comes first.");
+      return false;
+    }
+    if (bustMeter > 0.5) {
+      say("The cops have you — no time for that.");
+      return false;
+    }
+    if (dance || busk) {
+      say("You're mid-set — finish the performance first.");
+      return false;
+    }
+    const duration = EMOTE_DURATIONS[name] ?? 2200;
+    world.emote = name;
+    // Dance loops: a long timer the cancel rules (move / drive /
+    // panel) cut short. One-shots just run their duration out.
+    world.emoteUntil = Date.now() + (duration === 0 ? 600_000 : duration);
+    emotePicked = true;
+    if (lastBody) {
+      emoteStartX = lastBody.x;
+      emoteStartZ = lastBody.z;
+    }
+    publish();
+    return true;
+  }
+
+  function clearPickedEmote() {
+    if (!emotePicked) return;
+    emotePicked = false;
+    if (Date.now() < world.emoteUntil) {
+      world.emote = "";
+      world.emoteUntil = 0;
+    }
+    publish();
   }
 
   function nearGate(body: Body, index: number, radius: number) {
@@ -9539,10 +9656,21 @@ export function createRuntime(scene: Scene) {
           if (remoteJump > 5) resetWalkPose(remoteWalker);
           const remoteSpeed = remoteJump > 5 ? 0 : Math.min(30, remoteJump / Math.max(dt, 0.001));
           animateWalk(remoteWalker, remoteSpeed, dt, remoteSpeed > 0.05, false);
+          // Their picked emote poses the limbs over the walk cycle —
+          // presence carries the emote name, so remotes dance/wave/
+          // facepalm exactly as the sender sees themselves.
+          if (remote.state.emote) applyEmoteLimbs(remoteWalker, remote.state.emote);
         }
       }
       remote.prevX = remote.group.position.x;
       remote.prevZ = remote.group.position.z;
+    }
+    // Picked emotes end when the player moves off the spot, starts
+    // driving, or a panel pauses the game. Activity emotes (dance
+    // floor, busking) are not "picked" — they end with the activity.
+    if (emotePicked && !dance && !busk) {
+      const moved = lastBody ? Math.hypot(lastBody.x - emoteStartX, lastBody.z - emoteStartZ) > 1.4 : false;
+      if (driving || paused || moved) clearPickedEmote();
     }
     const emoteNow = Date.now() < world.emoteUntil ? world.emote : "";
     if (localBody) {
@@ -9572,6 +9700,8 @@ export function createRuntime(scene: Scene) {
         // Blocked against a wall: stick held but no displacement — bump.
         if (playing && stickMoving && horizontalSpeed < 0.05 && body.onGround) triggerHaptic("bump");
         animateWalk(localWalker, horizontalSpeed, dt, (horizontalSpeed > 0.3 || stickMoving) && body.onGround, body.flying);
+        // A playing emote poses the limbs over the (idle) walk cycle.
+        if (emoteNow) applyEmoteLimbs(localWalker, emoteNow);
       }
       // Riding pose (2026-11-18): seat the visible rider on the driven
       // vehicle. The walk cycle is skipped while driving, so nothing
@@ -13987,8 +14117,7 @@ export function createRuntime(scene: Scene) {
       viewOwnProfile();
     },
     emote(name: string) {
-      world.emote = name;
-      world.emoteUntil = Date.now() + 3200;
+      startEmote(name);
     },
     async joinLobby(id: string) {
       const ok = await joinVoice(id);
@@ -14300,12 +14429,25 @@ export function createRuntime(scene: Scene) {
       wheelIndex = Math.floor((((slice % 1) + 1) % 1) * EMOTES.length) % EMOTES.length;
       publish();
     },
+    aimWheelIndex(index: number) {
+      if (!wheelOpen || index === wheelIndex) return;
+      wheelIndex = index;
+      publish();
+    },
+    // Tap-to-pick: the wheel's slices call this directly (touch +
+    // mouse). commitWheel is the same pick for the aimed slice —
+    // pointer-lock mouse aim + a canvas click on desktop.
+    pickEmote(index: number) {
+      const name = EMOTES[index] || "wave";
+      wheelOpen = false;
+      startEmote(name);
+      publish();
+    },
     commitWheel() {
       if (!wheelOpen) return;
+      const index = wheelIndex;
       wheelOpen = false;
-      const name = EMOTES[wheelIndex] || "wave";
-      world.emote = name;
-      world.emoteUntil = Date.now() + 3200;
+      startEmote(EMOTES[index] || "wave");
       publish();
     },
     toggleDecor,

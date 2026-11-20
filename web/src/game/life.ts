@@ -1,5 +1,34 @@
-export const EMOTES = ["wave", "dance", "cheer", "sit", "spin", "bow", "clap", "robot"] as const;
+export const EMOTES = ["wave", "dance", "laugh", "cheer", "point", "flex", "sit", "facepalm"] as const;
 export type EmoteName = (typeof EMOTES)[number];
+
+/** Wheel labels (the keys stay lowercase for the wire / pose code). */
+export const EMOTE_LABELS: Record<string, string> = {
+  wave: "Wave",
+  dance: "Dance",
+  laugh: "Laugh",
+  cheer: "Cheer",
+  point: "Point",
+  flex: "Flex",
+  sit: "Sit",
+  facepalm: "Facepalm",
+};
+
+/**
+ * How long a picked emote plays, in ms. One-shots run 1.8–2.5s and
+ * return to idle on their own; dance is the looper (0 = plays until
+ * the player moves, drives, opens a panel, or picks another emote —
+ * the runtime enforces the cancel, this table just says "no timer").
+ */
+export const EMOTE_DURATIONS: Record<string, number> = {
+  wave: 2200,
+  dance: 0,
+  laugh: 2200,
+  cheer: 2000,
+  point: 1800,
+  flex: 2200,
+  sit: 2500,
+  facepalm: 2400,
+};
 
 export const FURNITURE = ["couch", "table", "plant", "lamp", "screen", "rug"] as const;
 export type FurnitureKind = (typeof FURNITURE)[number];

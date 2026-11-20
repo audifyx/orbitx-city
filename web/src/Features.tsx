@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { requestExportCode } from "./auth";
 import type { Runtime, Snap } from "./game/runtime";
 import { FURNITURE_CATALOG } from "./game/runtime";
-import { EMOTES, FURNITURE } from "./game/life";
+import { EMOTES, EMOTE_LABELS, FURNITURE } from "./game/life";
 
 export function FeaturePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   if (snap.panel === "daily") return <Daily snap={snap} rt={rt} />;
@@ -771,7 +771,23 @@ export function PhoneExtra({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   );
 }
 
-export function EmoteWheel({ index }: { index: number }) {
+export function EmoteWheel({ index, rt }: { index: number; rt: Runtime | null }) {
+  // Tap-to-pick (v41): tapping a slice plays that emote and closes
+  // the wheel; the centre ✕ (or Esc, or the HUD Emote button) closes
+  // it without playing. Hovering a slice aims the highlight, which
+  // is also what a canvas click commits on desktop pointer-lock.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.code === "Escape") rt?.setWheel(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [rt]);
+  // Slices are centred on their radial points: the inline transform
+  // must repeat the CSS translate(-50%,-50%) or the buttons pile up
+  // from their top-left corners. The radius shrinks on phone widths
+  // so all eight slices stay on screen.
+  const radius = typeof window !== "undefined" && window.innerWidth < 480 ? 104 : 96;
   return (
     <div className="wheel" data-feature="emote">
       {EMOTES.map((name, i) => {
@@ -781,13 +797,17 @@ export function EmoteWheel({ index }: { index: number }) {
             key={name}
             type="button"
             className={i === index ? "on" : ""}
-            style={{ transform: `translate(${Math.cos(angle) * 92}px, ${Math.sin(angle) * 92}px)` }}
+            style={{ transform: `translate(-50%, -50%) translate(${Math.cos(angle) * radius}px, ${Math.sin(angle) * radius}px)` }}
+            onMouseEnter={() => rt?.aimWheelIndex(i)}
+            onClick={() => rt?.pickEmote(i)}
           >
-            {name}
+            {EMOTE_LABELS[name] ?? name}
           </button>
         );
       })}
-      <span>Hold Z</span>
+      <button type="button" className="wheel-close" aria-label="Close emotes" onClick={() => rt?.setWheel(false)}>
+        ✕
+      </button>
     </div>
   );
 }

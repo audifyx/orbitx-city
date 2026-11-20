@@ -1916,7 +1916,7 @@ export default function App() {
           </button>
         </div>
       ) : null}
-      {!menu && snap.wheel ? <EmoteWheel index={snap.wheelIndex} /> : null}
+      {!menu && snap.wheel ? <EmoteWheel index={snap.wheelIndex} rt={gameRef.current?.runtime ?? null} /> : null}
       {!menu && snap.decorate ? <DecorBar kind={snap.decorKind} mode={snap.decorMode} owned={snap.furnitureOwned} rt={gameRef.current?.runtime ?? null} /> : null}
       {!menu && snap.spectator ? <SpectateBar snap={snap} rt={gameRef.current?.runtime ?? null} /> : null}
       {!menu && !snap.hideHud && (
@@ -2068,28 +2068,13 @@ export default function App() {
           <button type="button" onClick={() => open("events")}>Events</button>
           <button type="button" onClick={() => open("chat")}>Chat</button>
           {/* Emote + Clip moved up from the bottom touch cluster (user:
-              "MOVE ALL OF THESE TO THE TOP HUD"). Emote keeps the exact
-              pointer-based wheel behavior from the pad: press + drag aims,
-              release commits. touch-action: none on this button so its
-              drag aims the wheel instead of scrolling the strip. */}
+              "MOVE ALL OF THESE TO THE TOP HUD"). The wheel is
+              tap-to-pick (v41): tap Emote to open it, tap an emote to
+              play it, tap Emote again (or Esc) to close it. */}
           <button
             type="button"
-            style={{ touchAction: "none" }}
-            onPointerDown={(event) => {
-              event.preventDefault();
-              event.currentTarget.setPointerCapture(event.pointerId);
-              event.currentTarget.dataset.x = String(event.clientX);
-              event.currentTarget.dataset.y = String(event.clientY);
-              gameRef.current?.runtime.setWheel(true);
-            }}
-            onPointerMove={(event) => {
-              if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-              const x = Number(event.currentTarget.dataset.x || event.clientX);
-              const y = Number(event.currentTarget.dataset.y || event.clientY);
-              gameRef.current?.runtime.aimWheel(event.clientX - x, event.clientY - y);
-            }}
-            onPointerUp={() => gameRef.current?.runtime.commitWheel()}
-            onPointerCancel={() => gameRef.current?.runtime.commitWheel()}
+            className={snap.wheel ? "on" : ""}
+            onClick={() => gameRef.current?.runtime.setWheel(!snap.wheel)}
           >
             Emote
           </button>
