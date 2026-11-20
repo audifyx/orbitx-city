@@ -1212,6 +1212,216 @@ export async function billboardOrbitxOrders(ctx, player) {
 }
 
 // ===========================================================================
+// Early access burn gate (2026-11-20)
+// ===========================================================================
+// Until the Dec 5 launch, a new player unlocks the city by burning $5 of
+// ORBITX from their OWN wallet and proving it with the burn transaction:
+// they paste their wallet address + the Solscan signature, and the server
+// verifies the burn on-chain, read-only (no wallet connect, no signing,
+// no custody). A burn counts when the transaction:
+//   - is confirmed/finalized and did not fail on-chain,
+//   - burns ORBITX from a token account the named wallet owns — an SPL
+//     burn/burnChecked instruction (top-level or inner), or a transfer
+//     of ORBITX from the wallet's account to the incinerator,
+//   - is worth >= $5 at the live ORBITX price when verified,
+//   - landed on/after Nov 20, 2026 (no recycling old burns), and
+//   - has never unlocked an account before (one burn, one unlock — the
+//     unlock record is keyed by signature in city.js storage).
+// The gate opens for everyone at launch: at/after 2026-12-05T05:00:00Z
+// (Dec 5, 00:00 EST) the status op reports the gate inactive and every
+// player unlocked. Storage comes from the caller through ctx, like the
+// bookings above:
+//   ctx.readEarlyUnlocks() -> [ { accountId, wallet, signature,
+//     amountTokens, usd, at } ]
+//   ctx.saveEarlyUnlock(record) -> false when the signature is taken
+//   ctx.isAdmin -> the stats-page admin account (always unlocked)
+
+export const EARLY_ACCESS_USD_REQUIRED = 5;
+export const EARLY_ACCESS_GATE_END_MS = Date.parse("2026-12-05T05:00:00Z");
+export const EARLY_ACCESS_MIN_BLOCK_TIME = Math.floor(Date.parse("2026-11-20T00:00:00Z") / 1000);
+// Tokens sent to a token account owned by this address are gone for
+// good — the documented SPL burn-by-transfer destination. (Not the
+// wallet.js INCINERATOR, which is the system-program address used for
+// SOL; token burns by transfer go to the 1nc1nerator account.)
+export const TOKEN_INCINERATOR = "1nc1nerator11111111111111111111111111111111";
+
+export function earlyAccessGateActive(now = Date.now()) {
+  return now < EARLY_ACCESS_GATE_END_MS;
+}
+
+/** Sum the ORBITX a wallet burned in a jsonParsed transaction: SPL
+ * burn/burnChecked instructions (top-level or inner) whose source token
+ * account belongs to the wallet, plus transfers of ORBITX out of the
+ * wallet's accounts to an incinerator-owned account. Ownership and mint
+ * come from the transaction's own token-balance table (the only place a
+ * parsed instruction proves which wallet a token account belongs to).
+ * Returns { amountBase: bigint, decimals: number|null }, or null when
+ * the transaction holds no qualifying burn from this wallet. Pure. */
+export function parseOrbitxBurn(txJson, wallet, mint) {
+  if (!txJson || !wallet || !mint) return null;
+  if (txJson.meta?.err) return null;
+  const message = txJson.transaction?.message;
+  if (!message) return null;
+  const keys = (message.accountKeys || []).map((k) => (typeof k === "string" ? k : k?.pubkey || ""));
+  const accounts = new Map();
+  for (const list of [txJson.meta?.preTokenBalances, txJson.meta?.postTokenBalances]) {
+    for (const entry of list || []) {
+      const pubkey = keys[entry.accountIndex];
+      if (!pubkey) continue;
+      accounts.set(pubkey, {
+        mint: entry.mint || "",
+        owner: entry.owner || "",
+        decimals: entry.uiTokenAmount?.decimals,
+      });
+    }
+  }
+  const instructions = [...(message.instructions || [])];
+  for (const group of txJson.meta?.innerInstructions || []) {
+    for (const ix of group.instructions || []) instructions.push(ix);
+  }
+  let total = 0n;
+  let seenDecimals = null;
+  const noteDecimals = (d) => {
+    if (seenDecimals === null && Number.isFinite(d)) seenDecimals = Number(d);
+  };
+  for (const ix of instructions) {
+    const parsed = ix?.parsed;
+    if (!parsed || (ix.program !== "spl-token" && ix.program !== "spl-token-2022")) continue;
+    const info = parsed.info || {};
+    const amountRaw = info.tokenAmount?.amount ?? info.amount;
+    if (amountRaw == null) continue;
+    let amount;
+    try {
+      amount = BigInt(String(amountRaw));
+    } catch {
+      continue;
+    }
+    if (amount <= 0n) continue;
+    if (parsed.type === "burn" || parsed.type === "burnChecked") {
+      const source = accounts.get(info.account);
+      const mintOk = info.mint ? info.mint === mint : source?.mint === mint;
+      // The source account must be the wallet's own. A real burn always
+      // leaves a balance-table row for its source; the authority fallback
+      // only covers payloads where that row is absent entirely.
+      const ownerOk = source ? source.owner === wallet : info.authority === wallet && info.mint === mint;
+      if (!mintOk || !ownerOk) continue;
+      total += amount;
+      noteDecimals(info.tokenAmount?.decimals ?? source?.decimals);
+    } else if (parsed.type === "transfer" || parsed.type === "transferChecked") {
+      const source = accounts.get(info.source);
+      const dest = accounts.get(info.destination);
+      const mintOk = info.mint ? info.mint === mint : source?.mint === mint;
+      const ownerOk = source ? source.owner === wallet : info.authority === wallet && info.mint === mint;
+      const destOk = dest ? dest.owner === TOKEN_INCINERATOR : info.destination === TOKEN_INCINERATOR;
+      if (!mintOk || !ownerOk || !destOk) continue;
+      total += amount;
+      noteDecimals(info.tokenAmount?.decimals ?? source?.decimals);
+    }
+  }
+  if (total <= 0n) return null;
+  return { amountBase: total, decimals: seenDecimals };
+}
+
+/** USD value of a parsed burn (base units) at a per-token USD price. */
+export function orbitxBurnUsdValue(amountBase, decimals, priceUsd) {
+  const price = Number(priceUsd);
+  if (!Number.isFinite(price) || price <= 0) return 0;
+  return (Number(amountBase) / 10 ** Number(decimals || 0)) * price;
+}
+
+export async function earlyAccessStatus(ctx, player) {
+  const active = earlyAccessGateActive();
+  let price = 0;
+  try {
+    price = await orbitxUsdPrice();
+  } catch {
+    price = 0; // Price unreadable: the gate block still renders, tokensApprox 0.
+  }
+  const tokensApprox = price > 0 ? Math.ceil(EARLY_ACCESS_USD_REQUIRED / price) : 0;
+  let unlocked = !active || !!ctx.isAdmin;
+  if (!unlocked && ctx.readEarlyUnlocks) {
+    const rows = await ctx.readEarlyUnlocks();
+    unlocked = (rows || []).some((row) => row.accountId === player.id);
+  }
+  return {
+    ok: true,
+    gate: {
+      active,
+      usdRequired: EARLY_ACCESS_USD_REQUIRED,
+      priceUsd: price > 0 ? String(price) : "",
+      tokensApprox,
+    },
+    unlocked,
+  };
+}
+
+export async function earlyAccessVerify(ctx, player, body) {
+  if (!player.authUser) return fail("Create an account to unlock early access. Guests keep City Sol only.");
+  const rows = ctx.readEarlyUnlocks ? await ctx.readEarlyUnlocks() : [];
+  const mine = (rows || []).find((row) => row.accountId === player.id);
+  if (mine) {
+    // Already unlocked: never consume a second burn for this account.
+    return { ok: true, unlocked: true, amountTokens: Number(mine.amountTokens || 0), usd: Number(mine.usd || 0) };
+  }
+  if (!earlyAccessGateActive()) return { ok: true, unlocked: true, amountTokens: 0, usd: 0 };
+  const wallet = String(body?.wallet || "").trim();
+  const signature = String(body?.signature || "").trim();
+  const rawWallet = b58decode(wallet);
+  if (!rawWallet || rawWallet.length !== 32) return fail("That is not a Solana wallet address.");
+  if (!signature || signature.length < 32 || signature.length > 128) {
+    return fail("Paste the burn transaction signature from Solscan.");
+  }
+  if ((rows || []).some((row) => row.signature === signature)) {
+    return fail("That burn was already used to unlock early access. Each burn unlocks one account.");
+  }
+  const mint = orbitxMint();
+  if (!mint) return fail("ORBITX is not configured on this server.", 500);
+  let tx = null;
+  try {
+    tx = await solanaRpc("getTransaction", [signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }]);
+  } catch (err) {
+    return fail(`The burn transaction could not be read (${err.message || "RPC"}). Try again in a moment.`, 502);
+  }
+  if (!tx) return fail("That transaction was not found. Wait for it to confirm, then try again.");
+  if (tx.meta?.err) return fail("That transaction failed on-chain, so nothing was burned.");
+  const confirm = await getSignatureStatus(signature);
+  if (confirm === "failed") return fail("That transaction failed on-chain, so nothing was burned.");
+  if (confirm !== "confirmed" && confirm !== "finalized") {
+    return fail("That transaction is not confirmed yet. Give it a moment, then try again.");
+  }
+  const blockTime = Number(tx.blockTime || 0);
+  if (!blockTime) return fail("That transaction is still confirming. Give it a moment, then try again.");
+  if (blockTime < EARLY_ACCESS_MIN_BLOCK_TIME) {
+    return fail("That burn is from before Nov 20, 2026 — only a fresh burn counts for early access.");
+  }
+  const parsed = parseOrbitxBurn(tx, wallet, mint);
+  if (!parsed) {
+    return fail("No ORBITX burn from that wallet was found in that transaction. Burn ORBITX from the wallet you entered — or send it to the incinerator — and paste that transaction.");
+  }
+  const dec = parsed.decimals != null ? parsed.decimals : await decimals();
+  const amountTokens = Number(parsed.amountBase) / 10 ** dec;
+  let price = 0;
+  try {
+    price = await orbitxUsdPrice();
+  } catch {
+    return fail("The ORBITX price could not be read. Try again in a moment.", 502);
+  }
+  const usd = orbitxBurnUsdValue(parsed.amountBase, dec, price);
+  if (usd < EARLY_ACCESS_USD_REQUIRED) {
+    const need = Math.ceil(EARLY_ACCESS_USD_REQUIRED / price).toLocaleString("en-US");
+    return fail(`That burn is about $${usd.toFixed(2)} of ORBITX — early access needs a $5.00 burn (about ${need} ORBITX at the current price). Burn a little more and paste the new transaction.`);
+  }
+  const record = { accountId: player.id, wallet, signature, amountTokens, usd, at: new Date().toISOString() };
+  if (ctx.saveEarlyUnlock) {
+    const saved = await ctx.saveEarlyUnlock(record);
+    if (saved === false) {
+      return fail("That burn was already used to unlock early access. Each burn unlocks one account.");
+    }
+  }
+  return { ok: true, unlocked: true, amountTokens, usd };
+}
+
+// ===========================================================================
 // Office leases in real SOL
 // ===========================================================================
 // Projects can rent an office suite in real SOL: the payment buys ORBITX

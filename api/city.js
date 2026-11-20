@@ -3,7 +3,7 @@ import { neon } from "@neondatabase/serverless";
 import { createClient } from "@supabase/supabase-js";
 import { Redis } from "@upstash/redis";
 import { ensureDaily, handleLive, noteEarn } from "./live.js";
-import { adBuy, adCompose, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus, adSubmit, arcadeAct, arcadeCancel, arcadeCompose, arcadeHistory, arcadeLeaders, arcadeLobby, arcadeSubmit, billboardOrbitxBuy, billboardOrbitxOrders, billboardOrbitxQuote, billboardOrbitxStatus, officeSolBuy, officeSolCompose, officeSolLeasesFor, officeSolQuote, officeSolStatus, officeSolSubmit } from "./ads.js";
+import { adBuy, adCompose, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus, adSubmit, arcadeAct, arcadeCancel, arcadeCompose, arcadeHistory, arcadeLeaders, arcadeLobby, arcadeSubmit, billboardOrbitxBuy, billboardOrbitxOrders, billboardOrbitxQuote, billboardOrbitxStatus, earlyAccessStatus, earlyAccessVerify, officeSolBuy, officeSolCompose, officeSolLeasesFor, officeSolQuote, officeSolStatus, officeSolSubmit } from "./ads.js";
 import { tradeCompose, tradeHoldings, tradeQuote, tradeStatus, tradeSubmit } from "./trade.js";
 import { authMode, checkReauth, handleAuthOp, looksLikeAccountToken, supabasePublic, verifyAccessToken } from "./auth.js";
 import { audit, chainShopEnabled, confirmSend, ensureWallet, exportWallet, latestBlockhash, networkName, publicBalance, quoteSend, submitSignedTx, walletView } from "./wallet.js";
@@ -1429,6 +1429,7 @@ function memory() {
       world: new Map(),
       chat: [],
       bookings: new Map(),
+      earlyUnlocks: new Map(),
       officeClaims: new Map(),
       saves: new Map(),
       events: [],
@@ -1569,6 +1570,18 @@ async function ensureSchema() {
   )`;
   // ORBITX billboards (2026-11-18): the ad image URL ("" = text-only).
   await sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS image TEXT NOT NULL DEFAULT ''`;
+  // Early access burn gate (2026-11-20): one row per burn signature —
+  // the signature is the primary key, so one burn unlocks exactly one
+  // account, ever. amount_tokens/usd are the verified burn size and its
+  // USD value at verification time.
+  await sql`CREATE TABLE IF NOT EXISTS early_access_unlocks (
+    signature TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    wallet TEXT NOT NULL,
+    amount_tokens DOUBLE PRECISION NOT NULL,
+    usd DOUBLE PRECISION NOT NULL,
+    at TEXT NOT NULL
+  )`;
   // Tower office leases, paid in City Sol only. One row per suite (the
   // suite id is the key), so a suite can hold exactly one active claim.
   // No SOL, no ORBITX, no burn anywhere in this table — buy+burn is
@@ -2753,6 +2766,77 @@ async function readBookings() {
     return liveBookings(Object.values(all).map((row) => (typeof row === "string" ? JSON.parse(row) : row)));
   }
   return liveBookings([...memory().bookings.values()]);
+}
+
+function earlyUnlockFromRow(row) {
+  if (!row) return null;
+  return {
+    accountId: row.account_id || row.accountId || "",
+    wallet: row.wallet || "",
+    signature: row.signature || "",
+    amountTokens: Number(row.amount_tokens ?? row.amountTokens ?? 0),
+    usd: Number(row.usd || 0),
+    at: row.at || "",
+  };
+}
+
+async function readEarlyUnlocks() {
+  const client = sb();
+  if (client) {
+    const { data, error } = await client.from("early_access_unlocks").select("signature, account_id, wallet, amount_tokens, usd, at");
+    if (!error && data) return data.map(earlyUnlockFromRow);
+    if (error) noteSupabase(error.message);
+  }
+  const sql = db();
+  if (sql) {
+    await ensureSchema();
+    const rows = await sql`SELECT signature, account_id, wallet, amount_tokens, usd, at FROM early_access_unlocks`;
+    return rows.map(earlyUnlockFromRow);
+  }
+  const cache = redis();
+  if (cache) {
+    const all = (await cache.hgetall("orbitx:early-unlocks")) || {};
+    return Object.values(all).map((row) => earlyUnlockFromRow(typeof row === "string" ? JSON.parse(row) : row));
+  }
+  return [...memory().earlyUnlocks.values()].map(earlyUnlockFromRow);
+}
+
+// Persists one unlock record. Returns false when the signature is
+// already recorded — the one-burn-one-unlock rule is enforced by the
+// signature key itself (primary key / hash field), not just the read
+// check in the verify op.
+async function saveEarlyUnlock(record) {
+  const row = {
+    signature: String(record.signature || ""),
+    account_id: String(record.accountId || ""),
+    wallet: String(record.wallet || ""),
+    amount_tokens: Number(record.amountTokens || 0),
+    usd: Number(record.usd || 0),
+    at: record.at || new Date().toISOString(),
+  };
+  const client = sb();
+  if (client) {
+    const { error } = await client.from("early_access_unlocks").insert(row);
+    if (!error) return true;
+    if (String(error.code || "") === "23505") return false;
+    noteSupabase(error.message);
+  }
+  const sql = db();
+  if (sql) {
+    await ensureSchema();
+    const inserted = await sql`INSERT INTO early_access_unlocks (signature, account_id, wallet, amount_tokens, usd, at)
+      VALUES (${row.signature}, ${row.account_id}, ${row.wallet}, ${row.amount_tokens}, ${row.usd}, ${row.at})
+      ON CONFLICT (signature) DO NOTHING RETURNING signature`;
+    return inserted.length > 0;
+  }
+  const cache = redis();
+  if (cache) {
+    const added = await cache.hsetnx("orbitx:early-unlocks", row.signature, JSON.stringify(earlyUnlockFromRow(row)));
+    return added === 1 || added === true;
+  }
+  if (memory().earlyUnlocks.has(row.signature)) return false;
+  memory().earlyUnlocks.set(row.signature, earlyUnlockFromRow(row));
+  return true;
 }
 
 function publicOfficeClaim(row) {
@@ -6427,6 +6511,11 @@ export async function POST(request) {
     note: noteSupabase,
     readBookings,
     saveBooking,
+    readEarlyUnlocks,
+    saveEarlyUnlock,
+    // The stats-page admin account (STATS_ADMIN_EMAIL) is always
+    // unlocked at the early-access gate.
+    isAdmin: !!account && String(account.email || "").toLowerCase() === STATS_ADMIN_EMAIL,
     savePlayer,
     officeSuite: anyOfficeSuite,
     officeTaken: async (id, server) => activeOfficeClaim(await readOfficeClaims(server), id, server),
@@ -6476,6 +6565,19 @@ export async function POST(request) {
   if (op === "billboard-orbitx-buy") return adReply(await billboardOrbitxBuy(adCtx, player, body));
   if (op === "billboard-orbitx-status") return adReply(await billboardOrbitxStatus(adCtx, player, body));
   if (op === "billboard-orbitx-orders") return adReply(await billboardOrbitxOrders(adCtx, player));
+
+  // Early access burn gate (2026-11-20): until the Dec 5 launch, a new
+  // player unlocks by burning $5 of ORBITX from their own wallet and
+  // pasting the transaction signature — verified on-chain, read-only
+  // (the logic lives in ads.js with the other burn flows). The reply
+  // shape is exact (no `me` mixed in): the client gate is built
+  // against it.
+  const eaReply = async (result) => {
+    const { status, ...payload } = result;
+    return json(payload, status || 200);
+  };
+  if (op === "early-access-status") return eaReply(await earlyAccessStatus(adCtx, player, body));
+  if (op === "early-access-verify") return eaReply(await earlyAccessVerify(adCtx, player, body));
 
   // Office leases in real SOL (office-sol-*): rent a suite in SOL, the
   // payment buys ORBITX and burns it all — same single-transaction
