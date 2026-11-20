@@ -208,7 +208,7 @@ const RUMORS: Record<string, string[]> = {
   Dom: [
     "Fighters talk — the Champion's Circuit made half the gym try Hijack runs for training money.",
     "You want real progression? Citizen Rank climbs fastest on story and modes. Ask anyone.",
-  },
+  ],
 };
 
 const GENERIC_RUMORS = [

@@ -101,6 +101,21 @@ import {
   taxiPay,
   weekDaysLeft,
 } from "./progression";
+import {
+  HEIST_COOLDOWN_MS,
+  HEIST_CRACK_MS,
+  HEIST_MAX_CRACK_MS,
+  HEIST_XP,
+  HIJACK_SCORE_CAP_MS,
+  heistCooldownSecs,
+  heistCrackDone,
+  heistLootFor,
+  heistStarsFor,
+  hijackAccrue,
+  hijackConsolation,
+  hijackStarMult,
+  hijackXp,
+} from "./modes";
 import { createNet, type ChatLine, type NetAdapter, type NetState } from "./net";
 import { barkLineFor, npcVoiceEnabled, prefetchNpcLines, setNpcVoiceEnabled, speakNpc, stopNpcVoice } from "./npcvoice";
 import { allLooks, clothesFromOwned, dressPerson, loadLooks, lookById, lookName, looksReady, type Clothes } from "./avatar";
@@ -903,6 +918,34 @@ export interface Snap {
     timeMs: number;
     parMs: number;
   } | null;
+  /** STREET MODES: the live hijack / heist run for the HUD + minimap
+   * (null when no mode is running). Hijack fills accrued / mult /
+   * capLeftSecs; heist fills crackPct / loot / inZone. */
+  modeRun: {
+    kind: "hijack" | "heist";
+    phase: "marked" | "driving" | "evade" | "crack" | "escape";
+    label: string;
+    targetX: number;
+    targetZ: number;
+    dist: number;
+    accrued: number;
+    mult: number;
+    capLeftSecs: number;
+    crackPct: number;
+    loot: number;
+    inZone: boolean;
+  } | null;
+  /** STREET MODES: local records for the Jobs-panel Modes cards and
+   * the Profile Street Rep line. */
+  modes: {
+    hijackBest: number;
+    hijackRuns: number;
+    heistBest: number;
+    heistsDone: number;
+    totalEarned: number;
+    heistCooldownSecs: number;
+    unlocked: boolean;
+  };
   photos: { taken: number; spots: string[] };
   wishes: number;
   // Mission chain + new earning (fix-client): server is the authority.
@@ -2888,6 +2931,10 @@ export function createRuntime(scene: Scene) {
       say("One run at a time — finish or drop the delivery board run first.");
       return;
     }
+    if (mode) {
+      say("One run at a time — finish the street mode first.");
+      return;
+    }
     if (robEndsAt > Date.now()) {
       say("Hands busy — the robbery comes first.");
       return;
@@ -3333,6 +3380,12 @@ export function createRuntime(scene: Scene) {
       { id: "ticket", kind: "ticket", label: "Write a traffic ticket (pull a car over: H, then E)", need: 1, reward: 45, have: 0, done: false },
       { id: "race", kind: "race", label: "Finish a checkpoint race", need: 1, reward: 40, have: 0, done: false },
     ];
+    // STREET MODES: a Hijack/Heist daily only enters the pool once the
+    // player has found the modes (a chat with Zed, or a first run) —
+    // never homework you can't do yet.
+    if (modesUnlocked()) {
+      pool.push({ id: "mode", kind: "mode", label: "Complete a Hijack or Heist run", need: 1, reward: 45, have: 0, done: false });
+    }
     for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(rng() * (i + 1));
       const tmp = pool[i];
@@ -4004,6 +4057,10 @@ export function createRuntime(scene: Scene) {
       say("Finish the street race first — one run at a time.");
       return;
     }
+    if (mode) {
+      say("Finish the street mode first — one run at a time.");
+      return;
+    }
     const points = boardPoints();
     const rng = progMulberry32(progHashSeed(`${world.me?.id || world.me?.name || "guest"}|board|${Date.now()}`));
     const pickup = points[Math.floor(rng() * points.length)];
@@ -4104,6 +4161,389 @@ export function createRuntime(scene: Scene) {
       } else {
         completeBoard();
       }
+    }
+  }
+
+  // ---- STREET MODES (local, scored): Hijack runs + Bank Heists. Both
+  // ride the existing crime systems — the wanted/cop/bust machinery,
+  // the J-key hijack heat, the bank interior — and pay City Sol through
+  // earn(). The pure scoring maths live in modes.ts (unit-tested);
+  // this block owns the state. Modes join the mutual-exclusion set with
+  // the board, trials, fights and the server street race: one run at a
+  // time, everything else refuses politely.
+  const MODES_KEY = "orbitx-city-modes-v1";
+  interface ModesState {
+    hijackBest: number;
+    hijackRuns: number;
+    heistBest: number;
+    heistsDone: number;
+    totalEarned: number;
+    heistReadyAt: number;
+    unlocked: boolean;
+  }
+  const modesState: ModesState = (() => {
+    const blank: ModesState = { hijackBest: 0, hijackRuns: 0, heistBest: 0, heistsDone: 0, totalEarned: 0, heistReadyAt: 0, unlocked: false };
+    try {
+      const parsed = JSON.parse(localStorage.getItem(MODES_KEY) || "null") as Partial<ModesState> | null;
+      if (!parsed) return blank;
+      return {
+        hijackBest: Math.max(0, parsed.hijackBest ?? 0),
+        hijackRuns: Math.max(0, parsed.hijackRuns ?? 0),
+        heistBest: Math.max(0, parsed.heistBest ?? 0),
+        heistsDone: Math.max(0, parsed.heistsDone ?? 0),
+        totalEarned: Math.max(0, parsed.totalEarned ?? 0),
+        heistReadyAt: Math.max(0, parsed.heistReadyAt ?? 0),
+        unlocked: !!parsed.unlocked,
+      };
+    } catch {
+      return blank;
+    }
+  })();
+  function saveModes() {
+    try {
+      localStorage.setItem(MODES_KEY, JSON.stringify(modesState));
+    } catch {
+      /* private mode */
+    }
+  }
+  function modesUnlocked(): boolean {
+    return modesState.unlocked;
+  }
+  function unlockModes() {
+    if (modesState.unlocked) return;
+    modesState.unlocked = true;
+    saveModes();
+  }
+
+  type ModeCar = (typeof cars)[number];
+  interface HijackRun {
+    phase: "marked" | "driving" | "evade";
+    car: ModeCar;
+    carName: string;
+    accrued: number;
+    scoreMs: number;
+    lastX: number;
+    lastZ: number;
+  }
+  interface HeistRun {
+    phase: "crack" | "escape";
+    crackMs: number;
+    inZone: boolean;
+    loot: number;
+    hideout: { name: string; x: number; z: number };
+    adaTexted: boolean;
+    parkTexted: boolean;
+    heatCalled: number;
+  }
+  let mode: { kind: "hijack"; run: HijackRun } | { kind: "heist"; run: HeistRun } | null = null;
+
+  // The vault zone: in front of the vault door on the bank's north
+  // wall (city.ts furnishBank — room corner 79,-65, centre 90,-54,
+  // vault door at cx+3 on the north wall). Stand here to crack.
+  const VAULT_ZONE = { x: 93, z: -61.4, r: 3.4 };
+  const HEIST_HIDEOUTS: Array<{ name: string; x: number; z: number }> = [
+    { name: "Harbor Office dock", x: 0, z: 207 },
+    { name: "OrbitX Fuel — North", x: 126, z: -196 },
+    { name: "OrbitX Fuel — West", x: -196, z: -58 },
+    { name: "OrbitX Fuel — Beach", x: 196, z: 162 },
+    { name: "OrbitX Motors forecourt", x: 212, z: -69 },
+  ];
+  // Hijack target spots: parked on avenue lines (the road grid), away
+  // from the plaza so the pillar reads from a distance.
+  const HIJACK_SPOTS: Array<{ x: number; z: number; yaw: number }> = [
+    { x: 36, z: -112, yaw: 0 },
+    { x: -72, z: 62, yaw: 0 },
+    { x: 108, z: 38, yaw: 0 },
+    { x: -144, z: -82, yaw: 0 },
+    { x: 74, z: 144, yaw: Math.PI / 2 },
+    { x: -36, z: -162, yaw: 0 },
+    { x: 144, z: -38, yaw: 0 },
+    { x: -110, z: 180, yaw: Math.PI / 2 },
+  ];
+  const HIJACK_RIDES: Array<{ vehicle: string; name: string; color: string }> = [
+    { vehicle: "city-sedan", name: "Sedan", color: "gold" },
+    { vehicle: "city-compact", name: "Compact", color: "cyan" },
+    { vehicle: "city-suv", name: "SUV", color: "white" },
+    { vehicle: "city-van", name: "Van", color: "silver" },
+    { vehicle: "city-truck", name: "Truck", color: "red" },
+    { vehicle: "city-sports", name: "Sports", color: "sunset" },
+  ];
+
+  function modeGate(): string | null {
+    if (mode) return "A street mode is already running — finish it or call it off first.";
+    if (board) return "Finish the delivery board run first — one run at a time.";
+    if (trial) return "One contest at a time — finish or abandon the time trial first.";
+    if (boxing) return "After the fight — Coach Dom's card comes first.";
+    if (raceNext >= 0) return "Finish the street race first — one run at a time.";
+    return null;
+  }
+
+  function startHijackMode() {
+    if (!lastBody) return;
+    const gate = modeGate();
+    if (gate) {
+      say(gate);
+      return;
+    }
+    const rng = progMulberry32(progHashSeed(`${world.me?.id || world.me?.name || "guest"}|hijack|${Date.now()}`));
+    const spot = HIJACK_SPOTS[Math.floor(rng() * HIJACK_SPOTS.length)];
+    const ride = HIJACK_RIDES[Math.floor(rng() * HIJACK_RIDES.length)];
+    let group: Group;
+    try {
+      group = buildVehicle(ride.vehicle, ride.color);
+    } catch {
+      say("Zed's buyer fell through — no car to mark right now.");
+      return;
+    }
+    group.position.set(spot.x, 0.12, spot.z);
+    group.rotation.y = Math.PI / 2 - spot.yaw;
+    root.add(group);
+    const car: ModeCar = { id: "hijack-target", group, x: spot.x, z: spot.z, yaw: spot.yaw, lean: 0, vehicleId: ride.vehicle, alt: 0, autoAlt: null };
+    cars.push(car);
+    mode = { kind: "hijack", run: { phase: "marked", car, carName: `${ride.color} ${ride.name}`, accrued: 0, scoreMs: 0, lastX: spot.x, lastZ: spot.z } };
+    unlockModes();
+    panel = "";
+    paused = false;
+    say(`Hijack — Zed's buyer wants the ${ride.color} ${ride.name} under the gold pillar. Take it, run the heat up, then ditch it and lose the cops to bank the score.`);
+    notify("HIJACK", `A ${ride.color} ${ride.name} is marked across town. Distance × wanted stars is the score — ditch + evade to bank it.`, "job");
+    phoneEvent("wanted", "Park", "Word is Zed's shopping for a wheelman again. Whoever lifts that marked car — I'm already watching the avenues.");
+    publish();
+  }
+
+  function dropHijackCar(run: HijackRun) {
+    const index = cars.indexOf(run.car);
+    if (index < 0) return;
+    if (driving && carIndex === index) {
+      // The player is sitting in it (busted at the wheel) — leave the
+      // car in the world as an ordinary parked car, just un-mark it.
+      run.car.id = `parked-${run.car.vehicleId ?? "car"}`;
+    } else {
+      root.remove(run.car.group);
+      cars.splice(index, 1);
+      if (ownedCarIndex > index) ownedCarIndex -= 1;
+      else if (ownedCarIndex === index) ownedCarIndex = -1;
+    }
+  }
+
+  function bankHijack(run: HijackRun) {
+    const payout = Math.floor(run.accrued);
+    mode = null;
+    dropHijackCar(run);
+    modesState.hijackRuns += 1;
+    modesState.totalEarned += payout;
+    const isBest = payout > modesState.hijackBest;
+    if (isBest) modesState.hijackBest = payout;
+    saveModes();
+    if (payout > 0) {
+      say(earn(wallet, payout, "Hijack run — banked"));
+      awardXp(hijackXp(run.accrued), "hijack run");
+      if (isBest) phoneEvent("job", "Zed", `Buyer's happy — that ${run.carName} run is your best yet: ${payout} City Sol banked. There's always another car.`);
+      notify("HIJACK BANKED", `${payout} City Sol — clean getaway.${isBest ? " New personal best." : ""}`, "job");
+      triggerHaptic("jobPay");
+    } else {
+      say("Run over — nothing banked. The score only grows while you're driving the marked car.");
+    }
+    dailyEvent("mode");
+    publish();
+  }
+
+  function startHeistMode() {
+    if (!lastBody) return;
+    const gate = modeGate();
+    if (gate) {
+      say(gate);
+      return;
+    }
+    const left = heistCooldownSecs(modesState.heistReadyAt, Date.now());
+    if (left > 0) {
+      say(`The bank's still hot from the last job — lay low for ${Math.ceil(left / 60)} more minute${Math.ceil(left / 60) === 1 ? "" : "s"}.`);
+      return;
+    }
+    const rng = progMulberry32(progHashSeed(`${world.me?.id || world.me?.name || "guest"}|heist|${Date.now()}`));
+    const hideout = HEIST_HIDEOUTS[Math.floor(rng() * HEIST_HIDEOUTS.length)];
+    mode = { kind: "heist", run: { phase: "crack", crackMs: 0, inZone: false, loot: 0, hideout, adaTexted: false, parkTexted: false, heatCalled: 0 } };
+    unlockModes();
+    panel = "";
+    paused = false;
+    say("Heist planned — get inside OrbitX Bank and stand at the vault door. Hold the crack for 20 seconds to secure the loot, longer if you're greedy. Then run for the hideout.");
+    notify("HEIST", "The vault crack raises the heat as it goes. Loot banks only at the hideout — get busted carrying it and it's gone.", "job");
+    publish();
+  }
+
+  function bankHeist(run: HeistRun) {
+    const payout = run.loot;
+    mode = null;
+    modesState.heistsDone += 1;
+    modesState.totalEarned += payout;
+    if (payout > modesState.heistBest) modesState.heistBest = payout;
+    modesState.heistReadyAt = Date.now() + HEIST_COOLDOWN_MS;
+    saveModes();
+    say(earn(wallet, payout, "Bank heist — loot banked"));
+    awardXp(HEIST_XP, "bank heist");
+    notify("HEIST BANKED", `${payout} City Sol — clean escape to ${run.hideout.name}. The bank stays hot for 10 minutes.`, "job");
+    phoneEvent("wanted", "Park", "Lost the trail at the hideout. Whoever hit that bank knew the routes — this isn't over.");
+    triggerHaptic("jobPay");
+    dailyEvent("mode");
+    publish();
+  }
+
+  function endModeBusted() {
+    if (!mode) return;
+    if (mode.kind === "hijack") {
+      const run = mode.run;
+      const consolation = run.phase === "marked" ? 0 : hijackConsolation(run.accrued);
+      mode = null;
+      dropHijackCar(run);
+      if (consolation > 0) {
+        modesState.totalEarned += consolation;
+        saveModes();
+        say(earn(wallet, consolation, "Hijack run — busted cut"));
+        notify("HIJACK", `Busted mid-run — Zed's buyer still slipped you ${consolation} City Sol for the effort.`, "job");
+      }
+    } else {
+      const run = mode.run;
+      const carried = run.phase === "escape" || run.crackMs > 0;
+      mode = null;
+      modesState.heistReadyAt = Date.now() + HEIST_COOLDOWN_MS;
+      saveModes();
+      if (carried) {
+        say("The cops recovered the loot — the heist pays nothing.");
+        phoneEvent("wanted", "Park", "Got them. Loot's back in the vault and the bank's hot for 10 minutes. Booked.");
+      }
+    }
+    publish();
+  }
+
+  function abandonMode() {
+    if (!mode) return;
+    if (mode.kind === "hijack") {
+      const run = mode.run;
+      if (driving && cars[carIndex] === run.car) {
+        say("Get out of the marked car first — then call the run off.");
+        return;
+      }
+      mode = null;
+      dropHijackCar(run);
+      say("Hijack called off — Zed's buyer will find another wheelman.");
+    } else {
+      mode = null;
+      say("Heist called off — the vault keeps its secrets today.");
+    }
+    publish();
+  }
+
+  function tickModes(dt: number, body: Body) {
+    if (!mode) return;
+    if (mode.kind === "hijack") {
+      const run = mode.run;
+      const carGone = !cars.includes(run.car);
+      if (carGone && !(driving && cars[carIndex] === run.car)) {
+        mode = null;
+        say("The marked car vanished — the run's off.");
+        publish();
+        return;
+      }
+      if (run.phase === "marked") {
+        if (!trial && !board) paintTrialPillar(run.car.x, run.car.z, 0xe0b33a);
+        if (driving && carIndex >= 0 && cars[carIndex] === run.car) {
+          run.phase = "driving";
+          run.lastX = body.x;
+          run.lastZ = body.z;
+          wanted = Math.min(5, wanted + 2);
+          storyHeat = true;
+          notify("CRIME", `You hijacked the ${run.carName} — wanted level ${wanted}. The score's running.`, "job");
+          phoneEvent("wanted", "Park", `That's the car — and that's ${wanted} stars. The score only banks if you ditch it and lose my cars.`);
+          say("That's the car! Distance × stars is money — ditch it and lose the cops to bank.");
+          storyEvent("hijack");
+          triggerHaptic("door");
+          publish();
+        }
+        return;
+      }
+      if (run.phase === "driving") {
+        if (!(driving && carIndex >= 0 && cars[carIndex] === run.car)) {
+          run.phase = "evade";
+          say("Car ditched — now lose the heat. When the stars are gone, the score banks.");
+          publish();
+          return;
+        }
+        // Accrue: real driving distance at the live wanted multiplier.
+        const moved = Math.hypot(body.x - run.lastX, body.z - run.lastZ);
+        if (moved > 0 && moved < 30 && run.scoreMs < HIJACK_SCORE_CAP_MS) {
+          run.accrued += hijackAccrue(moved, wanted);
+        }
+        run.lastX = body.x;
+        run.lastZ = body.z;
+        if (run.scoreMs < HIJACK_SCORE_CAP_MS) {
+          run.scoreMs += dt * 1000;
+          if (run.scoreMs >= HIJACK_SCORE_CAP_MS) {
+            say("Score's capped — ditch the car and lose the cops to bank what's on the clock.");
+            publish();
+          }
+        }
+        return;
+      }
+      // evade: back in the car resumes the run; clear stars bank it.
+      if (driving && carIndex >= 0 && cars[carIndex] === run.car) {
+        run.phase = "driving";
+        run.lastX = body.x;
+        run.lastZ = body.z;
+        say("Back in the hot seat — the score runs again.");
+        publish();
+        return;
+      }
+      if (wanted <= 0) bankHijack(run);
+      return;
+    }
+    // HEIST
+    const run = mode.run;
+    if (run.phase === "crack") {
+      if (!trial && !board) paintTrialPillar(VAULT_ZONE.x, VAULT_ZONE.z, 0xe0b33a);
+      const inZone = Math.hypot(body.x - VAULT_ZONE.x, body.z - VAULT_ZONE.z) <= VAULT_ZONE.r;
+      if (inZone && !driving) {
+        if (!run.inZone && run.crackMs === 0) {
+          storyHeat = true;
+          say("Cracking the vault — hold your ground…");
+        }
+        run.inZone = true;
+        if (run.crackMs < HEIST_MAX_CRACK_MS) {
+          run.crackMs = Math.min(HEIST_MAX_CRACK_MS, run.crackMs + dt * 1000);
+          const heat = heistStarsFor(run.crackMs);
+          if (heat > run.heatCalled) {
+            run.heatCalled = heat;
+            if (wanted < heat) wanted = heat;
+            notify("HEIST", `The alarm's raising the heat — ${wanted} stars and counting.`, "job");
+          }
+          if (!run.adaTexted && run.crackMs > 2500) {
+            run.adaTexted = true;
+            phoneEvent("job", "Ada", "WHAT are you DOING? That's my vault — the silent alarm just lit up my desk. Stop. Please.");
+          }
+          run.loot = heistLootFor(run.crackMs);
+          if (run.crackMs >= HEIST_MAX_CRACK_MS) {
+            say("Loot's maxed — MOVE. Get to the hideout.");
+            publish();
+          }
+        }
+      } else {
+        if (run.inZone && heistCrackDone(run.crackMs)) {
+          run.phase = "escape";
+          run.inZone = false;
+          say(`Loot secured — ${run.loot} City Sol on you. Run for ${run.hideout.name}!`);
+          if (!run.parkTexted) {
+            run.parkTexted = true;
+            phoneEvent("wanted", "Park", "Bank alarm just hit my desk. Whoever you are — I'm rolling, and I'm not stopping at two stars.");
+          }
+          publish();
+          return;
+        }
+        run.inZone = false;
+      }
+      return;
+    }
+    // escape: reach the hideout carrying the loot.
+    if (!trial && !board) paintTrialPillar(run.hideout.x, run.hideout.z, 0x19d8ff);
+    if (Math.hypot(body.x - run.hideout.x, body.z - run.hideout.z) <= 9) {
+      bankHeist(run);
     }
   }
 
@@ -5898,6 +6338,63 @@ export function createRuntime(scene: Scene) {
             parMs: board.parMs,
           }
         : null,
+      modeRun: mode
+        ? mode.kind === "hijack"
+          ? {
+              kind: "hijack" as const,
+              phase: mode.run.phase,
+              label:
+                mode.run.phase === "marked"
+                  ? `Take the ${mode.run.carName} — gold pillar`
+                  : mode.run.phase === "driving"
+                    ? "Run the heat up — ditch the car + lose the cops to bank"
+                    : "Lose the cops — the score banks when the stars clear",
+              targetX: mode.run.car.x,
+              targetZ: mode.run.car.z,
+              dist: lastBody ? Math.round(Math.hypot(lastBody.x - mode.run.car.x, lastBody.z - mode.run.car.z)) : 0,
+              accrued: Math.floor(mode.run.accrued),
+              mult: hijackStarMult(wanted),
+              capLeftSecs: Math.max(0, Math.ceil((HIJACK_SCORE_CAP_MS - mode.run.scoreMs) / 1000)),
+              crackPct: 0,
+              loot: 0,
+              inZone: false,
+            }
+          : {
+              kind: "heist" as const,
+              phase: mode.run.phase,
+              label:
+                mode.run.phase === "crack"
+                  ? mode.run.inZone
+                    ? "Cracking the vault — hold your ground"
+                    : "Get to the vault — OrbitX Bank, north wall"
+                  : `Escape — get the loot to ${mode.run.hideout.name}`,
+              targetX: mode.run.phase === "crack" ? VAULT_ZONE.x : mode.run.hideout.x,
+              targetZ: mode.run.phase === "crack" ? VAULT_ZONE.z : mode.run.hideout.z,
+              dist: lastBody
+                ? Math.round(
+                    Math.hypot(
+                      lastBody.x - (mode.run.phase === "crack" ? VAULT_ZONE.x : mode.run.hideout.x),
+                      lastBody.z - (mode.run.phase === "crack" ? VAULT_ZONE.z : mode.run.hideout.z),
+                    ),
+                  )
+                : 0,
+              accrued: 0,
+              mult: 1,
+              capLeftSecs: 0,
+              crackPct: Math.min(100, Math.round((mode.run.crackMs / HEIST_CRACK_MS) * 100)),
+              loot: mode.run.loot,
+              inZone: mode.run.inZone,
+            }
+        : null,
+      modes: {
+        hijackBest: modesState.hijackBest,
+        hijackRuns: modesState.hijackRuns,
+        heistBest: modesState.heistBest,
+        heistsDone: modesState.heistsDone,
+        totalEarned: modesState.totalEarned,
+        heistCooldownSecs: heistCooldownSecs(modesState.heistReadyAt, Date.now()),
+        unlocked: modesState.unlocked,
+      },
       ridingBoard: driving && carIndex >= 0 && !!driveParams && driveParams.pushToGo,
       ridingTrain,
       transport: {
@@ -6985,6 +7482,10 @@ export function createRuntime(scene: Scene) {
       say("The race needs the city server.");
       return;
     }
+    if (mode) {
+      say("Finish the street mode first — one run at a time.");
+      return;
+    }
     if (kind === "hover" && !driving) {
       say("Get in a hover-car for the time trial.");
       return;
@@ -7043,6 +7544,9 @@ export function createRuntime(scene: Scene) {
   function openTalk(index: number) {
     const npc = npcs[index];
     if (!npc) return;
+    // STREET MODES: Zed is the door — one chat with him unlocks the
+    // Hijack/Heist daily quest and marks the modes discovered.
+    if (npc.name === "Zed") unlockModes();
     const info = NPC_LINES[npc.name];
     talkLines = info?.lines ?? NPC_DEFAULT_LINES;
     talkNpc = index;
@@ -7585,6 +8089,9 @@ export function createRuntime(scene: Scene) {
     clearTimer = 0;
     notify("BUSTED", fine > 0 ? `The cops got you — ${fine} City Sol fine.` : "The cops got you. Wallet's empty, so they let you walk.", "job");
     say("Busted! The heat is off — and so is some of your City Sol.");
+    // STREET MODES: a bust lands on the active mode too — the hijack
+    // run pays its 10% cut, heist loot is recovered in full.
+    if (mode) endModeBusted();
     publish();
   }
 
@@ -11124,6 +11631,7 @@ export function createRuntime(scene: Scene) {
       tickWeeklies(dt, body);
       tickFavors(dt, body);
       tickBoard(dt, body);
+      tickModes(dt, body);
     }
     // PEOPLE: a party or a guest that ran out while no panel was open
     // clears itself — no stale guest standing in the home, no party tag
@@ -16645,6 +17153,10 @@ export function createRuntime(scene: Scene) {
         say("Finish the delivery run first — one job at a time.");
         return;
       }
+      if (mode) {
+        say("Finish the street mode first — one run at a time.");
+        return;
+      }
       const targets = route.points.slice(1);
       if (route.loop) targets.push(route.points[0]);
       trial = {
@@ -16678,6 +17190,17 @@ export function createRuntime(scene: Scene) {
     abandonBoard() {
       if (!board) return;
       endBoard(`Run abandoned — the ${board.kind === "delivery" ? "delivery" : "fare"} is off.`);
+    },
+    // STREET MODES: arm a scored hijack run / plan a bank heist from
+    // the Jobs panel's Modes section; call either off from the card.
+    startHijack() {
+      startHijackMode();
+    },
+    startHeist() {
+      startHeistMode();
+    },
+    abandonMode() {
+      abandonMode();
     },
     // NPC FAVORS: the talk panel's (and Coach Dom's fight card's)
     // favor button — accepts an offered favor or turns in a ready one.
