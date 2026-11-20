@@ -46,6 +46,7 @@ import {
   MUSEUM_REWARD,
   BOXING_BREAK_SECS,
   BOXING_OPPONENTS,
+  CAMPAIGN_BONUS,
   BOXING_RING,
   BOXING_ROUND_SECS,
   BOXING_ROUNDS,
@@ -86,6 +87,20 @@ import {
   loadContent,
 } from "./content";
 import { burnAmount, earn, loadWallet, saveWallet, spend } from "./economy";
+import {
+  boardParMs,
+  deliveryPay,
+  favorRewardFor,
+  hashSeed as progHashSeed,
+  isoWeekKey,
+  mulberry32 as progMulberry32,
+  nextStreak,
+  rankForXp,
+  rankUpBonus,
+  streakBonus,
+  taxiPay,
+  weekDaysLeft,
+} from "./progression";
 import { createNet, type ChatLine, type NetAdapter, type NetState } from "./net";
 import { barkLineFor, npcVoiceEnabled, prefetchNpcLines, setNpcVoiceEnabled, speakNpc, stopNpcVoice } from "./npcvoice";
 import { allLooks, clothesFromOwned, dressPerson, loadLooks, lookById, lookName, looksReady, type Clothes } from "./avatar";
@@ -791,7 +806,7 @@ export interface Snap {
   carrying: boolean;
   hqIndex: number;
   banner: string;
-  talk: { name: string; role: string; line: string; index: number; total: number; jobId: string; jobName: string; offerLabel: string; canRob: boolean; robLabel: string; canPaint: boolean } | null;
+  talk: { name: string; role: string; line: string; index: number; total: number; jobId: string; jobName: string; offerLabel: string; canRob: boolean; robLabel: string; canPaint: boolean; favorLabel: string; favorAction: "" | "accept" | "turnin" } | null;
   /** PAINT SHOP: Jax's spray panel state (null = closed). `saved` is
    * the colour on the owned-car record; `selected` is the live preview
    * on the world car — it only becomes the saved colour on Apply. */
@@ -812,8 +827,10 @@ export interface Snap {
   busNear: boolean;
   /** HIJACK: the OrbitX Line is stopped at a station within reach. */
   trainNear: boolean;
-  /** STORY MODE: current chapter + next step for the Missions panel. */
-  story: { chapter: number; total: number; title: string; intro: string; stepLabel: string; stepsDone: number; stepsTotal: number; done: boolean };
+  /** STORY MODE (the Campaign): current chapter + next step for the
+   * Missions panel; earned = City Sol banked from chapters + the
+   * campaign completion bonus so far. */
+  story: { chapter: number; total: number; title: string; intro: string; stepLabel: string; stepsDone: number; stepsTotal: number; done: boolean; earned: number };
   /** CHECKPOINT TRIALS: live solo time-trial state for the race HUD
    * (null when no trial is armed/running). targetX/targetZ feed the
    * minimap marker; dist is metres to the current target. */
@@ -858,6 +875,34 @@ export interface Snap {
   dailies: { id: string; label: string; need: number; have: number; done: boolean; reward: number }[];
   dailiesDone: number;
   dailyBonusPaid: boolean;
+  /** Daily streak: consecutive all-three-done days. */
+  dailyStreak: number;
+  /** WEEKLY QUESTS (local): this ISO week's three quests + rollover. */
+  weeklies: { id: string; label: string; need: number; have: number; done: boolean; reward: number }[];
+  weekliesDone: number;
+  weeklyBonusPaid: boolean;
+  weeklyDaysLeft: number;
+  /** CITIZEN RANK (local): the progression spine — rank, title, XP
+   * and progress inside the current rank (nextAt null at max). */
+  rank: { rank: number; title: string; xp: number; into: number; span: number; nextAt: number | null };
+  /** NPC DAILY FAVORS (local): one row per working NPC for the Jobs
+   * panel + talk flow (status: offered | active | ready | done). */
+  favors: { npc: string; status: string; label: string; stageLabel: string; reward: number }[];
+  /** The active favor's current objective point (minimap marker). */
+  favorTarget: { x: number; z: number } | null;
+  /** DELIVERY + TAXI BOARD: the live run for the HUD + minimap
+   * (null when no run is armed). Named boardRun — `board` is the
+   * billboard list. */
+  boardRun: {
+    kind: "delivery" | "taxi";
+    phase: "pickup" | "loading" | "dropoff";
+    label: string;
+    targetX: number;
+    targetZ: number;
+    dist: number;
+    timeMs: number;
+    parMs: number;
+  } | null;
   photos: { taken: number; spots: string[] };
   wishes: number;
   // Mission chain + new earning (fix-client): server is the authority.
@@ -2223,16 +2268,17 @@ export function createRuntime(scene: Scene) {
   // STORY MODE: chapter/step progress through the living city,
   // persisted locally. Steps complete from real play via storyEvent.
   const STORY_KEY = "orbitx-city-story-v1";
-  const storyProgress: { chapter: number; step: number } = (() => {
+  const storyProgress: { chapter: number; step: number; earned: number; bonusPaid: boolean } = (() => {
     try {
-      const parsed = JSON.parse(localStorage.getItem(STORY_KEY) || "null") as { chapter?: number; step?: number } | null;
-      return { chapter: parsed?.chapter ?? 0, step: parsed?.step ?? 0 };
+      const parsed = JSON.parse(localStorage.getItem(STORY_KEY) || "null") as { chapter?: number; step?: number; earned?: number; bonusPaid?: boolean } | null;
+      return { chapter: parsed?.chapter ?? 0, step: parsed?.step ?? 0, earned: parsed?.earned ?? 0, bonusPaid: !!parsed?.bonusPaid };
     } catch {
-      return { chapter: 0, step: 0 };
+      return { chapter: 0, step: 0, earned: 0, bonusPaid: false };
     }
   })();
   let storyDriveSecs = 0;
   let storyHeat = false;
+  let storyHeatSeen = false;
   function currentStoryChapter() {
     return STORY_CHAPTERS[storyProgress.chapter] ?? null;
   }
@@ -2252,10 +2298,13 @@ export function createRuntime(scene: Scene) {
     if (!chapter) return;
     storyProgress.step += 1;
     storyDriveSecs = 0;
+    storyHeatSeen = false;
     if (storyProgress.step >= chapter.steps.length) {
       storyProgress.chapter += 1;
       storyProgress.step = 0;
+      storyProgress.earned += chapter.reward;
       say(earn(wallet, chapter.reward, `Story — ${chapter.title}`));
+      awardXp(60, "campaign chapter");
       const next = currentStoryChapter();
       notify(
         "STORY",
@@ -2267,7 +2316,22 @@ export function createRuntime(scene: Scene) {
         "OrbitX City",
         next ? `Chapter complete: ${chapter.title}. Next up — ${next.title}.` : `Story complete! You finished "${chapter.title}" — you run this city now.`,
       );
+      // CAMPAIGN FINALE: the last chapter pays a one-time completion
+      // bonus, and the cast checks in — the arc is done.
+      if (!next && !storyProgress.bonusPaid) {
+        storyProgress.bonusPaid = true;
+        storyProgress.earned += CAMPAIGN_BONUS;
+        say(earn(wallet, CAMPAIGN_BONUS, "Campaign complete"));
+        awardXp(100, "campaign complete");
+        notify("CAMPAIGN", `Campaign complete — ${CAMPAIGN_BONUS} City Sol bonus. From first day to champion: you ran the whole story.`, "job");
+        phoneEvent(
+          "story",
+          "Lux",
+          `The whole crew's talking about it — Ada, Park, Jax, Dom, Zed, me. You didn't just finish the story, you ARE the story now. Champion. (+${CAMPAIGN_BONUS} City Sol campaign bonus)`,
+        );
+      }
     } else {
+      awardXp(5, "campaign step");
       say(`Story: ${chapter.steps[storyProgress.step].label}`);
     }
     saveStory();
@@ -2276,7 +2340,7 @@ export function createRuntime(scene: Scene) {
   function storyEvent(kind: string, npcName?: string) {
     const step = currentStoryStep();
     if (!step || step.kind !== kind) return;
-    if (kind === "talk" && step.npc && step.npc !== npcName) return;
+    if ((kind === "talk" || kind === "fight") && step.npc && step.npc !== npcName) return;
     advanceStory();
   }
   function tickStory(dt: number, body: Body) {
@@ -2294,6 +2358,16 @@ export function createRuntime(scene: Scene) {
         storyHeat = false;
         advanceStory();
       }
+    } else if (step.kind === "heat") {
+      // Draw heat, then clear it — by fine, bust or escape; every road
+      // back to zero counts.
+      if (wanted > 0) storyHeatSeen = true;
+      if (storyHeatSeen && wanted === 0) advanceStory();
+    } else if (step.kind === "fight") {
+      // Already holding Bruno's belt when the step lands (a rematch
+      // win also counts, via settleBoxing's storyEvent) — no one has
+      // to prove the same thing twice.
+      if (boxingRecords.belt) advanceStory();
     }
   }
   // CHECKPOINT TRIALS: solo time trials over RACE_ROUTES. State lives
@@ -2408,6 +2482,9 @@ export function createRuntime(scene: Scene) {
       phoneEvent("job", "Lux", `GOLD on ${t.route.name} — ${fmtRaceMs(ms)}. Clean run. The whole city saw that.`);
     }
     dailyEvent("race");
+    storyEvent("race");
+    weeklyEvent("trial");
+    awardXp(medal === "GOLD" ? 15 : 10, "checkpoint trial");
     publish();
   }
   // BOXING: real fights at the ring south of the stadium (city.ts
@@ -2754,6 +2831,9 @@ export function createRuntime(scene: Scene) {
     const id = b.opp.id;
     if (b.result === "win") {
       boxingRecords.wins[id] = (boxingRecords.wins[id] ?? 0) + 1;
+      storyEvent("fight", b.opp.name);
+      weeklyEvent("fightwin");
+      awardXp(20, "fight win");
       say(earn(wallet, b.opp.winPay, `Boxing — beat ${b.opp.name}`));
       notify("BOXING", `You beat ${b.opp.name} (${b.opp.title}) — +${b.opp.winPay} City Sol. Your record vs ${b.opp.name}: ${boxingRecords.wins[id]}W-${boxingRecords.losses[id] ?? 0}L.`, "job");
       triggerHaptic("jobPay");
@@ -2802,6 +2882,10 @@ export function createRuntime(scene: Scene) {
     }
     if (trial) {
       say("One contest at a time — finish or abandon the time trial first.");
+      return;
+    }
+    if (board) {
+      say("One run at a time — finish or drop the delivery board run first.");
       return;
     }
     if (robEndsAt > Date.now()) {
@@ -3200,6 +3284,10 @@ export function createRuntime(scene: Scene) {
     rideSecs: number;
     earnSol: number;
     lastBalance: number;
+    /** Consecutive all-three-done days (carried across day rolls). */
+    streak: number;
+    /** Local date the last all-three completion landed on. */
+    lastAllDone: string;
   }
   let daily: DailyState | null = null;
   let dailySaveAt = 0;
@@ -3264,11 +3352,17 @@ export function createRuntime(scene: Scene) {
   function loadDailies(): DailyState {
     const today = dailyDateStr();
     if (daily && daily.date === today) return daily;
+    let carryStreak = 0;
+    let carryLastAllDone = "";
     try {
       const parsed = JSON.parse(localStorage.getItem(DAILIES_KEY) || "null") as DailyState | null;
-      if (parsed && parsed.date === today && Array.isArray(parsed.quests) && parsed.quests.length === 3) {
-        daily = parsed;
-        return daily;
+      if (parsed) {
+        carryStreak = parsed.streak ?? 0;
+        carryLastAllDone = parsed.lastAllDone ?? "";
+        if (parsed.date === today && Array.isArray(parsed.quests) && parsed.quests.length === 3) {
+          daily = { ...parsed, streak: carryStreak, lastAllDone: carryLastAllDone };
+          return daily;
+        }
       }
     } catch {
       /* regenerate below */
@@ -3283,6 +3377,8 @@ export function createRuntime(scene: Scene) {
       rideSecs: 0,
       earnSol: 0,
       lastBalance: wallet.balance,
+      streak: carryStreak,
+      lastAllDone: carryLastAllDone,
     };
     saveDailies();
     return daily;
@@ -3291,12 +3387,24 @@ export function createRuntime(scene: Scene) {
     quest.done = true;
     quest.have = quest.need;
     say(earn(wallet, quest.reward, `Daily quest — ${quest.label}`));
+    awardXp(10, "daily quest");
     notify("DAILY", `Quest done: ${quest.label} (+${quest.reward} City Sol)`, "job");
     triggerHaptic("success");
     if (st.quests.every((q) => q.done) && !st.bonusPaid) {
       st.bonusPaid = true;
       say(earn(wallet, DAILY_BONUS, "Daily quests — all three done"));
-      phoneEvent("job", "OrbitX City", `All 3 daily quests done — ${DAILY_BONUS} City Sol bonus paid. New quests land at midnight.`);
+      awardXp(15, "all dailies");
+      // STREAK: finishing all three on consecutive days builds the
+      // streak; the streak bonus rides on top of the flat bonus.
+      st.streak = nextStreak(st.streak, st.lastAllDone, st.date);
+      st.lastAllDone = st.date;
+      const bonus = streakBonus(st.streak);
+      if (bonus > 0) say(earn(wallet, bonus, `Daily streak — day ${st.streak}`));
+      phoneEvent(
+        "job",
+        "OrbitX City",
+        `All 3 daily quests done — ${DAILY_BONUS} City Sol bonus paid${bonus > 0 ? `, plus ${bonus} for your ${st.streak}-day streak` : ""}. New quests land at midnight.`,
+      );
     }
     saveDailies();
   }
@@ -3364,6 +3472,7 @@ export function createRuntime(scene: Scene) {
     // Job tasks: the shift phase counter climbing is a task banked.
     if (job && dailyPrevJob === job && phase > dailyPrevPhase) {
       bumpDaily("jobtask", phase - dailyPrevPhase);
+      awardXp(4 * (phase - dailyPrevPhase), "job task");
     }
     dailyPrevPhase = phase;
     dailyPrevJob = job;
@@ -3384,6 +3493,620 @@ export function createRuntime(scene: Scene) {
       saveDailies();
     }
   }
+  // ---- PROGRESSION SPINE: Citizen Rank + weekly quests + NPC favors
+  // + the delivery/taxi board. All local (same trust model as story +
+  // dailies), all City Sol, all riding the event plumbing above: the
+  // pure maths (rank curve, streaks, week keys, pay) live in
+  // progression.ts and are unit-tested; this block owns the state.
+  function photoTaken() {
+    storyEvent("photo");
+    dailyEvent("photo");
+    weeklyEvent("photo");
+    favorEvent("photo");
+  }
+
+  // CITIZEN RANK: an XP ledger over everything the player finishes.
+  // XP is awarded at completion sites (story, quests, favors, board
+  // runs, trials, fights, job tasks) — never hooked into earn(), so
+  // the money economy is untouched. Rank-ups pay a one-time bonus.
+  const RANK_KEY = "orbitx-city-rank-v1";
+  const rankState: { xp: number } = (() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(RANK_KEY) || "null") as { xp?: number } | null;
+      return { xp: Math.max(0, Math.floor(parsed?.xp ?? 0)) };
+    } catch {
+      return { xp: 0 };
+    }
+  })();
+  function saveRank() {
+    try {
+      localStorage.setItem(RANK_KEY, JSON.stringify(rankState));
+    } catch {
+      /* private mode */
+    }
+  }
+  function awardXp(amount: number, _why: string) {
+    if (amount <= 0) return;
+    const before = rankForXp(rankState.xp).rank;
+    rankState.xp += amount;
+    const info = rankForXp(rankState.xp);
+    saveRank();
+    if (info.rank > before) {
+      let bonus = 0;
+      for (let r = before + 1; r <= info.rank; r++) bonus += rankUpBonus(r);
+      say(earn(wallet, bonus, `Citizen Rank ${info.rank} — ${info.title}`));
+      notify("RANK UP", `Citizen Rank ${info.rank} — ${info.title}. +${bonus} City Sol. The city notices people who show up.`, "job");
+      phoneEvent("job", "OrbitX City", `Rank up — you're a ${info.title} now (Citizen Rank ${info.rank}). +${bonus} City Sol bonus paid.`);
+      triggerHaptic("success");
+    }
+    publish();
+  }
+
+  // WEEKLY QUESTS (local): three bigger goals per ISO week, seeded per
+  // player + week (orbitx-city-weeklies-v1). Same shape as dailies —
+  // event bumps for discrete goals, accumulators for drive/earn/state
+  // goals — with a 500 City Sol all-three bonus.
+  const WEEKLIES_KEY = "orbitx-city-weeklies-v1";
+  const WEEKLY_BONUS = 500;
+  interface WeeklyQuest {
+    id: string;
+    kind: string;
+    label: string;
+    need: number;
+    reward: number;
+    have: number;
+    done: boolean;
+  }
+  interface WeeklyState {
+    week: string;
+    quests: WeeklyQuest[];
+    bonusPaid: boolean;
+    driveM: number;
+    earnSol: number;
+    lastBalance: number;
+    states: string[];
+  }
+  let weekly: WeeklyState | null = null;
+  let weeklySaveAt = 0;
+  function buildWeeklyQuests(rng: () => number): WeeklyQuest[] {
+    const pool: WeeklyQuest[] = [
+      { id: "earn", kind: "earn", label: "Earn 1,500 City Sol this week", need: 1500, reward: 300, have: 0, done: false },
+      { id: "missions", kind: "mission", label: "Complete 5 board missions or NPC favors", need: 5, reward: 350, have: 0, done: false },
+      { id: "drive", kind: "drive", label: "Drive 5,000m this week", need: 5000, reward: 250, have: 0, done: false },
+      { id: "trials", kind: "trial", label: "Finish 2 checkpoint trials", need: 2, reward: 300, have: 0, done: false },
+      { id: "fight", kind: "fightwin", label: "Win a boxing match", need: 1, reward: 300, have: 0, done: false },
+      { id: "jobtasks", kind: "jobtask", label: "Complete 5 job tasks", need: 5, reward: 250, have: 0, done: false },
+      { id: "photos", kind: "photo", label: "Take 3 photos", need: 3, reward: 250, have: 0, done: false },
+      { id: "states", kind: "states", label: "Visit all 3 states — New York, Los Angeles, Florida", need: 3, reward: 400, have: 0, done: false },
+    ];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      const tmp = pool[i];
+      pool[i] = pool[j];
+      pool[j] = tmp;
+    }
+    return pool.slice(0, 3);
+  }
+  function saveWeeklies() {
+    if (!weekly) return;
+    try {
+      localStorage.setItem(WEEKLIES_KEY, JSON.stringify(weekly));
+    } catch {
+      /* private mode */
+    }
+  }
+  function loadWeeklies(): WeeklyState {
+    const week = isoWeekKey(new Date());
+    if (weekly && weekly.week === week) return weekly;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(WEEKLIES_KEY) || "null") as WeeklyState | null;
+      if (parsed && parsed.week === week && Array.isArray(parsed.quests) && parsed.quests.length === 3) {
+        weekly = parsed;
+        return weekly;
+      }
+    } catch {
+      /* regenerate below */
+    }
+    const key = world.me?.id || world.me?.name || "guest";
+    const rng = progMulberry32(progHashSeed(`${key}|${week}|weekly`));
+    weekly = {
+      week,
+      quests: buildWeeklyQuests(rng),
+      bonusPaid: false,
+      driveM: 0,
+      earnSol: 0,
+      lastBalance: wallet.balance,
+      states: [],
+    };
+    saveWeeklies();
+    return weekly;
+  }
+  function completeWeeklyQuest(st: WeeklyState, quest: WeeklyQuest) {
+    quest.done = true;
+    quest.have = quest.need;
+    say(earn(wallet, quest.reward, `Weekly quest — ${quest.label}`));
+    awardXp(30, "weekly quest");
+    notify("WEEKLY", `Quest done: ${quest.label} (+${quest.reward} City Sol)`, "job");
+    triggerHaptic("success");
+    if (st.quests.every((q) => q.done) && !st.bonusPaid) {
+      st.bonusPaid = true;
+      say(earn(wallet, WEEKLY_BONUS, "Weekly quests — all three done"));
+      awardXp(50, "all weeklies");
+      phoneEvent("job", "OrbitX City", `All 3 weekly quests done — ${WEEKLY_BONUS} City Sol bonus paid. New week, new board, Monday.`);
+    }
+    saveWeeklies();
+  }
+  function bumpWeekly(kind: string, amount = 1) {
+    const st = loadWeeklies();
+    let changed = false;
+    for (const quest of st.quests) {
+      if (quest.done || quest.kind !== kind) continue;
+      quest.have = Math.min(quest.need, quest.have + amount);
+      changed = true;
+      if (quest.have >= quest.need) completeWeeklyQuest(st, quest);
+    }
+    if (changed) {
+      saveWeeklies();
+      publish();
+    }
+  }
+  function weeklyEvent(kind: string) {
+    bumpWeekly(kind);
+  }
+  let weeklyPrevX = Number.NaN;
+  let weeklyPrevZ = Number.NaN;
+  let weeklyPrevPhase = 0;
+  let weeklyPrevJob = "";
+  const STATE_NAMES: Record<string, string> = { ny: "New York", la: "Los Angeles", fl: "Florida" };
+  function tickWeeklies(_dt: number, body: Body) {
+    const st = loadWeeklies();
+    let dirty = false;
+    if (driving && Number.isFinite(weeklyPrevX)) {
+      const moved = Math.hypot(body.x - weeklyPrevX, body.z - weeklyPrevZ);
+      if (moved > 0 && moved < 30) {
+        st.driveM += moved;
+        dirty = true;
+      }
+    }
+    weeklyPrevX = body.x;
+    weeklyPrevZ = body.z;
+    if (wallet.balance > st.lastBalance) {
+      st.earnSol += wallet.balance - st.lastBalance;
+      dirty = true;
+    }
+    st.lastBalance = wallet.balance;
+    if (job && weeklyPrevJob === job && phase > weeklyPrevPhase) {
+      bumpWeekly("jobtask", phase - weeklyPrevPhase);
+    }
+    weeklyPrevPhase = phase;
+    weeklyPrevJob = job;
+    // States: standing inside a region's bounds counts as a visit.
+    for (const [id, centre] of Object.entries(REGION_CENTERS)) {
+      if (Math.abs(body.x - centre.x) <= 190 && Math.abs(body.z - centre.z) <= 190 && !st.states.includes(id)) {
+        st.states.push(id);
+        dirty = true;
+        say(`Welcome to ${STATE_NAMES[id] ?? id} — weekly quest: ${st.states.length} of 3 states visited.`);
+      }
+    }
+    for (const quest of st.quests) {
+      if (quest.done) continue;
+      if (quest.kind === "drive") quest.have = Math.min(quest.need, Math.floor(st.driveM));
+      else if (quest.kind === "earn") quest.have = Math.min(quest.need, Math.floor(st.earnSol));
+      else if (quest.kind === "states") quest.have = Math.min(quest.need, st.states.length);
+      else continue;
+      if (quest.have >= quest.need) completeWeeklyQuest(st, quest);
+    }
+    if (dirty && Date.now() - weeklySaveAt > 5000) {
+      weeklySaveAt = Date.now();
+      saveWeeklies();
+    }
+  }
+
+  // NPC DAILY FAVORS (local): each working NPC offers one favor a day,
+  // seeded per player + date + NPC (orbitx-city-favors-v1). Accept and
+  // turn in at the giver through the talk flow (Coach Dom's runs
+  // through his fight-card panel — he has no talk panel). One favor
+  // active at a time, so the objective marker never fights itself.
+  const FAVORS_KEY = "orbitx-city-favors-v1";
+  const FAVOR_NPCS = ["Ada", "Milo", "Jax", "Sal", "Zed", "Lux", "Park", "Gus", "Pip", "Dom"] as const;
+  const FAVOR_POSTS: Record<string, { x: number; z: number }> = {
+    Ada: { x: 80.5, z: -54 },
+    Milo: { x: 18, z: 74 },
+    Jax: { x: 212, z: -69 },
+    Sal: { x: 0, z: 207 },
+    Zed: { x: -18, z: 74 },
+    Lux: { x: 44.5, z: 54 },
+    Park: { x: 10, z: 17 },
+    Gus: { x: 12, z: 54 },
+    Pip: { x: 193, z: -54.5 },
+    Dom: { x: BOXING_TRAINER.x, z: BOXING_TRAINER.z },
+  };
+  type FavorKind = "fetch" | "visit" | "talkto" | "deliver" | "photo" | "fuel";
+  interface Favor {
+    npc: string;
+    kind: FavorKind;
+    label: string;
+    targetName: string;
+    x?: number;
+    z?: number;
+    otherNpc?: string;
+    status: "offered" | "active" | "ready" | "done";
+    reward: number;
+  }
+  interface FavorState {
+    date: string;
+    favors: Record<string, Favor>;
+  }
+  let favorState: FavorState | null = null;
+  function favorPoints(): Array<{ name: string; x: number; z: number }> {
+    return [
+      ...PHOTO_LANDMARKS.map((p) => ({ name: p.name, x: p.x, z: p.z })),
+      ...GAS_STATIONS.map((p) => ({ name: p.name, x: p.x, z: p.z })),
+      ...CHARGE_POINTS.map((p) => ({ name: p.name, x: p.x, z: p.z })),
+    ];
+  }
+  function buildFavor(npc: string, rng: () => number): Favor {
+    const post = FAVOR_POSTS[npc];
+    const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(rng() * arr.length)];
+    const kinds: FavorKind[] = ["fetch", "visit", "talkto", "deliver", "photo", "fuel"];
+    const kind = pick(kinds);
+    const others = FAVOR_NPCS.filter((n) => n !== npc && n !== "Dom");
+    if (kind === "fetch" || kind === "visit") {
+      const point = kind === "fetch" ? pick(favorPoints()) : pick(PHOTO_LANDMARKS);
+      const dist = Math.hypot(point.x - post.x, point.z - post.z);
+      return {
+        npc,
+        kind,
+        label:
+          kind === "fetch"
+            ? `${npc} needs a pickup from ${point.name} — grab it and come back.`
+            : `${npc} wants eyes on ${point.name} — go take a look and report back.`,
+        targetName: point.name,
+        x: point.x,
+        z: point.z,
+        status: "offered",
+        reward: favorRewardFor(dist),
+      };
+    }
+    if (kind === "talkto" || kind === "deliver") {
+      const other = pick(others);
+      const otherPost = FAVOR_POSTS[other];
+      const dist = Math.hypot(otherPost.x - post.x, otherPost.z - post.z);
+      return {
+        npc,
+        kind,
+        label:
+          kind === "talkto"
+            ? `${npc} has a message for ${other} — pass it on, then come back.`
+            : `${npc} has a package for ${other} — hand it over, then come back for your pay.`,
+        targetName: other,
+        otherNpc: other,
+        status: "offered",
+        reward: favorRewardFor(dist),
+      };
+    }
+    if (kind === "photo") {
+      return {
+        npc,
+        kind,
+        label: `${npc} wants a fresh photo for the wall — snap one in Photo Mode and come back.`,
+        targetName: "a photo",
+        status: "offered",
+        reward: 45,
+      };
+    }
+    return {
+      npc,
+      kind: "fuel",
+      label: `${npc} is running a pump check — fill any tank or charge any battery, then come back.`,
+      targetName: "a full tank",
+      status: "offered",
+      reward: 45,
+    };
+  }
+  function saveFavors() {
+    if (!favorState) return;
+    try {
+      localStorage.setItem(FAVORS_KEY, JSON.stringify(favorState));
+    } catch {
+      /* private mode */
+    }
+  }
+  function loadFavors(): FavorState {
+    const today = dailyDateStr();
+    if (favorState && favorState.date === today) return favorState;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(FAVORS_KEY) || "null") as FavorState | null;
+      if (parsed && parsed.date === today && parsed.favors) {
+        favorState = parsed;
+        return favorState;
+      }
+    } catch {
+      /* regenerate below */
+    }
+    const key = world.me?.id || world.me?.name || "guest";
+    const favors: Record<string, Favor> = {};
+    for (const npc of FAVOR_NPCS) {
+      favors[npc] = buildFavor(npc, progMulberry32(progHashSeed(`${key}|${today}|favor|${npc}`)));
+    }
+    favorState = { date: today, favors };
+    saveFavors();
+    return favorState;
+  }
+  function activeFavor(): Favor | null {
+    const st = loadFavors();
+    for (const npc of FAVOR_NPCS) {
+      const f = st.favors[npc];
+      if (f && (f.status === "active" || f.status === "ready")) return f;
+    }
+    return null;
+  }
+  function npcLivePos(name: string): { x: number; z: number } {
+    const found = npcs.find((n) => n.name === name);
+    if (found) return { x: found.x, z: found.z };
+    return FAVOR_POSTS[name] ?? { x: 0, z: 0 };
+  }
+  function favorStageLabel(f: Favor): string {
+    if (f.status === "offered") return `Talk to ${f.npc} to accept`;
+    if (f.status === "done") return "Done";
+    if (f.status === "ready") return `Return to ${f.npc} to turn in`;
+    switch (f.kind) {
+      case "fetch":
+        return `Pick up at ${f.targetName}`;
+      case "visit":
+        return `Visit ${f.targetName}`;
+      case "talkto":
+        return `Talk to ${f.otherNpc}`;
+      case "deliver":
+        return `Hand the package to ${f.otherNpc}`;
+      case "photo":
+        return "Take a photo (Photo Mode)";
+      case "fuel":
+        return "Fill a tank or charge a battery";
+    }
+  }
+  function favorStageTarget(f: Favor): { x: number; z: number } | null {
+    if (f.status === "ready") return npcLivePos(f.npc);
+    if (f.status !== "active") return null;
+    if ((f.kind === "fetch" || f.kind === "visit") && f.x !== undefined && f.z !== undefined) return { x: f.x, z: f.z };
+    if ((f.kind === "talkto" || f.kind === "deliver") && f.otherNpc) return npcLivePos(f.otherNpc);
+    return null;
+  }
+  function favorReady(f: Favor) {
+    f.status = "ready";
+    saveFavors();
+    say(`Favor for ${f.npc}: done — head back to ${f.npc} to turn it in.`);
+    notify("FAVOR", `${f.npc}'s favor is ready to turn in (+${f.reward} City Sol).`, "job");
+    triggerHaptic("success");
+    publish();
+  }
+  function favorEvent(kind: string, npcName?: string) {
+    const f = activeFavor();
+    if (!f || f.status !== "active") return;
+    if (kind === "talk" && (f.kind === "talkto" || f.kind === "deliver") && npcName === f.otherNpc) favorReady(f);
+    else if (kind === "photo" && f.kind === "photo") favorReady(f);
+    else if (kind === "fuel" && f.kind === "fuel") favorReady(f);
+  }
+  /** What the talk panel (or Dom's fight card) shows for this NPC. */
+  function favorTalkFor(npcName: string): { label: string; action: "" | "accept" | "turnin" } | null {
+    const st = loadFavors();
+    const f = st.favors[npcName];
+    if (!f) return null;
+    if (f.status === "ready") return { label: `Turn in favor — +${f.reward} City Sol`, action: "turnin" };
+    if (f.status === "active") return { label: `Favor in progress — ${favorStageLabel(f)}`, action: "" };
+    if (f.status === "offered") {
+      const busy = activeFavor();
+      if (busy) return { label: `Favor available — finish ${busy.npc}'s first`, action: "" };
+      return { label: `Favor: ${f.label} (pays ${f.reward} City Sol)`, action: "accept" };
+    }
+    return null;
+  }
+  function favorAction(npcName: string) {
+    const st = loadFavors();
+    const f = st.favors[npcName];
+    if (!f) return;
+    const speak = (line: string) => {
+      if (talk && talk.name === npcName) {
+        const fresh = favorTalkFor(npcName);
+        talk = { ...talk, line, favorLabel: fresh?.label ?? "", favorAction: fresh?.action ?? "" };
+        speakNpc(talk.name, talk.role, line);
+      }
+      say(line);
+    };
+    if (f.status === "offered") {
+      const busy = activeFavor();
+      if (busy) {
+        speak(`One at a time — ${busy.npc}'s favor is still open. Finish that first.`);
+        publish();
+        return;
+      }
+      f.status = "active";
+      saveFavors();
+      speak(`Knew I could count on you. ${favorStageLabel(f)} — then come back and see me.`);
+      notify("FAVOR", `${f.npc}'s favor accepted: ${favorStageLabel(f)}. Pays ${f.reward} City Sol.`, "job");
+      publish();
+      return;
+    }
+    if (f.status === "ready") {
+      f.status = "done";
+      saveFavors();
+      say(earn(wallet, f.reward, `Favor — ${f.npc}`));
+      awardXp(15, "npc favor");
+      weeklyEvent("mission");
+      phoneEvent("job", f.npc, `Favor done — ${f.reward} City Sol. You always come through. Come by tomorrow, I'll have more.`);
+      speak(`Done and dusted — ${f.reward} City Sol, you earned every one.`);
+      publish();
+    }
+  }
+  function tickFavors(_dt: number, body: Body) {
+    const f = activeFavor();
+    if (!f) return;
+    if (f.status === "active" && (f.kind === "fetch" || f.kind === "visit") && f.x !== undefined && f.z !== undefined) {
+      if (Math.hypot(body.x - f.x, body.z - f.z) <= 9) favorReady(f);
+    }
+    // Objective marker on the shared pillar — only when the trials
+    // and the board aren't using it (they paint after / before us in
+    // the same frame; trials hide it when idle, the board outranks).
+    if (!trial && !board) {
+      const target = favorStageTarget(f);
+      if (target) paintTrialPillar(target.x, target.z, f.status === "ready" ? 0xe0b33a : 0x19d8ff);
+    }
+  }
+
+  // DELIVERY + TAXI BOARD (local, repeatable): accept a run, drive
+  // the lit pillar, get paid by distance with a time bonus. One run at
+  // a time, mutually exclusive with trials and fights — they all share
+  // the pillar, the HUD and the player's attention.
+  interface BoardPoint {
+    name: string;
+    x: number;
+    z: number;
+  }
+  function boardPoints(): BoardPoint[] {
+    return [
+      ...PHOTO_LANDMARKS.map((p) => ({ name: p.name, x: p.x, z: p.z })),
+      ...GAS_STATIONS.map((p) => ({ name: p.name, x: p.x, z: p.z })),
+      ...CHARGE_POINTS.map((p) => ({ name: p.name, x: p.x, z: p.z })),
+      { name: "OrbitX Motors", x: 202, z: -69 },
+      { name: "OrbitX Bank", x: 80.5, z: -54 },
+      { name: "Harbor Office", x: 0, z: 207 },
+      { name: "OrbitX Boxing", x: 170, z: 238 },
+      { name: "Neon Arcade", x: 44.5, z: 54 },
+    ];
+  }
+  interface BoardState {
+    kind: "delivery" | "taxi";
+    phase: "pickup" | "loading" | "dropoff";
+    pickup: BoardPoint;
+    drop: BoardPoint;
+    timeMs: number;
+    parMs: number;
+    legDist: number;
+    holdSecs: number;
+    footSecs: number;
+  }
+  let board: BoardState | null = null;
+  function startBoard(kind: "delivery" | "taxi") {
+    if (!lastBody) return;
+    if (board) {
+      say("You're already on a run — finish it or abandon it first.");
+      return;
+    }
+    if (trial) {
+      say("One contest at a time — finish or abandon the time trial first.");
+      return;
+    }
+    if (boxing) {
+      say("After the fight — Coach Dom's card comes first.");
+      return;
+    }
+    if (raceNext >= 0) {
+      say("Finish the street race first — one run at a time.");
+      return;
+    }
+    const points = boardPoints();
+    const rng = progMulberry32(progHashSeed(`${world.me?.id || world.me?.name || "guest"}|board|${Date.now()}`));
+    const pickup = points[Math.floor(rng() * points.length)];
+    let drop = points[Math.floor(rng() * points.length)];
+    let legDist = Math.hypot(drop.x - pickup.x, drop.z - pickup.z);
+    for (let tries = 0; tries < 16 && (legDist < 140 || legDist > 800); tries++) {
+      drop = points[Math.floor(rng() * points.length)];
+      legDist = Math.hypot(drop.x - pickup.x, drop.z - pickup.z);
+    }
+    if (drop === pickup) drop = points[(points.indexOf(pickup) + 3) % points.length];
+    legDist = Math.hypot(drop.x - pickup.x, drop.z - pickup.z);
+    const routeDist = Math.hypot(lastBody.x - pickup.x, lastBody.z - pickup.z) + legDist;
+    board = {
+      kind,
+      phase: "pickup",
+      pickup,
+      drop,
+      timeMs: 0,
+      parMs: boardParMs(routeDist),
+      legDist,
+      holdSecs: 0,
+      footSecs: 0,
+    };
+    panel = "";
+    paused = false;
+    say(
+      kind === "delivery"
+        ? `Delivery — pick up at ${pickup.name}, drop at ${drop.name}. Beat ${(board.parMs / 1000).toFixed(0)}s for the time bonus.`
+        : `Taxi — fare waiting at ${pickup.name}, heading to ${drop.name}. Beat ${(board.parMs / 1000).toFixed(0)}s for the tip.`,
+    );
+    publish();
+  }
+  function endBoard(message: string) {
+    board = null;
+    say(message);
+    publish();
+  }
+  function completeBoard() {
+    const b = board;
+    if (!b) return;
+    const pay = b.kind === "delivery" ? deliveryPay(b.legDist, b.timeMs, b.parMs) : taxiPay(b.legDist, b.timeMs, b.parMs);
+    board = null;
+    say(earn(wallet, pay.total, b.kind === "delivery" ? `Delivery — ${b.drop.name}` : `Taxi — ${b.drop.name}`));
+    notify(
+      b.kind === "delivery" ? "DELIVERY" : "TAXI",
+      pay.bonus > 0
+        ? `${b.drop.name} — ${pay.base} City Sol + ${pay.bonus} ${b.kind === "delivery" ? "time bonus" : "tip"} (${pay.tier} run, ${(b.timeMs / 1000).toFixed(0)}s).`
+        : `${b.drop.name} — ${pay.base} City Sol (${(b.timeMs / 1000).toFixed(0)}s — beat ${(b.parMs / 1000).toFixed(0)}s for the bonus next time).`,
+      "job",
+    );
+    triggerHaptic("jobPay");
+    awardXp(12, b.kind === "delivery" ? "delivery" : "taxi fare");
+    weeklyEvent("mission");
+    publish();
+  }
+  function tickBoard(dt: number, body: Body) {
+    if (!board) return;
+    const b = board;
+    // Like the trials: opening a panel mid-run drops the run.
+    if (panel) {
+      endBoard(`Run dropped — the ${b.kind === "delivery" ? "delivery" : "fare"} is off.`);
+      return;
+    }
+    b.timeMs += dt * 1000;
+    const target = b.phase === "dropoff" ? b.drop : b.pickup;
+    paintTrialPillar(target.x, target.z, b.phase === "dropoff" ? 0xe0b33a : 0x19d8ff);
+    if (!driving) {
+      b.footSecs += dt;
+      if (b.footSecs > 12) {
+        endBoard("Run dropped — you left the car too long.");
+        return;
+      }
+    } else {
+      b.footSecs = 0;
+    }
+    const dist = Math.hypot(body.x - target.x, body.z - target.z);
+    if (b.phase === "loading") {
+      if (dist <= 10 && driving) {
+        b.holdSecs += dt;
+        const need = b.kind === "delivery" ? 2.5 : 1.5;
+        if (b.holdSecs >= need) {
+          b.phase = "dropoff";
+          say(b.kind === "delivery" ? `Loaded — get it to ${b.drop.name}.` : `Fare's in — take them to ${b.drop.name}.`);
+          publish();
+        }
+      } else {
+        b.phase = "pickup";
+        b.holdSecs = 0;
+      }
+      return;
+    }
+    if (dist <= 8.5 && driving) {
+      if (b.phase === "pickup") {
+        b.phase = "loading";
+        b.holdSecs = 0;
+        say(b.kind === "delivery" ? "Loading… hold position." : "Picking up your fare… hold position.");
+        publish();
+      } else {
+        completeBoard();
+      }
+    }
+  }
+
   // Traffic circuits MUST sit on the road grid (city.ts CENTERS:
   // -180..180 in 36-steps, roads 10 wide, asphalt top ~0.08). The first
   // version ran at ±56/±150/±20 — mid-block, through buildings — which
@@ -5056,7 +5779,7 @@ export function createRuntime(scene: Scene) {
       story: (() => {
         const chapter = currentStoryChapter();
         if (!chapter) {
-          return { chapter: STORY_CHAPTERS.length, total: STORY_CHAPTERS.length, title: "", intro: "", stepLabel: "", stepsDone: 0, stepsTotal: 0, done: true };
+          return { chapter: STORY_CHAPTERS.length, total: STORY_CHAPTERS.length, title: "", intro: "", stepLabel: "", stepsDone: 0, stepsTotal: 0, done: true, earned: storyProgress.earned };
         }
         const step = currentStoryStep();
         return {
@@ -5068,6 +5791,7 @@ export function createRuntime(scene: Scene) {
           stepsDone: storyProgress.step,
           stepsTotal: chapter.steps.length,
           done: false,
+          earned: storyProgress.earned,
         };
       })(),
       trial: trial
@@ -5128,6 +5852,52 @@ export function createRuntime(scene: Scene) {
       dailies: daily ? daily.quests.map((q) => ({ id: q.id, label: q.label, need: q.need, have: Math.floor(q.have), done: q.done, reward: q.reward })) : [],
       dailiesDone: daily ? daily.quests.filter((q) => q.done).length : 0,
       dailyBonusPaid: daily ? daily.bonusPaid : false,
+      dailyStreak: daily ? daily.streak : 0,
+      weeklies: weekly ? weekly.quests.map((q) => ({ id: q.id, label: q.label, need: q.need, have: Math.floor(q.have), done: q.done, reward: q.reward })) : [],
+      weekliesDone: weekly ? weekly.quests.filter((q) => q.done).length : 0,
+      weeklyBonusPaid: weekly ? weekly.bonusPaid : false,
+      weeklyDaysLeft: weekDaysLeft(new Date()),
+      rank: (() => {
+        const info = rankForXp(rankState.xp);
+        return { rank: info.rank, title: info.title, xp: rankState.xp, into: info.into, span: info.span, nextAt: info.nextAt };
+      })(),
+      favors: (() => {
+        const fs = favorState;
+        if (!fs) return [];
+        return FAVOR_NPCS.map((npc) => {
+          const f = fs.favors[npc];
+          return f
+            ? { npc, status: f.status, label: f.label, stageLabel: favorStageLabel(f), reward: f.reward }
+            : { npc, status: "done", label: "", stageLabel: "", reward: 0 };
+        });
+      })(),
+      favorTarget: (() => {
+        const f = favorState ? activeFavor() : null;
+        return f ? favorStageTarget(f) : null;
+      })(),
+      boardRun: board
+        ? {
+            kind: board.kind,
+            phase: board.phase,
+            label:
+              board.phase === "loading"
+                ? board.kind === "delivery"
+                  ? "Loading… hold position"
+                  : "Fare boarding… hold position"
+                : board.phase === "pickup"
+                  ? board.kind === "delivery"
+                    ? `Pick up at ${board.pickup.name}`
+                    : `Pick up your fare at ${board.pickup.name}`
+                  : board.kind === "delivery"
+                    ? `Drop off at ${board.drop.name}`
+                    : `Take your fare to ${board.drop.name}`,
+            targetX: (board.phase === "dropoff" ? board.drop : board.pickup).x,
+            targetZ: (board.phase === "dropoff" ? board.drop : board.pickup).z,
+            dist: lastBody ? Math.round(Math.hypot(lastBody.x - (board.phase === "dropoff" ? board.drop : board.pickup).x, lastBody.z - (board.phase === "dropoff" ? board.drop : board.pickup).z)) : 0,
+            timeMs: Math.round(board.timeMs),
+            parMs: board.parMs,
+          }
+        : null,
       ridingBoard: driving && carIndex >= 0 && !!driveParams && driveParams.pushToGo,
       ridingTrain,
       transport: {
@@ -6277,6 +7047,7 @@ export function createRuntime(scene: Scene) {
     talkLines = info?.lines ?? NPC_DEFAULT_LINES;
     talkNpc = index;
     const jobId = info?.jobId ?? "";
+    const favorTalk = favorTalkFor(npc.name);
     talk = {
       name: npc.name,
       role: info?.role ?? "Citizen",
@@ -6290,6 +7061,10 @@ export function createRuntime(scene: Scene) {
       robLabel: ROB_TARGETS[npc.name]?.label ?? "",
       // PAINT SHOP: Jax (OrbitX Motors) sprays the player's own car.
       canPaint: npc.name === "Jax",
+      // DAILY FAVOR: today's ask from this NPC (accept / progress /
+      // turn-in), when they have one.
+      favorLabel: favorTalk?.label ?? "",
+      favorAction: favorTalk?.action ?? "",
     };
     panel = "talk";
     // VOICES: the NPC speaks their script aloud; the rest of the
@@ -6299,6 +7074,7 @@ export function createRuntime(scene: Scene) {
     publish();
     storyEvent("talk", npc.name);
     dailyEvent("talk", npc.name);
+    favorEvent("talk", npc.name);
   }
 
   // ---- PAINT SHOP (Jax, OrbitX Motors) --------------------------------
@@ -6482,7 +7258,7 @@ export function createRuntime(scene: Scene) {
   }
 
   function takePhoto(spot: PhotoSpot) {
-    dailyEvent("photo");
+    photoTaken();
     photosTaken += 1;
     const first = !photoSpots.includes(spot.id);
     if (first) photoSpots.push(spot.id);
@@ -7085,6 +7861,7 @@ export function createRuntime(scene: Scene) {
       fuelWarned.delete(car.id);
       storyEvent("fuel");
       dailyEvent("fuel");
+      favorEvent("fuel");
       burst(spot.x, 2.2, spot.z);
       say(fillEv ? `Charged to full — ${cost} City Sol.` : `Tank filled — ${cost} City Sol.`);
       triggerHaptic("jobPay");
@@ -9687,7 +10464,7 @@ export function createRuntime(scene: Scene) {
       publish();
       return;
     }
-    dailyEvent("photo");
+    photoTaken();
     void sendPhoto(place, spot.x, spot.z);
   }
 
@@ -10344,6 +11121,9 @@ export function createRuntime(scene: Scene) {
       tickTrial(dt, body);
       tickBoxing(dt, body);
       tickDailies(dt, body);
+      tickWeeklies(dt, body);
+      tickFavors(dt, body);
+      tickBoard(dt, body);
     }
     // PEOPLE: a party or a guest that ran out while no panel was open
     // clears itself — no stale guest standing in the home, no party tag
@@ -15861,6 +16641,10 @@ export function createRuntime(scene: Scene) {
         say("Finish the street race first — one race at a time.");
         return;
       }
+      if (board) {
+        say("Finish the delivery run first — one job at a time.");
+        return;
+      }
       const targets = route.points.slice(1);
       if (route.loop) targets.push(route.points[0]);
       trial = {
@@ -15883,6 +16667,23 @@ export function createRuntime(scene: Scene) {
       if (!trial) return;
       endTrial(`Run abandoned — ${trial.route.name} is over.`);
     },
+    // DELIVERY + TAXI BOARD: accept a repeatable run from the Jobs
+    // panel's Missions board; abandon drops it with no pay.
+    startDelivery() {
+      startBoard("delivery");
+    },
+    startTaxi() {
+      startBoard("taxi");
+    },
+    abandonBoard() {
+      if (!board) return;
+      endBoard(`Run abandoned — the ${board.kind === "delivery" ? "delivery" : "fare"} is off.`);
+    },
+    // NPC FAVORS: the talk panel's (and Coach Dom's fight card's)
+    // favor button — accepts an offered favor or turns in a ready one.
+    favorAction(npcName: string) {
+      favorAction(npcName);
+    },
     // BOXING: pick a fight from the fight card (Coach Dom, ringside
     // south of the stadium). Entry is charged on start through spend().
     startBoxingFight(id: string) {
@@ -15902,7 +16703,7 @@ export function createRuntime(scene: Scene) {
     },
     // DAILY QUESTS: the phone's Photo Mode shutter files its photo here.
     notePhotoTaken() {
-      dailyEvent("photo");
+      photoTaken();
     },
     arcadeDeal() {
       return world.arcadePlay().then((data) => {
