@@ -1164,7 +1164,9 @@ body {
   z-index: 6;
   display: grid;
   place-items: center;
-  background: rgba(2, 6, 18, 0.58);
+  background: rgba(2, 6, 18, 0.6);
+  -webkit-backdrop-filter: blur(5px);
+  backdrop-filter: blur(5px);
   padding: 12px;
 }
 
@@ -1174,12 +1176,16 @@ body {
   max-height: calc(100dvh - 24px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: linear-gradient(180deg, #061024 0%, #02050d 100%);
+  background: linear-gradient(180deg, rgba(13, 20, 38, 0.94) 0%, rgba(4, 7, 15, 0.96) 100%);
+  -webkit-backdrop-filter: var(--ox-blur);
+  backdrop-filter: var(--ox-blur);
   color: #ffffff;
-  border: 2px solid #e0b33a;
-  box-shadow: 0 20px 64px rgba(0, 0, 0, 0.8), 0 0 24px rgba(37, 99, 235, 0.22);
-  padding: 14px 14px 32px;
+  border: 1px solid var(--ox-hairline);
+  border-radius: 24px;
+  box-shadow: var(--ox-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 0 0 1px rgba(224, 179, 58, 0.12);
+  padding: 16px 16px 32px;
   touch-action: pan-y;
+  animation: ox-rise 0.32s var(--ox-spring) both;
 }
 
 .panel header {
@@ -1187,41 +1193,66 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--ox-hairline-soft);
 }
 
 .panel header strong {
-  font-size: 20px;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+/* The Close button is a ghost pill in the unified chrome — every panel
+   gets the same quiet exit instead of a second gold block. */
+.panel header button {
+  flex: none;
+  min-height: 40px;
+  padding: 8px 18px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #ffffff;
+  border: 1px solid var(--ox-hairline);
+  border-radius: var(--ox-r-pill);
+  font-size: 13px;
   letter-spacing: 0.06em;
+}
+
+.panel header button:active {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 /* Panel section headings (Roblox-settings style): small gold
    uppercase labels that group the rows under them. */
 .panel h3 {
-  margin: 8px 0 0;
+  margin: 18px 0 2px;
   font-size: 12px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: #e0b33a;
 }
 
-/* Settings rows: a hairline separator under each row so a long panel
-   reads as a list of labelled controls, not a wall of text. */
-.list article {
-  padding: 8px 0;
-  border-bottom: 1px solid rgba(96, 165, 250, 0.22);
+/* List rows are grouped glass cards now (iOS inset-grouped, like the
+   phone): a soft translucent tile with a hairline edge instead of a
+   bare row over a hairline rule. */
+.list article,
+.list > label {
+  padding: 10px 12px;
+  background: var(--ox-glass-softer);
+  border: 1px solid var(--ox-hairline-soft);
+  border-radius: 14px;
 }
 
 .list article:last-child {
-  border-bottom: none;
+  border-bottom: 1px solid var(--ox-hairline-soft);
 }
 
 /* VOICE (full suite): the person talking gets a gold edge so you can
  * see who is speaking at a glance; the mic meter shows your own input
  * level so you know the mic is live. */
 .list article.speaking {
-  border-bottom-color: #e0b33a;
+  border-color: var(--ox-hairline-gold);
   box-shadow: inset 3px 0 0 #e0b33a;
-  padding-left: 8px;
 }
 
 .mic-meter {
@@ -1243,15 +1274,23 @@ body {
   outline: 2px solid #e0b33a;
 }
 
+/* The City Sol notice under every panel header: a quiet gold-tinted
+   glass strip instead of loose gold text. */
 .demo {
-  color: #e0b33a;
+  color: #f0cd6a;
   font-size: 13px;
+  line-height: 1.45;
+  background: rgba(224, 179, 58, 0.08);
+  border: 1px solid rgba(224, 179, 58, 0.28);
+  border-radius: var(--ox-r-sm);
+  padding: 9px 12px;
+  margin: 0 0 12px;
 }
 
 .list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .list article,
@@ -1292,9 +1331,10 @@ body {
 }
 
 .profile-stats .stat {
-  border: 1px solid rgba(59, 130, 246, 0.4);
-  background: #07142b;
-  padding: 8px 10px;
+  border: 1px solid var(--ox-hairline-soft);
+  background: var(--ox-glass-soft);
+  border-radius: 14px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1329,31 +1369,52 @@ body {
 .list input,
 .chat-log {
   width: min(100%, 280px);
-  background: #050e21;
+  background: rgba(5, 10, 22, 0.85);
   color: #ffffff;
-  border: 1px solid #60a5fa;
+  border: 1px solid var(--ox-hairline-blue);
+  border-radius: var(--ox-r-sm);
 }
 
 .chat-log {
   width: 100%;
   max-height: 28dvh;
   overflow: auto;
-  padding: 8px;
+  padding: 10px 12px;
   box-sizing: border-box;
+  background: var(--ox-glass-softer);
+  border-color: var(--ox-hairline-soft);
 }
 
 .chat-log p {
   margin: 0 0 6px;
 }
 
+/* Tab bars + chip groups (Shop tabs, Trading Floor tabs, tier picks,
+   day pickers): ghost pills on the glass system, gold when selected —
+   one tab language for every panel. */
 .days {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
+.days button {
+  min-height: 40px;
+  padding: 8px 15px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+  border: 1px solid var(--ox-hairline-soft);
+  border-radius: var(--ox-r-pill);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
 .days button.on {
-  outline: 2px solid #60a5fa;
+  background: linear-gradient(180deg, var(--ox-gold-bright), var(--ox-gold));
+  color: #000000;
+  border-color: transparent;
+  outline: none;
+  box-shadow: 0 4px 14px rgba(224, 179, 58, 0.35);
 }
 
 /* Universe picker: premium cards, not plain text rectangles. Each card
@@ -1377,8 +1438,9 @@ body {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  background: #061229;
-  border: 1px solid #1e3a8a;
+  background: rgba(10, 18, 36, 0.78);
+  border: 1px solid var(--ox-hairline-soft);
+  border-radius: 18px;
   color: #ffffff;
   text-align: left;
   letter-spacing: 0;
@@ -2210,8 +2272,8 @@ body.touch .touch-ui {
   display: block;
   height: 6px;
   margin-top: 6px;
-  border-radius: 3px;
-  background: rgba(127, 127, 127, 0.35);
+  border-radius: var(--ox-r-pill);
+  background: rgba(255, 255, 255, 0.14);
   overflow: hidden;
 }
 
@@ -2353,9 +2415,11 @@ body.touch .touch-ui {
 }
 
 .sheet {
-  border: 1px solid #60a5fa;
-  background: #050e21;
-  padding: 10px;
+  border: 1px solid var(--ox-hairline);
+  background: rgba(10, 16, 30, 0.88);
+  border-radius: var(--ox-r-md);
+  box-shadow: var(--ox-shadow-soft);
+  padding: 12px;
   margin-top: 8px;
   display: grid;
   gap: 6px;
