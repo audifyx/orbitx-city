@@ -2040,6 +2040,42 @@ export function createRuntime(scene: Scene) {
   let trainServedIdx = new Set<number>();
   /** The station the player boarded at — serving it again is not a task. */
   let trainBoardIdx = -1;
+  // NPC TRAFFIC: citizens driving real cars around the avenue loops.
+  // Each car follows its rectangle of waypoints at a steady speed with
+  // a capped turn rate; a visible driver sits in the seat. Traffic is
+  // the base the cop job (pull-overs) and hijacking build on.
+  interface TrafficCar {
+    group: Group;
+    route: Array<{ x: number; z: number }>;
+    seg: number;
+    x: number;
+    z: number;
+    yaw: number;
+    speed: number;
+    name: string;
+    stoppedUntil: number;
+  }
+  const traffic: TrafficCar[] = [];
+  const TRAFFIC_LOOPS: Array<Array<{ x: number; z: number }>> = [
+    [
+      { x: -56, z: 50 },
+      { x: 56, z: 50 },
+      { x: 56, z: -50 },
+      { x: -56, z: -50 },
+    ],
+    [
+      { x: 150, z: 150 },
+      { x: -150, z: 150 },
+      { x: -150, z: -150 },
+      { x: 150, z: -150 },
+    ],
+    [
+      { x: -100, z: 20 },
+      { x: 100, z: 20 },
+      { x: 100, z: -20 },
+      { x: -100, z: -20 },
+    ],
+  ];
   let beacon: Mesh | null = null;
   let packageMesh: Mesh | null = null;
   let rider: Group | null = null;
@@ -3320,6 +3356,7 @@ export function createRuntime(scene: Scene) {
     zones = next.zones;
     lifts = next.lifts;
     npcs.length = 0;
+    traffic.length = 0;
     talk = null;
     talkLines = [];
     talkNpc = -1;
@@ -3336,6 +3373,40 @@ export function createRuntime(scene: Scene) {
       const patrol = info?.patrol ?? NPC_DEFAULT_PATROL;
       const waypoints = patrol.map(([dx, dz]) => ({ x: citizen.x + dx, z: citizen.z + dz }));
       npcs.push({ group, name: citizen.name, homeX: citizen.x, homeZ: citizen.z, x: citizen.x, z: citizen.z, prevX: citizen.x, prevZ: citizen.z, yaw: index, waypoints, wp: 1 % waypoints.length, waitUntil: 0, followUntil: 0, fleeUntil: 0, fleeX: 0, fleeZ: 0, gatherUntil: 0, gatherX: 0, gatherZ: 0 });
+    });
+    // NPC TRAFFIC: six citizens out driving the avenue loops, each in a
+    // real catalog car with a visible driver in the seat.
+    const TRAFFIC_CAST: Array<{ vehicle: string; color: string; driver: string; loop: number; startSeg: number; speed: number }> = [
+      { vehicle: "city-sedan", color: "gold", driver: "Rio", loop: 0, startSeg: 0, speed: 8.5 },
+      { vehicle: "city-compact", color: "cyan", driver: "Wren", loop: 0, startSeg: 2, speed: 9.5 },
+      { vehicle: "city-suv", color: "white", driver: "Otis", loop: 1, startSeg: 1, speed: 8 },
+      { vehicle: "city-van", color: "silver", driver: "Gus", loop: 1, startSeg: 3, speed: 7.5 },
+      { vehicle: "city-truck", color: "red", driver: "Jax", loop: 2, startSeg: 0, speed: 8 },
+      { vehicle: "city-sports", color: "sunset", driver: "Remy", loop: 2, startSeg: 2, speed: 10.5 },
+    ];
+    TRAFFIC_CAST.forEach((cast, index) => {
+      const route = TRAFFIC_LOOPS[cast.loop];
+      const start = route[cast.startSeg % route.length];
+      const group = buildVehicle(cast.vehicle, cast.color);
+      const driver = makePerson(cast.color, index % 2 ? "cap" : "none");
+      // Seated: sunk so hips sit at seat height, head and shoulders
+      // above the door line — reads as a real driver from outside.
+      driver.position.set(-0.36, -0.52, 0.1);
+      group.add(driver);
+      group.position.set(start.x, 0, start.z);
+      root.add(group);
+      const nextPt = route[(cast.startSeg + 1) % route.length];
+      traffic.push({
+        group,
+        route,
+        seg: cast.startSeg,
+        x: start.x,
+        z: start.z,
+        yaw: Math.atan2(nextPt.x - start.x, nextPt.z - start.z),
+        speed: cast.speed,
+        name: cast.driver,
+        stoppedUntil: 0,
+      });
     });
     // Activity markers (labels only — no new geometry): the dance floor in
     // the hall and the three photo spots.
@@ -4830,6 +4901,40 @@ export function createRuntime(scene: Scene) {
       busk.beatHit = true;
     }
     publish();
+  }
+
+  // NPC TRAFFIC: advance every traffic car along its loop. Turns are
+  // rate-capped and speed scales with alignment, so corners read as
+  // driving, not sliding. A car with stoppedUntil in the future (a
+  // pull-over) sits still with its driver in place.
+  function tickTraffic(dt: number) {
+    for (const car of traffic) {
+      if (clock < car.stoppedUntil) {
+        car.group.position.set(car.x, 0, car.z);
+        car.group.rotation.y = car.yaw;
+        continue;
+      }
+      const target = car.route[(car.seg + 1) % car.route.length];
+      const dx = target.x - car.x;
+      const dz = target.z - car.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 1.6) {
+        car.seg = (car.seg + 1) % car.route.length;
+        continue;
+      }
+      const want = Math.atan2(dx, dz);
+      let diff = want - car.yaw;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      const maxTurn = 1.7 * dt;
+      car.yaw += Math.max(-maxTurn, Math.min(maxTurn, diff));
+      const align = Math.max(0.3, Math.cos(diff));
+      const step = Math.min(dist, car.speed * align * dt);
+      car.x += Math.sin(car.yaw) * step;
+      car.z += Math.cos(car.yaw) * step;
+      car.group.position.set(car.x, 0, car.z);
+      car.group.rotation.y = car.yaw;
+    }
   }
 
   function tickBusk(body: Body) {
@@ -8015,6 +8120,7 @@ export function createRuntime(scene: Scene) {
       tickDance(body);
       tickSprint(body);
       tickBusk(body);
+      tickTraffic(dt);
       tickWash(body);
     }
     // PEOPLE: a party or a guest that ran out while no panel was open
