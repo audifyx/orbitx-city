@@ -3,7 +3,7 @@ import { neon } from "@neondatabase/serverless";
 import { createClient } from "@supabase/supabase-js";
 import { Redis } from "@upstash/redis";
 import { ensureDaily, handleLive, noteEarn } from "./live.js";
-import { adBuy, adCompose, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus, adSubmit, arcadeCancel, arcadeCompose, arcadeHistory, arcadeLeaders, arcadeLobby, arcadeSubmit, billboardOrbitxBuy, billboardOrbitxOrders, billboardOrbitxQuote, billboardOrbitxStatus, officeSolBuy, officeSolCompose, officeSolLeasesFor, officeSolQuote, officeSolStatus, officeSolSubmit } from "./ads.js";
+import { adBuy, adCompose, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus, adSubmit, arcadeAct, arcadeCancel, arcadeCompose, arcadeHistory, arcadeLeaders, arcadeLobby, arcadeSubmit, billboardOrbitxBuy, billboardOrbitxOrders, billboardOrbitxQuote, billboardOrbitxStatus, officeSolBuy, officeSolCompose, officeSolLeasesFor, officeSolQuote, officeSolStatus, officeSolSubmit } from "./ads.js";
 import { tradeCompose, tradeHoldings, tradeQuote, tradeStatus, tradeSubmit } from "./trade.js";
 import { authMode, checkReauth, handleAuthOp, looksLikeAccountToken, supabasePublic, verifyAccessToken } from "./auth.js";
 import { audit, chainShopEnabled, confirmSend, ensureWallet, exportWallet, latestBlockhash, networkName, publicBalance, quoteSend, submitSignedTx, walletView } from "./wallet.js";
@@ -6504,6 +6504,7 @@ export async function POST(request) {
   if (op === "arcade-compose") return adReply(await arcadeCompose(adCtx, player, body));
   if (op === "arcade-submit") return adReply(await arcadeSubmit(adCtx, player, body));
   if (op === "arcade-cancel") return adReply(await arcadeCancel(adCtx, player, body));
+  if (op === "arcade-act") return adReply(await arcadeAct(adCtx, player, body));
   if (op === "arcade-history") return adReply(await arcadeHistory(adCtx, player));
   if (op === "arcade-leaders") return adReply(await arcadeLeaders(adCtx, player));
 
