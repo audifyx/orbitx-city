@@ -13654,7 +13654,7 @@ export function createRuntime(scene: Scene) {
   // arcade escrow, this device signs it with the PIN-unlocked key, the
   // server verifies + broadcasts. Winner takes the full pot (both
   // entries), no house cut. Same device-sign pattern as bookLocal.
-  type ArcadeGameKind = "coinflip" | "diceroll";
+  type ArcadeGameKind = "coinflip" | "diceroll" | "rps" | "highcard" | "quickdraw";
   function arcadeWalletReady() {
     if (!world.online) return "Sign in to play for real ORBITX.";
     if (!hasLocalWallet()) return "No on-device wallet yet — create one in the Wallet panel first.";
@@ -13662,10 +13662,54 @@ export function createRuntime(scene: Scene) {
     return "";
   }
 
+  // A finished arcade game texts the player exactly once (Lux runs the
+  // arcade) — results land in the phone like every other game event.
+  // The first run seeds the seen-set silently so an old backlog of
+  // results never spams the phone.
+  const ARCADE_TEXTED_KEY = "orbitx-city-arcade-texted-v1";
+  function textArcadeResults(games: unknown) {
+    try {
+      if (!Array.isArray(games)) return;
+      const raw = localStorage.getItem(ARCADE_TEXTED_KEY);
+      const firstRun = raw === null;
+      const seen = new Set<string>(firstRun ? [] : (JSON.parse(raw || "[]") as string[]));
+      let changed = false;
+      for (const g of games as Array<Record<string, unknown>>) {
+        const id = String(g?.id || "");
+        if (!id || seen.has(id)) continue;
+        const status = String(g?.status || "");
+        if (status !== "resolved" && status !== "refunded") continue;
+        const creatorId = String((g?.creator as { id?: string } | undefined)?.id || "");
+        const joinerId = String((g?.joiner as { id?: string } | undefined)?.id || "");
+        if (world.id !== creatorId && world.id !== joinerId) continue;
+        seen.add(id);
+        changed = true;
+        if (firstRun) continue;
+        const name = String(g?.gameName || "Arcade game");
+        const pot = Math.round(Number(g?.potUi || 0)).toLocaleString();
+        if (status === "refunded") {
+          phoneEvent("job", "Lux", g?.result === "split" ? `${name} ended dead even — the pot split and your entry is back in your wallet.` : `Your ${name} entry was refunded — no harm, no foul.`);
+        } else if (String(g?.winnerId || "") === world.id) {
+          phoneEvent("job", "Lux", `You took the ${name} pot — ${pot} ORBITX! The arcade is still buzzing.`);
+        } else {
+          phoneEvent("job", "Lux", `${String(g?.winnerName || "Your opponent")} took the ${name} pot (${pot} ORBITX). Run it back?`);
+        }
+      }
+      // Persist on the first run even when nothing finished — otherwise
+      // the "first run" state survives until the first finisher, and
+      // that finisher gets swallowed by the backlog seeding too.
+      if (firstRun || changed) localStorage.setItem(ARCADE_TEXTED_KEY, JSON.stringify([...seen].slice(-60)));
+    } catch {
+      // Texting is a nicety — it must never break the arcade.
+    }
+  }
+
   async function arcadeLobby() {
     if (!world.online) return { ok: false as const, message: "Offline." };
     try {
-      return await world.arcadeLobby(hasLocalWallet() ? localWalletAddress() : "");
+      const data = await world.arcadeLobby(hasLocalWallet() ? localWalletAddress() : "");
+      textArcadeResults((data as { mine?: unknown }).mine);
+      return data;
     } catch (err) {
       return { ok: false as const, message: err instanceof Error ? err.message : "Could not load the arcade." };
     }
@@ -13702,6 +13746,7 @@ export function createRuntime(scene: Scene) {
       const done = await world.arcadeSubmit(gameId, signedTx);
       const message = String((done as { message?: string }).message || "Joined.");
       say(message);
+      textArcadeResults([(done as { game?: unknown }).game]);
       await refreshLocalWallet();
       return { ok: true as const, message, game: (done as { game?: unknown }).game };
     } catch (err) {
@@ -13723,6 +13768,20 @@ export function createRuntime(scene: Scene) {
       const message = err instanceof Error ? err.message : "Cancel failed.";
       say(message);
       return { ok: false as const, message };
+    }
+  }
+
+  // One move inside an interactive match (RPS pick, High Card reveal,
+  // Quick Draw ready/tap). No wallet signature — both entries are
+  // already in escrow; the server referees and settles.
+  async function arcadeAct(gameId: string, action: string, value = "") {
+    if (!world.online) return { ok: false as const, message: "Offline." };
+    try {
+      const data = await world.arcadeAct(gameId, action, value);
+      textArcadeResults([(data as { game?: unknown }).game]);
+      return data;
+    } catch (err) {
+      return { ok: false as const, message: err instanceof Error ? err.message : "That move did not land." };
     }
   }
 
@@ -16124,6 +16183,7 @@ export function createRuntime(scene: Scene) {
     arcadeCreate,
     arcadeJoin,
     arcadeCancel,
+    arcadeAct,
     arcadeHistory,
     arcadeLeaders,
     tradeQuote,

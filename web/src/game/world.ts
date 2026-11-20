@@ -932,6 +932,10 @@ class CityWorld {
     return this.call("arcade-cancel", { gameId });
   }
 
+  async arcadeAct(gameId: string, action: string, value = "") {
+    return this.call("arcade-act", { gameId, action, value });
+  }
+
   async arcadeHistory() {
     return this.call("arcade-history", {});
   }
