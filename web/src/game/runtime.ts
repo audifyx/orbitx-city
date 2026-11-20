@@ -554,6 +554,16 @@ export interface PeopleResult {
   collected?: number;
 }
 
+/** PHONE OS: a real game event the in-game phone turns into a text
+ * message (story chapter done, job paid, fuel low, wanted gained).
+ * App subscribes via runtime.onPhoneEvent and files it in the phone's
+ * local message store — the runtime itself keeps no phone state. */
+export interface PhoneEvent {
+  kind: "story" | "job" | "fuel" | "wanted";
+  from: string;
+  text: string;
+}
+
 export interface Snap {
   playing: boolean;
   touch: boolean;
@@ -752,6 +762,9 @@ export interface Snap {
   business: { kind: string; started: number; lastCollect: number } | null;
   spectator: boolean;
   hideHud: boolean;
+  /** PHOTO MODE: the phone's free camera is out — body frozen (paused),
+   * HUD hidden, placeCamera flies photoCam instead of the player. */
+  photoMode: boolean;
   hideNames: boolean;
   hideChat: boolean;
   orbit: boolean;
@@ -2009,6 +2022,25 @@ export function createRuntime(scene: Scene) {
   let life: ReturnType<typeof createLifeView> | null = null;
   let spectator = false;
   let hideHud = false;
+  // PHOTO MODE (phone Camera app): a free camera with its own pose,
+  // seeded from the player's eyes on entry. The body never moves while
+  // it is out (enterPhotoMode sets paused, which clears engine input);
+  // placeCamera flies photoCam and after() advances it from the photo
+  // input vector the App overlay feeds in.
+  let photoMode = false;
+  const photoCam = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
+  const photoMove = { x: 0, y: 0, vert: 0 };
+  // PHONE OS: event listeners (App files these into the phone's texts).
+  const phoneListeners = new Set<(event: PhoneEvent) => void>();
+  function phoneEvent(kind: PhoneEvent["kind"], from: string, text: string) {
+    for (const fn of phoneListeners) {
+      try {
+        fn({ kind, from, text });
+      } catch {
+        /* a bad listener never breaks the game loop */
+      }
+    }
+  }
   let hideNames = false;
   let hideChat = false;
   let orbitOn = false;
@@ -2156,6 +2188,11 @@ export function createRuntime(scene: Scene) {
         "STORY",
         next ? `Chapter complete: ${chapter.title}. Next — ${next.title}.` : `Story complete! You finished "${chapter.title}" — you run this city now.`,
         "job",
+      );
+      phoneEvent(
+        "story",
+        "OrbitX City",
+        next ? `Chapter complete: ${chapter.title}. Next up — ${next.title}.` : `Story complete! You finished "${chapter.title}" — you run this city now.`,
       );
     } else {
       say(`Story: ${chapter.steps[storyProgress.step].label}`);
@@ -2458,6 +2495,9 @@ export function createRuntime(scene: Scene) {
   // hardcoded spot.
   let fillSpot: { x: number; z: number } | null = null;
   const fuelWarned = new Set<string>();
+  // PHONE OS: cars whose tank already texted Pip's low-fuel warning —
+  // re-arms once the level climbs back to 30, so one text per dry spell.
+  const fuelLowWarned = new Set<string>();
   const prevCarPos = new Map<string, { x: number; z: number }>();
   let tourLock = false;
   const box = new BoxGeometry(1, 1, 1);
@@ -4046,6 +4086,7 @@ export function createRuntime(scene: Scene) {
       business: world.me?.business ?? null,
       spectator,
       hideHud,
+      photoMode,
       hideNames,
       hideChat,
       orbit: orbitOn,
@@ -5209,6 +5250,7 @@ export function createRuntime(scene: Scene) {
       panel = "";
       say(earn(wallet, payout, "Robbery"));
       notify("CRIME", `You robbed ${npc.name} — wanted level ${wanted}. The cops are rolling.`, "job");
+      phoneEvent("wanted", "Park", `That's ${wanted} star${wanted === 1 ? "" : "s"} now. Pay it off in the Burner app — or lose my cars.`);
       triggerHaptic("jobPay");
       storyHeat = true;
       storyEvent("rob");
@@ -5444,6 +5486,19 @@ export function createRuntime(scene: Scene) {
           if (moved > 0.01) {
             setFuel(car, fuelOf(car) - moved * 0.045 * (carIsEv(car) ? 0.8 : 1));
           }
+          // PHONE OS: first drop under 20% — Pip texts the driver.
+          const levelNow = fuelOf(car);
+          if (levelNow < 20 && levelNow > 0 && !fuelLowWarned.has(car.id)) {
+            fuelLowWarned.add(car.id);
+            phoneEvent(
+              "fuel",
+              "Pip",
+              carIsEv(car)
+                ? "Battery's under 20% — swing by a charger before you're crawling."
+                : "Tank's under 20% — swing by a station before you're crawling. OrbitX Fuel's got you.",
+            );
+          }
+          if (levelNow >= 30) fuelLowWarned.delete(car.id);
           if (fuelOf(car) <= 0 && !fuelWarned.has(car.id)) {
             fuelWarned.add(car.id);
             // Limp mode points at the nearest correct point of the network.
@@ -8080,6 +8135,7 @@ export function createRuntime(scene: Scene) {
       const offlineMsg = earn(wallet, remainder + restedBonus, jobTitle(id) + (restedBonus ? " · rested +10%" : ""));
       say(offlineMsg);
       notify("JOB", offlineMsg, "job");
+      phoneEvent("job", "OrbitX City", offlineMsg);
       triggerHaptic("jobPay");
       return true;
     }
@@ -8091,6 +8147,7 @@ export function createRuntime(scene: Scene) {
       if (restedBonus) msg += " " + earn(wallet, restedBonus, "Rested bonus (+10% job pay)");
       say(msg);
       notify("JOB", msg, "job");
+      phoneEvent("job", "OrbitX City", msg);
       // Mission chain: a completed job is the "job" step (server-verified
       // against the job streak snapshot).
       void attemptMission();
@@ -8596,6 +8653,22 @@ export function createRuntime(scene: Scene) {
     try {
     clock += dt;
     lastBody = body;
+    // PHOTO MODE: fly the free camera from the App overlay's input
+    // vector (stick + look + up/down holds). The body stays frozen —
+    // enterPhotoMode set paused, so the engine never moves it.
+    if (photoMode) {
+      const speed = 14 * dt;
+      const fx = Math.sin(photoCam.yaw);
+      const fz = -Math.cos(photoCam.yaw);
+      const rx = Math.cos(photoCam.yaw);
+      const rz = Math.sin(photoCam.yaw);
+      photoCam.x += (fx * photoMove.y + rx * photoMove.x) * speed;
+      photoCam.z += (fz * photoMove.y + rz * photoMove.x) * speed;
+      photoCam.y += photoMove.vert * 9 * dt;
+      photoCam.x = Math.max(-1150, Math.min(1150, photoCam.x));
+      photoCam.z = Math.max(-1150, Math.min(1150, photoCam.z));
+      photoCam.y = Math.max(0.35, Math.min(200, photoCam.y));
+    }
     // City Loop bus: advance the loop, move the mesh (wheels spin with the
     // road speed, like drive()), say the arrival line on a bridge hop, and
     // carry the rider with it. The operator's throttle feeds the bus
@@ -9452,6 +9525,16 @@ export function createRuntime(scene: Scene) {
   }
 
   function placeCamera(camera: PerspectiveCamera, body: Body, dt: number) {
+    if (photoMode) {
+      // PHOTO MODE: the free camera IS the shot — no body, no hands.
+      hands.visible = false;
+      camera.position.set(photoCam.x, photoCam.y, photoCam.z);
+      camera.up.set(0, 1, 0);
+      const cp = Math.cos(photoCam.pitch);
+      const sp = Math.sin(photoCam.pitch);
+      camera.lookAt(photoCam.x + Math.sin(photoCam.yaw) * cp, photoCam.y + sp, photoCam.z - Math.cos(photoCam.yaw) * cp);
+      return true;
+    }
     if (spectator) {
       hands.visible = false;
       if (orbitOn) {
@@ -12925,6 +13008,14 @@ export function createRuntime(scene: Scene) {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
+    // PHONE OS: real game events that become text messages on the
+    // in-game phone. App subscribes once and files them in the store.
+    onPhoneEvent(fn: (event: PhoneEvent) => void) {
+      phoneListeners.add(fn);
+      return () => {
+        phoneListeners.delete(fn);
+      };
+    },
     buy,
     shopBuy,
     shopCatalog,
@@ -13113,6 +13204,7 @@ export function createRuntime(scene: Scene) {
         const msg = `Clocked out — kept ${earned} City Sol for ${done} task${done === 1 ? "" : "s"}.`;
         say(msg);
         notify("JOB", msg, "job");
+        phoneEvent("job", "OrbitX City", msg);
         publish();
         return;
       }
@@ -13125,6 +13217,7 @@ export function createRuntime(scene: Scene) {
         const msg = String(data.message || "Clocked out.");
         say(msg);
         notify("JOB", msg, "job");
+        phoneEvent("job", "OrbitX City", msg);
         void attemptMission();
       } catch (err) {
         say(err instanceof Error ? err.message : "The city held the clock-out.");
@@ -13193,6 +13286,7 @@ export function createRuntime(scene: Scene) {
       bus.setOperator(true);
       wanted = Math.min(5, wanted + 2);
       notify("CRIME", `You hijacked the City Loop bus — wanted level ${wanted}.`, "job");
+      phoneEvent("wanted", "Park", `A bus? Really? That's ${wanted} stars. Pay it off in the Burner app — or lose my cars.`);
       say("Bus hijacked! Gas to go, Brake to slow. The cops are rolling…");
       triggerHaptic("door");
       storyHeat = true;
@@ -13224,6 +13318,7 @@ export function createRuntime(scene: Scene) {
       trainHoldLeft = TRAIN_OPERATOR_HOLD_S;
       wanted = Math.min(5, wanted + 2);
       notify("CRIME", `You hijacked the OrbitX Line — wanted level ${wanted}.`, "job");
+      phoneEvent("wanted", "Park", `You took the train. ${wanted} stars. Pay it off in the Burner app — or lose my cars.`);
       say("Train hijacked! Gas to go, Brake to slow. The cops are rolling…");
       triggerHaptic("door");
       storyHeat = true;
@@ -13653,6 +13748,26 @@ export function createRuntime(scene: Scene) {
       lastBody.vy = 0;
       paused = false;
       say(anchor.name);
+    },
+    // PHONE OS (Map app): the same free Ride as travel(), but to raw
+    // coordinates — fuel stations and charge points are network points,
+    // not district anchors. Lands the player a few steps off the point
+    // so they arrive beside the pumps, not inside them.
+    travelToPoint(x: number, z: number, label: string) {
+      if (!lastBody) return;
+      if (driving) exitCar(lastBody);
+      ridingTrain = false;
+      ridingBus = false;
+      lastBody.x = x + 3;
+      lastBody.y = 0;
+      lastBody.z = z + 3;
+      lastBody.vy = 0;
+      lastBody.flying = false;
+      lastBody.pitch = 0.08;
+      paused = false;
+      panel = "";
+      say(label);
+      publish();
     },
     cycleTime() {
       timeName = timeName === "sunset" ? "night" : timeName === "night" ? "day" : "sunset";
@@ -14218,6 +14333,71 @@ export function createRuntime(scene: Scene) {
       hideHud = !hideHud;
       publish();
     },
+    // PHONE OS — Burner app: pay the wanted fine without getting
+    // busted. Same math as busted() (wanted × 60, capped at the
+    // balance, charged through spend) — but a cop within 40 units
+    // means you're too hot to settle up.
+    payFine() {
+      if (wanted <= 0) return { ok: false as const, message: "No heat on you — nothing to pay." };
+      if (!lastBody) return { ok: false as const, message: "Can't settle up right now." };
+      for (const cop of copCars) {
+        if (Math.hypot(cop.x - lastBody.x, cop.z - lastBody.z) < 40) {
+          return { ok: false as const, message: "Too hot — lose them first." };
+        }
+      }
+      const fine = Math.min(wallet.balance, wanted * 60);
+      if (fine > 0) spend(wallet, fine, "fine");
+      wanted = 0;
+      bustMeter = 0;
+      clearTimer = 0;
+      notify("BURNER", fine > 0 ? `Fine paid — ${fine} City Sol. Record's clean.` : "Heat cleared — wallet was empty anyway.", "job");
+      say(fine > 0 ? `Paid ${fine} City Sol. The heat is off.` : "Heat cleared.");
+      publish();
+      return { ok: true as const, message: fine > 0 ? `Paid ${fine} City Sol — heat cleared.` : "Heat cleared — nothing to pay." };
+    },
+    // PHONE OS — Camera app: Photo Mode. Enter seeds the free camera
+    // at the player's eyes, hides the HUD and freezes the body
+    // (paused). Exit restores camera + HUD exactly as they were.
+    enterPhotoMode() {
+      if (!lastBody || photoMode) return;
+      photoMode = true;
+      photoCam.x = lastBody.x;
+      photoCam.y = lastBody.y + 1.62;
+      photoCam.z = lastBody.z;
+      photoCam.yaw = lastBody.yaw;
+      photoCam.pitch = lastBody.pitch;
+      photoMove.x = 0;
+      photoMove.y = 0;
+      photoMove.vert = 0;
+      hideHud = true;
+      paused = true;
+      publish();
+    },
+    exitPhotoMode() {
+      if (!photoMode) return;
+      photoMode = false;
+      photoMove.x = 0;
+      photoMove.y = 0;
+      photoMove.vert = 0;
+      hideHud = false;
+      paused = false;
+      publish();
+    },
+    photoLook(dx: number, dy: number) {
+      if (!photoMode) return;
+      photoCam.yaw += dx;
+      photoCam.pitch -= dy;
+      const limit = Math.PI / 2 - 0.02;
+      if (photoCam.pitch > limit) photoCam.pitch = limit;
+      if (photoCam.pitch < -limit) photoCam.pitch = -limit;
+    },
+    photoSetMove(x: number, y: number) {
+      photoMove.x = x;
+      photoMove.y = y;
+    },
+    photoSetVertical(dir: number) {
+      photoMove.vert = dir > 0 ? 1 : dir < 0 ? -1 : 0;
+    },
     toggleNames() {
       hideNames = !hideNames;
       hideChat = hideNames;
@@ -14230,6 +14410,22 @@ export function createRuntime(scene: Scene) {
     },
     selectCar(id: string) {
       return selectCar(id);
+    },
+    // PHONE OS — Contacts bonus: Jax at OrbitX Motors drops the
+    // player's active car right in front of them, reusing the garage
+    // spawn path (spawnActiveCar with an explicit spot). No new
+    // vehicle system — the same spawn the shop and garages use.
+    deliverCar() {
+      if (!lastBody) return "No driver to deliver to.";
+      if (driving) return "You're already in a car — Jax can't deliver to a moving target.";
+      spawnActiveCar({
+        x: lastBody.x + Math.sin(lastBody.yaw) * 4.5,
+        z: lastBody.z - Math.cos(lastBody.yaw) * 4.5,
+        yaw: lastBody.yaw,
+      });
+      say("Jax dropped your car off.");
+      publish();
+      return "Jax is bringing your car around.";
     },
     // Home garage: open the garage panel for an owned home, read which
     // home's garage is open, pick a car out of that garage, or teleport

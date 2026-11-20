@@ -183,6 +183,11 @@ export interface Game {
   // and the title cards; the engine only moves the camera.
   setIntro: (on: boolean) => void;
   seekIntro?: (t: number, paused?: boolean) => void;
+  // PHOTO MODE: render one frame with the current camera and hand back
+  // the canvas as a PNG blob. Needed because the drawing buffer is not
+  // preserved outside shot mode — a bare canvas.toBlob would come back
+  // blank; rendering synchronously in the same task keeps it valid.
+  capturePhoto: () => Promise<Blob | null>;
 }
 
 export function createGame(
@@ -1443,6 +1448,19 @@ export function createGame(
     seekIntro(t: number, paused?: boolean) {
       introT = Math.max(0, Math.min(INTRO_LEN, t));
       if (typeof paused === "boolean") introPaused = paused;
+    },
+    capturePhoto() {
+      // Same render path as frame(): composer on high, plain renderer
+      // otherwise — then read the buffer back in the same task.
+      if (quality === "high") composer.render();
+      else renderer.render(scene, camera);
+      return new Promise<Blob | null>((resolve) => {
+        try {
+          canvas.toBlob((blob) => resolve(blob), "image/png");
+        } catch {
+          resolve(null);
+        }
+      });
     },
     runtime,
   };
