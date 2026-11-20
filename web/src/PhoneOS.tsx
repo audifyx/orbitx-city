@@ -113,6 +113,37 @@ function fmtWhen(at: number): string {
     : d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+function fmtMs(ms: number): string {
+  const t = Math.max(0, Math.floor(ms / 100) / 10);
+  const m = Math.floor(t / 60);
+  const s = t - m * 60;
+  return `${m}:${s.toFixed(1).padStart(4, "0")}`;
+}
+
+// Status-bar glyphs (signal / wifi / battery), iOS-style inline SVG.
+function StatusGlyphs() {
+  return (
+    <span className="ph-glyphs" aria-hidden="true">
+      <svg viewBox="0 0 18 12" width="17" height="11" fill="currentColor">
+        <rect x="0" y="7.5" width="3" height="4.5" rx="0.9" />
+        <rect x="4.6" y="5.2" width="3" height="6.8" rx="0.9" />
+        <rect x="9.2" y="2.8" width="3" height="9.2" rx="0.9" />
+        <rect x="13.8" y="0.4" width="3" height="11.6" rx="0.9" opacity="0.35" />
+      </svg>
+      <svg viewBox="0 0 16 12" width="16" height="11" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+        <path d="M1.8 4.4a10.5 10.5 0 0 1 12.4 0" />
+        <path d="M4.3 7.1a6.6 6.6 0 0 1 7.4 0" />
+        <circle cx="8" cy="9.9" r="1.15" fill="currentColor" stroke="none" />
+      </svg>
+      <svg viewBox="0 0 27 12" width="25" height="11">
+        <rect x="1" y="1.4" width="21" height="9.2" rx="2.8" fill="none" stroke="currentColor" opacity="0.45" />
+        <rect x="3" y="3.2" width="13.5" height="5.6" rx="1.4" fill="currentColor" />
+        <path d="M24.6 4.2v3.6a2.1 2.1 0 0 0 0-3.6z" fill="currentColor" opacity="0.45" />
+      </svg>
+    </span>
+  );
+}
+
 // --- Icons (inline SVG, stroke currentColor — no emoji) ----------------------
 
 function I({ d, extra }: { d: string; extra?: ReactNode }) {
@@ -301,6 +332,22 @@ export default function PhoneOS(props: PhoneOSProps) {
   const activeThread = threadId ? threads.find((t) => t.id === threadId) ?? null : null;
   const playingTrack = radio.tracks.find((t) => t.id === radio.playingId) ?? null;
   const fine = snap.wanted > 0 ? Math.min(snap.balance, snap.wanted * 60) : 0;
+  // Dynamic Island content: live context, most urgent first.
+  const islandText = snap.wanted > 0
+    ? "★".repeat(snap.wanted)
+    : playingTrack
+      ? playingTrack.name
+      : snap.trial
+        ? `${snap.trial.routeName} · ${fmtMs(snap.trial.timeMs)}`
+        : "OrbitX OS";
+  // Home widget's second line: the next daily quest, else a race best.
+  const nextQuest = snap.dailies.find((d) => !d.done);
+  const bestRoute = snap.raceRoutes.find((r) => r.best != null);
+  const widgetLine = nextQuest
+    ? `Daily · ${nextQuest.label} — ${nextQuest.have}/${nextQuest.need}`
+    : bestRoute
+      ? `${bestRoute.name} best · ${fmtMs(bestRoute.best ?? 0)}`
+      : `${snap.name || "Guest"} · ${snap.server || "OrbitX City"}`;
 
   const APP_TITLES: Record<string, string> = {
     home: "OrbitX OS",
@@ -347,10 +394,9 @@ export default function PhoneOS(props: PhoneOSProps) {
           {/* Status bar */}
           <div className="ph-status">
             <span className="ph-clock">{fmtClock(now)}</span>
-            <span className="ph-notch" aria-hidden="true" />
+            <span className="ph-island"><span className="ph-island-text">{islandText}</span></span>
             <span className="ph-status-right">
-              {snap.wanted > 0 ? <span className="ph-stars">{"★".repeat(snap.wanted)}</span> : null}
-              <span>{snap.balance.toLocaleString()} CS</span>
+              <StatusGlyphs />
             </span>
           </div>
 
@@ -387,12 +433,13 @@ export default function PhoneOS(props: PhoneOSProps) {
             })}
 
             {!locked && !activeWeb && app !== "home" ? (
-              <div className="ph-appview">
+              <div className="ph-appview" key={app}>
                 <header className="ph-apphead">
                   <button type="button" className="ph-back" onClick={goHome} aria-label="Back to home screen">‹</button>
                   <b>{appTitle(app)}</b>
                 </header>
                 <div className="ph-appscroll">
+                  {!(app === "messages" && activeThread) ? <h2 className="ph-largetitle">{appTitle(app)}</h2> : null}
                   {app === "messages" ? (
                     activeThread ? (
                       <div className="ph-thread">
@@ -406,6 +453,7 @@ export default function PhoneOS(props: PhoneOSProps) {
                       </div>
                     ) : (
                       <div className="ph-list">
+                        <div className="ph-group">
                         {sortedThreads.map((t) => {
                           const last = t.messages[t.messages.length - 1];
                           return (
@@ -422,6 +470,7 @@ export default function PhoneOS(props: PhoneOSProps) {
                             </button>
                           );
                         })}
+                        </div>
                         {sortedThreads.length === 0 ? <p className="ph-empty">No messages yet.</p> : null}
                       </div>
                     )
@@ -429,6 +478,7 @@ export default function PhoneOS(props: PhoneOSProps) {
 
                   {app === "contacts" ? (
                     <div className="ph-list">
+                      <div className="ph-group">
                       {CONTACT_NAMES.map((name) => {
                         const info = NPC_LINES[name];
                         if (!info) return null;
@@ -448,32 +498,39 @@ export default function PhoneOS(props: PhoneOSProps) {
                           </div>
                         );
                       })}
+                      </div>
                     </div>
                   ) : null}
 
                   {app === "map" ? (
                     <div className="ph-list">
                       <h4>Places</h4>
+                      <div className="ph-group">
                       {snap.districts.filter((p) => PLACE_IDS.includes(p.id)).map((place) => (
                         <div key={place.id} className="ph-row">
                           <span className="ph-row-main"><b>{place.name}</b></span>
                           <button type="button" className="ph-mini ph-mini-on" onClick={() => rideTo(() => rt?.travel(place.id))}>Ride</button>
                         </div>
                       ))}
+                      </div>
                       <h4>Gas stations</h4>
+                      <div className="ph-group">
                       {GAS_STATIONS.map((s) => (
                         <div key={s.name} className="ph-row">
                           <span className="ph-row-main"><b>{s.name}</b><span>Fuel · City Sol</span></span>
                           <button type="button" className="ph-mini ph-mini-on" onClick={() => rideTo(() => rt?.travelToPoint(s.x, s.z, s.name))}>Ride</button>
                         </div>
                       ))}
+                      </div>
                       <h4>Charge points</h4>
+                      <div className="ph-group">
                       {CHARGE_POINTS.map((s) => (
                         <div key={s.name} className="ph-row">
                           <span className="ph-row-main"><b>{s.name}</b><span>EV charging · City Sol</span></span>
                           <button type="button" className="ph-mini ph-mini-on" onClick={() => rideTo(() => rt?.travelToPoint(s.x, s.z, s.name))}>Ride</button>
                         </div>
                       ))}
+                      </div>
                     </div>
                   ) : null}
 
@@ -484,6 +541,7 @@ export default function PhoneOS(props: PhoneOSProps) {
                         <b>{snap.balance.toLocaleString()} City Sol</b>
                         <span>{snap.server || "OrbitX City"}</span>
                       </div>
+                      <div className="ph-group">
                       <div className="ph-row"><span className="ph-row-main"><b>Total earned</b></span><span>{snap.earned.toLocaleString()}</span></div>
                       <div className="ph-row"><span className="ph-row-main"><b>Total burned</b></span><span>{snap.burned.toLocaleString()}</span></div>
                       <div className="ph-row">
@@ -491,6 +549,7 @@ export default function PhoneOS(props: PhoneOSProps) {
                       </div>
                       <div className="ph-row"><span className="ph-row-main"><b>Current car</b></span><span>{snap.car}</span></div>
                       <div className="ph-row"><span className="ph-row-main"><b>Items owned</b></span><span>{snap.owned.length}</span></div>
+                      </div>
                       <p className="ph-note">City Sol lives in the city — earning, spending and burning all happen here, never in your real wallet.</p>
                     </div>
                   ) : null}
@@ -500,9 +559,11 @@ export default function PhoneOS(props: PhoneOSProps) {
                       <p className="ph-note">Clock in, work the task list, get paid in City Sol. Story chapters live in Missions, same panel.</p>
                       <button type="button" className="ph-big" onClick={() => { triggerHaptic("tap"); onOpenPanel("jobs"); }}>Open Jobs &amp; Missions</button>
                       <h4>More boards</h4>
+                      <div className="ph-group">
                       <div className="ph-row"><span className="ph-row-main"><b>Daily</b><span>Quests + streak reward</span></span><button type="button" className="ph-mini" onClick={() => rt?.request("daily")}>Open</button></div>
                       <div className="ph-row"><span className="ph-row-main"><b>Leaderboards</b><span>Richest, earners, burned, races</span></span><button type="button" className="ph-mini" onClick={() => rt?.request("leaders")}>Open</button></div>
                       <div className="ph-row"><span className="ph-row-main"><b>Ring road race</b><span>{snap.race.names.length ? snap.race.names.join(", ") : "No lobby yet"}</span></span><button type="button" className="ph-mini" onClick={() => rt?.request("race")}>Open</button></div>
+                      </div>
                     </div>
                   ) : null}
 
@@ -518,6 +579,7 @@ export default function PhoneOS(props: PhoneOSProps) {
                       ) : null}
                       {radio.msg ? <p className="ph-note">{radio.msg}</p> : null}
                       {radio.tracks.length === 0 ? <p className="ph-empty">Loading the station…</p> : null}
+                      <div className="ph-group">
                       {radio.tracks.map((track) => (
                         <button key={track.id} type="button" className="ph-row ph-row-btn" onClick={() => radio.onPlay(track)}>
                           <span className="ph-row-main">
@@ -527,6 +589,7 @@ export default function PhoneOS(props: PhoneOSProps) {
                           <span>{radio.playingId === track.id ? "Playing" : "Play"}</span>
                         </button>
                       ))}
+                      </div>
                       <p className="ph-note">The playlist is shared, the sound is yours — only you hear your radio.</p>
                     </div>
                   ) : null}
@@ -570,11 +633,13 @@ export default function PhoneOS(props: PhoneOSProps) {
                       </button>
                       <p className="ph-note">Too close to a cop car and the payment won&apos;t go through — lose them first.</p>
                       <h4>Known scores</h4>
+                      <div className="ph-group">
                       {ROB_FLAVOR.map((t) => (
                         <div key={t.name} className="ph-row">
                           <span className="ph-row-main"><b>{t.label}</b><span>{t.name} · {"★".repeat(t.stars)} · {t.min}–{t.max} City Sol</span></span>
                         </div>
                       ))}
+                      </div>
                     </div>
                   ) : null}
 
@@ -606,6 +671,7 @@ export default function PhoneOS(props: PhoneOSProps) {
                         ))}
                       </div>
                       <h4>Accent</h4>
+                      <div className="ph-group">
                       {(["gold", "blue", "white"] as const).map((accent) => (
                         <button
                           key={accent}
@@ -617,6 +683,7 @@ export default function PhoneOS(props: PhoneOSProps) {
                           <span>{prefs.accent === accent ? "On" : ""}</span>
                         </button>
                       ))}
+                      </div>
                       <p className="ph-note">Wallpaper and accent live on this phone only.</p>
                     </div>
                   ) : null}
@@ -628,10 +695,11 @@ export default function PhoneOS(props: PhoneOSProps) {
 
             {!locked && app === "home" ? (
               <div className="ph-home">
+                <div className="ph-home-scroll">
                 <div className="ph-widget">
                   <span>City Sol balance</span>
-                  <b>{snap.balance.toLocaleString()}</b>
-                  <span>{snap.name || "Guest"} · {snap.server || "OrbitX City"}</span>
+                  <b>{snap.balance.toLocaleString()}<small> CS</small></b>
+                  <span>{widgetLine}</span>
                 </div>
                 <div className="ph-grid">
                   {tile("messages", "Messages", unread)}
@@ -654,11 +722,19 @@ export default function PhoneOS(props: PhoneOSProps) {
                   {tile("social", "Social")}
                   {tile("wallet", "Wallet")}
                 </div>
+                </div>
+                <div className="ph-dock">
+                  {tile("messages", "Messages", unread)}
+                  {tile("map", "Map")}
+                  {tile("camera", "Camera")}
+                  {tile("dex", "DEX")}
+                </div>
               </div>
             ) : null}
 
             {viewingShot ? (
               <div className="ph-shotview">
+                <span className="ph-grab" aria-hidden="true" />
                 <img alt="" src={viewingShot.thumb} />
                 <div className="ph-shot-actions">
                   <button
@@ -687,21 +763,88 @@ export default function PhoneOS(props: PhoneOSProps) {
 
           {/* Lock screen */}
           {locked ? (
-            <button
-              type="button"
+            <div
               className="ph-lock"
+              role="button"
+              tabIndex={0}
+              aria-label="Unlock phone"
               onClick={() => {
                 setLocked(false);
                 setApp("home");
                 triggerHaptic("tap");
               }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  setLocked(false);
+                  setApp("home");
+                  triggerHaptic("tap");
+                }
+              }}
             >
-              <span className="ph-lock-time">{fmtClock(now)}</span>
               <span className="ph-lock-date">{now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</span>
-              {unread > 0 ? <span className="ph-lock-note">{unread} unread message{unread === 1 ? "" : "s"}</span> : null}
-              <span className="ph-lock-note">{snap.balance.toLocaleString()} City Sol</span>
-              <span className="ph-lock-hint">Tap to unlock</span>
-            </button>
+              <span className="ph-lock-time">{fmtClock(now)}</span>
+              <div className="ph-notifs">
+                {unread > 0 ? (
+                  <span className="ph-notif">
+                    <span className="ph-notif-icon ph-notif-messages">{ICONS.messages}</span>
+                    <span className="ph-notif-main">
+                      <b>Messages</b>
+                      <span>{unread} unread message{unread === 1 ? "" : "s"}</span>
+                    </span>
+                    <span className="ph-notif-time">now</span>
+                  </span>
+                ) : null}
+                {snap.wanted > 0 ? (
+                  <span className="ph-notif">
+                    <span className="ph-notif-icon ph-notif-burner">{ICONS.burner}</span>
+                    <span className="ph-notif-main">
+                      <b>Burner</b>
+                      <span>Wanted {"★".repeat(snap.wanted)} — settle for {fine.toLocaleString()} City Sol</span>
+                    </span>
+                    <span className="ph-notif-time">now</span>
+                  </span>
+                ) : null}
+                <span className="ph-notif">
+                  <span className="ph-notif-icon ph-notif-orbitx">{ICONS.orbitx}</span>
+                  <span className="ph-notif-main">
+                    <b>OrbitX City</b>
+                    <span>Balance {snap.balance.toLocaleString()} City Sol</span>
+                  </span>
+                  <span className="ph-notif-time">now</span>
+                </span>
+              </div>
+              <div className="ph-lock-bottom">
+                <div className="ph-quickrow">
+                  <button
+                    type="button"
+                    className="ph-quick"
+                    aria-label="Open Camera"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLocked(false);
+                      triggerHaptic("tap");
+                      onPhotoMode();
+                    }}
+                  >
+                    {ICONS.camera}
+                  </button>
+                  <button
+                    type="button"
+                    className="ph-quick"
+                    aria-label="Open Messages"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLocked(false);
+                      openApp("messages");
+                    }}
+                  >
+                    {ICONS.messages}
+                    {unread > 0 ? <span className="ph-badge">{unread}</span> : null}
+                  </button>
+                </div>
+                <span className="ph-lock-pill">Tap to open</span>
+              </div>
+            </div>
           ) : null}
 
           {toast ? <div className="ph-toast">{toast}</div> : null}
