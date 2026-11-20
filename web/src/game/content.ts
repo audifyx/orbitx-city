@@ -866,14 +866,51 @@ export const WASH_MS = 4000;
 export const WASH_PAY = 12;
 export const WASH_COOLDOWN_MS = 45000;
 
-// ---- FUEL: real tanks, a gas station, EV charging ---------------------
-// OrbitX Fuel's forecourt sits on the OrbitX Motors lot (pumps under a
-// canopy, attendant on post). Chargers stand on the plaza's east edge.
+// ---- FUEL: real tanks, gas stations, EV charging ----------------------
 // Every car carries a tank (or battery) that drains as it drives; an
 // empty one drops the car to limp mode until it is filled. Fill prices
-// are City Sol per missing percent.
-export const FUEL_SPOT = { x: 196, z: -58 };
-export const EV_SPOT = { x: 22, z: 26 };
+// are City Sol per missing percent. The network is data-driven: the
+// world meshes (city.ts), the floating labels and the fill interaction
+// (runtime.ts) all read these two lists, and the interaction always
+// works at the NEAREST suitable point — gas cars at any gas station,
+// EVs at any charge point.
+//
+// Placement (verified against the built city — colliders, facades and
+// the road grid; roads run on the ±36/72/108/144/180 avenues, 10 wide):
+// every forecourt sits on open ground BESIDE an avenue, never mid-block,
+// never inside a building. `axis` is the forecourt's long axis: "ew" =
+// pumps/posts side by side along x (station beside a north-south
+// avenue), "ns" = along z (beside an east-west avenue).
+export interface FuelPoint {
+  name: string;
+  x: number;
+  z: number;
+  axis: "ew" | "ns";
+}
+export const GAS_STATIONS: FuelPoint[] = [
+  // The original: OrbitX Motors lot, east avenues (attendant Pip on post).
+  { name: "OrbitX Fuel", x: 196, z: -58, axis: "ew" },
+  // North edge, beside the z=-180 avenue — the Mega Mall side of the map.
+  { name: "OrbitX Fuel North", x: 126, z: -196, axis: "ns" },
+  // West avenues, mirror of the Motors forecourt across the map.
+  { name: "OrbitX Fuel West", x: -196, z: -58, axis: "ew" },
+  // South-east, beside the x=180 avenue — serves the waterfront/beach run.
+  { name: "OrbitX Fuel Beach", x: 196, z: 162, axis: "ew" },
+];
+export const CHARGE_POINTS: FuelPoint[] = [
+  // The original: two posts on the plaza's east edge.
+  { name: "EV Charging", x: 22, z: 26, axis: "ew" },
+  // The mall block's front lawn, across the z=-36 avenue from the plaza.
+  { name: "EV Charging · Mega Mall", x: 10, z: -44, axis: "ew" },
+  // Against OrbitX HQ's east wall, on the x=-36 avenue sidewalk.
+  { name: "EV Charging · HQ", x: -42, z: 18, axis: "ns" },
+  // West avenues, in front of the west tower grounds.
+  { name: "EV Charging · West", x: -196, z: 18, axis: "ew" },
+  // The stadium promenade strip, just off the z=180 avenue.
+  { name: "EV Charging · Stadium", x: 126, z: 186, axis: "ew" },
+];
+export const FUEL_SPOT = { x: GAS_STATIONS[0].x, z: GAS_STATIONS[0].z };
+export const EV_SPOT = { x: CHARGE_POINTS[0].x, z: CHARGE_POINTS[0].z };
 export const FUEL_FILL_MS = 3000;
 export const FUEL_PRICE_PER_PCT = 0.5;
 export const EV_PRICE_PER_PCT = 0.35;

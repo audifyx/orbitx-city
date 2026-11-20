@@ -3,7 +3,7 @@ import { buildAllRegions, buildAllBridges, buildDocks, WORLD_BOUNDS } from "./st
 import { buildBusStation } from "./bus";
 import { buildAllHomes } from "./homes";
 import { buildAllDistricts, buildAllDistrictBridges, type CityParts } from "./emergency";
-import { RESTAURANT_PLACES } from "./content";
+import { CHARGE_POINTS, GAS_STATIONS, RESTAURANT_PLACES } from "./content";
 
 export type Mat =
   | "asphalt"
@@ -347,6 +347,42 @@ function col(x: number, y: number, z: number, sx: number, sy: number, sz: number
     minZ: z - sz / 2,
     maxZ: z + sz / 2,
   };
+}
+
+// FUEL NETWORK: one gas-station forecourt — two pumps under a canopy,
+// gold price board on top. `axis` is the forecourt's long axis: "ew"
+// runs the pumps along x (the original Motors layout), "ns" rotates
+// the whole forecourt 90° so it fronts an east-west avenue. Meshes and
+// colliders are exactly the original station's when axis is "ew".
+function addFuelStation(boxes: Box[], cols: Collider[], cx: number, cz: number, axis: "ew" | "ns") {
+  const along = (d: number): { x: number; z: number } => (axis === "ew" ? { x: cx + d, z: cz } : { x: cx, z: cz + d });
+  const across = (dx: number, dz: number): { x: number; z: number } => (axis === "ew" ? { x: cx + dx, z: cz + dz } : { x: cx + dz, z: cz + dx });
+  for (const d of [-2, 2]) {
+    const p = along(d);
+    put(boxes, p.x, 0.7, p.z, axis === "ew" ? 0.9 : 0.7, 1.4, axis === "ew" ? 0.7 : 0.9, "white");
+    put(boxes, p.x, 1.52, p.z, axis === "ew" ? 1.0 : 0.8, 0.18, axis === "ew" ? 0.8 : 1.0, "gold");
+    cols.push(col(p.x, 0.8, p.z, axis === "ew" ? 0.9 : 0.7, 1.6, axis === "ew" ? 0.7 : 0.9));
+  }
+  for (const dx of [-3.5, 3.5]) {
+    for (const dz of [-3, 3]) {
+      const p = across(dx, dz);
+      put(boxes, p.x, 1.7, p.z, 0.28, 3.4, 0.28, "black");
+    }
+  }
+  put(boxes, cx, 3.55, cz, axis === "ew" ? 9 : 8, 0.3, axis === "ew" ? 8 : 9, "white");
+  put(boxes, cx, 3.95, cz, axis === "ew" ? 3.4 : 0.6, 0.55, axis === "ew" ? 0.6 : 3.4, "gold");
+}
+
+// FUEL NETWORK: one EV charge point — two charge posts side by side
+// along the point's axis, at the original plaza offsets (-1 / +1.4).
+function addChargePoint(boxes: Box[], cols: Collider[], cx: number, cz: number, axis: "ew" | "ns") {
+  for (const d of [-1, 1.4]) {
+    const px = axis === "ew" ? cx + d : cx;
+    const pz = axis === "ew" ? cz : cz + d;
+    put(boxes, px, 0.6, pz, axis === "ew" ? 0.55 : 0.45, 1.2, axis === "ew" ? 0.45 : 0.55, "black");
+    put(boxes, px, 1.32, pz, axis === "ew" ? 0.6 : 0.5, 0.14, axis === "ew" ? 0.5 : 0.6, "cyanhot");
+    cols.push(col(px, 0.7, pz, axis === "ew" ? 0.55 : 0.45, 1.4, axis === "ew" ? 0.45 : 0.55));
+  }
 }
 
 export type Face = "n" | "s" | "e" | "w";
@@ -5869,26 +5905,13 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
   addKiosk(boxes, cols, -10, 16, "cyan");
   addKiosk(boxes, cols, 8, 68, "white");
 
-  // ORBITX FUEL: a real gas station forecourt on the Motors lot — two
-  // pumps under a canopy, gold price board on top.
-  put(boxes, 194, 0.7, -58, 0.9, 1.4, 0.7, "white");
-  put(boxes, 194, 1.52, -58, 1.0, 0.18, 0.8, "gold");
-  put(boxes, 198, 0.7, -58, 0.9, 1.4, 0.7, "white");
-  put(boxes, 198, 1.52, -58, 1.0, 0.18, 0.8, "gold");
-  for (const [px, pz] of [[192.5, -61], [199.5, -61], [192.5, -55], [199.5, -55]] as const) {
-    put(boxes, px, 1.7, pz, 0.28, 3.4, 0.28, "black");
-  }
-  put(boxes, 196, 3.55, -58, 9, 0.3, 8, "white");
-  put(boxes, 196, 3.95, -58, 3.4, 0.55, 0.6, "gold");
-  cols.push(col(194, 0.8, -58, 0.9, 1.6, 0.7));
-  cols.push(col(198, 0.8, -58, 0.9, 1.6, 0.7));
-  // EV CHARGING: two charge posts on the plaza's east edge.
-  put(boxes, 21, 0.6, 26, 0.55, 1.2, 0.45, "black");
-  put(boxes, 21, 1.32, 26, 0.6, 0.14, 0.5, "cyanhot");
-  put(boxes, 23.4, 0.6, 26, 0.55, 1.2, 0.45, "black");
-  put(boxes, 23.4, 1.32, 26, 0.6, 0.14, 0.5, "cyanhot");
-  cols.push(col(21, 0.7, 26, 0.55, 1.4, 0.45));
-  cols.push(col(23.4, 0.7, 26, 0.55, 1.4, 0.45));
+  // FUEL NETWORK: every gas station + charge point in the city, built
+  // from the one list in content.ts (the runtime reads the same list
+  // for labels and the fill interaction). The first entries reproduce
+  // the original OrbitX Fuel forecourt on the Motors lot and the plaza
+  // charge posts mesh-for-mesh.
+  for (const station of GAS_STATIONS) addFuelStation(boxes, cols, station.x, station.z, station.axis);
+  for (const point of CHARGE_POINTS) addChargePoint(boxes, cols, point.x, point.z, point.axis);
 
   const anchors: Anchor[] = [
     { id: "shop", name: "OrbitX Shop", kind: "shop", x: 5.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
