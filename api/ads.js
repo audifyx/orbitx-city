@@ -1251,6 +1251,12 @@ export const EARLY_ACCESS_MIN_BLOCK_TIME = Math.floor(Date.parse("2026-11-20T00:
 export const TOKEN_INCINERATOR = "1nc1nerator11111111111111111111111111111111";
 
 export function earlyAccessGateActive(now = Date.now()) {
+  // Kill switch (2026-11-20, the user's call): the gate is HIDDEN, not
+  // deleted. EARLY_ACCESS_OFF set on the API makes every client treat
+  // the gate as inactive — the game opens for everyone — while all the
+  // gate code (status/verify/burn ops, the client screens) stays in
+  // place. Remove the env var and the gate comes back as it was.
+  if (process.env.EARLY_ACCESS_OFF) return false;
   return now < EARLY_ACCESS_GATE_END_MS;
 }
 
