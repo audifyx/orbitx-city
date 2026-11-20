@@ -885,6 +885,12 @@ export default function App() {
   const eaStatusRef = useRef<EarlyAccessStatus | null>(null);
   const eaUnlockedRef = useRef(false);
   const eaFetchedForRef = useRef("");
+  // True while the player is deliberately in the sign-in / sign-up
+  // flow (reached from the gate's account-required card or the menu's
+  // back-to-login): the landing routing below must not yank them back
+  // to the gate mid-flow. Cleared on every account change, so a fresh
+  // sign-in lands on whatever the new account's answer says.
+  const eaAuthFlowRef = useRef(false);
   // Read phase for the splash landing below: "pending" parks the menu on
   // the gate's checking state, "answered" routes on the answer, "error"
   // fails open to home. Distinct from eaStatus === null, which alone
@@ -1219,6 +1225,7 @@ export default function App() {
     if (eaFetchedForRef.current === key) return;
     eaFetchedForRef.current = key;
     // The previous account's answer must never speak for this one.
+    eaAuthFlowRef.current = false;
     eaUnlockedRef.current = false;
     eaStatusRef.current = null;
     setEaStatus(null);
@@ -1243,6 +1250,10 @@ export default function App() {
   const eaLandingDoneRef = useRef(false);
   useLayoutEffect(() => {
     if (!menu || intro) return;
+    // In the sign-in / sign-up flow the player is on the home step ON
+    // PURPOSE (the login form lives in MenuHome) — never route them
+    // back to the gate until the flow ends in an account change.
+    if (eaAuthFlowRef.current) return;
     if (eaPhase === "answered") {
       if (eaLockedNow()) {
         if (menuStep === "home" || menuStep === "gate") {
@@ -6244,6 +6255,7 @@ export default function App() {
                 setGate("city");
               }}
               onBackToLogin={() => {
+                eaAuthFlowRef.current = true;
                 setGate("login");
                 setWho(null);
               }}
@@ -6267,6 +6279,7 @@ export default function App() {
                   landing={eaLandingGate}
                   onUnlocked={handleEaUnlocked}
                   onNeedAccount={() => {
+                    eaAuthFlowRef.current = true;
                     setGate("login");
                     setWho(null);
                     setMenuStep("home");
