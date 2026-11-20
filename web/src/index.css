@@ -4718,3 +4718,238 @@ body.touch .touch-ui {
   animation: pm-flash 0.28s ease-out forwards;
 }
 @keyframes pm-flash { from { opacity: 0.9; } to { opacity: 0; } }
+
+/* --- EARLY ACCESS gate (pre-launch burn gate) -----------------------
+ * Title-flow card in the shared --ox-* OS language: frosted glass,
+ * gold accents, white on dark (never dark-on-dark). Phone-first: the
+ * card is min(980px, 100% - 20px) via .card.menu-wide and everything
+ * inside wraps; inputs go full-width under 560px. */
+.ea-gate {
+  text-align: left;
+}
+
+.ea-kicker {
+  margin: 0 0 4px;
+  color: var(--ox-gold);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  text-align: center;
+}
+
+.ea-gate > h2 {
+  text-align: center;
+}
+
+.ea-gate > .muted {
+  text-align: center;
+}
+
+.ea-live {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 14px 0 6px;
+}
+
+.ea-chip {
+  background: var(--ox-glass-soft);
+  border: 1px solid var(--ox-hairline-soft);
+  border-radius: var(--ox-r-pill);
+  padding: 7px 14px;
+  font-size: 13px;
+  color: var(--ox-text-dim);
+}
+
+.ea-chip b {
+  color: #ffffff;
+}
+
+.ea-steps {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.ea-steps li {
+  background: var(--ox-glass-softer);
+  border: 1px solid var(--ox-hairline-soft);
+  border-radius: var(--ox-r-md);
+  padding: 14px 16px;
+  display: grid;
+  gap: 6px;
+  line-height: 1.5;
+  font-size: 15px;
+}
+
+.ea-steps li > b {
+  color: var(--ox-gold-bright);
+  letter-spacing: 0.06em;
+}
+
+.ea-steps a {
+  color: var(--ox-gold-bright);
+  font-weight: 700;
+}
+
+.ea-addrrow {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.ea-addr {
+  flex: 1 1 240px;
+  word-break: break-all;
+  font-family: ui-monospace, monospace;
+  font-size: 12.5px;
+  background: rgba(5, 10, 22, 0.85);
+  border: 1px solid var(--ox-hairline-gold);
+  border-radius: var(--ox-r-sm);
+  padding: 9px 12px;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+}
+
+.ea-small {
+  margin-top: 0;
+  padding: 9px 18px;
+  font-size: 13px;
+  border-radius: var(--ox-r-sm);
+}
+
+.ea-verify,
+.ea-need-account,
+.ea-unlocked {
+  margin-top: 18px;
+  background: var(--ox-glass-soft);
+  border: 1px solid var(--ox-hairline);
+  border-radius: var(--ox-r-md);
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  line-height: 1.5;
+}
+
+.ea-field {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ox-text-dim);
+}
+
+.ea-field input {
+  width: 100%;
+  box-sizing: border-box;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
+.ea-row {
+  display: flex;
+  gap: 8px;
+}
+
+.ea-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ea-connect {
+  margin-top: 0;
+  flex: 0 0 auto;
+  padding: 9px 16px;
+  font-size: 13px;
+  border-radius: var(--ox-r-sm);
+  background: rgba(10, 16, 32, 0.62);
+  color: #ffffff;
+  border: 1px solid var(--ox-hairline-gold);
+}
+
+.ea-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ox-text-dim);
+}
+
+.ea-error {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  background: rgba(120, 24, 24, 0.55);
+  border: 1px solid rgba(255, 120, 120, 0.65);
+  border-radius: var(--ox-r-sm);
+  padding: 10px 12px;
+}
+
+.ea-cta {
+  margin-top: 2px;
+  width: 100%;
+  font-size: 17px;
+  padding: 14px 20px;
+}
+
+.ea-unlocked {
+  border-color: var(--ox-hairline-gold);
+  text-align: center;
+}
+
+.ea-unlocked-title {
+  margin: 0;
+  color: var(--ox-gold-bright);
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.ea-unlocked-line {
+  margin: 0;
+  color: #ffffff;
+}
+
+.ea-need-account p {
+  margin: 0;
+}
+
+.ea-foot {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ea-back {
+  margin-top: 0;
+  padding: 9px 16px;
+  font-size: 13px;
+  border-radius: var(--ox-r-pill);
+  background: transparent;
+  color: var(--ox-text-dim);
+  border: 1px solid var(--ox-hairline);
+  letter-spacing: 0.06em;
+}
+
+.ea-foot-note {
+  font-size: 12.5px;
+  color: var(--ox-text-dim);
+}
+
+@media (max-width: 560px) {
+  .ea-row {
+    flex-direction: column;
+  }
+
+  .ea-connect {
+    width: 100%;
+  }
+}

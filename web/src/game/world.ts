@@ -108,6 +108,42 @@ export interface VoiceRoom {
   members: { id: string; name: string; speaking: boolean }[];
 }
 
+// EARLY ACCESS (pre-launch burn gate): until launch day, entering the
+// city requires burning ~$5 of ORBITX and proving the burn in-game; the
+// unlock lives on the account. The server owns every number here (gate
+// on/off, price, token amount, who is unlocked) — the client renders
+// them and never invents its own threshold.
+export interface EarlyAccessGateInfo {
+  active: boolean;
+  usdRequired: number;
+  priceUsd: number;
+  tokensApprox: number;
+}
+
+export interface EarlyAccessStatus {
+  gate: EarlyAccessGateInfo;
+  unlocked: boolean;
+}
+
+export interface EarlyAccessVerifyResult {
+  unlocked: boolean;
+  amountTokens: number;
+  usd: number;
+}
+
+export function parseEarlyAccessStatus(data: Record<string, unknown>): EarlyAccessStatus {
+  const gate = (data.gate && typeof data.gate === "object" ? data.gate : {}) as Record<string, unknown>;
+  return {
+    gate: {
+      active: Boolean(gate.active),
+      usdRequired: Number(gate.usdRequired) || 5,
+      priceUsd: Number(gate.priceUsd) || 0,
+      tokensApprox: Number(gate.tokensApprox) || 0,
+    },
+    unlocked: Boolean(data.unlocked),
+  };
+}
+
 export interface WorldChat {
   id: string;
   name: string;
@@ -993,6 +1029,27 @@ class CityWorld {
 
   async officeSolLeases() {
     return this.call("office-sol-leases", {});
+  }
+
+  // EARLY ACCESS: read the burn gate (active? price? is THIS account
+  // unlocked?). Safe to call from the title screen — it rides the same
+  // auth as every other op (account token when signed in).
+  async earlyAccessStatus(): Promise<EarlyAccessStatus> {
+    const data = await this.call("early-access-status", {});
+    return parseEarlyAccessStatus(data);
+  }
+
+  // EARLY ACCESS: prove a burn. `wallet` is the address the ORBITX was
+  // burned FROM, `signature` the burn transaction. The server verifies
+  // on-chain and throws its own message when the burn does not check
+  // out — the gate screen shows that message verbatim.
+  async earlyAccessVerify(wallet: string, signature: string): Promise<EarlyAccessVerifyResult> {
+    const data = await this.call("early-access-verify", { wallet, signature });
+    return {
+      unlocked: Boolean(data.unlocked),
+      amountTokens: Number(data.amountTokens) || 0,
+      usd: Number(data.usd) || 0,
+    };
   }
 
   private async call(op: string, extra: Record<string, unknown>, auth: boolean | "account" = true) {

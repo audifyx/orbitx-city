@@ -10,6 +10,7 @@ import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
 import { CharacterSelect } from "./Roster";
 import { MenuHome } from "./MenuHome";
+import { EarlyAccessGate } from "./EarlyAccessGate";
 import { IntroScene } from "./Intro";
 import { AboutPage, MenuFooter, MenuHeader, PrivacyPage, SettingsPage, TermsPage, type HomePage } from "./HomePages";
 import { accountToken, ensureFreshAccountToken, refreshAccountToken, signOutAccount, type Account } from "./auth";
@@ -62,6 +63,7 @@ import {
   type Universe,
   type UniverseId,
 } from "./game/multiverse";
+import { world, type EarlyAccessStatus } from "./game/world";
 import {
   DISTRICTS,
   JOB_LIST_ADDITION,
@@ -564,8 +566,10 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
   const [menu, setMenu] = useState(() => shotMode() === null);
-  // Title flow: "home" is the new landing screen, "roster" the character select.
-  const [menuStep, setMenuStep] = useState<"home" | "roster">("home");
+  // Title flow: "home" is the new landing screen, "roster" the character
+  // select, "gate" the pre-launch early-access burn gate (only ever
+  // routed to while the server reports the gate active + locked).
+  const [menuStep, setMenuStep] = useState<"home" | "roster" | "gate">("home");
   // Home rebrand: info pages (about / settings / privacy / terms) shown
   // inside the menu instead of the home step. "home" = the landing screen.
   const [menuPage, setMenuPage] = useState<"home" | HomePage>("home");
@@ -869,6 +873,56 @@ export default function App() {
   const [gate, setGate] = useState<"login" | "city">("login");
   const [who, setWho] = useState<Account | null>(null);
 
+  // EARLY ACCESS (pre-launch burn gate): the server owns the gate; this
+  // is only its last-known state. null = not answered yet (or the read
+  // failed) — unknown never blocks entry on its own; the entry handler
+  // does one fresh read when it has no answer, and play() re-checks the
+  // known state as a backstop. Once the server reports the gate
+  // inactive (launch), every check below passes through untouched.
+  const [eaStatus, setEaStatus] = useState<EarlyAccessStatus | null>(null);
+  const eaStatusRef = useRef<EarlyAccessStatus | null>(null);
+  const eaUnlockedRef = useRef(false);
+  const eaFetchedForRef = useRef("");
+  const fetchEaStatus = useCallback(async (): Promise<EarlyAccessStatus | null> => {
+    try {
+      const status = await world.earlyAccessStatus();
+      eaStatusRef.current = status;
+      setEaStatus(status);
+      if (status.unlocked) eaUnlockedRef.current = true;
+      return status;
+    } catch {
+      return null;
+    }
+  }, []);
+  const eaLockedNow = useCallback(() => {
+    const status = eaStatusRef.current;
+    return Boolean(status?.gate.active) && !status?.unlocked && !eaUnlockedRef.current;
+  }, []);
+  // The one door into the city from the title screens: a locked account
+  // lands on the gate screen, everyone else on the character roster.
+  const enterCity = useCallback(() => {
+    setMenuPage("home");
+    if (eaLockedNow()) {
+      setMenuStep("gate");
+      return;
+    }
+    if (!eaStatusRef.current) {
+      // No answer yet (slow or failed mount read): one fresh read at
+      // the door, then route on what it says. Still no answer → fail
+      // open; the server session is the real lock, not this screen.
+      void fetchEaStatus().then(() => {
+        setMenuStep(eaLockedNow() ? "gate" : "roster");
+      });
+      return;
+    }
+    setMenuStep("roster");
+  }, [eaLockedNow, fetchEaStatus]);
+  const handleEaUnlocked = useCallback(() => {
+    eaUnlockedRef.current = true;
+    // One fresh status read after a verify attempt (the poll budget).
+    void fetchEaStatus();
+  }, [fetchEaStatus]);
+
   // Keep my ad orders fresh while the Ads panel is open.
   useEffect(() => {
     if (panel !== "ads") return;
@@ -1109,6 +1163,27 @@ export default function App() {
       live = false;
     };
   }, [menu]);
+
+  // EARLY ACCESS: one status read per title-screen mount, and one per
+  // account change (signing in swaps whose unlock counts). Leaving to
+  // the world re-arms the read for the next mount. A failed read leaves
+  // the state unknown and entry stays normal (see enterCity) — a dead
+  // status read must never brick the title screen.
+  useEffect(() => {
+    if (!menu) {
+      eaFetchedForRef.current = "";
+      return;
+    }
+    if (intro) return;
+    const key = who?.id ?? "guest";
+    if (eaFetchedForRef.current === key) return;
+    eaFetchedForRef.current = key;
+    // The previous account's answer must never speak for this one.
+    eaUnlockedRef.current = false;
+    eaStatusRef.current = null;
+    setEaStatus(null);
+    void fetchEaStatus();
+  }, [menu, intro, who, fetchEaStatus]);
 
   // Multiverse panel: fresh counts on open.
   useEffect(() => {
@@ -1889,6 +1964,14 @@ export default function App() {
   };
 
   const play = () => {
+    // EARLY ACCESS backstop: every entry path funnels into play(), so a
+    // locked account stops here even if it reached the roster before
+    // the status answer landed.
+    if (eaLockedNow()) {
+      setMenuPage("home");
+      setMenuStep("gate");
+      return;
+    }
     const game = gameRef.current;
     const canvas = canvasRef.current;
     if (!game || !canvas || busy) return;
@@ -6032,7 +6115,7 @@ export default function App() {
       })()}
       {menu && intro && <IntroScene onDone={endIntro} />}
       {menu && !intro && (
-        <section className={menuStep === "roster" || menuPage !== "home" ? "menu menu-roster" : "menu"} id="menu">
+        <section className={menuStep === "roster" || menuStep === "gate" || menuPage !== "home" ? "menu menu-roster" : "menu"} id="menu">
           {menu && looksFailed ? (
             <p
               className="menu-warning"
@@ -6047,7 +6130,7 @@ export default function App() {
                 who={who}
                 onNavigate={setMenuPage}
                 onHome={() => { setMenuPage("home"); setMenuStep("home"); }}
-                onPlay={() => { setMenuPage("home"); setMenuStep("roster"); }}
+                onPlay={enterCity}
               />
               {menuPage === "about" ? <AboutPage /> : null}
               {menuPage === "settings" ? (
@@ -6069,7 +6152,7 @@ export default function App() {
             <MenuHome
               gate={gate}
               who={who}
-              onChoose={() => setMenuStep("roster")}
+              onChoose={enterCity}
               onAccount={(account) => {
                 setWho(account);
                 setGate("city");
@@ -6087,6 +6170,28 @@ export default function App() {
               socialLive={universesLive}
               onOpenPage={setMenuPage}
             />
+          ) : menuStep === "gate" && eaStatus ? (
+            <>
+              <MenuHeader
+                who={who}
+                onNavigate={setMenuPage}
+                onHome={() => { setMenuPage("home"); setMenuStep("home"); }}
+                onPlay={enterCity}
+              />
+              <EarlyAccessGate
+                status={eaStatus}
+                signedIn={Boolean(who)}
+                onUnlocked={handleEaUnlocked}
+                onNeedAccount={() => {
+                  setGate("login");
+                  setWho(null);
+                  setMenuStep("home");
+                }}
+                onBack={() => setMenuStep("home")}
+                onEnter={enterCity}
+              />
+              <MenuFooter onNavigate={setMenuPage} />
+            </>
           ) : (
             <>
               <MenuHeader
