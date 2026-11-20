@@ -970,6 +970,93 @@ export const STORY_CHAPTERS: StoryChapter[] = [
   },
 ];
 
+// ---- CHECKPOINT RACES: solo time trials on the avenue grid ------------
+// Three routes, every point an avenue intersection on the real road grid
+// (city.ts CENTERS: -180..180 in 36-steps, roads 10 wide). Points sit ON
+// ring avenues (±36 / ±144 / ±180) — the same lines the traffic loops
+// drive — never inside the plaza box (±31) and never on a mid-block
+// stretch, so a car can always reach the next pillar at speed. Pars are
+// set from route length against real car pace: a mid car averages
+// ~55-65% of its top speed over a run (corners, traffic), the fastest
+// catalog cars roughly double a sedan — gold is a clean run in a decent
+// car, silver a mid car driven well, bronze a finish with mistakes.
+// Rewards pay in City Sol by medal; finishing outside bronze still pays
+// the completion amount. Solo + local: bests live in localStorage
+// (orbitx-city-race-bests-v1), the server street race is untouched.
+export interface RaceRoute {
+  id: string;
+  name: string;
+  blurb: string;
+  /** true = the finish line is the start point again. */
+  loop: boolean;
+  /** points[0] is the start; the rest are checkpoints in order. */
+  points: { x: number; z: number }[];
+  /** Par times in seconds: [gold, silver, bronze]. */
+  pars: [number, number, number];
+  /** City Sol by medal: [gold, silver, bronze, completion]. */
+  rewards: [number, number, number, number];
+}
+export const RACE_ROUTES: RaceRoute[] = [
+  {
+    id: "plaza-sprint",
+    name: "Plaza Sprint",
+    blurb: "One tight lap of the plaza ring — eight corners, no straights to hide in.",
+    loop: true,
+    points: [
+      { x: 36, z: 36 },
+      { x: 36, z: 0 },
+      { x: 36, z: -36 },
+      { x: 0, z: -36 },
+      { x: -36, z: -36 },
+      { x: -36, z: 0 },
+      { x: -36, z: 36 },
+      { x: 0, z: 36 },
+    ],
+    pars: [40, 52, 68],
+    rewards: [120, 80, 50, 20],
+  },
+  {
+    id: "beach-run",
+    name: "Beach Run",
+    blurb: "East along the waterfront avenue, then north up the far side. Point to point — no second lap.",
+    loop: false,
+    points: [
+      { x: -144, z: 180 },
+      { x: -72, z: 180 },
+      { x: 0, z: 180 },
+      { x: 72, z: 180 },
+      { x: 144, z: 180 },
+      { x: 180, z: 180 },
+      { x: 180, z: 108 },
+      { x: 180, z: 36 },
+      { x: 180, z: -36 },
+    ],
+    pars: [58, 72, 90],
+    rewards: [180, 120, 75, 30],
+  },
+  {
+    id: "avenue-gp",
+    name: "Avenue GP",
+    blurb: "The full outer ring — over a kilometre of avenue. Bring the fastest car you own.",
+    loop: true,
+    points: [
+      { x: 144, z: 144 },
+      { x: 36, z: 144 },
+      { x: -72, z: 144 },
+      { x: -144, z: 144 },
+      { x: -144, z: 36 },
+      { x: -144, z: -72 },
+      { x: -144, z: -144 },
+      { x: -36, z: -144 },
+      { x: 72, z: -144 },
+      { x: 144, z: -144 },
+      { x: 144, z: -36 },
+    ],
+    pars: [100, 125, 155],
+    rewards: [300, 200, 120, 40],
+  },
+];
+
 // ---- FOOD: cooking, restaurants, gym, hunger (City Sol only) ----------
 // Shared contract with the server (api/city.js FOOD section — the server
 // is the price authority; this file is the client's display copy).
