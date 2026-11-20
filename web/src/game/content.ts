@@ -959,7 +959,7 @@ export const EV_PRICE_PER_PCT = 0.35;
 // (talking, driving, working, filling, ticketing, robbing, escaping,
 // hijacking); finishing a chapter pays its reward in City Sol.
 export interface StoryStep {
-  kind: "talk" | "visit" | "drive" | "job" | "fuel" | "ticket" | "rob" | "escape" | "hijack";
+  kind: "talk" | "visit" | "drive" | "job" | "fuel" | "ticket" | "rob" | "escape" | "hijack" | "race" | "photo" | "fight" | "heat";
   label: string;
   npc?: string;
   x?: number;
@@ -1007,7 +1007,48 @@ export const STORY_CHAPTERS: StoryChapter[] = [
       { kind: "hijack", label: "Hijack the bus or the train (J key when close)" },
     ],
   },
+  // ACT II — one connected arc: the name you made in Act I starts
+  // opening doors — and collecting debts. Lux and Zed test your street
+  // cred, Ada's bank trouble pulls Park back in, and Jax puts real
+  // money behind you for a shot at Bruno's belt.
+  {
+    title: "Street Cred",
+    intro: "Word travels. Lux has been watching since your first day — Felix still holds every record in her arcade, and she's tired of it. Prove you're more than a tourist.",
+    reward: 300,
+    steps: [
+      { kind: "talk", npc: "Lux", label: "Hear Lux out at the Neon Arcade" },
+      { kind: "race", label: "Finish any checkpoint trial (Jobs → Checkpoint races)" },
+      { kind: "visit", x: -18, z: 76, radius: 9, label: "Pick up Zed's package at the Night Market" },
+      { kind: "visit", x: 44.5, z: 54, radius: 9, label: "Bring the package back to Lux at the Neon Arcade" },
+      { kind: "photo", label: "Snap the moment — take a photo in Photo Mode (phone Camera)" },
+    ],
+  },
+  {
+    title: "Heat",
+    intro: "Ada's vault ledger doesn't balance — pages went missing in the Wild Side chaos, and if the auditors find out before she does, the bank is done. She needs the backup ledger moved quietly, and the heat pointed anywhere but at her door.",
+    reward: 300,
+    steps: [
+      { kind: "talk", npc: "Ada", label: "Ada's rattled — hear her out at OrbitX Bank" },
+      { kind: "visit", x: -18, z: 76, radius: 9, label: "Drop Ada's backup ledger with Zed at the Night Market" },
+      { kind: "heat", label: "Draw the heat — gain a wanted star, then clear it (pay the fine, take the bust, or outrun them)" },
+      { kind: "talk", npc: "Park", label: "Square it with Officer Park on the plaza" },
+    ],
+  },
+  {
+    title: "Champion's Circuit",
+    intro: "Jax has been quietly telling the whole Motors lot you're the real thing. Now he's putting his name — and his money — behind it: a shot at Bruno and the OrbitX City Championship. The whole cast is watching this one.",
+    reward: 400,
+    steps: [
+      { kind: "talk", npc: "Jax", label: "Jax at OrbitX Motors wants to sponsor a fighter — you" },
+      { kind: "visit", x: 170, z: 238, radius: 11, label: "Step into the ring south of the stadium" },
+      { kind: "fight", npc: "Bruno", label: "Beat Bruno — take the Champion Belt (Coach Dom's card, ringside)" },
+      { kind: "visit", x: 0, z: 12, radius: 10, label: "Victory lap — take it in at the plaza fountain, where it all started" },
+    ],
+  },
 ];
+// CAMPAIGN: finishing the final chapter pays a one-time completion
+// bonus on top of the chapter reward (runtime.ts advanceStory).
+export const CAMPAIGN_BONUS = 500;
 
 // ---- CHECKPOINT RACES: solo time trials on the avenue grid ------------
 // Three routes, every point an avenue intersection on the real road grid
