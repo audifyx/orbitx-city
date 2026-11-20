@@ -1,25 +1,25 @@
 [
   {
     "id": "plaza-east",
-    "project": "OrbitX",
-    "text": "WELCOME TO THE CITY",
-    "image": "",
+    "project": "OrbitX City",
+    "text": "FREE FOREVER · NO DOWNLOAD",
+    "image": "/house-ads/launch.png",
     "start": "2026-01-01",
     "end": "2026-12-31"
   },
   {
     "id": "plaza-west",
-    "project": "Cafe Nova",
-    "text": "SUNSET COFFEE",
-    "image": "",
+    "project": "OrbitX City",
+    "text": "FREE FOREVER · NO DOWNLOAD",
+    "image": "/house-ads/launch.png",
     "start": "2026-01-01",
     "end": "2026-12-31"
   },
   {
     "id": "hall-front",
-    "project": "Community Hall",
-    "text": "EVENTS TONIGHT",
-    "image": "",
+    "project": "OrbitX Ads",
+    "text": "BOOK AT THE BILLBOARD DESK",
+    "image": "/house-ads/your-ad-here.png",
     "start": "2026-01-01",
     "end": "2026-12-31"
   },
@@ -28,6 +28,22 @@
     "project": "Project District",
     "text": "YOUR OFFICE HERE",
     "image": "",
+    "start": "2026-01-01",
+    "end": "2026-12-31"
+  },
+  {
+    "id": "plaza-south-east",
+    "project": "OrbitX City",
+    "text": "FREE FOREVER · NO DOWNLOAD",
+    "image": "/house-ads/launch.png",
+    "start": "2026-01-01",
+    "end": "2026-12-31"
+  },
+  {
+    "id": "plaza-south-west",
+    "project": "OrbitX City",
+    "text": "FREE FOREVER · NO DOWNLOAD",
+    "image": "/house-ads/launch.png",
     "start": "2026-01-01",
     "end": "2026-12-31"
   }

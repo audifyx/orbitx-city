@@ -4,7 +4,7 @@
 // v21 (2026-11-18): MEGA PUSH — building-entry doors, vehicle fixes, bus+train
 // operator jobs, Home Workshop 2D editor, 25 ORBITX billboards, Arcade PvP
 // pot games (Coin Flip + Dice Roll).
-const CACHE = "orbitx-city-v48";
+const CACHE = "orbitx-city-v49";
 const PRECACHE = [
   "/",
   "/index.html",
