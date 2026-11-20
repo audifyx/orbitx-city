@@ -128,12 +128,15 @@ body,
 
 .card {
   width: min(460px, calc(100% - 32px));
-  background: linear-gradient(180deg, #061024 0%, #02050d 100%);
+  background: linear-gradient(180deg, rgba(13, 20, 38, 0.92) 0%, rgba(4, 7, 15, 0.95) 100%);
+  -webkit-backdrop-filter: var(--ox-blur);
+  backdrop-filter: var(--ox-blur);
   color: #ffffff;
-  border: 2px solid #e0b33a;
+  border: 1px solid var(--ox-hairline-gold);
+  border-radius: 24px;
   padding: 28px 26px 22px;
   text-align: center;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.78), 0 0 28px rgba(37, 99, 235, 0.25), inset 0 1px 0 rgba(96, 165, 250, 0.35);
+  box-shadow: var(--ox-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .card.wide {
@@ -282,6 +285,15 @@ body,
   margin: 0 auto;
   width: 100%;
   text-align: center;
+  animation: ox-rise 0.7s var(--ox-ease) both;
+}
+
+.menu-actions {
+  animation: ox-rise 0.7s var(--ox-ease) 0.12s both;
+}
+
+.menu-features {
+  animation: ox-rise 0.7s var(--ox-ease) 0.22s both;
 }
 
 .menu-kicker {
@@ -299,8 +311,9 @@ body,
   letter-spacing: 0.1em;
   font-weight: 900;
   color: #ffffff;
-  text-shadow: 0 4px 0 #000000, 0 10px 32px rgba(0, 0, 0, 0.6);
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.85), 0 14px 38px rgba(0, 0, 0, 0.65);
   border-bottom: 4px solid #e0b33a;
+  border-radius: 2px;
   padding-bottom: 14px;
   display: inline-block;
 }
@@ -331,26 +344,34 @@ body,
   margin-top: 0;
   padding: 16px 34px;
   font-size: 20px;
-  background: #e0b33a;
+  border-radius: 18px;
+  background: linear-gradient(180deg, var(--ox-gold-bright), var(--ox-gold));
   color: #000000;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55), 0 6px 22px rgba(224, 179, 58, 0.35);
 }
 
 .menu-ghost {
   margin-top: 0;
   padding: 14px 26px;
   font-size: 15px;
-  background: rgba(7, 20, 46, 0.84);
+  background: rgba(10, 16, 32, 0.62);
+  -webkit-backdrop-filter: var(--ox-blur-soft);
+  backdrop-filter: var(--ox-blur-soft);
   color: #ffffff;
-  border: 2px solid #60a5fa;
+  border: 1px solid var(--ox-hairline);
+  border-radius: 18px;
 }
 
 .menu-howto {
   margin: 18px auto 0;
   max-width: 620px;
   text-align: left;
-  background: linear-gradient(180deg, #07142e 0%, #02050d 100%);
-  border: 2px solid #e0b33a;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65), inset 0 0 18px rgba(37, 99, 235, 0.18);
+  background: linear-gradient(180deg, rgba(13, 20, 38, 0.88) 0%, rgba(4, 7, 15, 0.92) 100%);
+  -webkit-backdrop-filter: var(--ox-blur-soft);
+  backdrop-filter: var(--ox-blur-soft);
+  border: 1px solid var(--ox-hairline-gold);
+  border-radius: 18px;
+  box-shadow: var(--ox-shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   padding: 14px 18px;
 }
 
@@ -432,10 +453,13 @@ body,
 }
 
 .menu-feature {
-  background: rgba(6, 16, 38, 0.84);
-  border: 1px solid rgba(59, 130, 246, 0.55);
-  box-shadow: inset 0 1px 0 rgba(224, 179, 58, 0.35);
-  padding: 12px 14px;
+  background: rgba(10, 16, 32, 0.66);
+  -webkit-backdrop-filter: var(--ox-blur-soft);
+  backdrop-filter: var(--ox-blur-soft);
+  border: 1px solid var(--ox-hairline-soft);
+  border-radius: var(--ox-r-md);
+  box-shadow: inset 0 1px 0 rgba(224, 179, 58, 0.3);
+  padding: 13px 15px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -2973,9 +2997,12 @@ body.touch .touch-ui {
 .menu-social {
   margin: 26px auto 0;
   max-width: 620px;
-  background: rgba(5, 14, 34, 0.82);
-  border: 2px solid #e0b33a;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), inset 0 0 20px rgba(37, 99, 235, 0.2);
+  background: linear-gradient(180deg, rgba(13, 20, 38, 0.88) 0%, rgba(4, 7, 15, 0.92) 100%);
+  -webkit-backdrop-filter: var(--ox-blur-soft);
+  backdrop-filter: var(--ox-blur-soft);
+  border: 1px solid var(--ox-hairline-gold);
+  border-radius: 18px;
+  box-shadow: var(--ox-shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   padding: 16px 18px;
   text-align: center;
 }
