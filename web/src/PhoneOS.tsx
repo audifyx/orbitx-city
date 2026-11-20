@@ -705,6 +705,7 @@ export default function PhoneOS(props: PhoneOSProps) {
                       </div>
                       <div className="ph-group">
                       <div className="ph-row"><span className="ph-row-main"><b>Total earned</b></span><span>{snap.earned.toLocaleString()}</span></div>
+                      <div className="ph-row"><span className="ph-row-main"><b>Citizen Rank</b><span>{snap.rank.xp} XP</span></span><span>{snap.rank.rank} · {snap.rank.title}</span></div>
                       <div className="ph-row"><span className="ph-row-main"><b>Total burned</b></span><span>{snap.burned.toLocaleString()}</span></div>
                       <div className="ph-row">
                         <span className="ph-row-main"><b>Job</b><span>{snap.jobShift ? `${snap.jobShift.title} — ${snap.jobShift.tasksDone}/${snap.jobShift.tasksTotal} tasks · ${snap.jobShift.taskPaid} paid` : snap.jobTitle || "Not clocked in"}</span></span>

@@ -5,7 +5,7 @@ import { EMPTY_CITY_PEOPLE, FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/ru
 import { PadHost, type PadStatus } from "./game/controllerClient";
 import { PROXIMITY_RANGE, VOICE_FILTERS } from "./game/voice";
 import { allLooks, loadLooks, lookName } from "./game/avatar";
-import { BILLBOARD_ORBITX_DAYS, BILLBOARD_ORBITX_USD, GROCERY_FOOD_BY_ID, GYM_WORKOUTS, OFFICE_SUITES, RECIPES, RESTAURANT_BY_ID, RESTAURANT_MENUS, adUsdPrice, foodSpeedMult, hungerLabel, officeSolUsdPrice } from "./game/content";
+import { BILLBOARD_ORBITX_DAYS, BILLBOARD_ORBITX_USD, GROCERY_FOOD_BY_ID, GYM_WORKOUTS, OFFICE_SUITES, RECIPES, RESTAURANT_BY_ID, RESTAURANT_MENUS, STORY_CHAPTERS, adUsdPrice, foodSpeedMult, hungerLabel, officeSolUsdPrice } from "./game/content";
 import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
 import { CharacterSelect } from "./Roster";
@@ -300,7 +300,7 @@ const EMPTY: Snap = {
   trafficNear: false,
   busNear: false,
   trainNear: false,
-  story: { chapter: 1, total: 3, title: "", intro: "", stepLabel: "", stepsDone: 0, stepsTotal: 0, done: false },
+  story: { chapter: 1, total: 6, title: "", intro: "", stepLabel: "", stepsDone: 0, stepsTotal: 0, done: false, earned: 0 },
   trial: null,
   boxing: null,
   boxingCard: [],
@@ -309,6 +309,15 @@ const EMPTY: Snap = {
   dailies: [],
   dailiesDone: 0,
   dailyBonusPaid: false,
+  dailyStreak: 0,
+  weeklies: [],
+  weekliesDone: 0,
+  weeklyBonusPaid: false,
+  weeklyDaysLeft: 7,
+  rank: { rank: 1, title: "Visitor", xp: 0, into: 0, span: 100, nextAt: 100 },
+  favors: [],
+  favorTarget: null,
+  boardRun: null,
   ridingBoard: false,
   ridingTrain: false,
   transport: {
@@ -1928,6 +1937,16 @@ export default function App() {
           </button>
         </div>
       ) : null}
+      {!menu && snap.boardRun && !snap.hideHud ? (
+        <div className="trial-hud">
+          <span>
+            {snap.boardRun.kind === "delivery" ? "📦" : "🚕"} <b>{snap.boardRun.kind === "delivery" ? "Delivery" : "Taxi"}</b> — {snap.boardRun.label} · {snap.boardRun.dist}m · ⏱ {(snap.boardRun.timeMs / 1000).toFixed(0)}s / {(snap.boardRun.parMs / 1000).toFixed(0)}s par
+          </span>
+          <button type="button" onClick={() => gameRef.current?.runtime.abandonBoard()}>
+            Abandon
+          </button>
+        </div>
+      ) : null}
       {!menu && snap.boxing && !snap.hideHud ? (
         <div className="boxing-hud">
           <div className="boxing-bars">
@@ -2170,7 +2189,7 @@ export default function App() {
               foodStamina={snap.foodStamina}
               energy={snap.energy}
               energyLabel={snap.energyLabel}
-              jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : null}
+              jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : snap.boardRun ? { x: snap.boardRun.targetX, z: snap.boardRun.targetZ } : snap.favorTarget}
               foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
               onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
               docked
@@ -2245,7 +2264,7 @@ export default function App() {
           foodStamina={snap.foodStamina}
           energy={snap.energy}
           energyLabel={snap.energyLabel}
-          jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : null}
+          jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : snap.boardRun ? { x: snap.boardRun.targetX, z: snap.boardRun.targetZ } : snap.favorTarget}
           foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
           onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
         />
@@ -2263,7 +2282,7 @@ export default function App() {
             foodStamina={snap.foodStamina}
             energy={snap.energy}
             energyLabel={snap.energyLabel}
-            jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : null}
+            jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : snap.boardRun ? { x: snap.boardRun.targetX, z: snap.boardRun.targetZ } : snap.favorTarget}
             foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
             onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
             docked
@@ -2927,6 +2946,29 @@ export default function App() {
               <div className="list">
                 <p className="muted">OrbitX Boxing — three rounds, sixty seconds each. Win by knockout or on the judges&apos; cards; a draw refunds half your entry. Opening a panel or leaving the ring mid-fight is a forfeit — your entry is gone.</p>
                 {snap.boxingBelt && <p><b>CITY CHAMPION — you hold the OrbitX Boxing belt.</b></p>}
+                {(() => {
+                  const domFavor = snap.favors.find((f) => f.npc === "Dom");
+                  if (!domFavor || domFavor.status === "done") return null;
+                  return (
+                    <article>
+                      <div>
+                        <b>Coach Dom&apos;s favor</b>
+                        <span>
+                          {domFavor.status === "offered"
+                            ? `${domFavor.label} Pays ${domFavor.reward} City Sol.`
+                            : domFavor.status === "ready"
+                              ? `Ready to turn in — +${domFavor.reward} City Sol.`
+                              : `${domFavor.stageLabel} · pays ${domFavor.reward} City Sol`}
+                        </span>
+                      </div>
+                      {domFavor.status === "offered" || domFavor.status === "ready" ? (
+                        <button type="button" onClick={() => gameRef.current?.runtime.favorAction("Dom")}>
+                          {domFavor.status === "ready" ? `Turn in — +${domFavor.reward} City Sol` : "Accept favor"}
+                        </button>
+                      ) : null}
+                    </article>
+                  );
+                })()}
                 <p className="muted">Jab <b>J</b> · Heavy <b>K</b> · Block <b>L / Shift</b> (hold) · Dodge <b>Space</b>. On touch, the fight buttons appear ringside while you fight.</p>
                 {snap.boxingCard.map((row) => {
                   const afford = snap.balance >= row.entry;
@@ -2954,9 +2996,22 @@ export default function App() {
                 <p className="muted">
                   Every job pays in City Sol — the game&apos;s own money, never real SOL. Job streak {snap.jobStreak}: +5% pay per job in a row, up to +50%.
                 </p>
+                <article>
+                  <div>
+                    <b>Citizen Rank {snap.rank.rank} — {snap.rank.title}</b>
+                    <span>
+                      {snap.rank.xp} XP total
+                      {snap.rank.nextAt !== null
+                        ? ` · ${snap.rank.into} of ${snap.rank.span} XP to Rank ${snap.rank.rank + 1} — rank-ups pay a City Sol bonus`
+                        : " · top rank — City Legend"}
+                    </span>
+                    <span className="quest-bar"><i style={{ width: `${snap.rank.nextAt === null ? 100 : Math.min(100, Math.round((snap.rank.into / Math.max(1, snap.rank.span)) * 100))}%` }} /></span>
+                  </div>
+                </article>
                 <h3>Daily quests</h3>
                 <p className="muted">
                   Three fresh quests every day, gone at midnight — finish all three for a 100 City Sol bonus. {snap.dailiesDone}/3 done{snap.dailyBonusPaid ? " · bonus paid" : ""}.
+                  {snap.dailyStreak > 0 ? ` Streak: ${snap.dailyStreak} day${snap.dailyStreak === 1 ? "" : "s"} — finish all three again today for a streak bonus up to +70.` : ""}
                 </p>
                 {snap.dailies.map((quest) => (
                   <article key={quest.id}>
@@ -2967,6 +3022,90 @@ export default function App() {
                     </div>
                   </article>
                 ))}
+                <h3>Weekly quests</h3>
+                <p className="muted">
+                  Three bigger goals for the week — {snap.weekliesDone}/3 done{snap.weeklyBonusPaid ? " · 500 City Sol bonus paid" : " — finish all three for a 500 City Sol bonus"}. {snap.weeklyDaysLeft} day{snap.weeklyDaysLeft === 1 ? "" : "s"} left this week.
+                </p>
+                {snap.weeklies.map((quest) => (
+                  <article key={quest.id}>
+                    <div>
+                      <b>{quest.done ? "✓ " : ""}{quest.label}</b>
+                      <span>{quest.done ? `Done — paid ${quest.reward} City Sol.` : `${Math.min(quest.have, quest.need)} of ${quest.need} · pays ${quest.reward} City Sol`}</span>
+                      <span className="quest-bar"><i style={{ width: `${Math.min(100, Math.round((quest.have / Math.max(1, quest.need)) * 100))}%` }} /></span>
+                    </div>
+                  </article>
+                ))}
+                <h3>Missions board</h3>
+                <p className="muted">
+                  Repeatable runs, paid in City Sol — follow the lit pillar, beat the par time for the bonus. One run at a time; opening a panel mid-run drops it.
+                </p>
+                {snap.boardRun ? (
+                  <article>
+                    <div>
+                      <b>{snap.boardRun.kind === "delivery" ? "Delivery" : "Taxi"} — on a run</b>
+                      <span>{snap.boardRun.label} · {snap.boardRun.dist}m · {(snap.boardRun.timeMs / 1000).toFixed(0)}s of {(snap.boardRun.parMs / 1000).toFixed(0)}s par</span>
+                    </div>
+                    <button type="button" onClick={() => gameRef.current?.runtime.abandonBoard()}>Abandon</button>
+                  </article>
+                ) : (
+                  <>
+                    <article>
+                      <div>
+                        <b>Delivery run</b>
+                        <span>Pick up across town, drop it off against the clock. Pays 60–180 City Sol by distance + time bonus.</span>
+                      </div>
+                      <button type="button" onClick={() => { gameRef.current?.runtime.startDelivery(); close(); }}>Accept delivery</button>
+                    </article>
+                    <article>
+                      <div>
+                        <b>Taxi fare</b>
+                        <span>Pick up a fare, get them there quick for the tip. Pays 50–160 City Sol by distance + tip.</span>
+                      </div>
+                      <button type="button" onClick={() => { gameRef.current?.runtime.startTaxi(); close(); }}>Accept fare</button>
+                    </article>
+                  </>
+                )}
+                <h3>NPC favors</h3>
+                <p className="muted">
+                  The working city asks back — one favor per person per day, accepted and turned in by talking to them. One at a time.
+                </p>
+                {snap.favors.map((favor) => (
+                  <article key={favor.npc}>
+                    <div>
+                      <b>{favor.status === "done" ? "✓ " : favor.status === "ready" ? "→ " : favor.status === "active" ? "→ " : "· "}{favor.npc}</b>
+                      <span>
+                        {favor.status === "done"
+                          ? `Favor done — paid ${favor.reward} City Sol.`
+                          : favor.status === "offered"
+                            ? `${favor.label} Pays ${favor.reward} City Sol.`
+                            : `${favor.stageLabel} · pays ${favor.reward} City Sol`}
+                      </span>
+                    </div>
+                  </article>
+                ))}
+                <h3>Campaign</h3>
+                <p className="muted">
+                  One story in two acts — Act I is your first days in the city; Act II is the name you made coming back around. {snap.story.done ? snap.story.total : snap.story.chapter - 1} of {snap.story.total} chapters done · {snap.story.earned} City Sol earned from the campaign{snap.story.done ? " · +500 completion bonus paid" : " · finishing Chapter 6 pays a +500 City Sol completion bonus"}.
+                </p>
+                {STORY_CHAPTERS.map((ch, i) => {
+                  const n = i + 1;
+                  const isDone = snap.story.done || n < snap.story.chapter;
+                  const isCurrent = !snap.story.done && n === snap.story.chapter;
+                  return (
+                    <article key={ch.title}>
+                      <div>
+                        <b>{isDone ? "✓ " : isCurrent ? "→ " : "· "}{n <= 3 ? "Act I" : "Act II"} · Chapter {n} — {ch.title}</b>
+                        <span>
+                          {isDone
+                            ? `Done — paid ${ch.reward} City Sol.`
+                            : isCurrent
+                              ? `${ch.intro} Next: ${snap.story.stepLabel} · Step ${snap.story.stepsDone + 1} of ${snap.story.stepsTotal} · pays ${ch.reward} City Sol`
+                              : `Locked — finish Chapter ${n - 1} first. Pays ${ch.reward} City Sol.`}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })}
                 {snap.jobShift ? (
                   <>
                     <article>
@@ -3017,26 +3156,6 @@ export default function App() {
                     </article>
                   );
                 })}
-                <h3>Story mode</h3>
-                <p className="muted">
-                  A three-chapter story through the living city — meet the cast, learn how the city works, then run wild. 700 City Sol across the chapters.
-                </p>
-                {snap.story.done ? (
-                  <article>
-                    <div>
-                      <b>Story complete</b>
-                      <span>You ran the whole city — first day to wild side. The cast knows your name now.</span>
-                    </div>
-                  </article>
-                ) : (
-                  <article>
-                    <div>
-                      <b>Chapter {snap.story.chapter} of {snap.story.total} — {snap.story.title}</b>
-                      <span>{snap.story.intro}</span>
-                      <span>Next: {snap.story.stepLabel} · Step {snap.story.stepsDone + 1} of {snap.story.stepsTotal}</span>
-                    </div>
-                  </article>
-                )}
                 <h3>Checkpoint races</h3>
                 <p className="muted">
                   Solo time trials on the avenue grid — pick a route, drive to the gold start pillar, then chase the lit checkpoints one at a time. Medals pay City Sol; even a slow finish pays a little. Best times live on this device.
@@ -6558,6 +6677,7 @@ function ProfilePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
       <h3>Stats</h3>
       <div className="profile-stats">
         {view.self && view.balance != null ? stat("City Sol", fmt(view.balance), "your balance") : null}
+        {view.self ? stat("Citizen Rank", `${snap.rank.rank} — ${snap.rank.title}`, `${snap.rank.xp} XP earned`) : null}
         {stat("Total earned", `${fmt(view.earned)} City Sol`, "all time")}
         {stat("Total spent", `${fmt(view.spent)} City Sol`, "counted since this update")}
         {stat("Houses", String(view.homes.length), "owned")}

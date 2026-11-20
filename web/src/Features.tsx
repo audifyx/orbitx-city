@@ -121,6 +121,11 @@ function Talk({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           {talk.offerLabel}
         </button>
       )}
+      {talk.favorLabel && (
+        <button type="button" disabled={!talk.favorAction} onClick={() => rt?.favorAction(talk.name)}>
+          {talk.favorLabel}
+        </button>
+      )}
       {talk.canPaint && (
         <button type="button" onClick={() => rt?.openPaintShop()}>
           Paint shop — respray my car
