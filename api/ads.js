@@ -1215,10 +1215,15 @@ export async function billboardOrbitxOrders(ctx, player) {
 // Early access burn gate (2026-11-20)
 // ===========================================================================
 // Until the Dec 5 launch, a new player unlocks the city by burning $5 of
-// ORBITX from their OWN wallet and proving it with the burn transaction:
-// they paste their wallet address + the Solscan signature, and the server
-// verifies the burn on-chain, read-only (no wallet connect, no signing,
-// no custody). A burn counts when the transaction:
+// ORBITX and proving it with the burn transaction. Two ways in:
+//   - early-access-burn: one tap — the server burns exactly $5 of ORBITX
+//     from the player's IN-GAME (in-app) wallet itself and unlocks the
+//     account once the burn confirms (see earlyAccessBurn below).
+//   - early-access-verify: the player burns from a wallet themselves
+//     (including the in-game wallet after exporting it) and pastes the
+//     wallet address + the Solscan signature; the server verifies the
+//     burn on-chain, read-only (no wallet connect, no signing).
+// A burn counts when the transaction:
 //   - is confirmed/finalized and did not fail on-chain,
 //   - burns ORBITX from a token account the named wallet owns — an SPL
 //     burn/burnChecked instruction (top-level or inner), or a transfer
@@ -1419,6 +1424,172 @@ export async function earlyAccessVerify(ctx, player, body) {
     }
   }
   return { ok: true, unlocked: true, amountTokens, usd };
+}
+
+// Poll a just-sent signature until the chain calls it confirmed /
+// finalized / failed (the verify op's bar). Returns the status string,
+// or null when the poll budget ran out with no answer — the caller
+// treats that as "sent but unproven", never as success.
+async function waitForSignatureConfirmation(signature, attempts = 10, delayMs = 1000) {
+  for (let i = 0; i < attempts; i++) {
+    const status = await getSignatureStatus(signature);
+    if (status) return status;
+    if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return null;
+}
+
+// Reconcile a burn that is already on-chain from the in-game wallet: a
+// previous early-access-burn tap whose confirmation never came back, or
+// a burn the player sent themselves after exporting this wallet (the
+// export shows the same address, so it is the same wallet verify would
+// check). Scans the wallet's recent signatures for a fresh, confirmed,
+// still-unused burn worth >= the gate price — the verify rules, run in
+// reverse. Returns the success payload (unlock recorded) or null when
+// nothing on-chain qualifies, in which case the caller burns fresh.
+async function reconcileEarlyAccessBurn(ctx, player, rows, address, mint) {
+  let sigs;
+  try {
+    sigs = await solanaRpc("getSignaturesForAddress", [address, { limit: 10 }]);
+  } catch {
+    return null;
+  }
+  const usedByOthers = new Set(
+    (rows || []).filter((row) => row.accountId !== player.id).map((row) => row.signature),
+  );
+  for (const entry of sigs || []) {
+    const signature = entry?.signature;
+    if (!signature || entry?.err) continue;
+    if (usedByOthers.has(signature)) continue;
+    if (entry.confirmationStatus !== "confirmed" && entry.confirmationStatus !== "finalized") continue;
+    let tx;
+    try {
+      tx = await solanaRpc("getTransaction", [signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }]);
+    } catch {
+      continue;
+    }
+    if (!tx || tx.meta?.err) continue;
+    const blockTime = Number(tx.blockTime || 0);
+    if (!blockTime || blockTime < EARLY_ACCESS_MIN_BLOCK_TIME) continue;
+    const parsed = parseOrbitxBurn(tx, address, mint);
+    if (!parsed) continue;
+    const dec = parsed.decimals != null ? parsed.decimals : await decimals();
+    let price;
+    try {
+      price = await orbitxUsdPrice();
+    } catch {
+      return null; // Cannot value the burn — fall through to a fresh one.
+    }
+    const usd = orbitxBurnUsdValue(parsed.amountBase, dec, price);
+    if (usd < EARLY_ACCESS_USD_REQUIRED) continue;
+    const amountTokens = Number(parsed.amountBase) / 10 ** dec;
+    const record = { accountId: player.id, wallet: address, signature, amountTokens, usd, at: new Date().toISOString() };
+    if (ctx.saveEarlyUnlock) {
+      const saved = await ctx.saveEarlyUnlock(record);
+      if (saved === false) continue; // Claimed in the meantime — keep looking.
+    }
+    await audit(player.authUser, "early-access-burn", `Unlocked by an existing burn of ${amountTokens} ORBITX from the in-app wallet (${signature})`);
+    return { ok: true, unlocked: true, amountTokens, usd, signature };
+  }
+  return null;
+}
+
+// One tap: burn $5 of ORBITX from the player's IN-GAME wallet (the
+// server-held in-app wallet — walletRow / openSecret / sendBurn, the
+// exact path billboardOrbitxBuy spends from) and unlock the account.
+// There is no PIN on this flow: the server-signed spend ops authorize
+// by the account session alone — the PIN belongs to the separate
+// on-device wallet, whose key this server never sees. The burn itself
+// is a real Token-program Burn instruction (sendBurn / buildTokenBurn),
+// which parseOrbitxBurn accepts exactly like an incinerator transfer —
+// so a burn sent from this wallet by ANY path (this op, an export +
+// external burn) proves the same way through early-access-verify.
+// Order of checks is the safety story: an existing unlock returns
+// without touching the wallet; a burn already on-chain from this
+// wallet reconciles instead of burning twice; only then is a fresh
+// burn of EXACTLY the $5 amount (whole tokens, rounded up) sent from
+// the wallet's largest token account, and the unlock is recorded only
+// once that burn is confirmed on-chain.
+export async function earlyAccessBurn(ctx, player) {
+  if (!player.authUser) return fail("Create an account to unlock early access. Guests keep City Sol only.");
+  const rows = ctx.readEarlyUnlocks ? await ctx.readEarlyUnlocks() : [];
+  const mine = (rows || []).find((row) => row.accountId === player.id);
+  if (mine) {
+    // Already unlocked: never burn twice for this account.
+    return { ok: true, unlocked: true, amountTokens: Number(mine.amountTokens || 0), usd: Number(mine.usd || 0) };
+  }
+  if (!earlyAccessGateActive()) return { ok: true, unlocked: true, amountTokens: 0, usd: 0 };
+  const mint = orbitxMint();
+  if (!mint) return fail("ORBITX is not configured on this server.", 500);
+  const row = await walletRow(player.authUser);
+  if (!row) return fail("No in-app wallet yet. Open your wallet in the game first, then burn.");
+  const address = row.public_key;
+  const reconciled = await reconcileEarlyAccessBurn(ctx, player, rows, address, mint);
+  if (reconciled) return reconciled;
+  let price;
+  try {
+    price = await orbitxUsdPrice();
+  } catch {
+    return fail("The ORBITX price could not be read. Nothing was burned. Try again in a moment.", 502);
+  }
+  const dec = await decimals();
+  // Whole tokens, rounded up — the same number the status op quotes.
+  const neededTokens = Math.ceil(EARLY_ACCESS_USD_REQUIRED / price);
+  const neededBase = BigInt(neededTokens) * 10n ** BigInt(dec);
+  // The burn draws on ONE token account (sendBurn), so the spendable
+  // balance is the largest single account — the same rule
+  // orbitxWalletBalance applies for the billboard burn. One read picks
+  // both the balance and the account the burn will draw from.
+  const accounts = await getTokenAccounts(address, mint);
+  let target = null;
+  let balance = 0n;
+  for (const account of accounts || []) {
+    const amount = BigInt(account?.amount || "0");
+    if (!target || amount > balance) {
+      target = account;
+      balance = amount;
+    }
+  }
+  if (!target || balance < neededBase) {
+    const have = Number(balance) / 10 ** dec;
+    const more = Math.max(0, Math.ceil(neededTokens - have));
+    return fail(
+      `Early access burns ${neededTokens.toLocaleString("en-US")} ORBITX ($${EARLY_ACCESS_USD_REQUIRED.toFixed(2)}) from your in-game wallet — you have ${have.toLocaleString("en-US", { maximumFractionDigits: 2 })}. Send about ${more.toLocaleString("en-US")} more ORBITX to your in-game wallet address, then tap burn again.`,
+      402,
+    );
+  }
+  if (hitLimit(`early-access-burn:${player.authUser}`, 6, 60 * 60 * 1000)) {
+    return fail("Too many burn attempts this hour. Wait and try again.", 429);
+  }
+  let signature;
+  try {
+    signature = await sendBurn(ctx, {
+      userId: player.authUser,
+      orbitxAmount: neededBase.toString(),
+      meta: { owner: address, tokenAccount: target.pubkey },
+    });
+  } catch (err) {
+    return fail(`The burn did not send (${err.message || "burn"}). Your ORBITX is still in your wallet — try again.`, 502);
+  }
+  const status = await waitForSignatureConfirmation(signature);
+  if (status === "failed") {
+    return fail("The burn transaction failed on-chain. Your ORBITX is still in your wallet — try again.");
+  }
+  if (status !== "confirmed" && status !== "finalized") {
+    // Sent but unproven: record NOTHING. The next tap reconciles this
+    // signature on-chain instead of burning a second time.
+    return fail(`Your burn was sent (${signature}) but has not confirmed yet. Give it a moment, then tap BURN again — it will finish the unlock without burning twice.`, 202);
+  }
+  const usd = neededTokens * price;
+  const record = { accountId: player.id, wallet: address, signature, amountTokens: neededTokens, usd, at: new Date().toISOString() };
+  if (ctx.saveEarlyUnlock) {
+    const saved = await ctx.saveEarlyUnlock(record);
+    if (saved === false) {
+      return fail("That burn was already used to unlock early access. Each burn unlocks one account.");
+    }
+  }
+  await audit(player.authUser, "early-access-burn", `Burned ${neededTokens} ORBITX from the in-app wallet for early access (${signature})`);
+  return { ok: true, unlocked: true, amountTokens: neededTokens, usd, signature };
 }
 
 // ===========================================================================

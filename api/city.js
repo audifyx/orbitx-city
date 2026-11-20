@@ -3,7 +3,7 @@ import { neon } from "@neondatabase/serverless";
 import { createClient } from "@supabase/supabase-js";
 import { Redis } from "@upstash/redis";
 import { ensureDaily, handleLive, noteEarn } from "./live.js";
-import { adBuy, adCompose, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus, adSubmit, arcadeAct, arcadeCancel, arcadeCompose, arcadeHistory, arcadeLeaders, arcadeLobby, arcadeSubmit, billboardOrbitxBuy, billboardOrbitxOrders, billboardOrbitxQuote, billboardOrbitxStatus, earlyAccessStatus, earlyAccessVerify, officeSolBuy, officeSolCompose, officeSolLeasesFor, officeSolQuote, officeSolStatus, officeSolSubmit } from "./ads.js";
+import { adBuy, adCompose, adOrdersFor, adQuote, adRemove, adRetryBurn, adStatus, adSubmit, arcadeAct, arcadeCancel, arcadeCompose, arcadeHistory, arcadeLeaders, arcadeLobby, arcadeSubmit, billboardOrbitxBuy, billboardOrbitxOrders, billboardOrbitxQuote, billboardOrbitxStatus, earlyAccessBurn, earlyAccessStatus, earlyAccessVerify, officeSolBuy, officeSolCompose, officeSolLeasesFor, officeSolQuote, officeSolStatus, officeSolSubmit } from "./ads.js";
 import { tradeCompose, tradeHoldings, tradeQuote, tradeStatus, tradeSubmit } from "./trade.js";
 import { authMode, checkReauth, handleAuthOp, looksLikeAccountToken, supabasePublic, verifyAccessToken } from "./auth.js";
 import { audit, chainShopEnabled, confirmSend, ensureWallet, exportWallet, latestBlockhash, networkName, publicBalance, quoteSend, submitSignedTx, walletView } from "./wallet.js";
@@ -6567,8 +6567,9 @@ export async function POST(request) {
   if (op === "billboard-orbitx-orders") return adReply(await billboardOrbitxOrders(adCtx, player));
 
   // Early access burn gate (2026-11-20): until the Dec 5 launch, a new
-  // player unlocks by burning $5 of ORBITX from their own wallet and
-  // pasting the transaction signature — verified on-chain, read-only
+  // player unlocks by burning $5 of ORBITX — either pasting a burn
+  // transaction signature for read-only verification, or one tap on
+  // early-access-burn, which burns from the in-game wallet itself
   // (the logic lives in ads.js with the other burn flows). The reply
   // shape is exact (no `me` mixed in): the client gate is built
   // against it.
@@ -6578,6 +6579,9 @@ export async function POST(request) {
   };
   if (op === "early-access-status") return eaReply(await earlyAccessStatus(adCtx, player, body));
   if (op === "early-access-verify") return eaReply(await earlyAccessVerify(adCtx, player, body));
+  // One-tap burn from the player's in-game wallet (the server burns
+  // exactly $5 of ORBITX from the in-app wallet and unlocks on confirm).
+  if (op === "early-access-burn") return eaReply(await earlyAccessBurn(adCtx, player, body));
 
   // Office leases in real SOL (office-sol-*): rent a suite in SOL, the
   // payment buys ORBITX and burns it all — same single-transaction
