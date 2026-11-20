@@ -223,3 +223,179 @@ export function homeBuiltins(home: HomeDef): BuiltinPiece[] {
   ];
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Collision — rotated-rect (OBB) overlap via the separating axis test.
+// ---------------------------------------------------------------------------
+// Pieces rotate in 45° steps, so axis-aligned tests are not enough: two
+// pieces can clear each other axis-aligned and still clip corners. Each
+// piece is an OBB (centre + footprint + rot); two OBBs overlap iff their
+// projections overlap on all four axes (each box's two local axes).
+//
+// The local axes match the plan's own conventions — the canvas draw
+// rotates by -rot and the hit test maps world -> local with R(+rot) —
+// so world = R(-rot) * local, giving local +x = (cos, -sin) and local
+// +z = (sin, cos) in world (x, z).
+//
+// RUGS ARE EXEMPT both ways: a rug never collides and nothing collides
+// with a rug — rugs go under furniture. The built-in rug is exempt too.
+// ---------------------------------------------------------------------------
+
+/** Structural piece shape — HomeFurniturePiece satisfies this. */
+export interface PlanPiece {
+  item: string;
+  x: number;
+  z: number;
+  rot: number;
+}
+
+/** An oriented box in world coords (centre + size + rotation). */
+export interface PlanObb {
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  rot: number;
+}
+
+/** The OBB of a placed piece, from its catalog footprint. */
+export function pieceObb(piece: PlanPiece): PlanObb {
+  const fp = furnitureFootprint(piece.item);
+  return { x: piece.x, z: piece.z, w: fp.w, d: fp.d, rot: piece.rot };
+}
+
+interface ObbFrame {
+  axx: number;
+  axz: number;
+  azx: number;
+  azz: number;
+  hw: number;
+  hd: number;
+}
+
+function obbFrame(o: PlanObb): ObbFrame {
+  const cos = Math.cos(o.rot);
+  const sin = Math.sin(o.rot);
+  return { axx: cos, axz: -sin, azx: sin, azz: cos, hw: o.w / 2, hd: o.d / 2 };
+}
+
+function obbCorners(o: PlanObb): { x: number; z: number }[] {
+  const f = obbFrame(o);
+  const out: { x: number; z: number }[] = [];
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      out.push({
+        x: o.x + f.axx * f.hw * sx + f.azx * f.hd * sz,
+        z: o.z + f.axz * f.hw * sx + f.azz * f.hd * sz,
+      });
+    }
+  }
+  return out;
+}
+
+/** Touching edges do NOT count as overlap — pieces may sit flush. */
+const SAT_EPS = 1e-4;
+
+/** Do two oriented boxes overlap? (Separating axis test, 4 axes.) */
+export function obbOverlap(a: PlanObb, b: PlanObb): boolean {
+  const fa = obbFrame(a);
+  const fb = obbFrame(b);
+  const ca = obbCorners(a);
+  const cb = obbCorners(b);
+  const axes: [number, number][] = [
+    [fa.axx, fa.axz],
+    [fa.azx, fa.azz],
+    [fb.axx, fb.axz],
+    [fb.azx, fb.azz],
+  ];
+  for (const [ux, uz] of axes) {
+    let minA = Infinity;
+    let maxA = -Infinity;
+    let minB = Infinity;
+    let maxB = -Infinity;
+    for (const p of ca) {
+      const v = p.x * ux + p.z * uz;
+      if (v < minA) minA = v;
+      if (v > maxA) maxA = v;
+    }
+    for (const p of cb) {
+      const v = p.x * ux + p.z * uz;
+      if (v < minB) minB = v;
+      if (v > maxB) maxB = v;
+    }
+    if (maxA <= minB + SAT_EPS || maxB <= minA + SAT_EPS) return false;
+  }
+  return true;
+}
+
+/** Do two placed pieces overlap? Rugs never overlap anything. */
+export function piecesOverlap(a: PlanPiece, b: PlanPiece): boolean {
+  if (a.item === "rug" || b.item === "rug") return false;
+  return obbOverlap(pieceObb(a), pieceObb(b));
+}
+
+function obbInsideRect(o: PlanObb, r: { x0: number; z0: number; x1: number; z1: number }): boolean {
+  for (const p of obbCorners(o)) {
+    if (p.x < r.x0 - SAT_EPS || p.x > r.x1 + SAT_EPS || p.z < r.z0 - SAT_EPS || p.z > r.z1 + SAT_EPS) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Would `piece` collide in `home`? Tests interior containment (every
+ * OBB corner inside the interior rect), the built-ins (axis-aligned;
+ * the built-in rug is exempt) and every piece in `others` (pass the
+ * placed list WITHOUT the piece itself). Rugs never collide.
+ */
+export function pieceCollides(home: HomeDef, piece: PlanPiece, others: PlanPiece[]): boolean {
+  if (piece.item === "rug") return false;
+  const obb = pieceObb(piece);
+  if (!obbInsideRect(obb, homeInteriorRect(home))) return true;
+  for (const b of homeBuiltins(home)) {
+    if (b.kind === "rug") continue;
+    if (obbOverlap(obb, { x: b.x, z: b.z, w: b.w, d: b.d, rot: 0 })) return true;
+  }
+  for (const other of others) {
+    if (other === piece || other.item === "rug") continue;
+    if (obbOverlap(obb, pieceObb(other))) return true;
+  }
+  return false;
+}
+
+/**
+ * Smart spawn: the first free spot for `item` (at rot 0), scanning
+ * snap-grid candidate centres in expanding square rings from `origin`
+ * (default: the interior centre) outward. Returns null when the home
+ * has no clear spot left — the caller falls back to a plain centre
+ * spawn. Candidates must fit the interior at rot 0 and pass
+ * pieceCollides against `others`.
+ */
+export function findFreeSpot(
+  home: HomeDef,
+  item: string,
+  others: PlanPiece[],
+  origin?: { x: number; z: number },
+): { x: number; z: number } | null {
+  const interior = homeInteriorRect(home);
+  const fp = furnitureFootprint(item);
+  const cx = origin?.x ?? (interior.x0 + interior.x1) / 2;
+  const cz = origin?.z ?? (interior.z0 + interior.z1) / 2;
+  const maxSteps = Math.ceil(
+    Math.max(interior.x1 - interior.x0, interior.z1 - interior.z0) / HOME_PLAN_SNAP,
+  );
+  for (let steps = 0; steps <= maxSteps; steps++) {
+    for (let i = -steps; i <= steps; i++) {
+      for (let j = -steps; j <= steps; j++) {
+        if (Math.max(Math.abs(i), Math.abs(j)) !== steps) continue;
+        const x = snapToGrid(cx + i * HOME_PLAN_SNAP);
+        const z = snapToGrid(cz + j * HOME_PLAN_SNAP);
+        if (x - fp.w / 2 < interior.x0 || x + fp.w / 2 > interior.x1) continue;
+        if (z - fp.d / 2 < interior.z0 || z + fp.d / 2 > interior.z1) continue;
+        if (!pieceCollides(home, { item, x, z, rot: 0 }, others)) return { x, z };
+      }
+    }
+  }
+  return null;
+}
