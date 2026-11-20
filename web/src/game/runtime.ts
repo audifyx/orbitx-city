@@ -765,7 +765,11 @@ export interface Snap {
   carrying: boolean;
   hqIndex: number;
   banner: string;
-  talk: { name: string; role: string; line: string; index: number; total: number; jobId: string; jobName: string; offerLabel: string } | null;
+  talk: { name: string; role: string; line: string; index: number; total: number; jobId: string; jobName: string; offerLabel: string; canRob: boolean; robLabel: string } | null;
+  /** CRIME: wanted stars (0-5) — robberies raise them, escaping lowers them. */
+  wanted: number;
+  /** COPS: a traffic car is close enough to pull over. */
+  trafficNear: boolean;
   photos: { taken: number; spots: string[] };
   wishes: number;
   // Mission chain + new earning (fix-client): server is the authority.
@@ -2063,8 +2067,32 @@ export function createRuntime(scene: Scene) {
     speed: number;
     name: string;
     stoppedUntil: number;
+    ticketed: boolean;
   }
   const traffic: TrafficCar[] = [];
+  // CRIME + COPS: the wanted level, the bust meter, the escape timer,
+  // and the robbery channel. Cop cars park on the plaza's south-east
+  // edge and roll out when the wanted level rises.
+  let wanted = 0;
+  let bustMeter = 0;
+  let clearTimer = 0;
+  let robEndsAt = 0;
+  let robNpcIndex = -1;
+  const robReadyAt = new Map<string, number>();
+  const ROB_TARGETS: Record<string, { stars: number; min: number; max: number; label: string }> = {
+    Ada: { stars: 2, min: 150, max: 300, label: "Rob the bank" },
+    Sol: { stars: 1, min: 60, max: 120, label: "Rob the shop" },
+    Milo: { stars: 1, min: 50, max: 100, label: "Rob the grocery" },
+  };
+  interface CopCar {
+    group: Group;
+    x: number;
+    z: number;
+    yaw: number;
+    parkX: number;
+    parkZ: number;
+  }
+  const copCars: CopCar[] = [];
   const TRAFFIC_LOOPS: Array<Array<{ x: number; z: number }>> = [
     [
       { x: -56, z: 50 },
@@ -3430,7 +3458,31 @@ export function createRuntime(scene: Scene) {
         speed: cast.speed,
         name: cast.driver,
         stoppedUntil: 0,
+        ticketed: false,
       });
+    });
+    // COPS: two patrol cars with light bars, parked by the plaza.
+    copCars.length = 0;
+    const COP_PARKS = [
+      { x: 26, z: 2 },
+      { x: 30, z: 7 },
+    ];
+    COP_PARKS.forEach((park, index) => {
+      const group = buildVehicle("city-sedan", "black");
+      const bar = new Group();
+      const redLamp = new Mesh(new BoxGeometry(0.5, 0.18, 0.4), new MeshStandardMaterial({ color: 0xd42427, emissive: 0x7a0d0f }));
+      redLamp.position.set(-0.32, 0, 0);
+      const blueLamp = new Mesh(new BoxGeometry(0.5, 0.18, 0.4), new MeshStandardMaterial({ color: 0x2456d6, emissive: 0x0d2470 }));
+      blueLamp.position.set(0.32, 0, 0);
+      bar.add(redLamp, blueLamp);
+      bar.position.set(0, 1.62, -0.1);
+      group.add(bar);
+      const officer = makePerson(index ? "cyan" : "black", "cap");
+      officer.position.set(-0.36, -0.52, 0.1);
+      group.add(officer);
+      group.position.set(park.x, 0, park.z);
+      root.add(group);
+      copCars.push({ group, x: park.x, z: park.z, yaw: -Math.PI / 2, parkX: park.x, parkZ: park.z });
     });
     // Activity markers (labels only — no new geometry): the dance floor in
     // the hall and the three photo spots.
@@ -3657,6 +3709,8 @@ export function createRuntime(scene: Scene) {
       carFlying: driving && carIndex >= 0 && !!(cars[carIndex] && (cars[carIndex].alt > 0 || cars[carIndex].autoAlt != null)),
       fuelPct: driving && carIndex >= 0 && cars[carIndex] ? Math.round(fuelOf(cars[carIndex])) : -1,
       fuelEv: driving && carIndex >= 0 && cars[carIndex] ? carIsEv(cars[carIndex]) : false,
+      wanted,
+      trafficNear: lastBody ? !!nearestTrafficCar(lastBody, 16) : false,
       ridingBoard: driving && carIndex >= 0 && !!driveParams && driveParams.pushToGo,
       ridingTrain,
       transport: {
@@ -4693,6 +4747,8 @@ export function createRuntime(scene: Scene) {
       jobId,
       jobName: jobId ? jobTitle(jobId) : "",
       offerLabel: info?.offer?.label ?? "",
+      canRob: !!ROB_TARGETS[npc.name] && Date.now() >= (robReadyAt.get(npc.name) ?? 0),
+      robLabel: ROB_TARGETS[npc.name]?.label ?? "",
     };
     panel = "talk";
     // VOICES: the NPC speaks their script aloud; the rest of the
@@ -4968,6 +5024,121 @@ export function createRuntime(scene: Scene) {
       car.z += Math.cos(car.yaw) * step;
       car.group.position.set(car.x, 0, car.z);
       car.group.rotation.y = car.yaw;
+    }
+  }
+
+  function nearestTrafficCar(body: Body, max: number): TrafficCar | null {
+    let best: TrafficCar | null = null;
+    let bestD = max;
+    for (const car of traffic) {
+      const d = Math.hypot(car.x - body.x, car.z - body.z);
+      if (d < bestD) {
+        best = car;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  // CRIME: the robbery channel — stand with the victim for 3.5s.
+  function tickRob(body: Body) {
+    if (!robEndsAt) return;
+    const npc = npcs[robNpcIndex];
+    if (!npc || Math.hypot(npc.x - body.x, npc.z - body.z) > 5) {
+      robEndsAt = 0;
+      robNpcIndex = -1;
+      say("Robbery blown — you walked away.");
+      publish();
+      return;
+    }
+    if (Date.now() >= robEndsAt) {
+      const target = ROB_TARGETS[npc.name];
+      robEndsAt = 0;
+      robNpcIndex = -1;
+      if (!target) return;
+      const payout = target.min + Math.floor(Math.random() * (target.max - target.min + 1));
+      robReadyAt.set(npc.name, Date.now() + 600000);
+      wanted = Math.min(5, wanted + target.stars);
+      // The victim runs from the player (flee points are threats).
+      npc.fleeUntil = clock + 7;
+      npc.fleeX = body.x;
+      npc.fleeZ = body.z;
+      talk = null;
+      talkLines = [];
+      talkNpc = -1;
+      panel = "";
+      say(earn(wallet, payout, "Robbery"));
+      notify("CRIME", `You robbed ${npc.name} — wanted level ${wanted}. The cops are rolling.`, "job");
+      triggerHaptic("jobPay");
+      publish();
+    }
+  }
+
+  function busted() {
+    const fine = Math.min(wallet.balance, wanted * 60);
+    if (fine > 0) spend(wallet, fine, "fine");
+    wanted = 0;
+    bustMeter = 0;
+    clearTimer = 0;
+    notify("BUSTED", fine > 0 ? `The cops got you — ${fine} City Sol fine.` : "The cops got you. Wallet's empty, so they let you walk.", "job");
+    say("Busted! The heat is off — and so is some of your City Sol.");
+    publish();
+  }
+
+  // COPS: patrol cars chase while wanted, park when the city is quiet.
+  // Staying close to a stopped or slow player fills the bust meter;
+  // breaking away (75+ units) bleeds the wanted level off star by star.
+  function tickCops(dt: number, body: Body) {
+    let nearestCop = Infinity;
+    for (const cop of copCars) {
+      const chasing = wanted > 0;
+      const tx = chasing ? body.x : cop.parkX;
+      const tz = chasing ? body.z : cop.parkZ;
+      const dx = tx - cop.x;
+      const dz = tz - cop.z;
+      const dist = Math.hypot(dx, dz);
+      if (chasing) nearestCop = Math.min(nearestCop, dist);
+      const arrive = chasing ? 5.5 : 0.8;
+      if (dist > arrive) {
+        const want = Math.atan2(dx, dz);
+        let diff = want - cop.yaw;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        const maxTurn = 2.1 * dt;
+        cop.yaw += Math.max(-maxTurn, Math.min(maxTurn, diff));
+        const speed = chasing ? 13.5 : 8;
+        const step = Math.min(dist - (chasing ? 4.5 : 0), speed * Math.max(0.3, Math.cos(diff)) * dt);
+        if (step > 0) {
+          cop.x += Math.sin(cop.yaw) * step;
+          cop.z += Math.cos(cop.yaw) * step;
+        }
+      }
+      cop.group.position.set(cop.x, 0, cop.z);
+      cop.group.rotation.y = cop.yaw;
+    }
+    if (wanted <= 0) {
+      bustMeter = 0;
+      clearTimer = 0;
+      return;
+    }
+    const airborne = driving && carIndex >= 0 && !!cars[carIndex] && cars[carIndex].alt > 3;
+    if (!airborne && nearestCop < 6.5 && (!driving || Math.abs(carSpeed) < 2)) {
+      bustMeter += dt;
+      if (bustMeter > 3.5) busted();
+    } else {
+      bustMeter = Math.max(0, bustMeter - dt * 1.5);
+    }
+    if (nearestCop > 75) {
+      clearTimer += dt;
+      if (clearTimer > 8) {
+        clearTimer = 0;
+        wanted -= 1;
+        if (wanted > 0) say(`Heat's dying down — ${wanted} star${wanted > 1 ? "s" : ""} left.`);
+        else say("You lost them. The city's quiet again.");
+        publish();
+      }
+    } else {
+      clearTimer = 0;
     }
   }
 
@@ -5428,6 +5599,18 @@ export function createRuntime(scene: Scene) {
       parcel = "";
       burst(PARCEL_DELIVER.x, 2.2, PARCEL_DELIVER.z);
       say(earn(wallet, PARCEL_REWARD, "Parcel run (Bank → Library)"));
+      triggerHaptic("jobPay");
+      publish();
+      return;
+    }
+    // COPS: write the ticket at a pulled-over driver's window.
+    const stoppedCar = nearestTrafficCar(body, 3.2);
+    if (stoppedCar && clock < stoppedCar.stoppedUntil && !stoppedCar.ticketed) {
+      stoppedCar.ticketed = true;
+      stoppedCar.stoppedUntil = clock + 3;
+      const fine = 25 + Math.floor(Math.random() * 31);
+      say(earn(wallet, fine, `Ticket — ${stoppedCar.name}`));
+      speakNpc(stoppedCar.name, "Driver", "Sorry, officer — won't happen again.");
       triggerHaptic("jobPay");
       publish();
       return;
@@ -8276,6 +8459,8 @@ export function createRuntime(scene: Scene) {
       tickTraffic(dt);
       tickWash(body);
       tickFuel(body);
+      tickRob(body);
+      tickCops(dt, body);
     }
     // PEOPLE: a party or a guest that ran out while no panel was open
     // clears itself — no stale guest standing in the home, no party tag
@@ -12668,6 +12853,44 @@ export function createRuntime(scene: Scene) {
       const next = (talk.index + 1) % talkLines.length;
       talk = { ...talk, line: talkLines[next], index: next };
       speakNpc(talk.name, talk.role, talk.line);
+      publish();
+    },
+    // CRIME: rob the NPC you're talking to (bank teller, shopkeeper,
+    // grocery cashier). A 3.5s channel — walk away and it's blown.
+    robNpc() {
+      if (!talk || talkNpc < 0 || robEndsAt) return;
+      const npc = npcs[talkNpc];
+      const target = npc ? ROB_TARGETS[npc.name] : null;
+      if (!npc || !target) return;
+      if (Date.now() < (robReadyAt.get(npc.name) ?? 0)) {
+        say("They're still shaken from the last time — the till's empty.");
+        return;
+      }
+      robEndsAt = Date.now() + 3500;
+      robNpcIndex = talkNpc;
+      const reaction = "P-please — take the till, just don't hurt anyone!";
+      talk = { ...talk, line: reaction, canRob: false };
+      speakNpc(npc.name, talk.role, reaction);
+      say(`${target.label} — hold your ground…`);
+      publish();
+    },
+    // COPS: pull over the nearest traffic car. Walk to its window and
+    // press E to write the ticket.
+    pullOver() {
+      const car = lastBody ? nearestTrafficCar(lastBody, 16) : null;
+      if (!car) {
+        say("No traffic close enough to pull over.");
+        publish();
+        return;
+      }
+      if (clock < car.stoppedUntil) {
+        say(`${car.name} is already stopped.`);
+        publish();
+        return;
+      }
+      car.stoppedUntil = clock + 14;
+      car.ticketed = false;
+      say(`${car.name} is pulling over — walk to the driver's window and press E to write the ticket.`);
       publish();
     },
     // VOICES: panel hooks — stop speech when the talk closes, and the

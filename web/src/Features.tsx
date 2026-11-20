@@ -118,6 +118,11 @@ function Talk({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
           {talk.offerLabel}
         </button>
       )}
+      {talk.canRob && (
+        <button type="button" className="danger" onClick={() => rt?.robNpc()}>
+          {talk.robLabel} — hold-up (wanted stars)
+        </button>
+      )}
       {talk.jobId && (
         <button
           type="button"

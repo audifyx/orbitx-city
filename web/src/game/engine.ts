@@ -842,6 +842,7 @@ export function createGame(
     }
     if (event.code === "KeyX" && !event.repeat) runtime.editHome();
     if (event.code === "KeyO" && !event.repeat) runtime.toggleSpectator();
+    if (event.code === "KeyH" && !event.repeat) runtime.pullOver();
     if (event.code === "KeyU" && !event.repeat) runtime.toggleHud();
     if (event.code === "KeyI" && !event.repeat) runtime.toggleNames();
     if (event.code === "KeyL" && !event.repeat) runtime.toggleOrbit();

@@ -294,6 +294,8 @@ const EMPTY: Snap = {
   carFlying: false,
   fuelPct: -1,
   fuelEv: false,
+  wanted: 0,
+  trafficNear: false,
   ridingBoard: false,
   ridingTrain: false,
   transport: {
@@ -1842,6 +1844,11 @@ export default function App() {
               {snap.fuelEv ? "CHARGE" : "FUEL"} {snap.fuelPct}%{snap.fuelPct <= 0 ? " — LIMP MODE" : ""}
             </span>
           ) : null}
+          {snap.wanted > 0 ? (
+            <span className="driving-chip" style={{ background: "#7a1616", color: "#fff" }}>
+              {"★".repeat(snap.wanted)}{"☆".repeat(5 - snap.wanted)} WANTED
+            </span>
+          ) : null}
           {snap.drivingTrain ? <span className="driving-chip">DRIVING THE LOOP TRAIN</span> : null}
           {snap.holder ? <span>HOLDER</span> : null}
           {snap.voiceProvider && snap.voiceProvider !== "off" ? (
@@ -2097,6 +2104,10 @@ export default function App() {
                 this takes the driver's seat instead. */}
             {snap.canDriveLoopTrain ? (
               <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.driveLoopTrain(); }}>Drive</button>
+            ) : null}
+            {/* COPS: pull over nearby traffic (also the H key). */}
+            {snap.trafficNear ? (
+              <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.pullOver(); }}>Pull over</button>
             ) : null}
             <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.cycleCamera(); }}>Camera</button>
             {/* Chat / Shop / Grocery / Emote / Clip used to live here — moved
