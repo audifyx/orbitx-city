@@ -2289,6 +2289,7 @@ export default function App() {
           rt={gameRef.current?.runtime ?? null}
           onClose={close}
           onOpenPanel={(name) => open(name)}
+          onOpenShop={(tab) => openShop(tab)}
           socialNode={<Phone snap={snap} rt={gameRef.current?.runtime ?? null} onLogout={() => {
             void signOutAccount().then(() => {
               close();

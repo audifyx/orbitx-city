@@ -3356,6 +3356,19 @@ body.touch .touch-ui {
   --ph-grad-scanner: linear-gradient(165deg, #3cc8dc, #14708f);
   --ph-grad-social: linear-gradient(165deg, #82b2ff, #386cd2);
   --ph-grad-wallet: linear-gradient(165deg, #cb9c40, #79550e);
+  --ph-grad-shop: linear-gradient(165deg, #ecd27c, #a87e14);
+  --ph-grad-grocery: linear-gradient(165deg, #aebfd2, #54687f);
+  --ph-grad-arcade: linear-gradient(165deg, #5f8dff, #274b9f);
+  --ph-grad-leaders: linear-gradient(165deg, #f0c95e, #9a7410);
+  --ph-grad-ads: linear-gradient(165deg, #98a2b3, #4a5261);
+  --ph-grad-players: linear-gradient(165deg, #8fb0dd, #476b99);
+  --ph-grad-profile: linear-gradient(165deg, #d3d7de, #767c88);
+  --ph-grad-alerts: linear-gradient(165deg, #ffc44d, #cc8512);
+  --ph-grad-offices: linear-gradient(165deg, #87a3c7, #40608c);
+  --ph-grad-myprops: linear-gradient(165deg, #dcb964, #8a6a1c);
+  --ph-grad-transport: linear-gradient(165deg, #4f9be0, #1753a3);
+  --ph-grad-multiverse: linear-gradient(165deg, #7d8fe3, #2f3f96);
+  --ph-grad-events: linear-gradient(165deg, #e3ac45, #9c6b12);
   width: min(400px, 100%);
   height: min(780px, calc(100dvh - 20px));
   border-radius: 46px;
@@ -3536,6 +3549,21 @@ body.touch .touch-ui {
 .ph-icon-scanner { background: var(--ph-grad-scanner); }
 .ph-icon-social { background: var(--ph-grad-social); }
 .ph-icon-wallet { background: var(--ph-grad-wallet); }
+.ph-icon-shop { background: var(--ph-grad-shop); }
+.ph-icon-grocery { background: var(--ph-grad-grocery); }
+.ph-icon-arcade { background: var(--ph-grad-arcade); }
+.ph-icon-leaders { background: var(--ph-grad-leaders); }
+.ph-icon-ads { background: var(--ph-grad-ads); }
+.ph-icon-players { background: var(--ph-grad-players); }
+.ph-icon-profile { background: var(--ph-grad-profile); }
+.ph-icon-alerts { background: var(--ph-grad-alerts); }
+.ph-icon-offices { background: var(--ph-grad-offices); }
+.ph-icon-myprops { background: var(--ph-grad-myprops); }
+.ph-icon-transport { background: var(--ph-grad-transport); }
+.ph-icon-multiverse { background: var(--ph-grad-multiverse); }
+.ph-icon-events { background: var(--ph-grad-events); }
+/* Launcher app hero: the app icon rides the card like an iOS app page. */
+.ph-launch-hero .ph-icon { margin-bottom: 7px; }
 .ph-tile-label {
   font-size: 11.5px;
   font-weight: 500;

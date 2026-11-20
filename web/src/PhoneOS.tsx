@@ -17,7 +17,7 @@
 // ---------------------------------------------------------------------------
 
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import type { PanelName, RadioTrack, Runtime, Snap } from "./game/runtime";
+import type { PanelName, RadioTrack, Runtime, ShopTab, Snap } from "./game/runtime";
 import { CHARGE_POINTS, GAS_STATIONS, NPC_LINES } from "./game/content";
 import { PROXIMITY_RANGE, VOICE_FILTERS } from "./game/voice";
 import { speakNpc } from "./game/npcvoice";
@@ -50,7 +50,8 @@ export interface PhoneOSProps {
   snap: Snap;
   rt: Runtime | null;
   onClose: () => void;
-  onOpenPanel: (name: PanelName) => void;
+  onOpenPanel: (name: PanelName | "offices") => void;
+  onOpenShop: (tab: ShopTab) => void;
   socialNode: ReactNode;
   radio: PhoneRadio;
   onPhotoMode: () => void;
@@ -70,6 +71,19 @@ type AppId =
   | "burner"
   | "settings"
   | "people"
+  | "shop"
+  | "grocery"
+  | "arcade"
+  | "leaders"
+  | "ads"
+  | "players"
+  | "profile"
+  | "alerts"
+  | "offices"
+  | "myprops"
+  | "transport"
+  | "multiverse"
+  | "events"
   | "orbitx"
   | "dex"
   | "hubdex"
@@ -174,6 +188,19 @@ const ICONS: Record<string, ReactNode> = {
   burner: <I d="M12 3.5c.8 3-1.8 4.6-2.9 6.2C8 11.4 7.5 12.8 7.5 14.5a4.5 4.5 0 0 0 9 0c0-1-.4-1.9-.9-2.8-.9 1-1.5 1.4-1.5 1.4.3-2.7-.6-5.7-2.1-7.6z" />,
   settings: <I d="M5 7h6 M15 7h4 M5 12h2 M11 12h8 M5 17h10 M19 17h0" extra={<><circle cx="13" cy="7" r="2" /><circle cx="9" cy="12" r="2" /><circle cx="17" cy="17" r="2" /></>} />,
   people: <I d="M9 11a3.2 3.2 0 1 0 0-6.4A3.2 3.2 0 0 0 9 11z M2.8 19.5a6.2 6.2 0 0 1 12.4 0 M16 5.2a3.2 3.2 0 0 1 0 6 M17.5 13.6a6.2 6.2 0 0 1 3.7 5.9" />,
+  shop: <I d="M5 8h14l-1.1 11.2a2 2 0 0 1-2 1.8H8.1a2 2 0 0 1-2-1.8L5 8z M8.5 10.5V6.8a3.5 3.5 0 0 1 7 0v3.7" />,
+  grocery: <I d="M3 4h2.3l2.2 11.1a1.9 1.9 0 0 0 1.9 1.5h7.7a1.9 1.9 0 0 0 1.9-1.5L20.5 8H6.1" extra={<><circle cx="10" cy="20" r="1.4" /><circle cx="17" cy="20" r="1.4" /></>} />,
+  arcade: <I d="M7.5 8h9A4.8 4.8 0 0 1 21.3 12.8v3A2.9 2.9 0 0 1 16.6 18l-1.9-2h-5.4l-1.9 2a2.9 2.9 0 0 1-4.7-2.2v-3A4.8 4.8 0 0 1 7.5 8z" extra={<><path d="M8 11v3 M6.5 12.5h3" /><circle cx="15.8" cy="11.8" r="0.7" fill="currentColor" stroke="none" /><circle cx="17.8" cy="13.8" r="0.7" fill="currentColor" stroke="none" /></>} />,
+  leaders: <I d="M7.5 4h9v4.8a4.5 4.5 0 0 1-9 0z M7.5 5.8H4.6a3 3 0 0 0 2.9 3.2 M16.5 5.8h2.9a3 3 0 0 1-2.9 3.2 M12 13.3V16 M8.8 20h6.4 M12 16c-1.5 0-2.3 1.4-2.6 4h5.2c-.3-2.6-1.1-4-2.6-4z" />,
+  ads: <I d="M4 4.5h16V14H4z M12 14v6.5 M8 20.5h8" extra={<path d="M7 8h6.5 M7 11h4" />} />,
+  players: <I d="M9 6.5h10.5 M9 12h10.5 M9 17.5h10.5" extra={<><circle cx="5" cy="6.5" r="1.6" /><circle cx="5" cy="12" r="1.6" /><circle cx="5" cy="17.5" r="1.6" /></>} />,
+  profile: <I d="M4 5.5h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1z" extra={<><circle cx="8.6" cy="10.8" r="1.9" /><path d="M5.8 16.6a2.9 2.9 0 0 1 5.6 0 M14.5 9.5h4 M14.5 13h4" /></>} />,
+  alerts: <I d="M6 16.5v-5.3a6 6 0 0 1 12 0v5.3l1.1 2.7H4.9z M10.1 21a2.1 2.1 0 0 0 3.8 0" />,
+  offices: <I d="M5.5 20.5v-15A1.5 1.5 0 0 1 7 4h6a1.5 1.5 0 0 1 1.5 1.5v15 M14.5 9.5H18A1.5 1.5 0 0 1 19.5 11v9.5 M3 20.5h18" extra={<path d="M8.2 8h3.6 M8.2 11.5h3.6 M8.2 15h3.6" />} />,
+  myprops: <I d="M4 11.2 12 4l8 7.2 M6.2 9.3V20h11.6V9.3 M10.3 20v-4.8h3.4V20" />,
+  transport: <I d="M5 4.5h14A1.5 1.5 0 0 1 20.5 6v9.5a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 15.5V6A1.5 1.5 0 0 1 5 4.5z M3.5 11h17 M7.5 20v-3 M16.5 20v-3" extra={<><circle cx="7.5" cy="14" r="0.7" fill="currentColor" stroke="none" /><circle cx="16.5" cy="14" r="0.7" fill="currentColor" stroke="none" /></>} />,
+  multiverse: <I d="M3.5 12h17" extra={<><circle cx="12" cy="12" r="8.5" /><path d="M12 3.5c2.5 2.4 3.8 5.2 3.8 8.5s-1.3 6.1-3.8 8.5c-2.5-2.4-3.8-5.2-3.8-8.5S9.5 5.9 12 3.5z" /></>} />,
+  events: <I d="M5 6.5h14V20H5z M5 10.5h14 M8.5 4v4 M15.5 4v4" extra={<path d="m12 13.2.9 1.9 2.1.3-1.5 1.5.3 2.1-1.8-1-1.8 1 .3-2.1-1.5-1.5 2.1-.3z" />} />,
   orbitx: <I d="" extra={<><circle cx="12" cy="12" r="3.4" /><ellipse cx="12" cy="12" rx="9.5" ry="4" transform="rotate(-18 12 12)" /></>} />,
   dex: <I d="M7 4 3.5 7.5 7 11 M3.5 7.5H17 M17 13l3.5 3.5L17 20 M20.5 16.5H7" />,
   hubdex: <I d="M4 19.5h16 M6 16v-5 M10.5 16V8 M15 16v-3.5 M19.5 16V6.5" />,
@@ -184,8 +211,29 @@ const ICONS: Record<string, ReactNode> = {
 
 // --- The phone -----------------------------------------------------------------
 
+// Launcher apps: the old top-strip panels, one tap deeper. The app is a
+// phone-styled front door — tap Open and the phone steps aside while the
+// REAL panel opens, fully functional, exactly as it did from the strip
+// (the v39 Jobs pattern). Shop/Grocery open the unified Shop on their
+// tab; Profile goes through the runtime's own viewOwnProfile().
+const LAUNCHERS: Partial<Record<AppId, { blurb: string; cta: string }>> = {
+  shop: { blurb: "Clothes, cars, homes and more — the full OrbitX shop, paid in City Sol.", cta: "Open Shop" },
+  grocery: { blurb: "Food and drink for hunger and stamina — the shop's grocery shelves.", cta: "Open Grocery" },
+  arcade: { blurb: "The mini-games hub — coin flip, dice and the arcade floor.", cta: "Open Arcade" },
+  leaders: { blurb: "Richest, top earners, biggest burners and the fastest racers.", cta: "Open Leaderboards" },
+  ads: { blurb: "Book a billboard — your art on the city boards, paid in ORBITX and burned.", cta: "Open Ads" },
+  players: { blurb: "Everyone in the city right now — profiles, parties and invites.", cta: "Open Players" },
+  profile: { blurb: "Your city profile — homes, cars, missions and stats.", cta: "Open Profile" },
+  alerts: { blurb: "Notifications and invites — friend requests land here.", cta: "Open Alerts" },
+  offices: { blurb: "OrbitX Tower office suites — lease an office, paid in City Sol.", cta: "Open Offices" },
+  myprops: { blurb: "Your properties — the homes and lots you own across the city.", cta: "Open My Props" },
+  transport: { blurb: "Bus, train, ferry and rides — every way around the city.", cta: "Open Transport" },
+  multiverse: { blurb: "Travel between universes — same city, different crowds.", cta: "Open Multiverse" },
+  events: { blurb: "City events — what's on at the plaza and around town.", cta: "Open Events" },
+};
+
 export default function PhoneOS(props: PhoneOSProps) {
-  const { open, snap, rt, onClose, onOpenPanel, socialNode, radio, onPhotoMode, triggerHaptic } = props;
+  const { open, snap, rt, onClose, onOpenPanel, onOpenShop, socialNode, radio, onPhotoMode, triggerHaptic } = props;
   const [locked, setLocked] = useState(true);
   const [app, setApp] = useState<AppId>("home");
   const [threadId, setThreadId] = useState<string | null>(null);
@@ -343,6 +391,38 @@ export default function PhoneOS(props: PhoneOSProps) {
     onClose();
   };
 
+  // Launcher apps: hand off to the real panel. Switching App's panel
+  // (or the runtime's, for Profile) hides the phone on its own — the
+  // phone stays mounted, so coming back is instant.
+  const openLauncher = (id: AppId) => {
+    triggerHaptic("tap");
+    switch (id) {
+      case "shop": onOpenShop("clothes"); break;
+      case "grocery": onOpenShop("grocery"); break;
+      case "profile": rt?.viewOwnProfile(); break;
+      case "arcade": onOpenPanel("minigames"); break;
+      case "leaders": onOpenPanel("leaders"); break;
+      case "ads": onOpenPanel("ads"); break;
+      case "players": onOpenPanel("players"); break;
+      case "alerts": onOpenPanel("alerts"); break;
+      case "offices": onOpenPanel("offices"); break;
+      case "myprops": onOpenPanel("myprops"); break;
+      case "transport": onOpenPanel("transport"); break;
+      case "multiverse": onOpenPanel("multiverse"); break;
+      case "events": onOpenPanel("events"); break;
+      default: break;
+    }
+  };
+
+  const launcherDetail = (id: AppId): string => {
+    switch (id) {
+      case "players": return `${snap.others + 1} in the city right now`;
+      case "alerts": return snap.unreadAlerts > 0 ? `${snap.unreadAlerts} unread` : "All caught up";
+      case "profile": return `${snap.name || "Guest"} · ${snap.balance.toLocaleString()} City Sol`;
+      default: return "";
+    }
+  };
+
   const wallpaperCss = prefs.wallpaper === "shot" && prefs.wallpaperData
     ? undefined
     : (WALLPAPERS[prefs.wallpaper]?.css ?? WALLPAPERS.gold.css);
@@ -390,6 +470,19 @@ export default function PhoneOS(props: PhoneOSProps) {
     burner: "Burner",
     settings: "Settings",
     people: "People",
+    shop: "Shop",
+    grocery: "Grocery",
+    arcade: "Arcade",
+    leaders: "Leaders",
+    ads: "Ads",
+    players: "Players",
+    profile: "Profile",
+    alerts: "Alerts",
+    offices: "Offices",
+    myprops: "My Props",
+    transport: "Transport",
+    multiverse: "Multiverse",
+    events: "Events",
   };
   const appTitle = (id: AppId): string => {
     if (id === "messages" && threadId === CITY_CHAT_ID) return "City Chat";
@@ -877,6 +970,19 @@ export default function PhoneOS(props: PhoneOSProps) {
                   ) : null}
 
                   {app === "people" ? <div className="ph-people">{socialNode}</div> : null}
+
+                  {LAUNCHERS[app] ? (
+                    <div className="ph-list">
+                      <div className="ph-bank-hero ph-launch-hero">
+                        <span className={`ph-icon ph-icon-${app}`}>{ICONS[app]}</span>
+                        <b>{appTitle(app)}</b>
+                        <span>{LAUNCHERS[app]!.blurb}</span>
+                        {launcherDetail(app) ? <span>{launcherDetail(app)}</span> : null}
+                      </div>
+                      <button type="button" className="ph-big" onClick={() => openLauncher(app)}>{LAUNCHERS[app]!.cta}</button>
+                      <p className="ph-note">Opens the full {appTitle(app)} screen — the phone steps aside and it works exactly as before.</p>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -901,6 +1007,22 @@ export default function PhoneOS(props: PhoneOSProps) {
                   {tile("burner", "Burner")}
                   {tile("people", "People")}
                   {tile("settings", "Settings")}
+                </div>
+                <p className="ph-section">CITY</p>
+                <div className="ph-grid">
+                  {tile("shop", "Shop")}
+                  {tile("grocery", "Grocery")}
+                  {tile("arcade", "Arcade")}
+                  {tile("leaders", "Leaders")}
+                  {tile("ads", "Ads")}
+                  {tile("players", "Players")}
+                  {tile("profile", "Profile")}
+                  {tile("alerts", "Alerts", snap.unreadAlerts)}
+                  {tile("offices", "Offices")}
+                  {tile("myprops", "My Props")}
+                  {tile("transport", "Transport")}
+                  {tile("multiverse", "Multiverse")}
+                  {tile("events", "Events")}
                 </div>
                 <p className="ph-section">ORBITX</p>
                 <div className="ph-grid">
