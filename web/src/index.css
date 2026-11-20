@@ -8,6 +8,106 @@ body,
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
+/* ------------------------------------------------------------------ */
+/* ORBITX OS DESIGN SYSTEM (v45) — one language for every surface:    */
+/* dark frosted glass, hairline borders, gold accents, rounded        */
+/* geometry, spring motion. The phone (bottom of this file) set the   */
+/* bar; panels, menus, HUD and intro all consume these tokens now.    */
+/* Contrast law: white/bright text on dark glass, black text on gold. */
+/* ------------------------------------------------------------------ */
+:root {
+  --ox-gold: #e0b33a;
+  --ox-gold-bright: #f2cc60;
+  --ox-gold-deep: #b57f10;
+  --ox-blue: #60a5fa;
+  --ox-ink: #020611;
+  --ox-glass: rgba(13, 18, 32, 0.72);
+  --ox-glass-strong: rgba(7, 11, 22, 0.92);
+  --ox-glass-soft: rgba(255, 255, 255, 0.05);
+  --ox-glass-softer: rgba(255, 255, 255, 0.035);
+  --ox-hairline: rgba(255, 255, 255, 0.13);
+  --ox-hairline-soft: rgba(255, 255, 255, 0.08);
+  --ox-hairline-gold: rgba(224, 179, 58, 0.55);
+  --ox-hairline-blue: rgba(96, 165, 250, 0.3);
+  --ox-text-dim: #d7e3fc;
+  --ox-r-lg: 22px;
+  --ox-r-md: 16px;
+  --ox-r-sm: 12px;
+  --ox-r-pill: 999px;
+  --ox-shadow: 0 24px 64px rgba(0, 0, 0, 0.66), 0 4px 18px rgba(0, 0, 0, 0.45);
+  --ox-shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.5);
+  --ox-blur: blur(14px) saturate(1.35);
+  --ox-blur-soft: blur(10px) saturate(1.3);
+  --ox-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ox-spring: cubic-bezier(0.3, 1.35, 0.4, 1);
+}
+
+/* Shared utilities — new markup should reach for these first. */
+.ox-glass {
+  background: var(--ox-glass);
+  -webkit-backdrop-filter: var(--ox-blur);
+  backdrop-filter: var(--ox-blur);
+  border: 1px solid var(--ox-hairline);
+  border-radius: var(--ox-r-lg);
+  box-shadow: var(--ox-shadow-soft);
+}
+
+.ox-card {
+  background: var(--ox-glass-soft);
+  border: 1px solid var(--ox-hairline-soft);
+  border-radius: var(--ox-r-md);
+}
+
+.ox-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--ox-r-pill);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--ox-hairline);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.ox-btn-ghost {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+  border: 1px solid var(--ox-hairline);
+}
+
+.ox-btn-ghost:active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Dim-but-readable secondary text on dark surfaces (was unstyled). */
+.muted {
+  color: var(--ox-text-dim);
+}
+
+/* Shared entrance: a soft rise (transform/opacity only, perf-safe). */
+@keyframes ox-rise {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ox-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .menu-hero,
+  .menu-actions,
+  .menu-features,
+  .char-card {
+    animation: none !important;
+  }
+}
+
 .view {
   position: fixed;
   inset: 0;
@@ -603,24 +703,57 @@ label {
 }
 
 input {
-  background: #050e21;
+  background: rgba(5, 10, 22, 0.85);
   color: #ffffff;
-  border: 1px solid #60a5fa;
-  padding: 8px 10px;
+  border: 1px solid var(--ox-hairline-blue);
+  border-radius: var(--ox-r-sm);
+  padding: 9px 12px;
   width: 180px;
   font: inherit;
 }
 
+select {
+  background: rgba(5, 10, 22, 0.85);
+  color: #ffffff;
+  border: 1px solid var(--ox-hairline-blue);
+  border-radius: var(--ox-r-sm);
+  padding: 9px 10px;
+  font: inherit;
+}
+
+textarea {
+  background: rgba(5, 10, 22, 0.85);
+  color: #ffffff;
+  border: 1px solid var(--ox-hairline-blue);
+  border-radius: var(--ox-r-sm);
+  padding: 9px 12px;
+  font: inherit;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  border-color: var(--ox-gold);
+  outline: 2px solid rgba(224, 179, 58, 0.4);
+  outline-offset: 0;
+}
+
 button {
   margin-top: 16px;
-  background: #e0b33a;
+  background: linear-gradient(180deg, var(--ox-gold-bright), var(--ox-gold));
   color: #000000;
   border: none;
+  border-radius: 14px;
   font-weight: 800;
   letter-spacing: 0.16em;
   padding: 12px 42px;
   font-size: 18px;
   cursor: pointer;
+  transition: transform 0.18s var(--ox-ease), opacity 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+button:active {
+  transform: scale(0.97);
 }
 
 button:disabled {
