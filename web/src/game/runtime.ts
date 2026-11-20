@@ -12970,6 +12970,33 @@ export function createRuntime(scene: Scene) {
       } else {
         startBoxingFight("sal");
       }
+    } else if (shot === "modes" || shot === "hijack" || shot === "heist") {
+      // STREET MODES probes: the Jobs panel's Modes section, an armed
+      // hijack (body beside the marked car), a heist mid-crack (body
+      // standing in the vault zone so the crack clock runs).
+      body.flying = false;
+      body.y = 0;
+      if (shot === "modes") {
+        body.x = 14;
+        body.z = 12;
+        body.yaw = -Math.PI / 2;
+        body.pitch = 0.06;
+        panel = "jobs";
+      } else if (shot === "hijack") {
+        startHijackMode();
+        if (mode?.kind === "hijack") {
+          body.x = mode.run.car.x + 5;
+          body.z = mode.run.car.z + 5;
+          body.yaw = Math.atan2(mode.run.car.x - body.x, -(mode.run.car.z - body.z));
+          body.pitch = 0.06;
+        }
+      } else {
+        startHeistMode();
+        body.x = VAULT_ZONE.x;
+        body.z = VAULT_ZONE.z;
+        body.yaw = Math.PI;
+        body.pitch = 0.06;
+      }
     } else if (shot === "garage") {
       // E-priority probe: the OrbitX Motors door anchor (208.6, -69) is
       // 6.6 units from the shop-row car (202, -69), inside the car's

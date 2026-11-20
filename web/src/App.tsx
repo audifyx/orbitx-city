@@ -522,6 +522,9 @@ function shotMode(): PlayMode | null {
     shot === "race-run" ||
     shot === "boxing" ||
     shot === "boxing-fight" ||
+    shot === "modes" ||
+    shot === "hijack" ||
+    shot === "heist" ||
     shot === "hover" ||
     shot === "arcade" ||
     shot === "trading" ||
