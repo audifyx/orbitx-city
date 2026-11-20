@@ -354,6 +354,7 @@ const EMPTY: Snap = {
   panel: "",
   homeEditId: "",
   homeWorkshopId: "",
+  homeWorkshopPreview: false,
   placedFurniture: {},
   lift: null,
   people: [],
@@ -5593,25 +5594,45 @@ export default function App() {
           );
         }
         return (
-          <HomeWorkshop
-            home={def}
-            crib={homeCrib}
-            furniture={snap.placedFurniture?.[homeId] ?? []}
-            furnitureOwned={snap.furnitureOwned}
-            balance={snap.balance}
-            onSave={(draft) => saveWorkshopDraft(homeId, draft)}
-            onBuy={async (itemId) => {
-              const rt = gameRef.current?.runtime;
-              if (!rt) return "No game running.";
-              return rt.buyFurniture(itemId);
-            }}
-            onClose={() => gameRef.current?.runtime.closeHomeWorkshop()}
-            onView3D={() => {
-              gameRef.current?.runtime.closeHomeWorkshop();
-              gameRef.current?.runtime.goToProperty(homeId);
-            }}
-            triggerHaptic={triggerHaptic}
-          />
+          <>
+            {/* While the 3D draft preview runs, the workshop stays
+                MOUNTED (its draft state must survive) but hidden — the
+                player walks the home in the world behind it. */}
+            <div style={snap.homeWorkshopPreview ? { display: "none" } : undefined}>
+              <HomeWorkshop
+                home={def}
+                crib={homeCrib}
+                furniture={snap.placedFurniture?.[homeId] ?? []}
+                furnitureOwned={snap.furnitureOwned}
+                balance={snap.balance}
+                onSave={(draft) => saveWorkshopDraft(homeId, draft)}
+                onBuy={async (itemId) => {
+                  const rt = gameRef.current?.runtime;
+                  if (!rt) return "No game running.";
+                  return rt.buyFurniture(itemId);
+                }}
+                onClose={() => gameRef.current?.runtime.closeHomeWorkshop()}
+                onView3D={(draft) => {
+                  const rt = gameRef.current?.runtime;
+                  if (!rt) return;
+                  // Preview the DRAFT (saved or not): swap the rendered
+                  // furniture (visual only), then step inside the home.
+                  rt.previewHomeFurniture(homeId, draft.furniture);
+                  rt.goToProperty(homeId);
+                }}
+                triggerHaptic={triggerHaptic}
+              />
+            </div>
+            {snap.homeWorkshopPreview ? (
+              <button
+                type="button"
+                className="ws-preview-back"
+                onClick={() => gameRef.current?.runtime.previewHomeFurniture(homeId, null)}
+              >
+                ← Back to Workshop · preview only, not saved
+              </button>
+            ) : null}
+          </>
         );
       })()}
       {menu && intro && <IntroScene onDone={endIntro} />}
