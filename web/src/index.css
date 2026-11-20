@@ -3319,8 +3319,9 @@ body.touch .touch-ui {
 }
 
 /* ------------------------------------------------------------------ */
-/* ORBITX OS — the in-game phone (PhoneOS.tsx). Black/gold, high       */
-/* contrast: every surface here is dark, so text is white throughout.  */
+/* ORBITX OS — the in-game phone (PhoneOS.tsx). iOS-grade frosted      */
+/* glass over the wallpaper, OrbitX black/gold. Every surface is       */
+/* dark glass, so text is white throughout (contrast rule).            */
 /* ------------------------------------------------------------------ */
 .ph-overlay {
   position: fixed;
@@ -3329,18 +3330,41 @@ body.touch .touch-ui {
   display: grid;
   place-items: center;
   background: rgba(2, 6, 18, 0.62);
+  backdrop-filter: blur(3px);
   padding: 10px;
 }
 .ph-frame {
   --ph-accent: #e0b33a;
+  --ph-glass: rgba(17, 17, 23, 0.55);
+  --ph-glass-strong: rgba(13, 13, 19, 0.72);
+  --ph-hairline: rgba(255, 255, 255, 0.14);
+  --ph-blur: blur(24px) saturate(1.6);
+  --ph-grad-messages: linear-gradient(165deg, #eec04a, #b57f10);
+  --ph-grad-contacts: linear-gradient(165deg, #939dab, #525966);
+  --ph-grad-map: linear-gradient(165deg, #4aa3ff, #1663d9);
+  --ph-grad-bank: linear-gradient(165deg, #d4af37, #87620f);
+  --ph-grad-jobs: linear-gradient(165deg, #5f80ab, #2c4258);
+  --ph-grad-music: linear-gradient(165deg, #4170d8, #1c3270);
+  --ph-grad-camera: linear-gradient(165deg, #4c4d55, #1a1b20);
+  --ph-grad-burner: linear-gradient(165deg, #ff9a3c, #d95f14);
+  --ph-grad-people: linear-gradient(165deg, #7189ab, #3a5578);
+  --ph-grad-settings: linear-gradient(165deg, #7e838d, #383b42);
+  --ph-grad-orbitx: linear-gradient(165deg, #f2cc60, #bd8a12);
+  --ph-grad-dex: linear-gradient(165deg, #57a7ff, #1f5fd0);
+  --ph-grad-hubdex: linear-gradient(165deg, #3172d2, #163d78);
+  --ph-grad-scanner: linear-gradient(165deg, #3cc8dc, #14708f);
+  --ph-grad-social: linear-gradient(165deg, #82b2ff, #386cd2);
+  --ph-grad-wallet: linear-gradient(165deg, #cb9c40, #79550e);
   width: min(400px, 100%);
   height: min(780px, calc(100dvh - 20px));
-  border-radius: 44px;
-  border: 3px solid #2a2c33;
+  border-radius: 46px;
+  border: 1px solid #41424b;
   background: #000;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), inset 0 0 0 2px #000;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7), 0 0 0 5px #0a0a0d, inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   overflow: hidden;
   position: relative;
+  font-family: -apple-system, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 .ph-frame[data-accent="blue"] { --ph-accent: #57a7ff; }
 .ph-frame[data-accent="white"] { --ph-accent: #f5f5f5; }
@@ -3351,6 +3375,7 @@ body.touch .touch-ui {
     height: 100dvh;
     border: none;
     border-radius: 0;
+    box-shadow: none;
   }
 }
 .ph-screen {
@@ -3359,7 +3384,6 @@ body.touch .touch-ui {
   display: flex;
   flex-direction: column;
   color: #ffffff;
-  font-family: inherit;
 }
 .ph-wallpaper {
   position: absolute;
@@ -3367,63 +3391,105 @@ body.touch .touch-ui {
   background-size: cover;
   background-position: center;
 }
+/* Baked-in readability gradient: the wallpaper glows, text stays legible. */
+.ph-wallpaper::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0) 30%, rgba(0, 0, 0, 0) 60%, rgba(0, 0, 0, 0.36));
+}
+/* Status bar — clock left, Dynamic Island centre, glyphs right. */
 .ph-status {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 20px 4px;
-  font-size: 13px;
-  font-weight: 700;
+  padding: 12px 22px 4px;
+  font-size: 15px;
+  font-weight: 600;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
   z-index: 3;
 }
-.ph-notch {
-  width: 92px;
-  height: 20px;
-  border-radius: 10px;
+.ph-clock { font-variant-numeric: tabular-nums; letter-spacing: 0.2px; min-width: 52px; }
+.ph-island {
+  position: absolute;
+  left: 50%;
+  top: 7px;
+  transform: translateX(-50%);
+  height: 27px;
+  min-width: 112px;
+  max-width: 188px;
+  padding: 0 15px;
+  border-radius: 999px;
   background: #000;
-  box-shadow: inset 0 0 0 1px #1c1d22;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2px 10px rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.ph-status-right { display: flex; gap: 8px; align-items: center; }
-.ph-stars { color: var(--ph-accent); letter-spacing: 1px; }
+.ph-island-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+  text-shadow: none;
+}
+.ph-status-right { display: flex; gap: 8px; align-items: center; min-width: 52px; justify-content: flex-end; }
+.ph-glyphs { display: inline-flex; gap: 5px; align-items: center; color: #fff; }
 .ph-body {
   position: relative;
   flex: 1;
   min-height: 0;
   z-index: 2;
 }
+/* Home screen */
 .ph-home {
   position: absolute;
   inset: 0;
-  overflow-y: auto;
-  padding: 10px 16px 8px;
-}
-.ph-widget {
-  background: rgba(10, 10, 14, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 18px;
-  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  margin-bottom: 14px;
-  backdrop-filter: blur(3px);
+  animation: ph-fade-in 0.3s ease both;
 }
-.ph-widget span { font-size: 12px; color: #cfd3da; }
-.ph-widget b { font-size: 26px; color: var(--ph-accent); line-height: 1.15; }
+.ph-home-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 16px 8px;
+}
+@keyframes ph-fade-in { from { opacity: 0; transform: scale(0.985); } to { opacity: 1; transform: none; } }
+.ph-widget {
+  background: var(--ph-glass);
+  backdrop-filter: var(--ph-blur);
+  -webkit-backdrop-filter: var(--ph-blur);
+  border: 1px solid var(--ph-hairline);
+  border-radius: 24px;
+  padding: 15px 17px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 16px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+}
+.ph-widget span { font-size: 11px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: #d9dce3; }
+.ph-widget span:last-child { font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; color: #e6e9ef; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ph-widget b { font-size: 32px; font-weight: 700; color: #fff; line-height: 1.12; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
+.ph-widget b small { font-size: 15px; font-weight: 600; color: var(--ph-accent); }
 .ph-section {
-  margin: 14px 2px 6px;
+  margin: 16px 2px 8px;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 2.5px;
-  color: #e8eaee;
+  color: #eceef2;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
 }
 .ph-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 13px 8px;
+  gap: 16px 8px;
 }
 .ph-tile {
   position: relative;
@@ -3433,111 +3499,180 @@ body.touch .touch-ui {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   cursor: pointer;
   color: #ffffff;
   font: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
 .ph-icon {
-  width: 54px;
-  height: 54px;
-  border-radius: 15px;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
   background: linear-gradient(160deg, #23242b, #101116);
-  border: 1px solid rgba(255, 255, 255, 0.14);
   display: grid;
   place-items: center;
-  color: #f0f1f4;
+  color: #fff;
+  box-shadow: 0 7px 18px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transition: transform 0.18s cubic-bezier(0.3, 0.7, 0.4, 1);
 }
-.ph-icon svg { width: 27px; height: 27px; }
-.ph-icon-messages { color: #7ee787; }
-.ph-icon-camera { color: #e8eaee; }
-.ph-icon-burner { color: #ff9a3c; }
-.ph-icon-map { color: #57a7ff; }
-.ph-icon-music { color: #ff5ad0; }
-.ph-icon-orbitx, .ph-icon-dex, .ph-icon-hubdex, .ph-icon-scanner, .ph-icon-social, .ph-icon-wallet { color: var(--ph-accent); }
+.ph-tile:active .ph-icon { transform: scale(0.87); }
+.ph-icon svg { width: 28px; height: 28px; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35)); }
+.ph-icon-messages { background: var(--ph-grad-messages); }
+.ph-icon-contacts { background: var(--ph-grad-contacts); }
+.ph-icon-map { background: var(--ph-grad-map); }
+.ph-icon-bank { background: var(--ph-grad-bank); }
+.ph-icon-jobs { background: var(--ph-grad-jobs); }
+.ph-icon-music { background: var(--ph-grad-music); }
+.ph-icon-camera { background: var(--ph-grad-camera); }
+.ph-icon-burner { background: var(--ph-grad-burner); }
+.ph-icon-people { background: var(--ph-grad-people); }
+.ph-icon-settings { background: var(--ph-grad-settings); }
+.ph-icon-orbitx { background: var(--ph-grad-orbitx); }
+.ph-icon-dex { background: var(--ph-grad-dex); }
+.ph-icon-hubdex { background: var(--ph-grad-hubdex); }
+.ph-icon-scanner { background: var(--ph-grad-scanner); }
+.ph-icon-social { background: var(--ph-grad-social); }
+.ph-icon-wallet { background: var(--ph-grad-wallet); }
 .ph-tile-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+  font-size: 11.5px;
+  font-weight: 500;
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.95), 0 0 2px rgba(0, 0, 0, 0.9);
 }
 .ph-badge {
   position: absolute;
-  top: -5px;
-  right: 6px;
-  min-width: 19px;
-  height: 19px;
-  padding: 0 5px;
+  top: -6px;
+  right: 2px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
   border-radius: 10px;
-  background: #d92c2c;
+  background: #ff3b30;
   color: #ffffff;
-  font-size: 11px;
-  font-weight: 800;
+  font-size: 11.5px;
+  font-weight: 700;
   display: grid;
   place-items: center;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.45);
+  z-index: 1;
 }
 .ph-badge-inline {
   min-width: 19px;
   height: 19px;
   padding: 0 5px;
   border-radius: 10px;
-  background: #d92c2c;
+  background: #ff3b30;
   color: #fff;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   display: inline-grid;
   place-items: center;
 }
+/* Dock — frosted tray of favourites, labels off like iOS. */
+.ph-dock {
+  margin: 4px 12px 6px;
+  background: var(--ph-glass);
+  backdrop-filter: var(--ph-blur);
+  -webkit-backdrop-filter: var(--ph-blur);
+  border: 1px solid var(--ph-hairline);
+  border-radius: 28px;
+  padding: 10px 8px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.4);
+}
+.ph-dock .ph-tile-label { display: none; }
+.ph-dock .ph-icon { width: 58px; height: 58px; }
+.ph-dock .ph-badge { right: 8px; }
 /* App views */
 .ph-appview {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
-  background: rgba(8, 8, 12, 0.94);
+  background: rgba(8, 8, 12, 0.55);
+  backdrop-filter: var(--ph-blur);
+  -webkit-backdrop-filter: var(--ph-blur);
+  animation: ph-app-in 0.34s cubic-bezier(0.32, 0.72, 0.3, 1) both;
 }
+@keyframes ph-app-in { from { opacity: 0; transform: scale(0.965) translateY(10px); } to { opacity: 1; transform: none; } }
 .ph-apphead {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  justify-content: center;
+  min-height: 46px;
+  padding: 6px 14px;
+  background: rgba(10, 10, 15, 0.45);
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
 }
-.ph-apphead b { font-size: 17px; }
+.ph-apphead b { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; }
 .ph-back {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: #17181d;
-  color: #fff;
-  font-size: 20px;
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: none;
+  color: var(--ph-accent);
+  font-size: 31px;
+  font-weight: 300;
   line-height: 1;
   cursor: pointer;
+  display: grid;
+  place-items: center;
+  -webkit-tap-highlight-color: transparent;
 }
 .ph-appscroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 12px 14px 16px;
+  padding: 14px 16px 20px;
 }
+.ph-largetitle {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  line-height: 1.1;
+  margin: 2px 0 14px;
+  color: #fff;
+}
+/* Grouped cards — iOS inset-grouped lists on frosted glass. */
+.ph-group {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+}
+.ph-group .ph-row { border-bottom: 1px solid rgba(255, 255, 255, 0.07); padding: 12px 14px; }
+.ph-group .ph-row:last-child { border-bottom: none; }
 .ph-list h4 {
-  margin: 16px 0 6px;
-  font-size: 12px;
-  letter-spacing: 1.6px;
-  color: var(--ph-accent);
+  margin: 18px 2px 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: #e6e9ef;
   text-transform: uppercase;
 }
 .ph-list h4:first-child { margin-top: 0; }
 .ph-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
   width: 100%;
-  padding: 10px 8px;
+  padding: 11px 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   color: #fff;
   text-align: left;
+  font-size: 15px;
 }
 .ph-row-btn {
   background: none;
@@ -3545,129 +3680,163 @@ body.touch .touch-ui {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   cursor: pointer;
   font: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.ph-group .ph-row-btn { border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+.ph-group .ph-row-btn:last-child { border-bottom: none; }
+/* Chevron on drill-in rows (message threads carry a side column). */
+.ph-group .ph-row-btn:has(> .ph-row-side)::after {
+  content: "›";
+  font-size: 21px;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.45);
+  margin-left: 1px;
 }
 .ph-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.ph-row-main b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ph-row-main span { font-size: 12px; color: #b9bec8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ph-row-side { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-size: 11px; color: #9aa0ab; }
+.ph-row-main b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ph-row-main span { font-size: 12.5px; color: #ccd1db; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ph-row-side { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-size: 11.5px; color: #bcc2ce; }
 .ph-row-actions { display: flex; gap: 6px; }
 .ph-avatar {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   flex: none;
   border-radius: 50%;
-  background: linear-gradient(160deg, #2c2d34, #14151a);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: linear-gradient(160deg, #3e3f48, #191a20);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   display: grid;
   place-items: center;
-  font-weight: 800;
+  font-weight: 700;
+  font-size: 15px;
   color: var(--ph-accent);
 }
 .ph-mini {
-  padding: 7px 11px;
+  padding: 7px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: #17181d;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.1);
   color: #fff;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 12.5px;
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  transition: transform 0.15s ease;
 }
-.ph-mini-on { background: var(--ph-accent); border-color: var(--ph-accent); color: #101014; }
+.ph-mini:active { transform: scale(0.94); }
+.ph-mini-on { background: var(--ph-accent); border-color: transparent; color: #101014; }
 .ph-big {
   width: 100%;
-  padding: 13px;
-  border-radius: 14px;
+  padding: 14px;
+  border-radius: 16px;
   border: none;
   background: var(--ph-accent);
   color: #101014;
   font-size: 15px;
-  font-weight: 800;
+  font-weight: 700;
   cursor: pointer;
-  margin: 4px 0 10px;
+  margin: 4px 0 12px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  transition: transform 0.15s ease;
 }
+.ph-big:active { transform: scale(0.98); }
 .ph-big:disabled { opacity: 0.45; cursor: default; }
-.ph-note { font-size: 12.5px; color: #c6cad2; line-height: 1.45; margin: 8px 0; }
-.ph-empty { color: #9aa0ab; font-size: 13px; padding: 10px 0; }
+.ph-note { font-size: 13px; color: #ccd1da; line-height: 1.45; margin: 8px 0; }
+.ph-empty { color: #b6bcc8; font-size: 13.5px; padding: 10px 0; }
 .ph-bank-hero {
-  background: linear-gradient(160deg, #1d1a10, #101014);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 16px;
-  padding: 14px;
+  background: var(--ph-glass-strong);
+  backdrop-filter: var(--ph-blur);
+  -webkit-backdrop-filter: var(--ph-blur);
+  border: 1px solid var(--ph-hairline);
+  border-radius: 22px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
 }
-.ph-bank-hero span { font-size: 12px; color: #cfd3da; }
-.ph-bank-hero b { font-size: 21px; color: var(--ph-accent); }
-.ph-bank-hero .ph-mini { align-self: flex-start; margin-top: 6px; }
+.ph-bank-hero span { font-size: 12.5px; color: #d9dce3; }
+.ph-bank-hero b { font-size: 23px; font-weight: 700; color: var(--ph-accent); font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
+.ph-bank-hero .ph-mini { align-self: flex-start; margin-top: 7px; }
 /* Messages */
-.ph-thread { display: flex; flex-direction: column; gap: 8px; }
+.ph-thread { display: flex; flex-direction: column; gap: 8px; animation: ph-slide-in 0.3s cubic-bezier(0.32, 0.72, 0.3, 1) both; }
+@keyframes ph-slide-in { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
 .ph-thread-back {
   align-self: flex-start;
   background: none;
   border: none;
   color: var(--ph-accent);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
   padding: 2px 0 6px;
 }
 .ph-bubble {
   align-self: flex-start;
   max-width: 85%;
-  background: #1d1e24;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px 16px 16px 5px;
-  padding: 9px 12px;
+  background: rgba(255, 255, 255, 0.11);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 20px 20px 20px 6px;
+  padding: 10px 13px;
 }
-.ph-bubble p { margin: 0; font-size: 14px; line-height: 1.4; }
-.ph-bubble span { font-size: 10.5px; color: #9aa0ab; }
+.ph-bubble p { margin: 0; font-size: 14.5px; line-height: 1.4; }
+.ph-bubble span { font-size: 10.5px; color: #c3c8d2; }
 /* Camera / gallery */
 .ph-gallery {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
 }
-.ph-shot { padding: 0; border: none; background: none; cursor: pointer; border-radius: 10px; overflow: hidden; }
+.ph-shot { padding: 0; border: none; background: none; cursor: pointer; border-radius: 12px; overflow: hidden; }
 .ph-shot img { width: 100%; aspect-ratio: 9 / 14; object-fit: cover; display: block; }
 .ph-shotview {
   position: absolute;
   inset: 0;
   z-index: 4;
-  background: #000;
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   display: flex;
   flex-direction: column;
+  animation: ph-sheet-up 0.32s cubic-bezier(0.32, 0.72, 0.3, 1) both;
+}
+@keyframes ph-sheet-up { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: none; } }
+.ph-grab {
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.45);
+  margin: 10px auto 6px;
+  flex: none;
 }
 .ph-shotview img { flex: 1; min-height: 0; width: 100%; object-fit: contain; }
 .ph-shot-actions { display: flex; gap: 8px; padding: 12px; }
 .ph-shot-actions button {
   flex: 1;
-  padding: 11px 6px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: #17181d;
+  padding: 12px 6px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.09);
   color: #fff;
-  font-weight: 700;
+  font-weight: 600;
+  font-size: 13.5px;
   cursor: pointer;
 }
 /* Settings wallpapers */
-.ph-wps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.ph-wps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
 .ph-wp {
-  height: 74px;
-  border-radius: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.18);
+  height: 76px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
   background-size: cover;
   background-position: center;
   color: #fff;
   display: flex;
   align-items: flex-end;
-  padding: 8px;
+  padding: 9px;
   cursor: pointer;
 }
-.ph-wp.on { border-color: var(--ph-accent); }
+.ph-wp.on { border: 2px solid var(--ph-accent); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); }
 .ph-wp span { font-size: 12px; font-weight: 700; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9); }
 /* People app: the classic Phone panel content, inside the phone. */
 .ph-people .list { padding: 0; }
@@ -3693,7 +3862,9 @@ body.touch .touch-ui {
   align-items: center;
   justify-content: center;
   color: #e8eaee;
-  background: #0b0b0f;
+  background: rgba(9, 9, 13, 0.82);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
   z-index: 2;
   text-align: center;
   padding: 20px;
@@ -3704,7 +3875,7 @@ body.touch .touch-ui {
   border: none;
   background: var(--ph-accent);
   color: #101014;
-  font-weight: 800;
+  font-weight: 700;
   cursor: pointer;
 }
 .ph-spinner {
@@ -3721,46 +3892,132 @@ body.touch .touch-ui {
   position: absolute;
   inset: 0;
   z-index: 5;
-  background: rgba(4, 4, 8, 0.32);
-  border: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.4));
   color: #fff;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 15%;
+  padding: 12% 20px 0;
   cursor: pointer;
-  font: inherit;
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+  animation: ph-lock-in 0.45s ease both;
 }
-.ph-lock-time { font-size: 62px; font-weight: 800; line-height: 1; }
-.ph-lock-date { font-size: 16px; margin-top: 6px; }
-.ph-lock-note {
-  margin-top: 14px;
-  background: rgba(10, 10, 14, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  padding: 8px 14px;
+@keyframes ph-lock-in { from { opacity: 0; } to { opacity: 1; } }
+.ph-lock-date { font-size: 17px; font-weight: 600; }
+.ph-lock-time {
+  font-size: 76px;
+  font-weight: 250;
+  line-height: 1.04;
+  letter-spacing: -1.5px;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 4px 26px rgba(0, 0, 0, 0.55);
+}
+.ph-notifs {
+  margin-top: 26px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ph-notif {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  text-align: left;
+  background: rgba(19, 19, 26, 0.52);
+  backdrop-filter: var(--ph-blur);
+  -webkit-backdrop-filter: var(--ph-blur);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 22px;
+  padding: 11px 13px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+  color: #fff;
+  text-shadow: none;
+}
+.ph-notif-icon {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.ph-notif-icon svg { width: 19px; height: 19px; }
+.ph-notif-messages { background: var(--ph-grad-messages); }
+.ph-notif-burner { background: var(--ph-grad-burner); }
+.ph-notif-orbitx { background: var(--ph-grad-orbitx); }
+.ph-notif-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ph-notif-main b { font-size: 14.5px; font-weight: 600; }
+.ph-notif-main span { font-size: 13.5px; color: #eceef2; line-height: 1.35; }
+.ph-notif-time { font-size: 11.5px; color: #c9cedb; flex: none; }
+.ph-lock-bottom {
+  margin-top: auto;
+  padding-bottom: 30px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+.ph-quickrow {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 16px;
+}
+.ph-quick {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(20, 20, 27, 0.55);
+  backdrop-filter: var(--ph-blur);
+  -webkit-backdrop-filter: var(--ph-blur);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.ph-quick:active { transform: scale(0.9); }
+.ph-quick svg { width: 23px; height: 23px; }
+.ph-quick .ph-badge { top: -4px; right: -4px; }
+.ph-lock-pill {
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  padding: 9px 24px;
   border-radius: 999px;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
+  animation: ph-pulse 2.2s ease-in-out infinite;
 }
-.ph-lock-hint { position: absolute; bottom: 12%; font-size: 13px; color: #dfe3ea; animation: ph-pulse 2.2s ease-in-out infinite; }
-@keyframes ph-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
-/* Toast + home bar */
+@keyframes ph-pulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+/* Toast — an iOS-style banner under the status bar. */
 .ph-toast {
   position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 52px;
-  z-index: 6;
-  background: rgba(12, 12, 16, 0.95);
-  border: 1px solid var(--ph-accent);
+  left: 12px;
+  right: 12px;
+  top: 52px;
+  z-index: 7;
+  background: var(--ph-glass-strong);
+  backdrop-filter: var(--ph-blur);
+  -webkit-backdrop-filter: var(--ph-blur);
+  border: 1px solid var(--ph-hairline);
   color: #fff;
-  border-radius: 14px;
-  padding: 11px 13px;
+  border-radius: 18px;
+  padding: 11px 14px;
   font-size: 13.5px;
   line-height: 1.4;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  animation: ph-toast-in 0.3s cubic-bezier(0.32, 0.72, 0.3, 1) both;
 }
+@keyframes ph-toast-in { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
 .ph-homebar {
   position: relative;
   z-index: 3;
@@ -3770,11 +4027,11 @@ body.touch .touch-ui {
   padding: 7px 0 9px;
 }
 .ph-pill {
-  width: 126px;
+  width: 134px;
   height: 5px;
   border-radius: 3px;
   border: none;
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.9);
   cursor: pointer;
   padding: 0;
 }
@@ -3784,14 +4041,22 @@ body.touch .touch-ui {
   width: 27px;
   height: 27px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  background: rgba(10, 10, 14, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(16, 16, 22, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: #fff;
   font-size: 12px;
   cursor: pointer;
   display: grid;
   place-items: center;
 }
+@media (prefers-reduced-motion: reduce) {
+  .ph-appview, .ph-home, .ph-thread, .ph-shotview, .ph-lock, .ph-toast { animation: none; }
+  .ph-icon, .ph-mini, .ph-big, .ph-quick { transition: none; }
+}
+
+
 /* Photo Mode overlay (App) — controls float over the clean frame. */
 .pm-overlay {
   position: fixed;
