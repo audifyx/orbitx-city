@@ -1723,6 +1723,12 @@ export function createRuntime(scene: Scene) {
   let driving = false;
   let carIndex = -1;
   let carSpeed = 0;
+  // DRIVE FEEL: the direction the driven car's velocity actually
+  // points. It chases car.yaw at a grip rate (see drive()), so a hard
+  // steer at speed slides a little wide before the grip pulls it back.
+  let velYaw = 0;
+  // DRIVE FEEL: smoothed speed-FOV bonus (degrees), owned by tickPowers.
+  let fovKick = 0;
   // OrbitX Line — the rideable ground-level train (route, stations and
   // profile live in city.ts). The train advances in after() whether or
   // not anyone rides; while riding, the engine calls rideTrain() instead
@@ -6024,6 +6030,7 @@ export function createRuntime(scene: Scene) {
     carIndex = index;
     carSpeed = 0;
     steerSm = 0;
+    velYaw = cars[index]?.yaw ?? 0;
     // A Climb/Descend hold stuck from before entering (pointerup lost
     // when the pad unmounted) must not drive the new car — clear them
     // here. Gas/Brake are NOT cleared: a board entered while Gas is
@@ -6548,12 +6555,21 @@ export function createRuntime(scene: Scene) {
         pushCooldown = 0.45;
       }
     } else if (f < 0 && carSpeed > 0.5) {
-      // S brakes while rolling forward — strong decel toward a stop, and
+      // S brakes while rolling forward — firm decel toward a stop, and
       // reverse only engages once the car is nearly stopped. (Before, S
       // reversed straight away, so there was no brake at all.)
-      carSpeed = Math.max(0, carSpeed - params.accel * 2.2 * dt);
+      carSpeed = Math.max(0, carSpeed - params.accel * 2.6 * dt);
     } else {
-      carSpeed += f * params.accel * boost * dt;
+      // Acceleration curve: a launch bonus that fades as the car
+      // closes on its drag equilibrium (accel / drag — the speed it
+      // settles at). Full shove off the line, gentle arrival at top
+      // speed instead of one linear pull into the limiter. Because the
+      // bonus is exactly 1.0 AT the equilibrium, top speeds are the
+      // numbers the stats always gave; clamp-limited cars still stop
+      // at maxSpeed below.
+      const vEq = (params.accel * boost) / params.drag;
+      const launch = f > 0 ? 1 + 0.5 * (1 - Math.min(1, Math.max(0, carSpeed) / vEq)) : 1;
+      carSpeed += f * params.accel * boost * launch * dt;
     }
     carSpeed *= 1 - params.drag * dt;
     // Coasting ends: extra drag with no throttle, and a full stop below
@@ -6572,15 +6588,13 @@ export function createRuntime(scene: Scene) {
     }
     const moving = Math.abs(carSpeed) > 0.4 ? Math.sign(carSpeed) : 0;
     // Steering: smoothed (no more binary full-lock) and a bicycle model —
-    // full lock turns a CONSTANT radius, so the car corners the same arc
-    // at any speed instead of plowing straight at cruise speed. The old
-    // 1/(1+|v|*0.055) falloff gave a 13-unit radius at 12 u/s and 24 at
-    // boost on the 10-unit roads — wider than the road, so corners needed
-    // a crawl. Radius comes from the vehicle's steer stat (sedan 1.5 ->
-    // 6 units, heavy 0.8 -> ~11, nimble 2.4 -> 3.75); yaw rate caps at
-    // 2.4 rad/s so boost does not spin the car, and the low-speed turn is
-    // gentle (no spinning while creeping). steerSm already carries the
-    // moving sign, so reverse steers the same way as before.
+    // full lock turns a fixed radius per speed (see the scaling below),
+    // so the car corners a real arc instead of plowing straight at
+    // cruise speed. The pre-bicycle 1/(1+|v|*0.055) falloff gave a
+    // 13-unit radius at 12 u/s and 24 at boost on the 10-unit roads —
+    // wider than the road, so corners needed a crawl; the radius here
+    // is capped well under that. steerSm already carries the moving
+    // sign, so reverse steers the same way as before.
     // Standstill pivot (2026-11-18): a bike nose-against a wall could not
     // turn at all — `moving` is 0 below 0.4 u/s, so the bars did nothing
     // and the only escape was reversing blindly. Open vehicles (bike /
@@ -6592,10 +6606,34 @@ export function createRuntime(scene: Scene) {
       (car.group.userData.kind as string) === "atv" ||
       (car.group.userData.kind as string) === "skateboard";
     const steerTarget = s * (moving !== 0 ? moving : canPivot ? 1 : 0);
-    steerSm += (steerTarget - steerSm) * Math.min(1, dt * 7);
-    const turnRadius = 9 / params.steer;
-    const pivotRate = canPivot ? 0.55 * Math.max(0, 1 - Math.abs(carSpeed) / 1.5) : 0;
-    car.yaw += steerSm * Math.max(Math.min(Math.abs(carSpeed) / turnRadius, 2.4), pivotRate) * dt;
+    // ~120 ms steering time constant: a tap nudges, a hold commits —
+    // the wheel never snaps lock-to-lock in one frame.
+    steerSm += (steerTarget - steerSm) * (1 - Math.exp(-dt / 0.12));
+    // Turn authority scales with speed: the radius GROWS as the car
+    // speeds up, so full lock at cruise settles the car instead of
+    // twitching it sideways, and a crawl-speed floor (only while the
+    // player is on the gas/brake) keeps parking turns alive. The
+    // growth is capped — the radius never passes 10.5 — so even a
+    // heavy car still corners inside an intersection; the sedan sits
+    // near 8 at cruise, well inside the 13+ the old falloff needed.
+    const speedAbs = Math.abs(carSpeed);
+    const turnRadius = Math.min((9 / params.steer) * (1 + 0.03 * speedAbs), 10.5);
+    const turnSpeed = Math.max(speedAbs, f !== 0 ? 1.7 : 0);
+    const pivotRate = canPivot ? 0.55 * Math.max(0, 1 - speedAbs / 1.5) : 0;
+    car.yaw += steerSm * Math.max(Math.min(turnSpeed / turnRadius, 2.2), pivotRate) * dt;
+    // GRIP: velYaw (where the velocity points) chases the heading at a
+    // grip rate scaled by the steering stat. At speed a hard steer
+    // leaves velYaw a beat behind the nose — the car slides a little
+    // wide, then the grip reels it back in. Small and recoverable,
+    // never a spin; at a standstill it snaps straight.
+    if (!isBoat) {
+      const grip = 5 + params.steer * 2.2;
+      let yawLag = car.yaw - velYaw;
+      while (yawLag > Math.PI) yawLag -= Math.PI * 2;
+      while (yawLag < -Math.PI) yawLag += Math.PI * 2;
+      velYaw += yawLag * (1 - Math.exp(-dt * grip));
+      if (speedAbs < 0.3) velYaw = car.yaw;
+    }
     // The chase camera recentres behind the car: when the player is not
     // actively looking around, chaseYaw decays back to 0.
     if (lookX === 0) chaseYaw *= Math.exp(-dt * 0.9);
@@ -6629,8 +6667,11 @@ export function createRuntime(scene: Scene) {
         car.alt += Math.sign(d) * climbRate * dt;
       }
     }
-    const nx = car.x + Math.sin(car.yaw) * carSpeed * dt;
-    const nz = car.z - Math.cos(car.yaw) * carSpeed * dt;
+    // Motion runs along velYaw (the grip-lagged velocity direction);
+    // boats sail exactly where the bow points, as before.
+    const moveYaw = isBoat ? car.yaw : velYaw;
+    const nx = car.x + Math.sin(moveYaw) * carSpeed * dt;
+    const nz = car.z - Math.cos(moveYaw) * carSpeed * dt;
     // Boat fit test: the bow and the stern (half-length + a 0.4 margin
     // past the nose, so the hull never clips the shore slab) must both
     // stay over water, the centre must stay clear of the pier decks, and
@@ -8508,8 +8549,17 @@ export function createRuntime(scene: Scene) {
         if (Math.hypot(npc.x - lastBody.x, npc.z - lastBody.z) <= radius) npc.followUntil = clock + 0.5;
       }
     }
-    // Scope zoom while a scoped shot is fresh.
-    const wantFov = now < scopeUntil ? 34 : 62;
+    // Scope zoom while a scoped shot is fresh. Driving at speed adds
+    // a small FOV kick on top of the base 62° (at most +7°, easing in
+    // past 9 u/s and back out as the car slows) — computed here so
+    // this stays the camera FOV's only writer and nothing fights it.
+    const driveSpeed =
+      driving && carIndex >= 0 && cars[carIndex] && (cars[carIndex].group.userData.kind as string) !== "boat"
+        ? Math.abs(carSpeed)
+        : 0;
+    const fovTarget = driveSpeed > 9 ? Math.min(7, (driveSpeed - 9) * 0.55) : 0;
+    fovKick += (fovTarget - fovKick) * (1 - Math.exp(-dt * 3));
+    const wantFov = now < scopeUntil ? 34 : 62 + Math.round(fovKick);
     if (camera.fov !== wantFov) {
       camera.fov = wantFov;
       camera.updateProjectionMatrix();
@@ -9479,14 +9529,18 @@ export function createRuntime(scene: Scene) {
       }
       // Chase distance scales with the car: 6 + length (limo ≈ 12.4,
       // board ≈ 6.9). Flying cars lift the camera with their altitude.
+      // At speed the chase camera also breathes out (up to +2.6 back,
+      // +0.7 up) so the road ahead opens up; carSpeed itself moves
+      // smoothly, so the pullback eases instead of stepping.
       const carLen = (car.group.userData.length as number) || 3.45;
-      const dist = (camMode === "selfie" ? 5.2 : camMode === "far" ? 11 : 6 + carLen) * camZoom;
+      const speedPull = camMode === "selfie" || camMode === "far" ? 0 : Math.min(2.6, Math.abs(carSpeed) * 0.11);
+      const dist = (camMode === "selfie" ? 5.2 : camMode === "far" ? 11 : 6 + carLen + speedPull) * camZoom;
       const side = camMode === "shoulder" ? 1.3 : 0;
       const sign = camMode === "selfie" ? 1 : -1;
       const lookYaw = yaw + chaseYaw;
       const desired = {
         x: car.x + Math.sin(lookYaw) * dist * sign + Math.cos(lookYaw) * side,
-        y: (camMode === "selfie" ? 2.2 : 3.6 + chasePitch * 1.6) + car.alt,
+        y: (camMode === "selfie" ? 2.2 : 3.6 + chasePitch * 1.6 + speedPull * 0.27) + car.alt,
         z: car.z - Math.cos(lookYaw) * dist * sign + Math.sin(lookYaw) * side,
       };
       const pulled = pullCamera({ x: car.x, y: 1.3 + car.alt, z: car.z }, desired);
