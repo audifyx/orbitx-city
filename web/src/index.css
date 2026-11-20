@@ -2026,6 +2026,45 @@ body.touch .touch-ui {
   white-space: nowrap;
 }
 
+.wheel .wheel-close {
+  min-width: 44px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  padding: 0;
+}
+
+.paint-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 12px;
+}
+
+.paint-swatches button {
+  min-width: 82px;
+  min-height: 46px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 2px solid rgba(0, 0, 0, 0.35);
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.paint-swatches button small {
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+.paint-swatches button.on {
+  outline: 3px solid #e0b33a;
+  outline-offset: 1px;
+}
+
 .decor-bar,
 .spectate-bar {
   position: fixed;

@@ -3,6 +3,7 @@ import { requestExportCode } from "./auth";
 import type { Runtime, Snap } from "./game/runtime";
 import { FURNITURE_CATALOG } from "./game/runtime";
 import { EMOTES, EMOTE_LABELS, FURNITURE } from "./game/life";
+import { CUSTOM_PAINT_HEX, CUSTOM_PAINT_NAMES, CUSTOM_PAINT_PRICE, VEHICLE_COLORS } from "./game/vehicles";
 
 export function FeaturePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   if (snap.panel === "daily") return <Daily snap={snap} rt={rt} />;
@@ -13,6 +14,7 @@ export function FeaturePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   if (snap.panel === "race") return <Race snap={snap} rt={rt} />;
   if (snap.panel === "home") return <Home snap={snap} rt={rt} />;
   if (snap.panel === "talk") return <Talk snap={snap} rt={rt} />;
+  if (snap.panel === "paint") return <PaintShop snap={snap} rt={rt} />;
   return null;
 }
 
@@ -26,6 +28,7 @@ export function featureTitle(panel: Snap["panel"]) {
   if (panel === "home") return "Property";
   if (panel === "homeedit") return "Edit Home";
   if (panel === "talk") return "Chat";
+  if (panel === "paint") return "Jax's Paint Shop";
   return "";
 }
 
@@ -116,6 +119,11 @@ function Talk({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
       {talk.offerLabel && (
         <button type="button" onClick={() => rt?.npcOffer()}>
           {talk.offerLabel}
+        </button>
+      )}
+      {talk.canPaint && (
+        <button type="button" onClick={() => rt?.openPaintShop()}>
+          Paint shop — respray my car
         </button>
       )}
       {talk.canRob && (
@@ -768,6 +776,88 @@ export function PhoneExtra({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
         <button type="button" onClick={() => rt?.request("wallet")}>Open</button>
       </article>
     </>
+  );
+}
+
+/** Readable text colour on a paint swatch (black on light paint). */
+function swatchText(hex: number): string {
+  const lum = ((hex >> 16) & 255) * 0.299 + ((hex >> 8) & 255) * 0.587 + (hex & 255) * 0.114;
+  return lum > 140 ? "#000" : "#fff";
+}
+
+function colorLabel(key: string): string {
+  return CUSTOM_PAINT_NAMES[key] ?? key.charAt(0).toUpperCase() + key.slice(1);
+}
+
+function PaintShop({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
+  const paint = snap.paint;
+  const [msg, setMsg] = useState("");
+  if (!paint) return <p>Paint shop closed — tap Close and keep playing.</p>;
+  const selectedPremium = paint.selected in CUSTOM_PAINT_HEX;
+  const price = paint.applied ? 0 : selectedPremium ? CUSTOM_PAINT_PRICE : 0;
+  const cantAfford = selectedPremium && !paint.applied && snap.balance < CUSTOM_PAINT_PRICE;
+  const swatch = (key: string, hex: number, premium: boolean) => (
+    <button
+      key={key}
+      type="button"
+      className={paint.selected === key ? "on" : ""}
+      style={{ background: `#${hex.toString(16).padStart(6, "0")}`, color: swatchText(hex) }}
+      disabled={paint.busy || !!paint.applied}
+      onClick={() => {
+        setMsg("");
+        rt?.paintPreview(key);
+      }}
+    >
+      {colorLabel(key)}
+      <small>{premium ? `${CUSTOM_PAINT_PRICE} Sol` : "Free"}</small>
+    </button>
+  );
+  return (
+    <div className="list" data-feature="paint">
+      <p>
+        <b>{paint.vehicleName}</b> · in the bay at OrbitX Motors
+      </p>
+      <p className="quiet">
+        Swatches repaint the car live — nothing is charged until you apply. Balance {snap.balance} City Sol.
+      </p>
+      <h3>Premium sprays — {CUSTOM_PAINT_PRICE} City Sol</h3>
+      <div className="paint-swatches">
+        {Object.entries(CUSTOM_PAINT_HEX).map(([key, hex]) => swatch(key, hex, true))}
+      </div>
+      <h3>Factory colours — free respray</h3>
+      <div className="paint-swatches">
+        {paint.factory.map((key) => swatch(key, VEHICLE_COLORS[key] ?? 0x16181f, false))}
+      </div>
+      {msg ? <p>{msg}</p> : null}
+      {paint.applied ? (
+        <p>
+          Sprayed <b>{colorLabel(paint.applied)}</b> — it stays on the car. Tap Close when you're done.
+        </p>
+      ) : (
+        <>
+          <button
+            type="button"
+            disabled={paint.busy || cantAfford}
+            onClick={async () => {
+              const result = await rt?.applyPaintShop();
+              if (result) setMsg(result);
+            }}
+          >
+            {paint.busy
+              ? "Spraying…"
+              : paint.selected === paint.saved
+                ? `Keep ${colorLabel(paint.selected)} — no charge`
+                : price > 0
+                  ? `Apply ${colorLabel(paint.selected)} — ${price} City Sol`
+                  : `Apply ${colorLabel(paint.selected)} — free`}
+          </button>
+          {cantAfford ? <p className="quiet">Not enough City Sol for a premium spray — factory colours are free.</p> : null}
+          <button type="button" disabled={paint.busy} onClick={() => rt?.cancelPaintShop()}>
+            Cancel — keep {colorLabel(paint.saved)}
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 

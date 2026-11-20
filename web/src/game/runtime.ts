@@ -231,7 +231,7 @@ export interface TrainPose {
   dwelling: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "minigames" | "hq" | "race" | "home" | "homeedit" | "workshop" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats" | "trading";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "minigames" | "hq" | "race" | "home" | "homeedit" | "workshop" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats" | "trading" | "paint";
 
 // UNIFIED SHOP: the Shop panel's category tabs. "grocery" is a tab
 // now, not a panel — the grocery store in the world opens the Shop on
@@ -784,7 +784,19 @@ export interface Snap {
   carrying: boolean;
   hqIndex: number;
   banner: string;
-  talk: { name: string; role: string; line: string; index: number; total: number; jobId: string; jobName: string; offerLabel: string; canRob: boolean; robLabel: string } | null;
+  talk: { name: string; role: string; line: string; index: number; total: number; jobId: string; jobName: string; offerLabel: string; canRob: boolean; robLabel: string; canPaint: boolean } | null;
+  /** PAINT SHOP: Jax's spray panel state (null = closed). `saved` is
+   * the colour on the owned-car record; `selected` is the live preview
+   * on the world car — it only becomes the saved colour on Apply. */
+  paint: {
+    vehicleId: string;
+    vehicleName: string;
+    saved: string;
+    selected: string;
+    factory: string[];
+    applied: string;
+    busy: boolean;
+  } | null;
   /** CRIME: wanted stars (0-5) — robberies raise them, escaping lowers them. */
   wanted: number;
   /** COPS: a traffic car is close enough to pull over. */
@@ -2786,6 +2798,20 @@ export function createRuntime(scene: Scene) {
   // `panel` so the Talk panel can keep its lines across publishes.
   let talk: Snap["talk"] = null;
   let talkLines: string[] = [];
+  // PAINT SHOP state: which owned car is in Jax's bay, the colour it
+  // arrived in (prevColor — Cancel restores it, nothing is charged
+  // until Apply), the live preview selection, and its wear dirt (the
+  // preview retint must keep the car's dirt, like every other retint).
+  let paintShop: {
+    vehicleId: string;
+    vehicleName: string;
+    prevColor: string;
+    selected: string;
+    factory: string[];
+    applied: string;
+    busy: boolean;
+    dirt: number;
+  } | null = null;
   let talkNpc = -1;
   // VOICES: ambient bark pacing (game-clock seconds).
   const barkAtByNpc = new Map<number, number>();
@@ -4578,6 +4604,17 @@ export function createRuntime(scene: Scene) {
           ? `Gate ${raceNext + 1} of ${GATES.length}`
           : "",
       talk,
+      paint: paintShop
+        ? {
+            vehicleId: paintShop.vehicleId,
+            vehicleName: paintShop.vehicleName,
+            saved: paintShop.applied || paintShop.prevColor,
+            selected: paintShop.selected,
+            factory: [...paintShop.factory],
+            applied: paintShop.applied,
+            busy: paintShop.busy,
+          }
+        : null,
       photos: { taken: photosTaken, spots: [...photoSpots] },
       wishes,
       missions: missions.map((item) => ({ ...item, steps: [...item.steps] })),
@@ -5511,6 +5548,8 @@ export function createRuntime(scene: Scene) {
       offerLabel: info?.offer?.label ?? "",
       canRob: !!ROB_TARGETS[npc.name] && Date.now() >= (robReadyAt.get(npc.name) ?? 0),
       robLabel: ROB_TARGETS[npc.name]?.label ?? "",
+      // PAINT SHOP: Jax (OrbitX Motors) sprays the player's own car.
+      canPaint: npc.name === "Jax",
     };
     panel = "talk";
     // VOICES: the NPC speaks their script aloud; the rest of the
@@ -5520,6 +5559,186 @@ export function createRuntime(scene: Scene) {
     publish();
     storyEvent("talk", npc.name);
     dailyEvent("talk", npc.name);
+  }
+
+  // ---- PAINT SHOP (Jax, OrbitX Motors) --------------------------------
+  // The player's ACTIVE owned car goes into the bay on the Motors
+  // forecourt (the same spot bought cars spawn at). Swatches retint
+  // the world car live — preview only, the owned record is untouched
+  // and nothing is charged. Apply charges through the existing spend
+  // paths: premium paints via customize-car (150 City Sol, the game's
+  // standing premium-paint price), factory colours via the buy-car
+  // repaint (free — the shop has always resprayed factory colours at
+  // buy time, and the server refuses to charge for them). Cancel
+  // restores the colour the car arrived in. The result persists on
+  // the owned-car record (server save online, localVehicles offline),
+  // so the car keeps its colour across sessions and respawns.
+  const PAINT_BAY = { x: 202, z: -69, yaw: Math.PI / 2 };
+
+  function paintTargetCar(): { entry: OwnedVehicle; index: number } | null {
+    if (ownedCarIndex < 0 || !cars[ownedCarIndex]) return null;
+    const car = cars[ownedCarIndex];
+    if (!car.vehicleId) return null;
+    const entry = localVehicles.find((v) => v.id === car.vehicleId);
+    if (!entry) return null;
+    return { entry, index: ownedCarIndex };
+  }
+
+  function openPaintShop() {
+    // Refusals stay inside the talk panel — Jax says them as a line.
+    const refuse = (line: string) => {
+      if (talk) {
+        talk = { ...talk, line };
+        speakNpc(talk.name, talk.role, line);
+      }
+      say(line);
+      publish();
+    };
+    if (driving) return;
+    const entry = activeVehicleEntry();
+    if (!entry) {
+      refuse("No car, no spray. Buy a ride first — the showroom's right there, and I'll be here when it's yours.");
+      return;
+    }
+    if (localRental && localRental.expiresAt > Date.now()) {
+      refuse("That one's a rental — it goes back in the colour it came in. Paint a car you own.");
+      return;
+    }
+    const owned = localVehicles.find((v) => v.id === entry.id);
+    if (!owned) {
+      refuse("That car isn't on my books — pick it in your garage first, then we'll spray.");
+      return;
+    }
+    const def = getVehicle(entry.id);
+    if (!def || (def.kind !== "car" && def.kind !== "atv" && def.kind !== "bike")) {
+      refuse("I spray cars. Boats go to the dock crew, flyers to the pad crew — bring me something with wheels.");
+      return;
+    }
+    // Roll the car into the bay if it isn't already at the Motors lot.
+    const inBay =
+      ownedCarIndex >= 0 &&
+      cars[ownedCarIndex] &&
+      Math.hypot(cars[ownedCarIndex].x - PAINT_BAY.x, cars[ownedCarIndex].z - PAINT_BAY.z) <= 22;
+    if (!inBay) spawnActiveCar({ ...PAINT_BAY });
+    if (!paintTargetCar()) {
+      refuse("Can't find your car — give the lot a second and ask me again.");
+      return;
+    }
+    paintShop = {
+      vehicleId: owned.id,
+      vehicleName: def.name,
+      prevColor: owned.color,
+      selected: owned.color,
+      factory: [...def.colors],
+      applied: "",
+      busy: false,
+      dirt: normalizeWear(owned).dirt,
+    };
+    talk = null;
+    talkLines = [];
+    talkNpc = -1;
+    panel = "paint";
+    say(`Jax wheels your ${def.name} into the bay — swatches preview live on the car, nothing's charged until you apply.`);
+    publish();
+  }
+
+  function paintPreview(key: string) {
+    if (!paintShop || paintShop.busy || paintShop.applied) return;
+    if (!(key in CUSTOM_PAINT_HEX) && !paintShop.factory.includes(key)) return;
+    paintShop.selected = key;
+    const target = paintTargetCar();
+    if (target && target.entry.id === paintShop.vehicleId) {
+      retint(cars[target.index].group, key, paintShop.dirt);
+    }
+    publish();
+  }
+
+  async function applyPaintShop(): Promise<string> {
+    if (!paintShop || paintShop.busy) return "The spray booth is busy.";
+    if (paintShop.applied) return "Already sprayed — close the panel when you're done.";
+    const shop = paintShop;
+    const target = shop.selected;
+    if (target === shop.prevColor) {
+      shop.applied = target;
+      publish();
+      return `Kept the ${target} — no charge.`;
+    }
+    shop.busy = true;
+    publish();
+    try {
+      if (target in CUSTOM_PAINT_HEX) {
+        // Premium spray: the existing customize-car spend path (150).
+        const message = await customizeCar(shop.vehicleId, "paint", target);
+        const entry = localVehicles.find((v) => v.id === shop.vehicleId);
+        if (!entry || entry.color !== target) {
+          // Refused (funds / server): the world car still wears the
+          // preview — put its real colour back before reporting.
+          const current = paintTargetCar();
+          if (current) retint(cars[current.index].group, shop.prevColor, shop.dirt);
+          shop.selected = shop.prevColor;
+          return message;
+        }
+        shop.applied = target;
+        return message;
+      }
+      // Factory respray: the buy-car repaint path (free, as at buy
+      // time). Online the op equips + repaints the stored car; we
+      // retint in place instead of respawning so the car stays in
+      // the bay. Offline the entry flips locally, same trust model
+      // as every other offline garage change.
+      if (world.online) {
+        if (!currentUniverse) {
+          const current = paintTargetCar();
+          if (current) retint(cars[current.index].group, shop.prevColor, shop.dirt);
+          shop.selected = shop.prevColor;
+          return "Pick a universe on the menu first.";
+        }
+        await world.buyCar(shop.vehicleId, target, currentUniverse);
+        applyMe();
+        const entry = localVehicles.find((v) => v.id === shop.vehicleId);
+        if (!entry || entry.color !== target) {
+          const current = paintTargetCar();
+          if (current) retint(cars[current.index].group, shop.prevColor, shop.dirt);
+          shop.selected = shop.prevColor;
+          return "The city didn't take that respray — your old colour is back on.";
+        }
+      } else {
+        const entry = localVehicles.find((v) => v.id === shop.vehicleId);
+        if (!entry) {
+          const current = paintTargetCar();
+          if (current) retint(cars[current.index].group, shop.prevColor, shop.dirt);
+          shop.selected = shop.prevColor;
+          return "You do not own that vehicle.";
+        }
+        entry.color = target;
+        saveLocalVehicles();
+      }
+      shop.applied = target;
+      triggerHaptic("success");
+      return `Resprayed in ${target} — factory colours are free at Jax's.`;
+    } catch (err) {
+      const current = paintTargetCar();
+      if (current) retint(cars[current.index].group, shop.prevColor, shop.dirt);
+      shop.selected = shop.prevColor;
+      return err instanceof Error ? err.message : "The spray didn't take — your old colour is back on.";
+    } finally {
+      shop.busy = false;
+      publish();
+    }
+  }
+
+  function cancelPaintShop() {
+    if (!paintShop) return;
+    // An applied spray is saved on the car — closing just closes.
+    // An unapplied preview reverts to the colour the car arrived in.
+    if (!paintShop.applied && paintShop.selected !== paintShop.prevColor) {
+      const target = paintTargetCar();
+      if (target && target.entry.id === paintShop.vehicleId) {
+        retint(cars[target.index].group, paintShop.prevColor, paintShop.dirt);
+      }
+    }
+    paintShop = null;
+    publish();
   }
 
   function takePhoto(spot: PhotoSpot) {
@@ -9665,6 +9884,10 @@ export function createRuntime(scene: Scene) {
       remote.prevX = remote.group.position.x;
       remote.prevZ = remote.group.position.z;
     }
+    // PAINT SHOP safety net: if the player somehow ends up driving
+    // with the spray panel open (a forced respawn, a stray pulse),
+    // an unapplied preview reverts instead of becoming free paint.
+    if (paintShop && !paintShop.applied && driving) cancelPaintShop();
     // Picked emotes end when the player moves off the spot, starts
     // driving, or a panel pauses the game. Activity emotes (dance
     // floor, busking) are not "picked" — they end with the activity.
@@ -10621,6 +10844,21 @@ export function createRuntime(scene: Scene) {
       wheelIndex = 1;
       world.emote = "dance";
       world.emoteUntil = Date.now() + 20000;
+    } else if (shot === "paint") {
+      // Paint shop probe: a guest owns nothing, so grant a local
+      // sedan, stand the player by Jax (212, -69) facing the bay,
+      // and open the spray panel (which rolls the car in itself).
+      if (!localVehicles.length) {
+        localVehicles = [{ id: "city-sedan", color: "red" }];
+        localActiveVehicle = "city-sedan";
+        saveLocalVehicles();
+      }
+      body.x = 209;
+      body.y = 0;
+      body.z = -64;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.02;
+      openPaintShop();
     } else if (shot === "spectate" || shot === "spectate-ui") {
       void world.raceLeave().catch(() => {});
       raceNext = -1;
@@ -15117,6 +15355,19 @@ export function createRuntime(scene: Scene) {
     // CARS wiring: customize / wash / repair / garage upgrades.
     customizeCar(id: string, mod: string, value: unknown) {
       return customizeCar(id, mod, value);
+    },
+    // PAINT SHOP wiring: Jax's spray bay (talk panel → paint panel).
+    openPaintShop() {
+      openPaintShop();
+    },
+    paintPreview(key: string) {
+      paintPreview(key);
+    },
+    applyPaintShop() {
+      return applyPaintShop();
+    },
+    cancelPaintShop() {
+      cancelPaintShop();
     },
     washCar(id: string) {
       return washCar(id);

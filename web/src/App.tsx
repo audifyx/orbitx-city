@@ -444,6 +444,7 @@ const EMPTY: Snap = {
   hqIndex: 0,
   banner: "",
   talk: null,
+  paint: null,
   photos: { taken: 0, spots: [] },
   wishes: 0,
   missions: [],
@@ -1228,6 +1229,9 @@ export default function App() {
 
   const open = (name: PanelName | "offices") => {
     triggerHaptic("tap");
+    // Leaving the paint shop for another panel cancels the spray —
+    // an unapplied preview reverts, nothing is charged.
+    if (panel === "paint" && name !== "paint") gameRef.current?.runtime.cancelPaintShop();
     setPanel(name);
     const lock = name !== "chat";
     gameRef.current?.runtime.setPaused(lock);
@@ -1236,6 +1240,9 @@ export default function App() {
 
   const close = () => {
     triggerHaptic("tap");
+    // Closing the paint shop cancels any unapplied preview (the
+    // runtime restores the car's saved colour, no charge).
+    if (panel === "paint") gameRef.current?.runtime.cancelPaintShop();
     setPanel("");
     gameRef.current?.runtime.setPaused(false);
     gameRef.current?.runtime.setTyping(false);
