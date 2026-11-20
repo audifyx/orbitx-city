@@ -3908,6 +3908,8 @@ body.touch .touch-ui {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
   padding: 12px 16px 8px;
 }
 @keyframes ph-fade-in { from { opacity: 0; transform: scale(0.985); } to { opacity: 1; transform: none; } }
@@ -4099,6 +4101,8 @@ body.touch .touch-ui {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
   padding: 14px 16px 20px;
 }
 .ph-largetitle {
@@ -4262,6 +4266,8 @@ body.touch .touch-ui {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   gap: 8px;

@@ -972,8 +972,11 @@ export function createGame(
     // overflow container — its touchmoves must NOT be preventDefaulted,
     // or a real finger swipe can never pan it (the browser cancels the
     // native scroll). Same allowlist as .panel / .chat-log. The character
-    // grid (.char-grid) scrolls the same way with 72 looks in it.
-    if (target?.closest(".panel, .chat-log, .actions, .char-grid, input, textarea")) return;
+    // grid (.char-grid) scrolls the same way with 72 looks in it. The
+    // phone (.ph-overlay) is a fixed overlay whose home grid and app
+    // views scroll the same way — without it here, no finger scroll
+    // inside the phone ever lands (found on a real phone, 2026-11-20).
+    if (target?.closest(".panel, .chat-log, .actions, .char-grid, .ph-overlay, input, textarea")) return;
     event.preventDefault();
   }
   function onResize() {
