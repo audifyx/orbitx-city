@@ -484,9 +484,11 @@ body,
 
 .menu-ticker {
   overflow: hidden;
-  border-top: 1px solid rgba(96, 165, 250, 0.45);
-  border-bottom: 1px solid rgba(224, 179, 58, 0.45);
-  background: rgba(4, 11, 26, 0.78);
+  border-top: 1px solid var(--ox-hairline-blue);
+  border-bottom: 1px solid var(--ox-hairline-gold);
+  background: rgba(4, 9, 20, 0.72);
+  -webkit-backdrop-filter: var(--ox-blur-soft);
+  backdrop-filter: var(--ox-blur-soft);
   padding: 8px 0;
 }
 
@@ -2619,9 +2621,11 @@ body.touch .touch-ui {
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: rgba(5, 14, 34, 0.86);
-  border: 1px solid rgba(224, 179, 58, 0.65);
-  box-shadow: 0 0 12px rgba(37, 99, 235, 0.3);
+  background: rgba(8, 13, 26, 0.66);
+  -webkit-backdrop-filter: var(--ox-blur-soft);
+  backdrop-filter: var(--ox-blur-soft);
+  border: 1px solid var(--ox-hairline-gold);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
   border-radius: 999px;
   font-size: 11px;
   font-weight: 800;
@@ -2650,10 +2654,12 @@ body.touch .touch-ui {
   font-weight: 800;
   letter-spacing: 0.14em;
   color: #ffffff;
-  background: rgba(5, 14, 34, 0.82);
+  background: rgba(8, 13, 26, 0.66);
+  -webkit-backdrop-filter: var(--ox-blur-soft);
+  backdrop-filter: var(--ox-blur-soft);
   padding: 8px 12px;
-  border-radius: 6px;
-  border: 1px solid rgba(96, 165, 250, 0.45);
+  border-radius: var(--ox-r-pill);
+  border: 1px solid var(--ox-hairline);
 }
 .intro-pause {
   pointer-events: auto;
@@ -2662,10 +2668,12 @@ body.touch .touch-ui {
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.08em;
-  background: rgba(6, 16, 38, 0.84);
+  background: rgba(8, 13, 26, 0.66);
+  -webkit-backdrop-filter: var(--ox-blur-soft);
+  backdrop-filter: var(--ox-blur-soft);
   color: #ffffff;
-  border: 1px solid #60a5fa;
-  border-radius: 8px;
+  border: 1px solid var(--ox-hairline);
+  border-radius: var(--ox-r-pill);
   cursor: pointer;
 }
 .intro-pause:hover {
@@ -2679,10 +2687,12 @@ body.touch .touch-ui {
   font-size: 15px;
   font-weight: 800;
   letter-spacing: 0.08em;
-  background: rgba(6, 16, 38, 0.88);
+  background: rgba(8, 13, 26, 0.7);
+  -webkit-backdrop-filter: var(--ox-blur-soft);
+  backdrop-filter: var(--ox-blur-soft);
   color: #ffffff;
-  border: 2px solid #e0b33a;
-  border-radius: 8px;
+  border: 1px solid var(--ox-hairline-gold);
+  border-radius: var(--ox-r-pill);
   cursor: pointer;
 }
 .intro-skip:hover {
@@ -2693,8 +2703,21 @@ body.touch .touch-ui {
   text-align: center;
   max-width: 900px;
   margin: 0 auto;
-  padding: 18px 22px;
+  padding: 26px 30px;
+  background: rgba(6, 10, 22, 0.52);
+  -webkit-backdrop-filter: var(--ox-blur);
+  backdrop-filter: var(--ox-blur);
+  border: 1px solid var(--ox-hairline-soft);
+  border-radius: 28px;
+  box-shadow: var(--ox-shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   animation: intro-card-in 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (max-width: 640px) {
+  .intro-card {
+    padding: 20px 16px;
+    border-radius: 22px;
+  }
 }
 @keyframes intro-card-in {
   from { opacity: 0; transform: translateY(22px) scale(0.97); }
@@ -2737,15 +2760,17 @@ body.touch .touch-ui {
 }
 .intro-pill {
   padding: 7px 14px;
-  background: rgba(5, 14, 34, 0.88);
+  background: rgba(8, 13, 26, 0.66);
+  -webkit-backdrop-filter: var(--ox-blur-soft);
+  backdrop-filter: var(--ox-blur-soft);
   color: #ffffff;
-  border: 1px solid #e0b33a;
+  border: 1px solid var(--ox-hairline-gold);
   border-radius: 999px;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55), inset 0 0 10px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
 }
 .intro-cta-row {
   margin-top: 22px;
@@ -2758,12 +2783,12 @@ body.touch .touch-ui {
   font-size: 18px;
   font-weight: 900;
   letter-spacing: 0.08em;
-  background: #e0b33a;
+  background: linear-gradient(180deg, var(--ox-gold-bright), var(--ox-gold));
   color: #000000;
-  border: 2px solid #ffffff;
-  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 16px;
   cursor: pointer;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.65), 0 0 18px rgba(37, 99, 235, 0.35);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 6px 22px rgba(224, 179, 58, 0.35);
   transition: transform 0.15s ease;
 }
 .intro-enter:hover {
@@ -2782,11 +2807,13 @@ body.touch .touch-ui {
   margin-bottom: 12px;
 }
 .intro-chapter {
-  background: rgba(5, 14, 34, 0.8);
+  background: rgba(8, 13, 26, 0.62);
+  -webkit-backdrop-filter: var(--ox-blur-soft);
+  backdrop-filter: var(--ox-blur-soft);
   color: #ffffff;
-  border: 1px solid rgba(96, 165, 250, 0.35);
-  border-radius: 6px;
-  padding: 7px 8px;
+  border: 1px solid var(--ox-hairline-soft);
+  border-radius: var(--ox-r-sm);
+  padding: 8px 9px;
   cursor: pointer;
   text-align: left;
   display: flex;
@@ -2795,9 +2822,9 @@ body.touch .touch-ui {
   min-height: 40px;
 }
 .intro-chapter.active {
-  border-color: #e0b33a;
-  background: rgba(7, 22, 51, 0.94);
-  box-shadow: 0 0 12px rgba(37, 99, 235, 0.35);
+  border-color: var(--ox-hairline-gold);
+  background: rgba(24, 19, 6, 0.78);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(224, 179, 58, 0.35);
 }
 .intro-chapter-label {
   font-size: 11px;
@@ -2813,15 +2840,16 @@ body.touch .touch-ui {
 }
 .intro-chapter-bar {
   display: block;
-  height: 3px;
-  background: rgba(59, 130, 246, 0.28);
-  border-radius: 2px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: var(--ox-r-pill);
   overflow: hidden;
 }
 .intro-chapter-bar i {
   display: block;
   height: 100%;
-  background: #e0b33a;
+  background: linear-gradient(90deg, var(--ox-gold-deep), var(--ox-gold-bright));
+  border-radius: var(--ox-r-pill);
   transition: width 0.08s linear;
 }
 .intro-feature {
@@ -2835,10 +2863,10 @@ body.touch .touch-ui {
 .intro-feature-idx {
   display: inline-block;
   margin-right: 8px;
-  padding: 2px 7px;
-  background: rgba(6, 18, 42, 0.88);
-  border: 1px solid rgba(224, 179, 58, 0.7);
-  border-radius: 4px;
+  padding: 2px 8px;
+  background: rgba(8, 13, 26, 0.72);
+  border: 1px solid var(--ox-hairline-gold);
+  border-radius: 8px;
   font-size: 11px;
   font-weight: 800;
   color: #e0b33a;
@@ -2853,15 +2881,17 @@ body.touch .touch-ui {
   to { opacity: 1; transform: translateY(0); }
 }
 .intro-progress {
-  height: 6px;
-  background: rgba(59, 130, 246, 0.32);
-  border-radius: 3px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--ox-hairline-soft);
+  border-radius: var(--ox-r-pill);
   overflow: hidden;
 }
 .intro-progress-fill {
   height: 100%;
-  background: #e0b33a;
-  border-radius: 3px;
+  background: linear-gradient(90deg, var(--ox-gold-deep), var(--ox-gold-bright));
+  border-radius: var(--ox-r-pill);
+  box-shadow: 0 0 12px rgba(224, 179, 58, 0.55);
   transition: width 0.08s linear;
 }
 .intro-hint {
