@@ -1343,21 +1343,22 @@ export async function earlyAccessStatus(ctx, player) {
     price = 0; // Price unreadable: the gate block still renders, tokensApprox 0.
   }
   const tokensApprox = price > 0 ? Math.ceil(EARLY_ACCESS_USD_REQUIRED / price) : 0;
+  const gate = {
+    active,
+    usdRequired: EARLY_ACCESS_USD_REQUIRED,
+    priceUsd: price > 0 ? String(price) : "",
+    tokensApprox,
+  };
+  // No resolved player: the dispatch answers status pre-session (the
+  // title screen asks before any session exists), and the anonymous
+  // answer is the public one — gate data only, never unlocked.
+  if (!player) return { ok: true, gate, unlocked: false };
   let unlocked = !active || !!ctx.isAdmin;
   if (!unlocked && ctx.readEarlyUnlocks) {
     const rows = await ctx.readEarlyUnlocks();
     unlocked = (rows || []).some((row) => row.accountId === player.id);
   }
-  return {
-    ok: true,
-    gate: {
-      active,
-      usdRequired: EARLY_ACCESS_USD_REQUIRED,
-      priceUsd: price > 0 ? String(price) : "",
-      tokensApprox,
-    },
-    unlocked,
-  };
+  return { ok: true, gate, unlocked };
 }
 
 export async function earlyAccessVerify(ctx, player, body) {

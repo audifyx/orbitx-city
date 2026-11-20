@@ -6187,6 +6187,54 @@ export async function POST(request) {
     return json({ ok: true, stats });
   }
 
+  // Shared context for the ads.js flows (billboards, office leases,
+  // early access): the storage handles live in this module, the money
+  // logic in ads.js. Defined ahead of the player gate because the
+  // early-access status op answers pre-session (next block) with it.
+  const anyOfficeSuite = (id) => officeSuite(id) || districtOfficeSuite(id);
+  const adCtx = {
+    sb,
+    note: noteSupabase,
+    readBookings,
+    saveBooking,
+    readEarlyUnlocks,
+    saveEarlyUnlock,
+    // The stats-page admin account (STATS_ADMIN_EMAIL) is always
+    // unlocked at the early-access gate.
+    isAdmin: !!account && String(account.email || "").toLowerCase() === STATS_ADMIN_EMAIL,
+    savePlayer,
+    officeSuite: anyOfficeSuite,
+    officeTaken: async (id, server) => activeOfficeClaim(await readOfficeClaims(server), id, server),
+    saveOfficeLeaseClaim: saveOfficeClaim,
+  };
+  // Early access replies are exact (no `me` mixed in): the client
+  // gate is built against this shape.
+  const eaReply = async (result) => {
+    const { status, ...payload } = result;
+    return json(payload, status || 200);
+  };
+
+  // Early access status answers BEFORE the player gate: the title
+  // screen asks on a fresh visit, when no session exists yet (guest
+  // sessions are only created when entering the world), so behind the
+  // gate it could only ever 401 and the client failed open. The op
+  // exposes public gate data plus the caller's own unlock state, so
+  // resolve the player OPTIONALLY — the same token -> player
+  // derivation as the gated dispatch below, with every rejection
+  // softened to "no player" (the public answer: gate data,
+  // unlocked: false) instead of a 401. Verify and burn stay behind
+  // the gate: they act on an account.
+  if (op === "early-access-status") {
+    let gatePlayer = null;
+    if (looksLikeAccountToken(token)) {
+      if (account) gatePlayer = await playerById(account.id);
+    } else {
+      const found = await playerByToken(token);
+      if (found && !found.authUser) gatePlayer = found;
+    }
+    return eaReply(await earlyAccessStatus(adCtx, gatePlayer));
+  }
+
   let player = null;
   if (looksLikeAccountToken(token)) {
     if (!account) return json({ ok: false, message: "That login expired. Sign in again." }, 401);
@@ -6502,25 +6550,8 @@ export async function POST(request) {
 
   // Real billboards: pay SOL from the in-app wallet, Jupiter swaps
   // SOL -> ORBITX, and the received ORBITX is burned. 100% buy + burn.
-  // The office SOL lease flow (office-sol-*) shares this context: the
-  // suite lookup, availability check and claim write come from city.js,
-  // the buy+burn itself lives in ads.js.
-  const anyOfficeSuite = (id) => officeSuite(id) || districtOfficeSuite(id);
-  const adCtx = {
-    sb,
-    note: noteSupabase,
-    readBookings,
-    saveBooking,
-    readEarlyUnlocks,
-    saveEarlyUnlock,
-    // The stats-page admin account (STATS_ADMIN_EMAIL) is always
-    // unlocked at the early-access gate.
-    isAdmin: !!account && String(account.email || "").toLowerCase() === STATS_ADMIN_EMAIL,
-    savePlayer,
-    officeSuite: anyOfficeSuite,
-    officeTaken: async (id, server) => activeOfficeClaim(await readOfficeClaims(server), id, server),
-    saveOfficeLeaseClaim: saveOfficeClaim,
-  };
+  // The office SOL lease flow (office-sol-*) shares this context (the
+  // adCtx defined ahead of the player gate above).
   const adReply = async (result) => {
     const { status, ...payload } = result;
     if (result.ok) payload.me = publicPlayer(player);
@@ -6570,14 +6601,9 @@ export async function POST(request) {
   // player unlocks by burning $5 of ORBITX — either pasting a burn
   // transaction signature for read-only verification, or one tap on
   // early-access-burn, which burns from the in-game wallet itself
-  // (the logic lives in ads.js with the other burn flows). The reply
-  // shape is exact (no `me` mixed in): the client gate is built
-  // against it.
-  const eaReply = async (result) => {
-    const { status, ...payload } = result;
-    return json(payload, status || 200);
-  };
-  if (op === "early-access-status") return eaReply(await earlyAccessStatus(adCtx, player, body));
+  // (the logic lives in ads.js with the other burn flows). Status is
+  // answered ahead of the player gate (see above); verify and burn
+  // stay here, behind it.
   if (op === "early-access-verify") return eaReply(await earlyAccessVerify(adCtx, player, body));
   // One-tap burn from the player's in-game wallet (the server burns
   // exactly $5 of ORBITX from the in-app wallet and unlocks on confirm).
