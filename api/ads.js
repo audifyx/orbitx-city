@@ -1914,7 +1914,9 @@ export async function officeSolLeasesFor(ctx, player) {
 // push-10 real-economy rule.
 //
 // Ops (wired in api/city.js): arcade-lobby, arcade-compose,
-// arcade-submit, arcade-cancel, arcade-history, arcade-leaders.
+// arcade-submit, arcade-cancel, arcade-history, arcade-leaders,
+// arcade-act (moves inside the interactive matches: rps, highcard,
+// quickdraw — same escrow, same tiers, winner takes the full pot).
 // A game row is the matchmaking authority: open games live in the
 // in-memory store AND Supabase (arcade_games) so a creator and a joiner
 // on different lambda instances see the same game.
@@ -1922,7 +1924,26 @@ export async function officeSolLeasesFor(ctx, player) {
 export const ARCADE_GAMES = {
   coinflip: { name: "Coin Flip", picks: ["heads", "tails"] },
   diceroll: { name: "Dice Roll", picks: ["high", "low"] },
+  // Interactive matches (v48): both entries land in escrow exactly like
+  // the flip/dice games, then the match plays out over arcade-act calls
+  // and settles through settleArcadeMatch — the same escrow payout path,
+  // with the win decision recorded before any payment so a retry can
+  // never pay twice. No side is picked at create/join time (picks: []);
+  // each round's choices happen inside the match, server-side only.
+  rps: { name: "Rock Paper Scissors", picks: [], interactive: true },
+  highcard: { name: "High Card", picks: [], interactive: true },
+  quickdraw: { name: "Quick Draw", picks: [], interactive: true },
 };
+export const RPS_PICKS = ["rock", "paper", "scissors"];
+// How long a player may stall a match phase before the sweep calls it:
+// the player who acted wins by forfeit; if neither acted, both entries
+// come back (split). Generous — a match is a conversation, not a reflex
+// test (Quick Draw's reflex part is measured separately, in-round).
+export const ARCADE_MATCH_ACTION_MS = 90_000;
+export const QD_MIN_DELAY_MS = 1_200;
+export const QD_MAX_DELAY_MS = 3_500;
+export const QD_TAP_WINDOW_MS = 10_000;
+export const HIGHCARD_MAX_REDRAWS = 3;
 export const ARCADE_TIERS_USD = [1, 2, 5, 10];
 export const ARCADE_JOIN_TIMEOUT_MS = 120_000;
 export const ARCADE_JOIN_COMPOSE_MS = 60_000;
@@ -2284,7 +2305,7 @@ function publicArcadeGame(game, dec = 6) {
 
 function liveGameFor(userId) {
   for (const game of store().arcadeGames.values()) {
-    if (!["composed", "open", "join-composed"].includes(game.status)) continue;
+    if (!["composed", "open", "join-composed", "playing", "settling"].includes(game.status)) continue;
     if (game.userId === userId || game.joinerId === userId) return game;
   }
   return null;
@@ -2303,6 +2324,246 @@ function winnerOf(game, result) {
     return side === game.creatorPick ? "creator" : "joiner";
   }
   return result === game.creatorPick ? "creator" : "joiner";
+}
+
+// --- Interactive match games (RPS / High Card / Quick Draw) ----------
+// Pure resolvers first — exported for tests, no state, no money.
+
+const RPS_BEATS = { rock: "scissors", scissors: "paper", paper: "rock" };
+
+// One RPS round: "creator" | "joiner" | "tie".
+export function rpsRoundWinner(creatorPick, joinerPick) {
+  if (!RPS_PICKS.includes(creatorPick) || !RPS_PICKS.includes(joinerPick)) return "tie";
+  if (creatorPick === joinerPick) return "tie";
+  return RPS_BEATS[creatorPick] === joinerPick ? "creator" : "joiner";
+}
+
+// Cards are { r: 2..14 (ace high), s: "s"|"h"|"d"|"c" }. Suits NEVER
+// break a tie — compare is rank only. Returns 1 / -1 / 0.
+export function compareCards(a, b) {
+  const ra = Number(a?.r || 0);
+  const rb = Number(b?.r || 0);
+  if (ra === rb) return 0;
+  return ra > rb ? 1 : -1;
+}
+
+const CARD_RANKS = { 11: "J", 12: "Q", 13: "K", 14: "A" };
+const CARD_SUITS = { s: "♠", h: "♥", d: "♦", c: "♣" };
+export function cardLabel(card) {
+  if (!card) return "?";
+  return `${CARD_RANKS[card.r] || card.r}${CARD_SUITS[card.s] || ""}`;
+}
+
+// A fresh 52-card deck, Fisher-Yates with crypto randomness. The deck
+// lives only in game.meta (server-side) — clients see cards solely
+// through the sanitized match view, after a reveal.
+export function shuffledDeck() {
+  const deck = [];
+  for (const s of ["s", "h", "d", "c"]) for (let r = 2; r <= 14; r++) deck.push({ r, s });
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = randomInt(0, i + 1);
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  return deck;
+}
+
+// One Quick Draw tap judged by SERVER receipt time: a tap before the
+// signal is a false start (loses the round on the spot); a tap at/after
+// it is a draw with a server-measured reaction time.
+export function quickDrawTap(signalAt, tapAt) {
+  const signal = Number(signalAt || 0);
+  const tap = Number(tapAt || 0);
+  if (!signal || tap < signal) return { falseStart: true, reactionMs: 0 };
+  return { falseStart: false, reactionMs: tap - signal };
+}
+
+function isInteractiveGame(game) {
+  return !!ARCADE_GAMES[game?.game]?.interactive;
+}
+
+function matchDeadlineIso(ctx, extraMs = 0) {
+  return new Date(arcadeNow(ctx) + ARCADE_MATCH_ACTION_MS + extraMs).toISOString();
+}
+
+// Match state lives in game.meta.match — persisted with the row, never
+// sent raw to clients (arcadeMatchView is the only way out).
+function initArcadeMatch(ctx, game) {
+  const now = arcadeNow(ctx);
+  const base = {
+    round: 1,
+    score: { creator: 0, joiner: 0 },
+    history: [],
+    startedAt: new Date(now).toISOString(),
+    deadlineAt: matchDeadlineIso(ctx),
+  };
+  if (game.game === "rps") {
+    game.meta = { ...game.meta, match: { ...base, phase: "pick", picks: {} } };
+  } else if (game.game === "highcard") {
+    game.meta = { ...game.meta, match: { ...base, phase: "reveal", revealed: {}, redraws: 0, hands: {} } };
+    dealHighCards(ctx, game);
+  } else if (game.game === "quickdraw") {
+    game.meta = { ...game.meta, match: { ...base, phase: "ready", ready: {}, signalAt: 0, taps: {} } };
+  }
+  return game.meta.match;
+}
+
+// Deal a fresh pair for High Card. ctx.fixedDeck (tests only, same
+// spirit as ctx.fixedResult) deals from the front of a given deck.
+function dealHighCards(ctx, game) {
+  const match = game.meta.match;
+  const deck = Array.isArray(ctx?.fixedDeck) && ctx.fixedDeck.length >= 2 ? ctx.fixedDeck.slice() : shuffledDeck();
+  match.hands = { creator: deck[0], joiner: deck[1] };
+  match.revealed = {};
+  match.phase = "reveal";
+}
+
+// The ONLY client-facing view of a match, built per viewer: your own
+// locked pick is yours to see; the opponent's pick/card stays hidden
+// until the round resolves into history. Quick Draw's signal time is
+// never exposed — only whether it has fired.
+export function arcadeMatchView(game, viewerId, now = Date.now()) {
+  const match = game?.meta?.match;
+  if (!match) return null;
+  const over = ["resolved", "refunded"].includes(game.status);
+  const isCreator = !!viewerId && viewerId === game.userId;
+  const isJoiner = !!viewerId && viewerId === game.joinerId;
+  const view = {
+    kind: game.game,
+    phase: match.phase || "",
+    round: match.round || 1,
+    score: { creator: match.score?.creator || 0, joiner: match.score?.joiner || 0 },
+    history: Array.isArray(match.history) ? match.history : [],
+    // Quick Draw's wait-phase deadline is derived from the secret
+    // signal time — showing it would hand clients the exact moment to
+    // tap. It stays blank until the round is decided.
+    deadlineAt: game.game === "quickdraw" && match.phase === "wait" ? "" : match.deadlineAt || "",
+    over,
+  };
+  if (game.game === "rps") {
+    const picks = match.picks || {};
+    view.myPick = isCreator ? picks.creator || "" : isJoiner ? picks.joiner || "" : "";
+    view.oppPicked = isCreator ? !!picks.joiner : isJoiner ? !!picks.creator : false;
+  } else if (game.game === "highcard") {
+    view.redraws = match.redraws || 0;
+    view.myRevealed = isCreator ? !!match.revealed?.creator : isJoiner ? !!match.revealed?.joiner : false;
+    view.oppRevealed = isCreator ? !!match.revealed?.joiner : isJoiner ? !!match.revealed?.creator : false;
+    // Face-down means face-down: cards appear only in resolved history.
+    view.myCard = null;
+    view.oppCard = null;
+  } else if (game.game === "quickdraw") {
+    const ready = match.ready || {};
+    view.myReady = isCreator ? !!ready.creator : isJoiner ? !!ready.joiner : false;
+    view.oppReady = isCreator ? !!ready.joiner : isJoiner ? !!ready.creator : false;
+    view.fired = match.phase === "wait" && !!match.signalAt && now >= match.signalAt;
+  }
+  return view;
+}
+
+// Settle a finished interactive match through the SAME escrow payout
+// path as the flip/dice games (sendFromEscrow, full pot, no cut). The
+// decision is recorded in meta.settle and the game moves to "settling"
+// BEFORE any payment; each completed payment is recorded too, so the
+// sweep can retry a half-paid settlement without ever paying a side
+// twice. side: "creator" | "joiner" | "split" (split returns each
+// entry — used for max-redraw ties and double-stall timeouts).
+async function settleArcadeMatch(ctx, game, side, result) {
+  if (["resolved", "refunded"].includes(game.status)) return game;
+  if (!game.meta.settle) {
+    game.meta = { ...game.meta, settle: { side: side || "split", result: result || "", paid: {} } };
+    game.status = "settling";
+    await persistArcadeGame(ctx, game);
+  }
+  const decision = game.meta.settle;
+  const entryRaw = BigInt(game.entryRaw || "0");
+  const payments =
+    decision.side === "split"
+      ? [
+          { key: "creator", to: game.creatorAddress, raw: entryRaw },
+          { key: "joiner", to: game.joinerAddress, raw: entryRaw },
+        ]
+      : [
+          {
+            key: "winner",
+            to: decision.side === "creator" ? game.creatorAddress : game.joinerAddress,
+            raw: entryRaw * 2n,
+          },
+        ];
+  try {
+    const escrow = await arcadeEscrow(ctx);
+    for (const pay of payments) {
+      if (decision.paid[pay.key]) continue;
+      decision.paid[pay.key] = await sendFromEscrow(ctx, escrow, pay.to, pay.raw);
+      await persistArcadeGame(ctx, game);
+    }
+  } catch (err) {
+    // Stays "settling" with the decision + partial payments recorded —
+    // the sweep retries and skips anything already paid.
+    game.error = `The payout did not send (${err.message || "payout"}). It will retry.`;
+    await persistArcadeGame(ctx, game);
+    return game;
+  }
+  game.result = decision.result;
+  game.error = "";
+  if (decision.side === "split") {
+    game.status = "refunded";
+    game.refundSignature = decision.paid.creator || "";
+    game.meta = { ...game.meta, settle: decision, splitJoinerSignature: decision.paid.joiner || "" };
+  } else {
+    game.status = "resolved";
+    game.winnerId = decision.side === "creator" ? game.userId : game.joinerId;
+    game.winnerName = decision.side === "creator" ? game.creatorName : game.joinerName;
+    game.payoutSignature = decision.paid.winner || "";
+    game.resolvedAt = new Date(arcadeNow(ctx)).toISOString();
+  }
+  await persistArcadeGame(ctx, game);
+  return game;
+}
+
+// Which sides have completed the action the current phase waits on.
+function matchActedSides(game) {
+  const match = game.meta?.match;
+  if (!match) return new Set();
+  const acted = new Set();
+  const mark = (bag) => {
+    if (bag?.creator) acted.add("creator");
+    if (bag?.joiner) acted.add("joiner");
+  };
+  if (game.game === "rps" && match.phase === "pick") mark(match.picks);
+  else if (game.game === "highcard" && match.phase === "reveal") mark(match.revealed);
+  else if (game.game === "quickdraw" && match.phase === "ready") mark(match.ready);
+  return acted;
+}
+
+// Lazy match upkeep, run from the sweep and before every act: Quick
+// Draw rounds nobody tapped in time are voided and replayed; a phase
+// stalled past its deadline is a forfeit for the player who never acted
+// (or a split refund when NEITHER player acted).
+async function arcadeMatchTimeout(ctx, game) {
+  if (game.status !== "playing") return game;
+  const match = game.meta?.match;
+  if (!match) return game;
+  const now = arcadeNow(ctx);
+  if (game.game === "quickdraw" && match.phase === "wait" && match.signalAt && now > match.signalAt + QD_TAP_WINDOW_MS) {
+    match.history = [...(match.history || []), { round: match.round, winner: "", reason: "void" }];
+    match.phase = "ready";
+    match.ready = {};
+    match.signalAt = 0;
+    match.taps = {};
+    match.deadlineAt = matchDeadlineIso(ctx);
+    await persistArcadeGame(ctx, game);
+    return game;
+  }
+  if (match.deadlineAt && now > Date.parse(match.deadlineAt)) {
+    const acted = matchActedSides(game);
+    if (acted.size === 1) {
+      const side = [...acted][0];
+      return settleArcadeMatch(ctx, game, side, "forfeit");
+    }
+    if (acted.size === 0) {
+      return settleArcadeMatch(ctx, game, "split", "abandoned");
+    }
+  }
+  return game;
 }
 
 // Resolve a fully-paid game: server RNG decides, the escrow pays the
@@ -2372,6 +2633,12 @@ export async function arcadeSweep(ctx) {
       await refundArcadeGame(ctx, game);
     } else if (game.status === "ready") {
       await resolveArcadeGame(ctx, game);
+    } else if (game.status === "settling") {
+      // Interactive match whose payout failed mid-settle: the recorded
+      // decision is replayed, skipping any side already paid.
+      await settleArcadeMatch(ctx, game);
+    } else if (game.status === "playing") {
+      await arcadeMatchTimeout(ctx, game);
     }
   }
 }
@@ -2391,6 +2658,12 @@ export async function arcadeLobby(ctx, player, body) {
     }
   }
   const games = [...store().arcadeGames.values()].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const withMatch = (g) => {
+    const pub = publicArcadeGame(g, dec);
+    const view = arcadeMatchView(g, userId, arcadeNow(ctx));
+    if (view) pub.match = view;
+    return pub;
+  };
   return {
     ok: true,
     you: userId,
@@ -2399,7 +2672,7 @@ export async function arcadeLobby(ctx, player, body) {
     escrowNote: "Entries go to the arcade escrow. The winner takes the full pot — no house cut.",
     orbitx,
     open: games.filter((g) => g.status === "open").map((g) => publicArcadeGame(g, dec)),
-    mine: games.filter((g) => g.userId === userId || g.joinerId === userId).slice(0, 10).map((g) => publicArcadeGame(g, dec)),
+    mine: games.filter((g) => g.userId === userId || g.joinerId === userId).slice(0, 10).map(withMatch),
   };
 }
 
@@ -2417,7 +2690,7 @@ export async function arcadeCompose(ctx, player, body) {
   const idem = String(body.idempotencyKey || "").slice(0, 80);
   if (!idem) return fail("Missing a confirm id. Open the game sheet again.", 400);
   const gameKind = String(body.game || "");
-  if (!ARCADE_GAMES[gameKind]) return fail("Pick Coin Flip or Dice Roll.");
+  if (!ARCADE_GAMES[gameKind]) return fail("Pick a game from the Mini-Games Hub.");
   const tierUsd = Number(body.tier);
   if (!ARCADE_TIERS_USD.includes(tierUsd)) return fail("Pick a $1, $2, $5, or $10 game.");
   const address = validArcadeAddress(body.address);
@@ -2467,15 +2740,25 @@ export async function arcadeCompose(ctx, player, body) {
     // creator opened the game.
     entryRaw = BigInt(game.entryRaw || "0");
     if (entryRaw <= 0n) return fail("That game has no entry. Pick it from the lobby.", 400);
-    // The joiner always takes the opposite side — the flip then has
-    // exactly one winner. A same-side join is refused, never resolved.
-    if (!pick) pick = oppositePick(game.game, game.creatorPick);
-    if (pick !== oppositePick(game.game, game.creatorPick)) {
-      return fail(`That game is ${game.creatorPick} — take the other side.`, 400);
+    if (ARCADE_GAMES[game.game]?.interactive) {
+      // Interactive match: no side exists to take — both players play
+      // their rounds inside the match after both entries land.
+      pick = "";
+    } else {
+      // The joiner always takes the opposite side — the flip then has
+      // exactly one winner. A same-side join is refused, never resolved.
+      if (!pick) pick = oppositePick(game.game, game.creatorPick);
+      if (pick !== oppositePick(game.game, game.creatorPick)) {
+        return fail(`That game is ${game.creatorPick} — take the other side.`, 400);
+      }
     }
     if (liveGameFor(userId)) return fail("Finish your open game first.", 400);
   } else {
-    if (!ARCADE_GAMES[gameKind].picks.includes(pick)) return fail(`Pick ${ARCADE_GAMES[gameKind].picks.join(" or ")}.`);
+    if (ARCADE_GAMES[gameKind].interactive) {
+      pick = "";
+    } else if (!ARCADE_GAMES[gameKind].picks.includes(pick)) {
+      return fail(`Pick ${ARCADE_GAMES[gameKind].picks.join(" or ")}.`);
+    }
     if (liveGameFor(userId)) return fail("Finish your open game first.", 400);
     const now = new Date(arcadeNow(ctx)).toISOString();
     game = {
@@ -2622,6 +2905,12 @@ export async function arcadeSubmit(ctx, player, body) {
   if (isCreator) {
     game.entrySignature = entrySig || verified.signature || "";
     game.status = "open";
+  } else if (isInteractiveGame(game)) {
+    // Both entries are in escrow — the match starts now and plays out
+    // over arcade-act until settleArcadeMatch pays the pot.
+    game.joinerEntrySignature = entrySig || verified.signature || "";
+    game.status = "playing";
+    initArcadeMatch(ctx, game);
   } else {
     game.joinerEntrySignature = entrySig || verified.signature || "";
     game.status = "ready";
@@ -2631,16 +2920,174 @@ export async function arcadeSubmit(ctx, player, body) {
   if (game.status === "ready") await resolveArcadeGame(ctx, game);
   const dec = await decimals();
   const done = await loadArcadeGame(ctx, game.id);
+  const pub = publicArcadeGame(done || game, dec);
+  const view = arcadeMatchView(done || game, userId, arcadeNow(ctx));
+  if (view) pub.match = view;
   return {
     ok: true,
-    game: publicArcadeGame(done || game, dec),
+    game: pub,
     message:
       done?.status === "resolved"
         ? done.winnerId === userId
           ? `You won the pot — ${(Number(BigInt(done.entryRaw || "0")) * 2) / 10 ** dec} ORBITX is on its way to your wallet.`
           : `${done.winnerName || "Your opponent"} won the pot.`
-        : "Your entry is in. Waiting for an opponent.",
+        : done?.status === "playing"
+          ? "You're in — the match is live. Play your rounds in the hub."
+          : "Your entry is in. Waiting for an opponent.",
   };
+}
+
+// One move inside an interactive match (RPS pick / High Card reveal /
+// Quick Draw ready + tap). The server is the only referee: picks and
+// cards live in meta.match and reach clients only through the sanitized
+// arcadeMatchView; Quick Draw is judged on server receipt time. A move
+// that changes nothing (double pick, double ready) is a safe no-op, so
+// a retried request can never double-play a round — and no move here
+// ever moves money; settlement happens once, in settleArcadeMatch.
+export async function arcadeAct(ctx, player, body) {
+  const userId = arcadeUserId(player);
+  if (!userId) return fail("Sign in first.");
+  const game = await loadArcadeGame(ctx, String(body.gameId || ""));
+  if (!game) return fail("That game was not found.", 404);
+  const isCreator = game.userId === userId;
+  const isJoiner = game.joinerId === userId;
+  if (!isCreator && !isJoiner) return fail("That game is not yours.", 403);
+  if (!isInteractiveGame(game)) return fail("That game plays itself — no moves to make.", 400);
+  const dec = await decimals();
+  const reply = (message) => {
+    const pub = publicArcadeGame(game, dec);
+    const view = arcadeMatchView(game, userId, arcadeNow(ctx));
+    if (view) pub.match = view;
+    return { ok: true, game: pub, message };
+  };
+  if (game.status === "settling") return reply("The match is decided — the pot is on its way.");
+  if (game.status !== "playing") return reply("This match is over.");
+  // A stalled phase resolves (forfeit / split / voided round) before
+  // this move is judged — nobody acts inside a dead match.
+  await arcadeMatchTimeout(ctx, game);
+  if (game.status !== "playing") return reply("The match just ended.");
+  const match = game.meta.match;
+  const side = isCreator ? "creator" : "joiner";
+  const other = side === "creator" ? "joiner" : "creator";
+  const action = String(body.action || "");
+  const value = String(body.value || "");
+  const touch = () => {
+    match.deadlineAt = matchDeadlineIso(ctx);
+  };
+  let message = "";
+
+  if (game.game === "rps") {
+    if (action !== "pick") return fail("Send a pick: rock, paper, or scissors.", 400);
+    if (!RPS_PICKS.includes(value)) return fail("Pick rock, paper, or scissors.", 400);
+    if (match.phase !== "pick") return fail("Picks are not open right now.", 409);
+    if (match.picks[side]) return reply("Your pick is locked in — picks can't change.");
+    match.picks[side] = value;
+    touch();
+    message = "Pick locked in.";
+    if (match.picks.creator && match.picks.joiner) {
+      const winner = rpsRoundWinner(match.picks.creator, match.picks.joiner);
+      match.history = [
+        ...(match.history || []),
+        { round: match.round, creatorPick: match.picks.creator, joinerPick: match.picks.joiner, winner },
+      ];
+      match.picks = {};
+      if (winner !== "tie") {
+        match.score[winner] += 1;
+        match.round += 1;
+      }
+      if (match.score.creator >= 2 || match.score.joiner >= 2) {
+        const winSide = match.score.creator >= 2 ? "creator" : "joiner";
+        await settleArcadeMatch(ctx, game, winSide, `${match.score.creator}–${match.score.joiner}`);
+        message = "Match over — the pot is settled.";
+      } else {
+        message = winner === "tie" ? "Tie — replay the round." : "Round scored.";
+      }
+    }
+  } else if (game.game === "highcard") {
+    if (action !== "reveal") return fail("Send a reveal.", 400);
+    if (match.phase !== "reveal") return fail("Nothing to reveal right now.", 409);
+    if (match.revealed[side]) return reply("You're revealed — waiting on your opponent.");
+    match.revealed[side] = true;
+    touch();
+    message = "Revealed.";
+    if (match.revealed.creator && match.revealed.joiner) {
+      const cmp = compareCards(match.hands.creator, match.hands.joiner);
+      if (cmp === 0) {
+        match.history = [
+          ...(match.history || []),
+          { round: match.round, creatorCard: match.hands.creator, joinerCard: match.hands.joiner, winner: "tie", redraw: match.redraws },
+        ];
+        if (match.redraws >= HIGHCARD_MAX_REDRAWS) {
+          await settleArcadeMatch(ctx, game, "split", "split");
+          message = "Dead even after every redraw — the pot splits.";
+        } else {
+          match.redraws += 1;
+          match.round += 1;
+          dealHighCards(ctx, game);
+          message = "Tie — fresh cards dealt.";
+        }
+      } else {
+        const winSide = cmp > 0 ? "creator" : "joiner";
+        match.history = [
+          ...(match.history || []),
+          { round: match.round, creatorCard: match.hands.creator, joinerCard: match.hands.joiner, winner: winSide, redraw: match.redraws },
+        ];
+        const winCard = winSide === "creator" ? match.hands.creator : match.hands.joiner;
+        const loseCard = winSide === "creator" ? match.hands.joiner : match.hands.creator;
+        await settleArcadeMatch(ctx, game, winSide, `${cardLabel(winCard)} over ${cardLabel(loseCard)}`);
+        message = "Match over — the pot is settled.";
+      }
+    }
+  } else if (game.game === "quickdraw") {
+    if (action === "ready") {
+      if (match.phase !== "ready") return reply("Already past the ready check.");
+      if (match.ready[side]) return reply("You're ready — waiting on your opponent.");
+      match.ready[side] = true;
+      touch();
+      message = "Ready.";
+      if (match.ready.creator && match.ready.joiner) {
+        match.phase = "wait";
+        const pinned = Number(ctx?.qdDelayMs);
+        const delay =
+          Number.isFinite(pinned) && pinned >= 0 ? pinned : QD_MIN_DELAY_MS + randomInt(0, QD_MAX_DELAY_MS - QD_MIN_DELAY_MS + 1);
+        match.signalAt = arcadeNow(ctx) + delay;
+        match.taps = {};
+        match.deadlineAt = new Date(match.signalAt + QD_TAP_WINDOW_MS + ARCADE_MATCH_ACTION_MS).toISOString();
+        message = "Both ready — wait for DRAW…";
+      }
+    } else if (action === "tap") {
+      if (match.phase !== "wait") return reply("No draw is live — ready up first.");
+      const outcome = quickDrawTap(match.signalAt, arcadeNow(ctx));
+      if (outcome.falseStart) {
+        match.history = [...(match.history || []), { round: match.round, winner: other, reason: "false-start", loser: side }];
+        match.score[other] += 1;
+        message = "False start — tapped before DRAW. The round goes to your opponent.";
+      } else {
+        match.history = [...(match.history || []), { round: match.round, winner: side, reason: "draw", reactionMs: outcome.reactionMs }];
+        match.score[side] += 1;
+        message = `Drawn in ${outcome.reactionMs}ms (server-timed).`;
+      }
+      if (match.score.creator >= 2 || match.score.joiner >= 2) {
+        const winSide = match.score.creator >= 2 ? "creator" : "joiner";
+        await settleArcadeMatch(ctx, game, winSide, `${match.score.creator}–${match.score.joiner}`);
+        message += " Match over — the pot is settled.";
+      } else {
+        match.round += 1;
+        match.phase = "ready";
+        match.ready = {};
+        match.signalAt = 0;
+        match.taps = {};
+        touch();
+      }
+    } else {
+      return fail("Send ready or tap.", 400);
+    }
+  } else {
+    return fail("That game has no moves.", 400);
+  }
+
+  if (game.status === "playing") await persistArcadeGame(ctx, game);
+  return reply(message);
 }
 
 export async function arcadeCancel(ctx, player, body) {
@@ -2681,7 +3128,18 @@ export async function arcadeHistory(ctx, player) {
     }
     mine.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   }
-  return { ok: true, you: userId, games: mine.slice(0, 20).map((g) => publicArcadeGame(g, dec)) };
+  return {
+    ok: true,
+    you: userId,
+    games: mine.slice(0, 20).map((g) => {
+      const pub = publicArcadeGame(g, dec);
+      // Finished matches are public record: the final view reveals
+      // every pick and card so the history reads as a real result.
+      const view = arcadeMatchView(g, userId, arcadeNow(ctx));
+      if (view) pub.match = view;
+      return pub;
+    }),
+  };
 }
 
 export async function arcadeLeaders(ctx, player) {
