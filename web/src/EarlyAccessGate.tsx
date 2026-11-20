@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { world, type EarlyAccessStatus } from "./game/world";
 
-// EARLY ACCESS gate screen (pre-launch burn gate). Shown instead of the
-// character roster when the server says the gate is active and this
-// account has not unlocked yet: buy ORBITX → burn it to the incinerator
-// from the wallet you will verify with → paste the Solscan link and the
+// EARLY ACCESS gate screen (pre-launch burn gate). This is the front
+// door: when the server says the gate is active and this account has
+// not unlocked yet, a locked player lands here straight off the splash
+// (App routes the menu's first step to the gate) — and Play/roster
+// entry routes here too. Buy ORBITX → burn it to the incinerator from
+// the wallet you will verify with → paste the Solscan link and the
 // server checks the burn on-chain. The unlock lives on the account, so
 // guests get the account-required card and are routed to sign-in first.
 // Once the server reports the gate inactive (launch day), this screen
@@ -43,17 +45,23 @@ function formatTokens(amount: number): string {
 interface EarlyAccessGateProps {
   status: EarlyAccessStatus;
   signedIn: boolean;
+  // True when this presentation IS the splash landing (the front
+  // door): the Back button is hidden — a locked player has no menu
+  // behind this screen to go back to. The header chrome above the
+  // gate still carries sign-out / account switching.
+  landing?: boolean;
   // A verify succeeded: App records the unlock and re-reads the status.
   onUnlocked: (proof: { amountTokens: number; usd: number }) => void;
   // Guest tapped the sign-in route — App shows the login UI.
   onNeedAccount: () => void;
-  // Back to the menu home (a locked player is never trapped here).
+  // Back to the menu home (only offered when the gate was reached
+  // through the Play door, never on the landing gate).
   onBack: () => void;
   // Enter after unlocking — App re-checks the gate and routes on.
   onEnter: () => void;
 }
 
-export function EarlyAccessGate({ status, signedIn, onUnlocked, onNeedAccount, onBack, onEnter }: EarlyAccessGateProps) {
+export function EarlyAccessGate({ status, signedIn, landing = false, onUnlocked, onNeedAccount, onBack, onEnter }: EarlyAccessGateProps) {
   const [wallet, setWallet] = useState("");
   const [txInput, setTxInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -248,9 +256,11 @@ export function EarlyAccessGate({ status, signedIn, onUnlocked, onNeedAccount, o
       )}
 
       <div className="ea-foot">
-        <button type="button" className="ea-back" onClick={onBack}>
-          ← Back to menu
-        </button>
+        {landing ? null : (
+          <button type="button" className="ea-back" onClick={onBack}>
+            ← Back to menu
+          </button>
+        )}
         <span className="ea-foot-note">No burn yet? The city opens free to everyone on December 5.</span>
       </div>
     </div>

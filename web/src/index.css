@@ -4728,6 +4728,18 @@ body.touch .touch-ui {
   text-align: left;
 }
 
+/* Splash-landing checking state: shown while the early-access status
+   read is still in flight, in place of the home screen. */
+.ea-spinner {
+  width: 34px;
+  height: 34px;
+  margin: 20px auto 12px;
+  border-radius: 50%;
+  border: 3px solid var(--ox-hairline-soft);
+  border-top-color: var(--ox-gold);
+  animation: ph-spin 0.9s linear infinite;
+}
+
 .ea-kicker {
   margin: 0 0 4px;
   color: var(--ox-gold);

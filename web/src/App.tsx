@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createGame, type Game, type PlayMode } from "./game/engine";
 import type { AdOrder, CityStats, MyPropertyClaim, OfficeSolLease, PanelName, RadioTrack, Runtime, ShopCatalogData, ShopTab, Snap } from "./game/runtime";
 import { EMPTY_CITY_PEOPLE, FURNITURE_CATALOG, PHOTO_LANDMARKS } from "./game/runtime";
@@ -567,8 +567,10 @@ export default function App() {
   const gameRef = useRef<Game | null>(null);
   const [menu, setMenu] = useState(() => shotMode() === null);
   // Title flow: "home" is the new landing screen, "roster" the character
-  // select, "gate" the pre-launch early-access burn gate (only ever
-  // routed to while the server reports the gate active + locked).
+  // select, "gate" the pre-launch early-access burn gate — the splash
+  // landing step for a locked account (and its checking state while the
+  // status read is in flight), also routed to from Play while the
+  // server reports the gate active + locked.
   const [menuStep, setMenuStep] = useState<"home" | "roster" | "gate">("home");
   // Home rebrand: info pages (about / settings / privacy / terms) shown
   // inside the menu instead of the home step. "home" = the landing screen.
@@ -883,14 +885,33 @@ export default function App() {
   const eaStatusRef = useRef<EarlyAccessStatus | null>(null);
   const eaUnlockedRef = useRef(false);
   const eaFetchedForRef = useRef("");
+  // Read phase for the splash landing below: "pending" parks the menu on
+  // the gate's checking state, "answered" routes on the answer, "error"
+  // fails open to home. Distinct from eaStatus === null, which alone
+  // cannot tell "still reading" from "read failed".
+  const [eaPhase, setEaPhase] = useState<"idle" | "pending" | "answered" | "error">("idle");
+  const eaFetchSeqRef = useRef(0);
+  // True while the gate on screen is the splash landing (the front
+  // door): that presentation hides its Back button — a locked player
+  // has no menu behind it. Door-routed gates (enterCity / play
+  // backstop) keep the Back button, as in v50.
+  const [eaLandingGate, setEaLandingGate] = useState(false);
   const fetchEaStatus = useCallback(async (): Promise<EarlyAccessStatus | null> => {
+    // The mount read starts during the intro now, so it can overlap the
+    // per-account re-read when the session lands — the sequence guard
+    // keeps a slow guest answer from overwriting the account's answer.
+    const seq = ++eaFetchSeqRef.current;
+    setEaPhase("pending");
     try {
       const status = await world.earlyAccessStatus();
+      if (seq !== eaFetchSeqRef.current) return eaStatusRef.current;
       eaStatusRef.current = status;
       setEaStatus(status);
       if (status.unlocked) eaUnlockedRef.current = true;
+      setEaPhase("answered");
       return status;
     } catch {
+      if (seq === eaFetchSeqRef.current) setEaPhase(eaStatusRef.current ? "answered" : "error");
       return null;
     }
   }, []);
@@ -900,8 +921,11 @@ export default function App() {
   }, []);
   // The one door into the city from the title screens: a locked account
   // lands on the gate screen, everyone else on the character roster.
+  // A gate reached through this door keeps its Back button — the
+  // splash-landing gate (below) is the one that hides it.
   const enterCity = useCallback(() => {
     setMenuPage("home");
+    setEaLandingGate(false);
     if (eaLockedNow()) {
       setMenuStep("gate");
       return;
@@ -1165,16 +1189,18 @@ export default function App() {
   }, [menu]);
 
   // EARLY ACCESS: one status read per title-screen mount, and one per
-  // account change (signing in swaps whose unlock counts). Leaving to
-  // the world re-arms the read for the next mount. A failed read leaves
-  // the state unknown and entry stays normal (see enterCity) — a dead
-  // status read must never brick the title screen.
+  // account change (signing in swaps whose unlock counts). The read
+  // starts at mount — in parallel with the intro and the session/world
+  // start — so the answer is ready before the intro finishes whenever
+  // the network allows; the landing decision below consumes it. Leaving
+  // to the world re-arms the read for the next mount. A failed read
+  // leaves the state unknown and entry stays normal (see enterCity) —
+  // a dead status read must never brick the title screen.
   useEffect(() => {
     if (!menu) {
       eaFetchedForRef.current = "";
       return;
     }
-    if (intro) return;
     const key = who?.id ?? "guest";
     if (eaFetchedForRef.current === key) return;
     eaFetchedForRef.current = key;
@@ -1183,7 +1209,36 @@ export default function App() {
     eaStatusRef.current = null;
     setEaStatus(null);
     void fetchEaStatus();
-  }, [menu, intro, who, fetchEaStatus]);
+  }, [menu, who, fetchEaStatus]);
+
+  // EARLY ACCESS LANDING: the gate is the front door, not a Play-button
+  // detour. The first time the menu content appears — the intro ended
+  // or was skipped, or a session landed straight on the menu — a locked
+  // account's first step is the gate, never the home screen. While the
+  // mount read is still in flight this parks on the gate (rendered as
+  // its "Checking access…" state) instead of flashing home; a failed
+  // read fails open to home. Layout effect so the routing lands before
+  // the first menu paint. Decided once per app session — afterwards the
+  // enterCity()/play() backstops keep guarding every entry as before.
+  const eaLandingDoneRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!menu || intro || eaLandingDoneRef.current) return;
+    if (eaPhase === "answered") {
+      eaLandingDoneRef.current = true;
+      if (eaLockedNow()) {
+        setEaLandingGate(true);
+        setMenuStep("gate");
+      } else {
+        setMenuStep("home");
+      }
+    } else if (eaPhase === "error") {
+      eaLandingDoneRef.current = true;
+      setMenuStep("home");
+    } else {
+      // pending / idle: park on the checking gate until the read lands.
+      setMenuStep("gate");
+    }
+  }, [menu, intro, eaPhase, eaLockedNow]);
 
   // Multiverse panel: fresh counts on open.
   useEffect(() => {
@@ -1969,6 +2024,7 @@ export default function App() {
     // the status answer landed.
     if (eaLockedNow()) {
       setMenuPage("home");
+      setEaLandingGate(false);
       setMenuStep("gate");
       return;
     }
@@ -6170,7 +6226,7 @@ export default function App() {
               socialLive={universesLive}
               onOpenPage={setMenuPage}
             />
-          ) : menuStep === "gate" && eaStatus ? (
+          ) : menuStep === "gate" ? (
             <>
               <MenuHeader
                 who={who}
@@ -6178,18 +6234,31 @@ export default function App() {
                 onHome={() => { setMenuPage("home"); setMenuStep("home"); }}
                 onPlay={enterCity}
               />
-              <EarlyAccessGate
-                status={eaStatus}
-                signedIn={Boolean(who)}
-                onUnlocked={handleEaUnlocked}
-                onNeedAccount={() => {
-                  setGate("login");
-                  setWho(null);
-                  setMenuStep("home");
-                }}
-                onBack={() => setMenuStep("home")}
-                onEnter={enterCity}
-              />
+              {eaStatus ? (
+                <EarlyAccessGate
+                  status={eaStatus}
+                  signedIn={Boolean(who)}
+                  landing={eaLandingGate}
+                  onUnlocked={handleEaUnlocked}
+                  onNeedAccount={() => {
+                    setGate("login");
+                    setWho(null);
+                    setMenuStep("home");
+                  }}
+                  onBack={() => setMenuStep("home")}
+                  onEnter={enterCity}
+                />
+              ) : (
+                // Splash landing, read still in flight: the gate's
+                // checking state — shown instead of flashing the home
+                // screen while the server answer is on its way.
+                <div className="card menu-wide ea-gate ea-checking" role="status">
+                  <p className="ea-kicker">ORBITX CITY · BEFORE LAUNCH</p>
+                  <h2>EARLY ACCESS</h2>
+                  <div className="ea-spinner" aria-hidden="true" />
+                  <p className="muted">Checking access…</p>
+                </div>
+              )}
               <MenuFooter onNavigate={setMenuPage} />
             </>
           ) : (
