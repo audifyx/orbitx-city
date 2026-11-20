@@ -292,6 +292,8 @@ const EMPTY: Snap = {
   flying: false,
   flyingCar: false,
   carFlying: false,
+  fuelPct: -1,
+  fuelEv: false,
   ridingBoard: false,
   ridingTrain: false,
   transport: {
@@ -1835,6 +1837,11 @@ export default function App() {
             <span>{snap.account ? "Account" : "Guest"}</span>
           </div>
           {snap.flying || snap.carFlying ? <span className="flying-chip">FLYING</span> : null}
+          {snap.driving && snap.fuelPct >= 0 ? (
+            <span className="driving-chip" style={snap.fuelPct <= 15 ? { background: "#7a1616", color: "#fff" } : undefined}>
+              {snap.fuelEv ? "CHARGE" : "FUEL"} {snap.fuelPct}%{snap.fuelPct <= 0 ? " — LIMP MODE" : ""}
+            </span>
+          ) : null}
           {snap.drivingTrain ? <span className="driving-chip">DRIVING THE LOOP TRAIN</span> : null}
           {snap.holder ? <span>HOLDER</span> : null}
           {snap.voiceProvider && snap.voiceProvider !== "off" ? (

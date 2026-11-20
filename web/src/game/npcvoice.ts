@@ -47,6 +47,7 @@ const PERSONAS: Record<string, VoicePersona> = {
   Bex: { gemini: "Erinome", female: true, pitch: 1.04, rate: 1.02 },
   Gus: { gemini: "Charon", female: false, pitch: 0.9, rate: 1.0 },
   Park: { gemini: "Fenrir", female: false, pitch: 0.84, rate: 0.94 },
+  Pip: { gemini: "Puck", female: false, pitch: 1.05, rate: 1.12 },
 };
 
 const ROLE_PERSONAS: Array<[RegExp, VoicePersona]> = [

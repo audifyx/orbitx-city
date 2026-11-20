@@ -44,6 +44,11 @@ import {
   MUSEUM_BONUS,
   MUSEUM_EXHIBITS,
   MUSEUM_REWARD,
+  EV_PRICE_PER_PCT,
+  EV_SPOT,
+  FUEL_FILL_MS,
+  FUEL_PRICE_PER_PCT,
+  FUEL_SPOT,
   NPC_DEFAULT_LINES,
   NPC_DEFAULT_PATROL,
   NPC_LINES,
@@ -559,6 +564,10 @@ export interface Snap {
   flyingCar: boolean;
   /** The driven car is airborne or auto-taking-off / auto-landing. */
   carFlying: boolean;
+  /** FUEL: the driven car's tank/battery percent (-1 when not driving). */
+  fuelPct: number;
+  /** FUEL: the driven car is electric (charge, not gas). */
+  fuelEv: boolean;
   /** Riding a skateboard (pushToGo) — the Gas button relabels to Push. */
   ridingBoard: boolean;
   /** Equipped wardrobe slots + saved fits, parsed from wallet.owned. */
@@ -2299,6 +2308,21 @@ export function createRuntime(scene: Scene) {
   // Car wash: 0 when idle, otherwise the timestamp the wash finishes.
   let washEndsAt = 0;
   let washReadyAt = 0;
+  // FUEL: per-car tank/battery levels (0-100), persisted per vehicle
+  // instance id so every car in the city keeps its own tank.
+  const FUEL_KEY = "orbitx-city-fuel-v1";
+  const fuelLevels: Record<string, number> = (() => {
+    try {
+      return JSON.parse(localStorage.getItem(FUEL_KEY) || "{}") as Record<string, number>;
+    } catch {
+      return {};
+    }
+  })();
+  let fillEndsAt = 0;
+  let fillCar: (typeof cars)[number] | null = null;
+  let fillEv = false;
+  const fuelWarned = new Set<string>();
+  const prevCarPos = new Map<string, { x: number; z: number }>();
   let tourLock = false;
   const box = new BoxGeometry(1, 1, 1);
 
@@ -3413,6 +3437,14 @@ export function createRuntime(scene: Scene) {
     const danceTag = makeLabel("Dance floor", true);
     danceTag.position.set(DANCE_SPOT.x, 2.6, DANCE_SPOT.z);
     root.add(danceTag);
+    // FUEL: station labels — the OrbitX Fuel canopy on the Motors lot
+    // and the EV charge posts on the plaza's east edge.
+    const fuelTag = makeLabel("OrbitX Fuel", true);
+    fuelTag.position.set(FUEL_SPOT.x, 4.9, FUEL_SPOT.z);
+    root.add(fuelTag);
+    const evTag = makeLabel("EV Charging", true);
+    evTag.position.set(EV_SPOT.x, 2.4, EV_SPOT.z);
+    root.add(evTag);
     for (const spot of PHOTO_SPOTS) {
       const tag = makeLabel("Photo spot", true);
       tag.position.set(spot.x, 2.2, spot.z);
@@ -3623,6 +3655,8 @@ export function createRuntime(scene: Scene) {
       flying: flyFlag,
       flyingCar: driving && carIndex >= 0 && !!driveParams && driveParams.climb > 0,
       carFlying: driving && carIndex >= 0 && !!(cars[carIndex] && (cars[carIndex].alt > 0 || cars[carIndex].autoAlt != null)),
+      fuelPct: driving && carIndex >= 0 && cars[carIndex] ? Math.round(fuelOf(cars[carIndex])) : -1,
+      fuelEv: driving && carIndex >= 0 && cars[carIndex] ? carIsEv(cars[carIndex]) : false,
       ridingBoard: driving && carIndex >= 0 && !!driveParams && driveParams.pushToGo,
       ridingTrain,
       transport: {
@@ -4997,6 +5031,110 @@ export function createRuntime(scene: Scene) {
     publish();
   }
 
+  // ---- FUEL: tanks, the gas station, EV charging --------------------
+  function carIsEv(car: (typeof cars)[number]): boolean {
+    const def = car.vehicleId ? getVehicle(car.vehicleId) : null;
+    return !!def && (def.fly || def.brand === "Tesla");
+  }
+
+  function fuelOf(car: (typeof cars)[number]): number {
+    const stored = fuelLevels[car.id];
+    if (typeof stored === "number") return stored;
+    let hash = 0;
+    for (let i = 0; i < car.id.length; i++) hash = (hash * 31 + car.id.charCodeAt(i)) | 0;
+    return 55 + (Math.abs(hash) % 40);
+  }
+
+  function setFuel(car: (typeof cars)[number], value: number) {
+    fuelLevels[car.id] = Math.max(0, Math.min(100, value));
+    try {
+      localStorage.setItem(FUEL_KEY, JSON.stringify(fuelLevels));
+    } catch {
+      /* private mode */
+    }
+  }
+
+  function startFill(ev: boolean) {
+    if (fillEndsAt > 0) return;
+    const spot = ev ? EV_SPOT : FUEL_SPOT;
+    let best: (typeof cars)[number] | null = null;
+    let bestD = 9;
+    for (const car of cars) {
+      const d = Math.hypot(car.x - spot.x, car.z - spot.z);
+      if (d < bestD) {
+        bestD = d;
+        best = car;
+      }
+    }
+    if (!best) {
+      say(ev ? "No car at the chargers — park one by the posts first." : "No car at the pumps — park one under the canopy first.");
+      return;
+    }
+    if (carIsEv(best) !== ev) {
+      say(ev ? "That one runs on gas — the pumps at OrbitX Fuel are on the Motors lot." : "That one's electric — chargers are on the plaza's east edge.");
+      return;
+    }
+    if (fuelOf(best) > 97) {
+      say(ev ? "Battery's already full." : "Tank's already full.");
+      return;
+    }
+    fillCar = best;
+    fillEv = ev;
+    fillEndsAt = Date.now() + FUEL_FILL_MS;
+    say(ev ? "Charging… hold still a few seconds." : "Filling the tank… hold still a few seconds.");
+    publish();
+  }
+
+  function tickFuel(body: Body) {
+    // Drain the driven car by the distance it actually travelled.
+    if (driving && carIndex >= 0) {
+      const car = cars[carIndex];
+      if (car) {
+        const prev = prevCarPos.get(car.id);
+        if (prev) {
+          const moved = Math.hypot(car.x - prev.x, car.z - prev.z);
+          if (moved > 0.01) {
+            setFuel(car, fuelOf(car) - moved * 0.045 * (carIsEv(car) ? 0.8 : 1));
+          }
+          if (fuelOf(car) <= 0 && !fuelWarned.has(car.id)) {
+            fuelWarned.add(car.id);
+            say(carIsEv(car) ? "Battery's flat — limp mode. Crawl to the plaza chargers." : "Out of fuel — limp mode. Crawl to OrbitX Fuel on the Motors lot.");
+          }
+          if (fuelOf(car) > 5) fuelWarned.delete(car.id);
+        }
+        prevCarPos.set(car.id, { x: car.x, z: car.z });
+      }
+    }
+    if (!fillEndsAt || !fillCar) return;
+    const spot = fillEv ? EV_SPOT : FUEL_SPOT;
+    if (Math.hypot(body.x - spot.x, body.z - spot.z) > 4 || Math.hypot(fillCar.x - spot.x, fillCar.z - spot.z) > 10) {
+      fillEndsAt = 0;
+      fillCar = null;
+      say("Stepped away — the fill is off.");
+      publish();
+      return;
+    }
+    if (Date.now() >= fillEndsAt) {
+      const car = fillCar;
+      const missing = 100 - fuelOf(car);
+      const cost = Math.max(1, Math.ceil(missing * (fillEv ? EV_PRICE_PER_PCT : FUEL_PRICE_PER_PCT)));
+      const paid = spend(wallet, cost, fillEv ? "ev-charge" : "fuel");
+      fillEndsAt = 0;
+      fillCar = null;
+      if (!paid.ok) {
+        say(paid.message);
+        publish();
+        return;
+      }
+      setFuel(car, 100);
+      fuelWarned.delete(car.id);
+      burst(spot.x, 2.2, spot.z);
+      say(fillEv ? `Charged to full — ${cost} City Sol.` : `Tank filled — ${cost} City Sol.`);
+      triggerHaptic("jobPay");
+      publish();
+    }
+  }
+
   function tickWash(body: Body) {
     if (!washEndsAt) return;
     if (Math.hypot(body.x - WASH_SPOT.x, body.z - WASH_SPOT.z) > 3.5) {
@@ -5301,6 +5439,15 @@ export function createRuntime(scene: Scene) {
     }
     if (Math.hypot(body.x - WASH_SPOT.x, body.z - WASH_SPOT.z) < 2.5) {
       startWash();
+      return;
+    }
+    // FUEL: fill the nearest parked car at the pumps / charge posts.
+    if (Math.hypot(body.x - FUEL_SPOT.x, body.z - FUEL_SPOT.z) < 3.2) {
+      startFill(false);
+      return;
+    }
+    if (Math.hypot(body.x - EV_SPOT.x, body.z - EV_SPOT.z) < 3.2) {
+      startFill(true);
       return;
     }
     // FOOD: work out on the gym floor, cook at your own kitchen counter.
@@ -6047,6 +6194,12 @@ export function createRuntime(scene: Scene) {
     const max = params.maxSpeed * boost;
     if (carSpeed > max) carSpeed = max;
     if (carSpeed < params.reverse) carSpeed = params.reverse;
+    // FUEL: an empty tank (or flat battery) means limp mode — a crawl
+    // that can always reach a pump, never a cruise.
+    if (!isBoat && fuelOf(car) <= 0) {
+      if (carSpeed > 2.4) carSpeed = 2.4;
+      if (carSpeed < -1.2) carSpeed = -1.2;
+    }
     const moving = Math.abs(carSpeed) > 0.4 ? Math.sign(carSpeed) : 0;
     // Steering: smoothed (no more binary full-lock) and a bicycle model —
     // full lock turns a CONSTANT radius, so the car corners the same arc
@@ -8122,6 +8275,7 @@ export function createRuntime(scene: Scene) {
       tickBusk(body);
       tickTraffic(dt);
       tickWash(body);
+      tickFuel(body);
     }
     // PEOPLE: a party or a guest that ran out while no panel was open
     // clears itself — no stale guest standing in the home, no party tag

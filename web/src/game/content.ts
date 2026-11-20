@@ -725,6 +725,20 @@ export const NPC_LINES: Record<string, NpcInfo> = {
       [-8, 0],
     ],
   },
+  Pip: {
+    role: "Gas station attendant, OrbitX Fuel",
+    lines: [
+      "OrbitX Fuel — pumps are live, prices are City Sol. Pull under the canopy.",
+      "Electric? Chargers are over at the plaza, east edge. I just do gas here.",
+      "Run it dry and she'll crawl in limp mode. Ask me how I know.",
+    ],
+    patrol: [
+      [0, 0],
+      [2, -2],
+      [-1, -3.5],
+      [0, 0],
+    ],
+  },
 };
 
 // Fallback lines for any citizen without an entry above.
@@ -851,6 +865,18 @@ export const WASH_SPOT = { x: 74, z: 58 };
 export const WASH_MS = 4000;
 export const WASH_PAY = 12;
 export const WASH_COOLDOWN_MS = 45000;
+
+// ---- FUEL: real tanks, a gas station, EV charging ---------------------
+// OrbitX Fuel's forecourt sits on the OrbitX Motors lot (pumps under a
+// canopy, attendant on post). Chargers stand on the plaza's east edge.
+// Every car carries a tank (or battery) that drains as it drives; an
+// empty one drops the car to limp mode until it is filled. Fill prices
+// are City Sol per missing percent.
+export const FUEL_SPOT = { x: 196, z: -58 };
+export const EV_SPOT = { x: 22, z: 26 };
+export const FUEL_FILL_MS = 3000;
+export const FUEL_PRICE_PER_PCT = 0.5;
+export const EV_PRICE_PER_PCT = 0.35;
 
 // ---- FOOD: cooking, restaurants, gym, hunger (City Sol only) ----------
 // Shared contract with the server (api/city.js FOOD section — the server
