@@ -3781,6 +3781,87 @@ body.touch .touch-ui {
 }
 .ph-bubble p { margin: 0; font-size: 14.5px; line-height: 1.4; }
 .ph-bubble span { font-size: 10.5px; color: #c3c8d2; }
+/* City Chat — the game chat as a Messages thread: pinned row up top,
+   the log scrolls inside the app, compose bar docked at the bottom. */
+.ph-avatar svg { width: 21px; height: 21px; }
+.ph-avatar-chat {
+  background: linear-gradient(165deg, #eec04a, #b57f10);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+}
+.ph-appscroll-lock { display: flex; flex-direction: column; overflow: hidden; }
+.ph-chat { flex: 1; min-height: 0; }
+.ph-chat-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 0 10px;
+}
+.ph-bubble-name { display: block; font-size: 11px; font-weight: 700; color: var(--ph-accent); margin-bottom: 2px; }
+.ph-bubble-self {
+  align-self: flex-end;
+  border-radius: 20px 20px 6px 20px;
+  background: rgba(238, 192, 74, 0.24);
+  background: color-mix(in srgb, var(--ph-accent) 26%, transparent);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.ph-seg {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  margin-bottom: 10px;
+  flex: none;
+}
+.ph-seg button {
+  flex: 1;
+  padding: 7px 0;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: #d7dbe3;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ph-seg button.on { background: rgba(255, 255, 255, 0.2); color: #ffffff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }
+.ph-chat-compose { display: flex; gap: 8px; align-items: center; padding-top: 8px; flex: none; }
+.ph-chat-compose input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 15px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 14.5px;
+  outline: none;
+}
+.ph-chat-compose input::placeholder { color: #aab0bc; }
+.ph-chat-compose input:focus { border-color: var(--ph-accent); }
+.ph-send {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 50%;
+  border: none;
+  background: var(--ph-accent);
+  color: #101014;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.ph-send:active { transform: scale(0.92); }
 /* Camera / gallery */
 .ph-gallery {
   display: grid;

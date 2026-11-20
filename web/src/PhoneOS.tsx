@@ -16,7 +16,7 @@
 // session and in-app place across opens.
 // ---------------------------------------------------------------------------
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { PanelName, RadioTrack, Runtime, Snap } from "./game/runtime";
 import { CHARGE_POINTS, GAS_STATIONS, NPC_LINES } from "./game/content";
 import { speakNpc } from "./game/npcvoice";
@@ -85,6 +85,11 @@ const WEB_APPS: Partial<Record<AppId, { name: string; url: string }>> = {
   social: { name: "Social", url: "https://orbitx.world/app?embed=phone" },
   wallet: { name: "Wallet", url: "https://orbitx.world/app?embed=phone" },
 };
+
+// Messages: the game's real global chat lives in the phone as a pinned
+// "City Chat" thread (same snapshot lines + sendChat path as the Chat
+// panel) — it is not a phone-store thread, so it carries this fixed id.
+const CITY_CHAT_ID = "citychat";
 
 const CONTACT_NAMES = ["Ada", "Milo", "Jax", "Sal", "Zed", "Lux", "Park", "Gus", "Comet", "Bex", "Pip"];
 // The Places the old Phone panel listed — same ids, now the Map app.
@@ -156,6 +161,7 @@ function I({ d, extra }: { d: string; extra?: ReactNode }) {
 }
 const ICONS: Record<string, ReactNode> = {
   messages: <I d="M4 5h16v10.5H10l-4.5 3.5V15H4z" />,
+  chat: <I d="M9 4.5h10.5V13H13l-3.5 3V13H9z" extra={<path d="M4.5 8.5v7L8 12.7" />} />,
   contacts: <I d="M12 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M4.5 20a7.5 7.5 0 0 1 15 0" />,
   map: <I d="M12 21s-6.5-5.6-6.5-10.4A6.5 6.5 0 0 1 12 4a6.5 6.5 0 0 1 6.5 6.6C18.5 15.4 12 21 12 21z" extra={<circle cx="12" cy="10.5" r="2.2" />} />,
   bank: <I d="M3.5 9.5 12 4l8.5 5.5 M5 10v8 M9.7 10v8 M14.3 10v8 M19 10v8 M3.5 20.5h17" />,
@@ -186,6 +192,8 @@ export default function PhoneOS(props: PhoneOSProps) {
   const [viewingShot, setViewingShot] = useState<GalleryShot | null>(null);
   const [toast, setToast] = useState("");
   const [burnerMsg, setBurnerMsg] = useState("");
+  const [chatText, setChatText] = useState("");
+  const chatLogRef = useRef<HTMLDivElement | null>(null);
   const [mountedUrls, setMountedUrls] = useState<string[]>([]);
   const [webLoaded, setWebLoaded] = useState<Record<string, boolean>>({});
   const [webError, setWebError] = useState<Record<string, boolean>>({});
@@ -239,10 +247,26 @@ export default function PhoneOS(props: PhoneOSProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // Opening a thread reads it.
+  // Opening a thread reads it. (City Chat is not a store thread — the
+  // game chat has no unread tracking, so there is nothing to mark.)
   useEffect(() => {
-    if (app === "messages" && threadId) markThreadRead(threadId);
+    if (app === "messages" && threadId && threadId !== CITY_CHAT_ID) markThreadRead(threadId);
   }, [app, threadId]);
+
+  // City Chat: keep the log pinned to the newest line while it's open.
+  const cityChatOpen = app === "messages" && threadId === CITY_CHAT_ID;
+  useEffect(() => {
+    if (!cityChatOpen) return;
+    const el = chatLogRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [cityChatOpen, snap.chat]);
+
+  const sendCityChat = (event: FormEvent) => {
+    event.preventDefault();
+    if (!rt || !chatText.trim()) return;
+    rt.sendChat(chatText, snap.chatScope);
+    setChatText("");
+  };
 
   // Music app loads the playlist once per phone session.
   useEffect(() => {
@@ -330,6 +354,7 @@ export default function PhoneOS(props: PhoneOSProps) {
   }, [threads]);
 
   const activeThread = threadId ? threads.find((t) => t.id === threadId) ?? null : null;
+  const lastChat = snap.chat[snap.chat.length - 1] ?? null;
   const playingTrack = radio.tracks.find((t) => t.id === radio.playingId) ?? null;
   const fine = snap.wanted > 0 ? Math.min(snap.balance, snap.wanted * 60) : 0;
   // Dynamic Island content: live context, most urgent first.
@@ -363,6 +388,7 @@ export default function PhoneOS(props: PhoneOSProps) {
     people: "People",
   };
   const appTitle = (id: AppId): string => {
+    if (id === "messages" && threadId === CITY_CHAT_ID) return "City Chat";
     if (id === "messages" && activeThread) return activeThread.name;
     const web = WEB_APPS[id];
     if (web) return web.name;
@@ -438,10 +464,39 @@ export default function PhoneOS(props: PhoneOSProps) {
                   <button type="button" className="ph-back" onClick={goHome} aria-label="Back to home screen">‹</button>
                   <b>{appTitle(app)}</b>
                 </header>
-                <div className="ph-appscroll">
-                  {!(app === "messages" && activeThread) ? <h2 className="ph-largetitle">{appTitle(app)}</h2> : null}
+                <div className={cityChatOpen ? "ph-appscroll ph-appscroll-lock" : "ph-appscroll"}>
+                  {!(app === "messages" && threadId) ? <h2 className="ph-largetitle">{appTitle(app)}</h2> : null}
                   {app === "messages" ? (
-                    activeThread ? (
+                    threadId === CITY_CHAT_ID ? (
+                      <div className="ph-thread ph-chat">
+                        <button type="button" className="ph-thread-back" onClick={() => { setThreadId(null); rt?.setTyping(false); }}>‹ All messages</button>
+                        <div className="ph-seg" role="group" aria-label="Chat scope">
+                          <button type="button" className={snap.chatScope === "global" ? "on" : ""} onClick={() => rt?.setChatScope("global")}>Everyone</button>
+                          <button type="button" className={snap.chatScope === "near" ? "on" : ""} onClick={() => rt?.setChatScope("near")}>Nearby</button>
+                        </div>
+                        <div className="ph-chat-log" ref={chatLogRef}>
+                          {snap.chat.length === 0 ? <p className="ph-empty">No messages yet — say the first word.</p> : null}
+                          {snap.chat.map((line, index) => (
+                            <div key={`${line.id}-${index}`} className={line.self ? "ph-bubble ph-bubble-self" : "ph-bubble"}>
+                              {line.self ? null : <span className="ph-bubble-name">{line.name}</span>}
+                              <p>{line.text}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <form className="ph-chat-compose" onSubmit={sendCityChat}>
+                          <input
+                            value={chatText}
+                            placeholder={snap.chatScope === "near" ? "Message nearby players" : "Message the city"}
+                            onChange={(event) => setChatText(event.target.value)}
+                            onFocus={() => rt?.setTyping(true)}
+                            onBlur={() => rt?.setTyping(false)}
+                          />
+                          <button type="submit" className="ph-send" aria-label="Send message">
+                            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5 M5.5 11.5 12 5l6.5 6.5" /></svg>
+                          </button>
+                        </form>
+                      </div>
+                    ) : activeThread ? (
                       <div className="ph-thread">
                         <button type="button" className="ph-thread-back" onClick={() => setThreadId(null)}>‹ All messages</button>
                         {activeThread.messages.map((m) => (
@@ -453,6 +508,16 @@ export default function PhoneOS(props: PhoneOSProps) {
                       </div>
                     ) : (
                       <div className="ph-list">
+                        <div className="ph-group">
+                          <button type="button" className="ph-row ph-row-btn" onClick={() => { setThreadId(CITY_CHAT_ID); triggerHaptic("tap"); }}>
+                            <span className="ph-avatar ph-avatar-chat">{ICONS.chat}</span>
+                            <span className="ph-row-main">
+                              <b>City Chat</b>
+                              <span>{lastChat ? `${lastChat.self ? "You" : lastChat.name}: ${lastChat.text}` : "The whole city, live"}</span>
+                            </span>
+                            <span className="ph-row-side"><span>Pinned</span></span>
+                          </button>
+                        </div>
                         <div className="ph-group">
                         {sortedThreads.map((t) => {
                           const last = t.messages[t.messages.length - 1];
