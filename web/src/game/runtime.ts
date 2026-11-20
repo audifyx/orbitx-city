@@ -12985,8 +12985,8 @@ export function createRuntime(scene: Scene) {
       } else if (shot === "hijack") {
         startHijackMode();
         if (mode?.kind === "hijack") {
-          body.x = mode.run.car.x + 5;
-          body.z = mode.run.car.z + 5;
+          body.x = mode.run.car.x + 4;
+          body.z = mode.run.car.z + 4;
           body.yaw = Math.atan2(mode.run.car.x - body.x, -(mode.run.car.z - body.z));
           body.pitch = 0.06;
         }
