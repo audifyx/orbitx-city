@@ -1924,6 +1924,70 @@ body.touch .touch-ui {
   letter-spacing: 0.04em;
 }
 
+/* CHECKPOINT TRIALS: live race chip under the top bar. */
+.trial-hud {
+  position: fixed;
+  z-index: 6;
+  left: 50%;
+  top: 64px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(92vw, 560px);
+  padding: 7px 12px;
+  border: 1px solid #e0b33a;
+  border-radius: 999px;
+  background: rgba(8, 10, 14, 0.88);
+  color: #ffffff;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.trial-hud i {
+  display: block;
+  font-style: normal;
+  color: #e0b33a;
+  font-size: 11px;
+  white-space: normal;
+}
+
+.trial-hud .trial-count {
+  font-size: 26px;
+  line-height: 1;
+  color: #e0b33a;
+  padding: 0 4px;
+}
+
+.trial-hud button {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: transparent;
+  color: #ffffff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* DAILY QUESTS: progress bar inside a panel article. */
+.quest-bar {
+  display: block;
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 3px;
+  background: rgba(127, 127, 127, 0.35);
+  overflow: hidden;
+}
+
+.quest-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: #e0b33a;
+  transition: width 0.3s ease;
+}
+
 .wheel {
   position: fixed;
   z-index: 7;

@@ -301,6 +301,11 @@ const EMPTY: Snap = {
   busNear: false,
   trainNear: false,
   story: { chapter: 1, total: 3, title: "", intro: "", stepLabel: "", stepsDone: 0, stepsTotal: 0, done: false },
+  trial: null,
+  raceRoutes: [],
+  dailies: [],
+  dailiesDone: 0,
+  dailyBonusPaid: false,
   ridingBoard: false,
   ridingTrain: false,
   transport: {
@@ -1714,6 +1719,7 @@ export default function App() {
     const blob = await game.capturePhoto();
     if (!blob) return;
     setPhotoFlash(Date.now());
+    game.runtime.notePhotoTaken();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1891,6 +1897,25 @@ export default function App() {
       <div className="crosshair" id="crosshair" hidden={menu || snap.hideHud || snap.cam !== "first" || !!panel || snap.spectator} />
       {!menu && snap.lookHint && !snap.hideHud ? <p className="look-hint">{snap.lookHint}</p> : null}
       {!menu && snap.banner ? <RaceBanner text={snap.banner} /> : null}
+      {!menu && snap.trial && !snap.hideHud ? (
+        <div className="trial-hud">
+          {snap.trial.phase === "countdown" ? (
+            <b className="trial-count">{snap.trial.countdown > 0 ? snap.trial.countdown : "GO"}</b>
+          ) : snap.trial.phase === "tostart" ? (
+            <span>
+              🏁 <b>{snap.trial.routeName}</b> — drive to the gold start pillar · {snap.trial.dist}m{snap.driving ? "" : " · you need a car"}
+            </span>
+          ) : (
+            <span>
+              ⏱ <b>{(snap.trial.timeMs / 1000).toFixed(1)}s</b> · {snap.trial.routeName} · {snap.trial.isFinish ? "Finish" : `Checkpoint ${snap.trial.target} of ${snap.trial.targets - 1}`} · {snap.trial.dist}m
+              {snap.trial.lastSplit ? <i>{snap.trial.lastSplit}</i> : null}
+            </span>
+          )}
+          <button type="button" onClick={() => gameRef.current?.runtime.abandonTrial()}>
+            Abandon
+          </button>
+        </div>
+      ) : null}
       {!menu && snap.wheel ? <EmoteWheel index={snap.wheelIndex} /> : null}
       {!menu && snap.decorate ? <DecorBar kind={snap.decorKind} mode={snap.decorMode} owned={snap.furnitureOwned} rt={gameRef.current?.runtime ?? null} /> : null}
       {!menu && snap.spectator ? <SpectateBar snap={snap} rt={gameRef.current?.runtime ?? null} /> : null}
@@ -2135,7 +2160,7 @@ export default function App() {
               foodStamina={snap.foodStamina}
               energy={snap.energy}
               energyLabel={snap.energyLabel}
-              jobTarget={snap.jobTarget}
+              jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : null}
               foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
               onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
               docked
@@ -2199,7 +2224,7 @@ export default function App() {
           foodStamina={snap.foodStamina}
           energy={snap.energy}
           energyLabel={snap.energyLabel}
-          jobTarget={snap.jobTarget}
+          jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : null}
           foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
           onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
         />
@@ -2217,7 +2242,7 @@ export default function App() {
             foodStamina={snap.foodStamina}
             energy={snap.energy}
             energyLabel={snap.energyLabel}
-            jobTarget={snap.jobTarget}
+            jobTarget={snap.jobTarget} raceTarget={snap.trial ? { x: snap.trial.targetX, z: snap.trial.targetZ } : null}
             foodCount={Object.values(snap.food).reduce((sum, n) => sum + n, 0)}
             onEat={() => { triggerHaptic("tap"); void gameRef.current?.runtime.eatBestFood(); }}
             docked
@@ -2877,6 +2902,19 @@ export default function App() {
                 <p className="muted">
                   Every job pays in City Sol — the game&apos;s own money, never real SOL. Job streak {snap.jobStreak}: +5% pay per job in a row, up to +50%.
                 </p>
+                <h3>Daily quests</h3>
+                <p className="muted">
+                  Three fresh quests every day, gone at midnight — finish all three for a 100 City Sol bonus. {snap.dailiesDone}/3 done{snap.dailyBonusPaid ? " · bonus paid" : ""}.
+                </p>
+                {snap.dailies.map((quest) => (
+                  <article key={quest.id}>
+                    <div>
+                      <b>{quest.done ? "✓ " : ""}{quest.label}</b>
+                      <span>{quest.done ? `Done — paid ${quest.reward} City Sol.` : `${Math.min(quest.have, quest.need)} of ${quest.need} · pays ${quest.reward} City Sol`}</span>
+                      <span className="quest-bar"><i style={{ width: `${Math.min(100, Math.round((quest.have / Math.max(1, quest.need)) * 100))}%` }} /></span>
+                    </div>
+                  </article>
+                ))}
                 {snap.jobShift ? (
                   <>
                     <article>
@@ -2947,6 +2985,31 @@ export default function App() {
                     </div>
                   </article>
                 )}
+                <h3>Checkpoint races</h3>
+                <p className="muted">
+                  Solo time trials on the avenue grid — pick a route, drive to the gold start pillar, then chase the lit checkpoints one at a time. Medals pay City Sol; even a slow finish pays a little. Best times live on this device.
+                </p>
+                {snap.raceRoutes.map((route) => (
+                  <article key={route.id}>
+                    <div>
+                      <b>{route.name}</b>
+                      <span>{route.blurb}</span>
+                      <span>
+                        {route.checkpoints} checkpoints · Gold {route.gold}s · Silver {route.silver}s · Bronze {route.bronze}s
+                        {route.best !== null ? ` · Your best ${(route.best / 1000).toFixed(1)}s` : " · No finish yet"}
+                      </span>
+                    </div>
+                    {snap.trial?.routeId === route.id ? (
+                      <button type="button" onClick={() => gameRef.current?.runtime.abandonTrial()}>
+                        Abandon
+                      </button>
+                    ) : (
+                      <button type="button" disabled={!!snap.trial} onClick={() => { gameRef.current?.runtime.startTrial(route.id); close(); }}>
+                        {snap.trial ? "Race running" : "Start"}
+                      </button>
+                    )}
+                  </article>
+                ))}
                 <h3>Job missions</h3>
                 <p className="muted">
                   Six missions, in order — each one pays City Sol into this universe&apos;s save. 800 in total. Steps are confirmed by the city server: visit a place, say hello in chat, take a car for a drive, work a job, claim your daily, or buy from the shop.
@@ -6021,10 +6084,11 @@ function compassLabel(yaw: number): string {
   return cardinals[Math.round(compassDeg(yaw) / 45) % 8];
 }
 
-function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, jobTarget, foodCount, onEat, docked }: {
+function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, jobTarget, raceTarget, foodCount, onEat, docked }: {
   me: Snap["me"]; people: Snap["people"]; seed: number;
   hunger: number; foodStamina: number; energy: number; energyLabel: string;
   jobTarget: Snap["jobTarget"];
+  raceTarget: { x: number; z: number } | null;
   foodCount: number; onEat: () => void;
   // Docked (touch cluster / panel dock): no drag, no inline position —
   // the parent (a fixed column or dock) places it, so it can never drift
@@ -6253,7 +6317,19 @@ function Minimap({ me, people, seed, hunger, foodStamina, energy, energyLabel, j
       ctx.lineWidth = 1;
       ctx.stroke();
     }
-  }, [me, people, model, jobTarget]);
+    if (raceTarget) {
+      const [rx, rz] = plot(raceTarget.x, raceTarget.z);
+      ctx.strokeStyle = "#19d8ff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(rx, rz, 7, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "#19d8ff";
+      ctx.beginPath();
+      ctx.arc(rx, rz, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }, [me, people, model, jobTarget, raceTarget]);
   // Drag starts ONLY from the grip in the top-right corner — a touch on
   // the map body does nothing. The handlers used to live on the whole
   // wrapper, so a thumb brushing the map while steering / reaching for

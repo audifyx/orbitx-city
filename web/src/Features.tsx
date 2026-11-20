@@ -633,6 +633,30 @@ function Race({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
         <button type="button" onClick={() => rt?.startRace("hover")}>Hover time trial</button>
         <button type="button" onClick={() => rt?.leaveRace()}>Leave</button>
       </div>
+      <h3>Checkpoint time trials</h3>
+      <p>
+        Solo runs against the clock — drive to the gold start pillar, chase the lit checkpoints, medals pay City Sol.
+        Best times live on this device.
+      </p>
+      {snap.raceRoutes.map((route) => (
+        <article key={route.id}>
+          <div>
+            <b>{route.name}</b>
+            <span>{route.blurb}</span>
+            <span>
+              {route.checkpoints} checkpoints · Gold {route.gold}s · Silver {route.silver}s · Bronze {route.bronze}s
+              {route.best !== null ? ` · Your best ${(route.best / 1000).toFixed(1)}s` : " · No finish yet"}
+            </span>
+          </div>
+          {snap.trial?.routeId === route.id ? (
+            <button type="button" onClick={() => rt?.abandonTrial()}>Abandon</button>
+          ) : (
+            <button type="button" disabled={!!snap.trial} onClick={() => rt?.startTrial(route.id)}>
+              {snap.trial ? "Race running" : "Start"}
+            </button>
+          )}
+        </article>
+      ))}
       <h3>Results</h3>
       {snap.race.results.length === 0 ? <span>No finish yet.</span> : null}
       {snap.race.results.map((row, index) => (
