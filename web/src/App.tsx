@@ -902,17 +902,31 @@ export default function App() {
     // keeps a slow guest answer from overwriting the account's answer.
     const seq = ++eaFetchSeqRef.current;
     setEaPhase("pending");
-    try {
-      const status = await world.earlyAccessStatus();
-      if (seq !== eaFetchSeqRef.current) return eaStatusRef.current;
-      eaStatusRef.current = status;
-      setEaStatus(status);
-      if (status.unlocked) eaUnlockedRef.current = true;
-      setEaPhase("answered");
-      return status;
-    } catch {
-      if (seq === eaFetchSeqRef.current) setEaPhase(eaStatusRef.current ? "answered" : "error");
-      return null;
+    // A fresh visit has NO session yet when this first fires: the
+    // server answers "Sign in first." until world.start() lands the
+    // session token (a second or two, longer on an API cold start).
+    // That answer is not a failure — keep retrying while the read says
+    // so, staying in "pending" (the gate shows "Checking access…"),
+    // and only settle into "error" for any other failure.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const status = await world.earlyAccessStatus();
+        if (seq !== eaFetchSeqRef.current) return eaStatusRef.current;
+        eaStatusRef.current = status;
+        setEaStatus(status);
+        if (status.unlocked) eaUnlockedRef.current = true;
+        setEaPhase("answered");
+        return status;
+      } catch (err) {
+        const noSession = err instanceof Error && err.message.includes("Sign in first");
+        if (noSession && attempt < 30 && seq === eaFetchSeqRef.current) {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          if (seq !== eaFetchSeqRef.current) return eaStatusRef.current;
+          continue;
+        }
+        if (seq === eaFetchSeqRef.current) setEaPhase(eaStatusRef.current ? "answered" : "error");
+        return null;
+      }
     }
   }, []);
   const eaLockedNow = useCallback(() => {
@@ -1216,29 +1230,41 @@ export default function App() {
   // or was skipped, or a session landed straight on the menu — a locked
   // account's first step is the gate, never the home screen. While the
   // mount read is still in flight this parks on the gate (rendered as
-  // its "Checking access…" state) instead of flashing home; a failed
-  // read fails open to home. Layout effect so the routing lands before
-  // the first menu paint. Decided once per app session — afterwards the
-  // enterCity()/play() backstops keep guarding every entry as before.
+  // its "Checking access…" state) instead of flashing home. The routing
+  // is ANSWER-driven, not a one-shot decision: a failed read fails open
+  // to home for the moment, but if a later read answers "locked" while
+  // the player is still sitting on the menu, they are routed to the
+  // gate then. (The first version burned the decision on the early
+  // no-session error and never re-routed — fresh visits sailed in.)
+  // Layout effect so the routing lands before the first menu paint.
+  // The enterCity()/play() backstops keep guarding every entry as
+  // before, and a player who already reached the roster is never
+  // yanked back by a late answer.
   const eaLandingDoneRef = useRef(false);
   useLayoutEffect(() => {
-    if (!menu || intro || eaLandingDoneRef.current) return;
+    if (!menu || intro) return;
     if (eaPhase === "answered") {
-      eaLandingDoneRef.current = true;
       if (eaLockedNow()) {
-        setEaLandingGate(true);
-        setMenuStep("gate");
-      } else {
+        if (menuStep === "home" || menuStep === "gate") {
+          setEaLandingGate(true);
+          setMenuStep("gate");
+        }
+      } else if (menuStep === "gate" || !eaLandingDoneRef.current) {
+        // Unlocked / inactive / admin: leave the checking park (or the
+        // landing gate, if an account switch just unlocked it) for
+        // home — once; afterwards the player navigates freely.
+        eaLandingDoneRef.current = true;
         setMenuStep("home");
       }
     } else if (eaPhase === "error") {
-      eaLandingDoneRef.current = true;
-      setMenuStep("home");
-    } else {
+      // Fail open off the checking park only; the decision is NOT
+      // burned — a later answered read still routes a locked player.
+      if (menuStep === "gate") setMenuStep("home");
+    } else if (menuStep === "home") {
       // pending / idle: park on the checking gate until the read lands.
       setMenuStep("gate");
     }
-  }, [menu, intro, eaPhase, eaLockedNow]);
+  }, [menu, intro, eaPhase, eaLockedNow, menuStep]);
 
   // Multiverse panel: fresh counts on open.
   useEffect(() => {
