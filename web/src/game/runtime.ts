@@ -117,7 +117,19 @@ import {
   hijackXp,
 } from "./modes";
 import { createNet, type ChatLine, type NetAdapter, type NetState } from "./net";
-import { barkLineFor, npcVoiceEnabled, prefetchNpcLines, setNpcVoiceEnabled, speakNpc, stopNpcVoice } from "./npcvoice";
+import {
+  barkLineFor,
+  npcVoiceEnabled,
+  prefetchNpcLines,
+  rankGreetingFor,
+  rumorLineFor,
+  scaredBarkFor,
+  setNpcVoiceEnabled,
+  speakNpc,
+  stopNpcVoice,
+  warmGreetingFor,
+  witnessBarkFor,
+} from "./npcvoice";
 import { allLooks, clothesFromOwned, dressPerson, loadLooks, lookById, lookName, looksReady, type Clothes } from "./avatar";
 import {
   TRICK_ARROW_LABEL,
@@ -4504,6 +4516,9 @@ export function createRuntime(scene: Scene) {
         if (!run.inZone && run.crackMs === 0) {
           storyHeat = true;
           say("Cracking the vault — hold your ground…");
+          // The alarm moment: any citizen near the bank calls it out
+          // (Ada's already texting you — she's not the witness).
+          witnessBark(VAULT_ZONE.x, VAULT_ZONE.z, "bank", npcs.findIndex((n) => n.name === "Ada"));
         }
         run.inZone = true;
         if (run.crackMs < HEIST_MAX_CRACK_MS) {
@@ -4649,6 +4664,12 @@ export function createRuntime(scene: Scene) {
     waypoints: Array<{ x: number; z: number }>;
     wp: number;
     waitUntil: number;
+    // ROUTINES: the patrol offsets (from content) and the two-post
+    // shift state — working NPCs alternate between their home post and
+    // a second post on the game clock.
+    patrol: Array<[number, number]>;
+    atB: boolean;
+    routineAt: number;
     // PEOPLE: a guest visiting a home (not a patrolling citizen). guestHome
     // is the home they are in; partyGuest mills about faster at a party.
     guest?: boolean;
@@ -4689,6 +4710,26 @@ export function createRuntime(scene: Scene) {
   // VOICES: ambient bark pacing (game-clock seconds).
   const barkAtByNpc = new Map<number, number>();
   let lastBarkAt = -99;
+  // REACTIONS: per-NPC cooldown for fear reactions (game-clock secs).
+  const reactionAtByNpc = new Map<number, number>();
+  // ROUTINES: each working NPC's second post. Short in-area hops from
+  // the home post, so talk / favors / rob targets stay valid at either
+  // end — favors already resolve the giver's LIVE position, and the
+  // talk prompt follows the walker. Swaps land every ROUTINE_PERIOD
+  // game-clock seconds, staggered per NPC. (Coach Dom isn't a walker —
+  // the ring is his only post.)
+  const ROUTINE_PERIOD = 240;
+  const ROUTINE_POSTS: Record<string, { bx: number; bz: number; bOffsets?: Array<[number, number]> }> = {
+    Ada: { bx: 88, bz: -54 }, // bank window two, down the queue lane
+    Milo: { bx: 24.5, bz: 74 }, // east end of the grocery row
+    Jax: { bx: 207, bz: -60 }, // north edge of the Motors forecourt
+    Sal: { bx: 0, bz: 220 }, // down the harbor pier
+    Zed: { bx: -26, bz: 74 }, // west end of the market row
+    Lux: { bx: 50, bz: 54 }, // east side of the arcade front
+    Park: { bx: 4, bz: 14 }, // the fountain post, off his beat loop
+    Gus: { bx: 60, bz: -54, bOffsets: [[0, 0], [3, 2], [-3, 0], [0, -3]] }, // bank-row end of the mail route
+    Pip: { bx: 188, bz: -50 }, // the far pump island
+  };
   // Activity collections (localStorage so they survive a reload).
   const PHOTOS_KEY = "orbitx-city-photos-v1";
   const WISHES_KEY = "orbitx-city-wishes-v1";
@@ -5917,7 +5958,7 @@ export function createRuntime(scene: Scene) {
       const info = NPC_LINES[citizen.name];
       const patrol = info?.patrol ?? NPC_DEFAULT_PATROL;
       const waypoints = patrol.map(([dx, dz]) => ({ x: citizen.x + dx, z: citizen.z + dz }));
-      npcs.push({ group, name: citizen.name, homeX: citizen.x, homeZ: citizen.z, x: citizen.x, z: citizen.z, prevX: citizen.x, prevZ: citizen.z, yaw: index, waypoints, wp: 1 % waypoints.length, waitUntil: 0, followUntil: 0, fleeUntil: 0, fleeX: 0, fleeZ: 0, gatherUntil: 0, gatherX: 0, gatherZ: 0 });
+      npcs.push({ group, name: citizen.name, homeX: citizen.x, homeZ: citizen.z, x: citizen.x, z: citizen.z, prevX: citizen.x, prevZ: citizen.z, yaw: index, waypoints, wp: 1 % waypoints.length, waitUntil: 0, patrol, atB: false, routineAt: 0, followUntil: 0, fleeUntil: 0, fleeX: 0, fleeZ: 0, gatherUntil: 0, gatherX: 0, gatherZ: 0 });
     });
     // BOXING: Coach Dom + the ringside crowd take their places south of
     // the stadium (the opponent figure is built per fight).
@@ -7548,7 +7589,15 @@ export function createRuntime(scene: Scene) {
     // Hijack/Heist daily quest and marks the modes discovered.
     if (npc.name === "Zed") unlockModes();
     const info = NPC_LINES[npc.name];
-    talkLines = info?.lines ?? NPC_DEFAULT_LINES;
+    // BETTER NPCS: the first line you hear is personal — a warm thanks
+    // from a working NPC whose favor you finished today; otherwise a
+    // nod to your Citizen Rank once you've made a name (Hustler+,
+    // with a distinct line for a City Legend). It leads the script;
+    // the NPC's own lines cycle after it as before.
+    const baseLines = info?.lines ?? NPC_DEFAULT_LINES;
+    const warm = loadFavors().favors[npc.name]?.status === "done" ? warmGreetingFor(npc.name) : null;
+    const greeting = warm ?? rankGreetingFor(rankForXp(rankState.xp).rank, progHashSeed(`${npc.name}|${dailyDateStr()}|greet`));
+    talkLines = greeting ? [greeting, ...baseLines] : baseLines;
     talkNpc = index;
     const jobId = info?.jobId ?? "";
     const favorTalk = favorTalkFor(npc.name);
@@ -8057,6 +8106,7 @@ export function createRuntime(scene: Scene) {
     }
     if (Date.now() >= robEndsAt) {
       const target = ROB_TARGETS[npc.name];
+      const victimIndex = robNpcIndex;
       robEndsAt = 0;
       robNpcIndex = -1;
       if (!target) return;
@@ -8073,6 +8123,7 @@ export function createRuntime(scene: Scene) {
       panel = "";
       say(earn(wallet, payout, "Robbery"));
       notify("CRIME", `You robbed ${npc.name} — wanted level ${wanted}. The cops are rolling.`, "job");
+      witnessBark(npc.x, npc.z, npc.name === "Ada" ? "bank" : "crime", victimIndex);
       phoneEvent("wanted", "Park", `That's ${wanted} star${wanted === 1 ? "" : "s"} now. Pay it off in the Burner app — or lose my cars.`);
       triggerHaptic("jobPay");
       storyHeat = true;
@@ -8093,6 +8144,56 @@ export function createRuntime(scene: Scene) {
     // run pays its 10% cut, heist loot is recovered in full.
     if (mode) endModeBusted();
     publish();
+  }
+
+  // NPC REACTIONS: the city notices crime. With 2+ stars on you,
+  // citizens within ~12u step back scared (the flee system, briefly)
+  // with a bark — Park stands his ground and talks instead. Runs
+  // before the patrol loop so the step-back applies the same frame.
+  function tickNpcReactions(body: Body) {
+    if (wanted < 2) return;
+    for (const [index, npc] of npcs.entries()) {
+      if (talkNpc === index || npc.guest) continue;
+      const d = Math.hypot(npc.x - body.x, npc.z - body.z);
+      if (d > 12) continue;
+      if (clock < npc.fleeUntil) continue; // already running from something
+      if (clock - (reactionAtByNpc.get(index) ?? -999) < 20) continue;
+      reactionAtByNpc.set(index, clock);
+      if (npc.name !== "Park") {
+        npc.fleeX = body.x;
+        npc.fleeZ = body.z;
+        npc.fleeUntil = clock + 0.9;
+      }
+      if (clock - lastBarkAt > 6) {
+        const role = NPC_LINES[npc.name]?.role ?? "Citizen";
+        const line = scaredBarkFor(npc.name, Math.floor(clock) + index * 7);
+        lastBarkAt = clock;
+        barkAtByNpc.set(index, clock);
+        say(`${npc.name}: ${line}`);
+        speakNpc(npc.name, role, line);
+      }
+    }
+  }
+
+  // WITNESSES: the nearest uninvolved citizen to a fresh crime calls
+  // it out (within ~30u). Event-driven — robberies and the heist alarm.
+  function witnessBark(x: number, z: number, kind: "bank" | "crime", excludeIndex: number) {
+    let best = -1;
+    let bestD = 30;
+    npcs.forEach((npc, index) => {
+      if (index === excludeIndex || npc.guest) return;
+      const d = Math.hypot(npc.x - x, npc.z - z);
+      if (d < bestD) {
+        bestD = d;
+        best = index;
+      }
+    });
+    if (best < 0) return;
+    const npc = npcs[best];
+    const role = NPC_LINES[npc.name]?.role ?? "Citizen";
+    const line = witnessBarkFor(kind, Math.floor(clock) + best * 7);
+    say(`${npc.name}: ${line}`);
+    speakNpc(npc.name, role, line);
   }
 
   // COPS: patrol cars chase while wanted, park when the city is quiet.
@@ -11653,7 +11754,9 @@ export function createRuntime(scene: Scene) {
     }
     // CRAZY extras: pool swim, theater screen, rooftop presence (also in
     // orbit view, so the show keeps playing on the screen).
-    tickCrazy(body);    // NPC patrol: walk the loop of waypoints around the home spot, pausing
+    tickCrazy(body);
+    tickNpcReactions(body);
+    // NPC patrol: walk the loop of waypoints around the home spot, pausing
     // at each stop; face the player while talking.
     for (const [index, npc] of npcs.entries()) {
       const npcDistSq = (npc.x - body.x) * (npc.x - body.x) + (npc.z - body.z) * (npc.z - body.z);
@@ -11720,6 +11823,23 @@ export function createRuntime(scene: Scene) {
         walkNpc();
         continue;
       }
+      // ROUTINES: on the game clock, working NPCs trade posts — the
+      // waypoint loop re-anchors to the other post and the walker
+      // strolls over. Guests, talk partners and theater seats are left
+      // alone (their waypoints belong to other systems).
+      const routine = ROUTINE_POSTS[npc.name];
+      if (routine && !npc.guest && talkNpc !== index && !theaterGuests.some((g) => g.index === index)) {
+        if (!npc.routineAt) {
+          npc.routineAt = clock + 90 + (index % 7) * 19;
+        } else if (clock >= npc.routineAt) {
+          npc.atB = !npc.atB;
+          npc.routineAt = clock + ROUTINE_PERIOD + (index % 5) * 23;
+          const anchor = npc.atB ? { x: routine.bx, z: routine.bz } : { x: npc.homeX, z: npc.homeZ };
+          const offsets = npc.atB && routine.bOffsets ? routine.bOffsets : npc.patrol;
+          npc.waypoints = offsets.map(([dx, dz]) => ({ x: anchor.x + dx, z: anchor.z + dz }));
+          npc.wp = 0;
+        }
+      }
       const target = npc.waypoints[npc.wp % npc.waypoints.length];
       if (clock < npc.waitUntil) {
         npc.group.position.set(npc.x, 0, npc.z);
@@ -11760,7 +11880,16 @@ export function createRuntime(scene: Scene) {
       if (barkIndex >= 0 && clock - (barkAtByNpc.get(barkIndex) ?? -999) > 60) {
         const npc = npcs[barkIndex];
         const role = NPC_LINES[npc.name]?.role ?? "Citizen";
-        const line = barkLineFor(npc.name, role, Math.floor(clock) + barkIndex * 7);
+        const tod = timeName === "night" ? "night" : timeName === "sunset" ? "sunset" : "day";
+        // Working citizens carry a daily rumor (seeded per NPC + date,
+        // stable all day) — roughly a third of their barks spread it;
+        // the rest are their time-of-day ambient lines.
+        const rumorSeed = progHashSeed(`${npc.name}|${dailyDateStr()}|rumor`);
+        const isWorking = (FAVOR_NPCS as readonly string[]).includes(npc.name);
+        const line =
+          isWorking && (rumorSeed + Math.floor(clock / 60)) % 3 === 0
+            ? rumorLineFor(npc.name, rumorSeed)
+            : barkLineFor(npc.name, role, Math.floor(clock) + barkIndex * 7, tod);
         barkAtByNpc.set(barkIndex, clock);
         lastBarkAt = clock;
         say(`${npc.name}: ${line}`);
@@ -14861,6 +14990,9 @@ export function createRuntime(scene: Scene) {
         ],
         wp: 1,
         waitUntil: 0,
+        patrol: [],
+        atB: false,
+        routineAt: 0,
         followUntil: 0,
         fleeUntil: 0,
         fleeX: 0,
