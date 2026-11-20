@@ -1970,6 +1970,108 @@ body.touch .touch-ui {
   cursor: pointer;
 }
 
+/* BOXING HUD: both fighters' HP + stamina bars, round + clock in the
+   middle, the referee's call (ROUND 1 / KNOCKOUT) underneath. */
+.boxing-hud {
+  position: fixed;
+  z-index: 6;
+  left: 50%;
+  top: 64px;
+  transform: translateX(-50%);
+  width: min(92vw, 560px);
+  padding: 8px 12px;
+  border: 1px solid #e0b33a;
+  border-radius: 14px;
+  background: rgba(8, 10, 14, 0.88);
+  color: #ffffff;
+}
+
+.boxing-bars {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.boxing-side {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.boxing-side b {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.boxing-side.right {
+  text-align: right;
+}
+
+.boxing-side.right .boxing-hp i,
+.boxing-side.right .boxing-st i {
+  margin-left: auto;
+}
+
+.boxing-hp,
+.boxing-st {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+.boxing-st {
+  height: 5px;
+}
+
+.boxing-hp i,
+.boxing-st i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.15s linear;
+}
+
+.boxing-hp i {
+  background: #e0b33a;
+}
+
+.boxing-st i {
+  background: #ffffff;
+}
+
+.boxing-mid {
+  flex: none;
+  text-align: center;
+}
+
+.boxing-mid b {
+  display: block;
+  font-size: 13px;
+  color: #e0b33a;
+}
+
+.boxing-mid span {
+  font-size: 12px;
+}
+
+.boxing-msg {
+  margin: 6px 0 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #e0b33a;
+}
+
+/* Four fight buttons share the drive-buttons row — a touch narrower
+   than the two-button driving pair so all four fit a phone width. */
+.boxing-buttons button {
+  width: 64px;
+}
+
 /* DAILY QUESTS: progress bar inside a panel article. */
 .quest-bar {
   display: block;

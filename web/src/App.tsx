@@ -302,6 +302,9 @@ const EMPTY: Snap = {
   trainNear: false,
   story: { chapter: 1, total: 3, title: "", intro: "", stepLabel: "", stepsDone: 0, stepsTotal: 0, done: false },
   trial: null,
+  boxing: null,
+  boxingCard: [],
+  boxingBelt: false,
   raceRoutes: [],
   dailies: [],
   dailiesDone: 0,
@@ -506,6 +509,8 @@ function shotMode(): PlayMode | null {
     shot === "leaders" ||
     shot === "race" ||
     shot === "race-run" ||
+    shot === "boxing" ||
+    shot === "boxing-fight" ||
     shot === "hover" ||
     shot === "arcade" ||
     shot === "trading" ||
@@ -1923,6 +1928,27 @@ export default function App() {
           </button>
         </div>
       ) : null}
+      {!menu && snap.boxing && !snap.hideHud ? (
+        <div className="boxing-hud">
+          <div className="boxing-bars">
+            <div className="boxing-side">
+              <b>YOU</b>
+              <span className="boxing-hp"><i style={{ width: `${snap.boxing.youHp}%` }} /></span>
+              <span className="boxing-st"><i style={{ width: `${snap.boxing.youSt}%` }} /></span>
+            </div>
+            <div className="boxing-mid">
+              <b>{snap.boxing.phase === "break" ? "BREAK" : snap.boxing.phase === "over" ? "OVER" : `ROUND ${snap.boxing.round}/${snap.boxing.rounds}`}</b>
+              <span>{snap.boxing.phase === "fight" || snap.boxing.phase === "break" ? `${snap.boxing.clock}s` : snap.boxing.phase === "intro" ? "GET READY" : ""}</span>
+            </div>
+            <div className="boxing-side right">
+              <b>{snap.boxing.oppName.toUpperCase()}</b>
+              <span className="boxing-hp"><i style={{ width: `${snap.boxing.oppHp}%` }} /></span>
+              <span className="boxing-st"><i style={{ width: `${snap.boxing.oppSt}%` }} /></span>
+            </div>
+          </div>
+          {snap.boxing.message ? <p className="boxing-msg">{snap.boxing.message}</p> : null}
+        </div>
+      ) : null}
       {!menu && snap.wheel ? <EmoteWheel index={snap.wheelIndex} rt={gameRef.current?.runtime ?? null} /> : null}
       {!menu && snap.decorate ? <DecorBar kind={snap.decorKind} mode={snap.decorMode} owned={snap.furnitureOwned} rt={gameRef.current?.runtime ?? null} /> : null}
       {!menu && snap.spectator ? <SpectateBar snap={snap} rt={gameRef.current?.runtime ?? null} /> : null}
@@ -2168,6 +2194,16 @@ export default function App() {
                 <Hold label={snap.ridingBoard ? "Push" : "Gas"} onDown={() => { triggerHaptic("tap"); gameRef.current?.runtime.hold("gas", true); }} onUp={() => gameRef.current?.runtime.hold("gas", false)} />
               </div>
             ) : null}
+            {/* BOXING (touch): the fight buttons ride above the pad grid
+                while a fight is armed — Jab/Heavy/Dodge tap, Block holds. */}
+            {snap.boxing ? (
+              <div className="drive-buttons boxing-buttons">
+                <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.boxingHit("jab"); }}>Jab</button>
+                <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.boxingHit("heavy"); }}>Heavy</button>
+                <Hold label="Block" onDown={() => gameRef.current?.runtime.boxingBlock(true)} onUp={() => gameRef.current?.runtime.boxingBlock(false)} />
+                <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.boxingDodge(); }}>Dodge</button>
+              </div>
+            ) : null}
           <div className="pad-buttons">
             {/* While driving a flying vehicle the pad relabels: Jump climbs
                 the car and Down brings it down — the player otherwise has
@@ -2312,6 +2348,7 @@ export default function App() {
                 {panel === "restaurant" && (RESTAURANT_BY_ID[snap.foodPlace]?.name ?? "Restaurant")}
                 {panel === "kitchen" && "Your kitchen"}
                 {panel === "gym" && "Harbor Gym"}
+                {panel === "boxing" && "OrbitX Boxing"}
                 {panel === "lift" && (snap.lift?.name ?? "Lift")}
                 {featureTitle(panel as PanelName | "")}
               </strong>
@@ -2889,6 +2926,35 @@ export default function App() {
                 })}
                 <p className="quiet">30s between workouts. Standing on the gym floor also opens this panel — press E.</p>
               </div>            )}
+            {/* BOXING: Coach Dom's fight card — the ring south of the
+                stadium. Entry is charged on Fight through spend(); a win
+                pays ~2.5x through earn(). Records live on the device. */}
+            {panel === "boxing" && (
+              <div className="list">
+                <p className="muted">OrbitX Boxing — three rounds, sixty seconds each. Win by knockout or on the judges&apos; cards; a draw refunds half your entry. Opening a panel or leaving the ring mid-fight is a forfeit — your entry is gone.</p>
+                {snap.boxingBelt && <p><b>CITY CHAMPION — you hold the OrbitX Boxing belt.</b></p>}
+                <p className="muted">Jab <b>J</b> · Heavy <b>K</b> · Block <b>L / Shift</b> (hold) · Dodge <b>Space</b>. On touch, the fight buttons appear ringside while you fight.</p>
+                {snap.boxingCard.map((row) => {
+                  const afford = snap.balance >= row.entry;
+                  return (
+                    <article key={row.id}>
+                      <div>
+                        <b>{row.name} — {row.title}</b>
+                        <span>Entry {row.entry} City Sol · win pays {row.win} City Sol · your record {row.wins}W–{row.losses}L</span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={!afford || !!snap.boxing}
+                        onClick={() => gameRef.current?.runtime.startBoxingFight(row.id)}
+                      >
+                        {!afford ? "Not enough City Sol" : `Fight — ${row.entry} City Sol`}
+                      </button>
+                    </article>
+                  );
+                })}
+                <p className="quiet">Coach Dom stands ringside — press E by him any time to open this card.</p>
+              </div>
+            )}
             {panel === "jobs" && (
               <div className="list">
                 <p className="muted">
