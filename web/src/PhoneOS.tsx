@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { PanelName, RadioTrack, Runtime, Snap } from "./game/runtime";
 import { CHARGE_POINTS, GAS_STATIONS, NPC_LINES } from "./game/content";
+import { PROXIMITY_RANGE, VOICE_FILTERS } from "./game/voice";
 import { speakNpc } from "./game/npcvoice";
 import {
   loadGallery,
@@ -65,6 +66,7 @@ type AppId =
   | "jobs"
   | "music"
   | "camera"
+  | "voice"
   | "burner"
   | "settings"
   | "people"
@@ -168,6 +170,7 @@ const ICONS: Record<string, ReactNode> = {
   jobs: <I d="M4 8.5h16V20H4z M9 8.5V6a3 3 0 0 1 3-3 3 3 0 0 1 3 3v2.5 M4 13h16" />,
   music: <I d="M9 18.5V6l10-2v11.5" extra={<><circle cx="6.5" cy="18.5" r="2.5" /><circle cx="16.5" cy="15.5" r="2.5" /></>} />,
   camera: <I d="M4 8h3l2-2.5h6L17 8h3v11H4z" extra={<circle cx="12" cy="13" r="3.2" />} />,
+  voice: <I d="M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z M5.5 11a6.5 6.5 0 0 0 13 0 M12 17.5V21" />,
   burner: <I d="M12 3.5c.8 3-1.8 4.6-2.9 6.2C8 11.4 7.5 12.8 7.5 14.5a4.5 4.5 0 0 0 9 0c0-1-.4-1.9-.9-2.8-.9 1-1.5 1.4-1.5 1.4.3-2.7-.6-5.7-2.1-7.6z" />,
   settings: <I d="M5 7h6 M15 7h4 M5 12h2 M11 12h8 M5 17h10 M19 17h0" extra={<><circle cx="13" cy="7" r="2" /><circle cx="9" cy="12" r="2" /><circle cx="17" cy="17" r="2" /></>} />,
   people: <I d="M9 11a3.2 3.2 0 1 0 0-6.4A3.2 3.2 0 0 0 9 11z M2.8 19.5a6.2 6.2 0 0 1 12.4 0 M16 5.2a3.2 3.2 0 0 1 0 6 M17.5 13.6a6.2 6.2 0 0 1 3.7 5.9" />,
@@ -383,6 +386,7 @@ export default function PhoneOS(props: PhoneOSProps) {
     jobs: "Jobs",
     music: "Music",
     camera: "Camera",
+    voice: "Voice",
     burner: "Burner",
     settings: "Settings",
     people: "People",
@@ -675,6 +679,125 @@ export default function PhoneOS(props: PhoneOSProps) {
                     </div>
                   ) : null}
 
+                  {app === "voice" ? (() => {
+                    // A second view on the SAME voice state the Voice
+                    // panel reads (snap.voice* / snap.lobbies) and the
+                    // same runtime handlers — never a second connection.
+                    const online = snap.server !== "This device";
+                    const inRoom = !!snap.lobby;
+                    const currentFilter = VOICE_FILTERS.find((item) => item.id === snap.voiceFilter) ?? VOICE_FILTERS[0];
+                    const roomName = snap.lobbies.find((room) => room.id === snap.lobby)?.name ?? snap.lobby;
+                    return (
+                      <div className="ph-list">
+                        <div className="ph-bank-hero">
+                          <span>{snap.voiceProximity ? "Proximity voice" : inRoom ? "Channel" : "Voice"}</span>
+                          <b>{snap.voiceProximity ? "On" : inRoom ? roomName : "Off"}</b>
+                          <span>
+                            {snap.voiceProximity
+                              ? `You can hear players within ${PROXIMITY_RANGE} units — walk away and they fade out.`
+                              : inRoom
+                                ? `Connected via ${snap.voiceProvider || "LiveKit"}.`
+                                : "Join proximity voice to talk to players standing near you, or join a channel below."}
+                          </span>
+                        </div>
+                        {snap.voiceError ? <p className="ph-note">{snap.voiceError}</p> : null}
+                        {!online ? <p className="ph-note">Voice needs the online city.</p> : null}
+                        <div className="ph-group">
+                          <div className="ph-row">
+                            <span className="ph-row-main"><b>{inRoom ? "Voice room" : "Proximity voice"}</b><span>{inRoom ? "You are connected" : "Talk to players standing near you"}</span></span>
+                            {inRoom ? (
+                              <button type="button" className="ph-mini" onClick={() => rt?.leaveLobby()}>Leave</button>
+                            ) : (
+                              <button type="button" className="ph-mini ph-mini-on" onClick={() => rt?.joinProximity()}>Join</button>
+                            )}
+                          </div>
+                          <div className="ph-row">
+                            <span className="ph-row-main"><b>Microphone</b><span>{snap.muted ? "Muted" : snap.pushToTalk ? "Push to talk" : snap.speaking ? "Live — speaking" : "Live"}</span></span>
+                            <button type="button" className="ph-mini" onClick={() => rt?.setMuted(!snap.muted)}>{snap.muted ? "Unmute" : "Mute"}</button>
+                          </div>
+                          <div className="ph-row">
+                            <span className="ph-row-main"><b>Speakers</b><span>{snap.deafened ? "Off — you hear no one" : "On"}</span></span>
+                            <button type="button" className="ph-mini" onClick={() => rt?.setDeafened(!snap.deafened)}>{snap.deafened ? "Turn on" : "Turn off"}</button>
+                          </div>
+                          <div className="ph-row">
+                            <span className="ph-row-main"><b>Push to talk</b><span>{snap.pushToTalk ? "Hold the button below to talk" : "Mic is always live"}</span></span>
+                            <button type="button" className="ph-mini" onClick={() => rt?.setPushToTalk(!snap.pushToTalk)}>{snap.pushToTalk ? "On" : "Off"}</button>
+                          </div>
+                        </div>
+                        <div className="ph-micmeter"><i style={{ width: `${Math.round(snap.micLevel * 100)}%` }} /></div>
+                        {snap.pushToTalk ? (
+                          <button
+                            type="button"
+                            className="ph-big"
+                            onPointerDown={(event) => { event.preventDefault(); rt?.setTalking(true); }}
+                            onPointerUp={() => rt?.setTalking(false)}
+                            onPointerLeave={() => rt?.setTalking(false)}
+                            onPointerCancel={() => rt?.setTalking(false)}
+                            onContextMenu={(event) => event.preventDefault()}
+                          >
+                            Hold to talk
+                          </button>
+                        ) : null}
+                        <h4>In this room</h4>
+                        <div className="ph-group">
+                          {!inRoom ? <div className="ph-row"><span className="ph-row-main"><span>Not in a voice room yet — join to see who is here.</span></span></div> : null}
+                          {inRoom && snap.voicePeers.length === 0 ? <div className="ph-row"><span className="ph-row-main"><span>Connecting…</span></span></div> : null}
+                          {snap.voicePeers.map((peer) => {
+                            const volume = snap.volumes[peer.id] ?? 1;
+                            return (
+                              <div key={peer.id} className="ph-row">
+                                <span className={peer.speaking ? "ph-speakdot on" : "ph-speakdot"} aria-hidden="true" />
+                                <span className="ph-row-main">
+                                  <b>{peer.name}{peer.isLocal ? " (you)" : ""}</b>
+                                  <span>{peer.isLocal ? `Filter: ${currentFilter.label}` : volume === 0 ? "Muted by you" : `Volume ${Math.round(volume * 100)}%`}</span>
+                                </span>
+                                {peer.isLocal ? null : (
+                                  <input type="range" min={0} max={1} step={0.05} value={volume} aria-label={`Volume for ${peer.name}`} onChange={(event) => rt?.setVolume(peer.id, Number(event.target.value))} />
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <h4>Voice filters</h4>
+                        <div className="ph-chipwrap">
+                          {VOICE_FILTERS.map((filter) => (
+                            <button key={filter.id} type="button" className={snap.voiceFilter === filter.id ? "ph-mini ph-mini-on" : "ph-mini"} onClick={() => rt?.setVoiceFilter(filter.id)}>{filter.label}</button>
+                          ))}
+                        </div>
+                        <p className="ph-note">{currentFilter.blurb} Filters change how you sound to everyone in the room.</p>
+                        <h4>Effects</h4>
+                        <div className="ph-group">
+                          <div className="ph-row">
+                            <span className="ph-row-main"><b>Reverb</b><span>{snap.voiceReverb === 0 ? "Off" : `${Math.round(snap.voiceReverb * 100)}%`}</span></span>
+                            <input type="range" min={0} max={1} step={0.05} value={snap.voiceReverb} aria-label="Reverb" onChange={(event) => rt?.setVoiceReverb(Number(event.target.value))} />
+                          </div>
+                          <div className="ph-row">
+                            <span className="ph-row-main"><b>Echo</b><span>{snap.voiceEcho === 0 ? "Off" : `${Math.round(snap.voiceEcho * 100)}%`}</span></span>
+                            <input type="range" min={0} max={1} step={0.05} value={snap.voiceEcho} aria-label="Echo" onChange={(event) => rt?.setVoiceEcho(Number(event.target.value))} />
+                          </div>
+                        </div>
+                        <h4>Channels</h4>
+                        <div className="ph-group">
+                          {snap.lobbies.length === 0 ? <div className="ph-row"><span className="ph-row-main"><span>No channels right now — join proximity voice to talk.</span></span></div> : null}
+                          {snap.lobbies.map((room) => (
+                            <div key={room.id} className="ph-row">
+                              <span className="ph-row-main">
+                                <b>{room.name}{snap.lobby === room.id ? " · you are here" : ""}</b>
+                                <span>{room.members.length ? room.members.map((member) => `${member.name}${member.speaking ? " ●" : ""}`).join(", ") : "Empty"}</span>
+                              </span>
+                              {snap.lobby === room.id ? (
+                                <button type="button" className="ph-mini" onClick={() => rt?.leaveLobby()}>Leave</button>
+                              ) : (
+                                <button type="button" className="ph-mini ph-mini-on" onClick={() => rt?.joinLobby(room.id)}>Join</button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <p className="ph-note">Free — voice is a core social feature, not a purchase. Audio runs through LiveKit&apos;s servers; nothing is recorded or stored.</p>
+                      </div>
+                    );
+                  })() : null}
+
                   {app === "burner" ? (
                     <div className="ph-list">
                       <div className="ph-bank-hero">
@@ -774,6 +897,7 @@ export default function PhoneOS(props: PhoneOSProps) {
                   {tile("jobs", "Jobs")}
                   {tile("music", "Music")}
                   {tile("camera", "Camera")}
+                  {tile("voice", "Voice")}
                   {tile("burner", "Burner")}
                   {tile("people", "People")}
                   {tile("settings", "Settings")}

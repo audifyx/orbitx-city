@@ -3346,6 +3346,7 @@ body.touch .touch-ui {
   --ph-grad-jobs: linear-gradient(165deg, #5f80ab, #2c4258);
   --ph-grad-music: linear-gradient(165deg, #4170d8, #1c3270);
   --ph-grad-camera: linear-gradient(165deg, #4c4d55, #1a1b20);
+  --ph-grad-voice: linear-gradient(165deg, #6db3ff, #2b5cb8);
   --ph-grad-burner: linear-gradient(165deg, #ff9a3c, #d95f14);
   --ph-grad-people: linear-gradient(165deg, #7189ab, #3a5578);
   --ph-grad-settings: linear-gradient(165deg, #7e838d, #383b42);
@@ -3525,6 +3526,7 @@ body.touch .touch-ui {
 .ph-icon-jobs { background: var(--ph-grad-jobs); }
 .ph-icon-music { background: var(--ph-grad-music); }
 .ph-icon-camera { background: var(--ph-grad-camera); }
+.ph-icon-voice { background: var(--ph-grad-voice); }
 .ph-icon-burner { background: var(--ph-grad-burner); }
 .ph-icon-people { background: var(--ph-grad-people); }
 .ph-icon-settings { background: var(--ph-grad-settings); }
@@ -3862,6 +3864,19 @@ body.touch .touch-ui {
   transition: transform 0.15s ease;
 }
 .ph-send:active { transform: scale(0.92); }
+/* Voice app — same runtime voice state as the Voice panel, phone form. */
+.ph-micmeter {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  margin: 2px 0 12px;
+}
+.ph-micmeter i { display: block; height: 100%; background: var(--ph-accent); border-radius: 4px; transition: width 0.12s ease; }
+.ph-speakdot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255, 255, 255, 0.25); flex: none; }
+.ph-speakdot.on { background: #46a758; box-shadow: 0 0 8px rgba(70, 167, 88, 0.85); }
+.ph-chipwrap { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 4px; }
+.ph-list input[type="range"] { width: 104px; accent-color: var(--ph-accent); flex: none; }
 /* Camera / gallery */
 .ph-gallery {
   display: grid;
