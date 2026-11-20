@@ -2083,23 +2083,15 @@ export default function App() {
       ) : null}
       {!menu && !snap.hideHud && (
         <div className="actions">
-          <button type="button" onClick={() => openShop("clothes")}>Shop</button>
-          <button type="button" onClick={() => openShop("grocery")}>Grocery</button>
-          <button type="button" onClick={() => open("jobs")}>Jobs</button>
-          <button type="button" onClick={() => open("minigames")}>Arcade</button>
-          <button type="button" onClick={() => open("leaders")}>Leaders</button>
-          <button type="button" onClick={() => open("ads")}>Ads</button>
-          <button type="button" onClick={() => open("radio")}>Radio</button>
-          <button type="button" onClick={() => open("voice")}>Voice</button>
-          <button type="button" onClick={() => open("players")}>Players</button>
-          <button type="button" onClick={() => gameRef.current?.runtime.viewOwnProfile()}>Profile</button>
-          <button type="button" onClick={() => open("alerts")}>Alerts{snap.unreadAlerts > 0 ? ` (${snap.unreadAlerts})` : ""}</button>
-          <button type="button" onClick={() => open("offices")}>Offices</button>
-          <button type="button" onClick={() => open("myprops")}>My Props</button>
-          <button type="button" onClick={() => open("transport")}>Transport</button>
-          <button type="button" onClick={() => open("multiverse")}>Multiverse</button>
-          <button type="button" onClick={() => open("events")}>Events</button>
-          <button type="button" onClick={() => open("chat")}>Chat</button>
+          {/* THE PHONE IS THE MENU now (user: "move chat as messages to
+              the phone, voice to the phone, all as apps instead of the
+              menu thingy"): Shop, Grocery, Jobs, Arcade, Leaders, Ads,
+              Radio (= Music), Voice, Players, Profile, Alerts, Offices,
+              My Props, Transport, Multiverse, Events and Chat all live
+              as OrbitX OS apps — native (Messages/City Chat, Voice,
+              Jobs, Music) or launchers onto the same panels. The strip
+              keeps only in-world quick actions: Emote, Clip, the hero
+              Power, Phone, Pad, admin Stats and Menu (settings). */}
           {/* Emote + Clip moved up from the bottom touch cluster (user:
               "MOVE ALL OF THESE TO THE TOP HUD"). The wheel is
               tap-to-pick (v41): tap Emote to open it, tap an emote to
@@ -2233,10 +2225,11 @@ export default function App() {
               <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.hijackTrain(); }}>Hijack train</button>
             ) : null}
             <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.cycleCamera(); }}>Camera</button>
-            {/* Chat / Shop / Grocery / Emote / Clip used to live here — moved
-                to the top HUD strip (user: "MOVE ALL OF THESE TO THE TOP
-                HUD"). The pad now holds only Jump / Fly / Down / Use /
-                Camera (+ Drive while on the loop-train platform). */}
+            {/* Chat / Shop / Grocery used to live here, then on the top
+                HUD strip — they are OrbitX OS phone apps now (Messages /
+                City Chat, Shop, Grocery). Emote / Clip stay on the strip
+                as in-world quick actions. The pad holds only Jump / Fly /
+                Down / Use / Camera (+ Drive on the loop-train platform). */}
           </div>
           </div>
         </div>
