@@ -927,6 +927,7 @@ body {
   backdrop-filter: var(--ox-blur);
   color: #ffffff;
   border: 1px solid var(--ox-hairline);
+  border-top: 2px solid rgba(224, 179, 58, 0.75);
   border-radius: 18px;
   box-shadow: var(--ox-shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   pointer-events: none;
@@ -1118,6 +1119,7 @@ body {
   -webkit-backdrop-filter: var(--ox-blur);
   backdrop-filter: var(--ox-blur);
   border: 1px solid var(--ox-hairline);
+  border-top: 2px solid rgba(224, 179, 58, 0.75);
   border-radius: 18px;
   box-shadow: var(--ox-shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   color: #ffffff;
@@ -1303,34 +1305,57 @@ body {
   animation: ox-rise 0.32s var(--ox-spring) both;
 }
 
+/* Window chrome: the header is a title bar that bleeds to the panel
+   edges — a tinted band with window dots, the title, and one quiet
+   window control. Every panel is an OrbitX OS window now. */
 .panel header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding-bottom: 12px;
-  margin-bottom: 12px;
+  margin: -16px -16px 14px;
+  padding: 12px 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
   border-bottom: 1px solid var(--ox-hairline-soft);
+  border-radius: 23px 23px 0 0;
+}
+
+.panel header::before {
+  content: "";
+  flex: none;
+  width: 44px;
+  height: 10px;
+  background-image:
+    radial-gradient(circle, var(--ox-gold-bright) 0 4px, transparent 5px),
+    radial-gradient(circle, rgba(255, 255, 255, 0.35) 0 4px, transparent 5px),
+    radial-gradient(circle, rgba(96, 165, 250, 0.55) 0 4px, transparent 5px);
+  background-size: 10px 10px;
+  background-position: 0 50%, 17px 50%, 34px 50%;
+  background-repeat: no-repeat;
 }
 
 .panel header strong {
-  font-size: 21px;
+  margin-right: auto;
+  font-size: 20px;
   font-weight: 800;
   letter-spacing: 0.05em;
 }
 
-/* The Close button is a ghost pill in the unified chrome — every panel
-   gets the same quiet exit instead of a second gold block. */
+/* The Close button is the window control: a compact ghost pill in the
+   title bar — every panel gets the same quiet exit instead of a
+   second gold block. */
 .panel header button {
   flex: none;
-  min-height: 40px;
-  padding: 8px 18px;
+  min-height: 36px;
+  padding: 6px 15px;
   background: rgba(255, 255, 255, 0.07);
   color: #ffffff;
   border: 1px solid var(--ox-hairline);
   border-radius: var(--ox-r-pill);
-  font-size: 13px;
-  letter-spacing: 0.06em;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 .panel header button:active {
