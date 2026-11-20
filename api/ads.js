@@ -2433,7 +2433,10 @@ export function arcadeMatchView(game, viewerId, now = Date.now()) {
     round: match.round || 1,
     score: { creator: match.score?.creator || 0, joiner: match.score?.joiner || 0 },
     history: Array.isArray(match.history) ? match.history : [],
-    deadlineAt: match.deadlineAt || "",
+    // Quick Draw's wait-phase deadline is derived from the secret
+    // signal time — showing it would hand clients the exact moment to
+    // tap. It stays blank until the round is decided.
+    deadlineAt: game.game === "quickdraw" && match.phase === "wait" ? "" : match.deadlineAt || "",
     over,
   };
   if (game.game === "rps") {

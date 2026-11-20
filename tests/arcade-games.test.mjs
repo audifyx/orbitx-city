@@ -239,6 +239,11 @@ test("Quick Draw: false start loses the round, server times the draw, best of 3"
     const armed = await arcadeAct(ctx({ qdDelayMs: 2_000 }), pb, { gameId: id, action: "ready" });
     assert.equal(armed.game.match.phase, "wait");
     assert.equal(armed.game.match.fired, false);
+    // The signal time must not leak: no deadline is shown during the
+    // wait (it is derived from the signal), and the raw timestamp of
+    // the signal appears nowhere in the view.
+    assert.equal(armed.game.match.deadlineAt, "");
+    assert.equal(JSON.stringify(armed.game.match).includes(String(now + 2_000)), false);
     return now; // signal fires at now + 2000
   };
 
