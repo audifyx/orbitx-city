@@ -72,6 +72,7 @@ import {
 } from "./content";
 import { burnAmount, earn, loadWallet, saveWallet, spend } from "./economy";
 import { createNet, type ChatLine, type NetAdapter, type NetState } from "./net";
+import { barkLineFor, npcVoiceEnabled, prefetchNpcLines, setNpcVoiceEnabled, speakNpc, stopNpcVoice } from "./npcvoice";
 import { allLooks, clothesFromOwned, dressPerson, loadLooks, lookById, lookName, looksReady, type Clothes } from "./avatar";
 import {
   TRICK_ARROW_LABEL,
@@ -2133,6 +2134,9 @@ export function createRuntime(scene: Scene) {
   let talk: Snap["talk"] = null;
   let talkLines: string[] = [];
   let talkNpc = -1;
+  // VOICES: ambient bark pacing (game-clock seconds).
+  const barkAtByNpc = new Map<number, number>();
+  let lastBarkAt = -99;
   // Activity collections (localStorage so they survive a reload).
   const PHOTOS_KEY = "orbitx-city-photos-v1";
   const WISHES_KEY = "orbitx-city-wishes-v1";
@@ -4586,6 +4590,10 @@ export function createRuntime(scene: Scene) {
       offerLabel: info?.offer?.label ?? "",
     };
     panel = "talk";
+    // VOICES: the NPC speaks their script aloud; the rest of the
+    // script's Gemini audio warms in the background.
+    speakNpc(talk.name, talk.role, talk.line);
+    prefetchNpcLines(talk.name, talk.role, talkLines);
     publish();
   }
 
@@ -8119,6 +8127,29 @@ export function createRuntime(scene: Scene) {
       npc.group.position.set(npc.x, 0, npc.z);
       npc.group.rotation.y = npc.yaw;
       walkNpc();
+    }
+    // VOICES: ambient barks — a citizen near the player calls out a
+    // scripted line now and then, spoken aloud. Quiet while a talk or
+    // any panel is open; one voice at a time, per-citizen cooldown.
+    if (!talk && !panel && clock - lastBarkAt > 7) {
+      let barkIndex = -1;
+      let barkDist = 5;
+      npcs.forEach((npc, index) => {
+        const d = Math.hypot(npc.x - body.x, npc.z - body.z);
+        if (d < barkDist) {
+          barkDist = d;
+          barkIndex = index;
+        }
+      });
+      if (barkIndex >= 0 && clock - (barkAtByNpc.get(barkIndex) ?? -999) > 60) {
+        const npc = npcs[barkIndex];
+        const role = NPC_LINES[npc.name]?.role ?? "Citizen";
+        const line = barkLineFor(npc.name, role, Math.floor(clock) + barkIndex * 7);
+        barkAtByNpc.set(barkIndex, clock);
+        lastBarkAt = clock;
+        say(`${npc.name}: ${line}`);
+        speakNpc(npc.name, role, line);
+      }
     }
     if (eventLeft > 0) {
       eventLeft -= dt;
@@ -12376,6 +12407,19 @@ export function createRuntime(scene: Scene) {
       if (!talk || !talkLines.length) return;
       const next = (talk.index + 1) % talkLines.length;
       talk = { ...talk, line: talkLines[next], index: next };
+      speakNpc(talk.name, talk.role, talk.line);
+      publish();
+    },
+    // VOICES: panel hooks — stop speech when the talk closes, and the
+    // player's voice on/off toggle.
+    stopTalkVoice() {
+      stopNpcVoice();
+    },
+    npcVoiceOn() {
+      return npcVoiceEnabled();
+    },
+    setNpcVoice(on: boolean) {
+      setNpcVoiceEnabled(on);
       publish();
     },
     // Run the talking NPC's offer — a real City Sol exchange: a draw (pay
@@ -12389,6 +12433,7 @@ export function createRuntime(scene: Scene) {
       if (!offer) return;
       const showLine = (line: string) => {
         talk = { ...talk!, line };
+        speakNpc(talk.name, talk.role, line);
         publish();
       };
       if (offer.kind === "quest") {

@@ -65,6 +65,10 @@ function Talk({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   const [rel, setRel] = useState<{ label: string; talks: number; level: number; canVisit: boolean; canParty: boolean } | null>(null);
   const [chatMsg, setChatMsg] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  // VOICES: NPCs speak their lines aloud. Stop the voice when the
+  // talk panel closes; the toggle mutes voices city-wide.
+  const [voiceOn, setVoiceOn] = useState<boolean>(() => rt?.npcVoiceOn() ?? true);
+  useEffect(() => () => rt?.stopTalkVoice(), [rt]);
   const talkName = talk?.name ?? "";
   useEffect(() => {
     if (!talkName) return;
@@ -97,6 +101,17 @@ function Talk({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
       </p>
       <button type="button" onClick={() => rt?.talkNext()}>
         Next line
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          const next = !voiceOn;
+          setVoiceOn(next);
+          rt?.setNpcVoice(next);
+          if (!next) rt?.stopTalkVoice();
+        }}
+      >
+        {voiceOn ? "Voice: on — tap to mute" : "Voice: off — tap to unmute"}
       </button>
       {talk.offerLabel && (
         <button type="button" onClick={() => rt?.npcOffer()}>
