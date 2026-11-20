@@ -4437,6 +4437,55 @@ function addStadium(boxes: Box[], cols: Collider[], x0: number, z0: number, w: n
   };
 }
 
+// OrbitX Boxing: a raised ring on a stone apron in the open strip south
+// of the stadium (centre 170, 238 — the strip between the stadium's
+// south stands and the tower block at z 257+; verified clear of every
+// collider, citizen and car spawn). Canvas top is 0.45 — under the
+// engine's 0.5 step-up, so fighters walk straight in. The platform and
+// ropes are visual only (ground comes from the boxes); only the corner
+// posts, light poles and the bell table carry colliders, so the ropes
+// never wall anyone out — the fight itself clamps the fighters in.
+// Coords mirror content.ts BOXING_RING — keep the two in sync.
+function addBoxingRing(boxes: Box[], cols: Collider[]) {
+  const cx = 170;
+  const cz = 238;
+  // Stone apron under everything (top 0.06).
+  put(boxes, cx, 0.03, cz, 20, 0.06, 16, "stone");
+  // Platform: dark skirt, white canvas (top 0.45), gold centre mark.
+  put(boxes, cx, 0.15, cz, 9.2, 0.3, 9.2, "black");
+  put(boxes, cx, 0.375, cz, 8.4, 0.15, 8.4, "white");
+  put(boxes, cx, 0.452, cz, 1.2, 0.012, 1.2, "gold");
+  // Corner posts (colliders) with pads: red corners south (the player's
+  // side), cyan corners north.
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const px = cx + sx * 3.95;
+      const pz = cz + sz * 3.95;
+      put(boxes, px, 0.95, pz, 0.2, 1.9, 0.2, "gray");
+      cols.push(col(px, 0.95, pz, 0.26, 1.9, 0.26));
+      put(boxes, px, 1.2, pz, 0.36, 0.72, 0.36, sz > 0 ? "red" : "cyan");
+    }
+  }
+  // Ropes: three heights a side, red over white over gold. Visual only.
+  for (const h of [0.9, 1.2, 1.5]) {
+    const mat = h === 1.5 ? "red" : h === 1.2 ? "white" : "gold";
+    put(boxes, cx, h, cz - 3.95, 7.9, 0.07, 0.07, mat as Mat);
+    put(boxes, cx, h, cz + 3.95, 7.9, 0.07, 0.07, mat as Mat);
+    put(boxes, cx - 3.95, h, cz, 0.07, 0.07, 7.9, mat as Mat);
+    put(boxes, cx + 3.95, h, cz, 0.07, 0.07, 7.9, mat as Mat);
+  }
+  // Floodlight poles on the apron corners (the stadium lights are 20+
+  // units north — the ring gets its own for night fights).
+  for (const [lx, lz] of [[161, 230.8], [179, 245.2]] as Array<[number, number]>) {
+    put(boxes, lx, 2.6, lz, 0.28, 5.2, 0.28, "black");
+    cols.push(col(lx, 2.6, lz, 0.34, 5.2, 0.34));
+    put(boxes, lx, 5.35, lz, 1.1, 0.4, 1.1, "warm");
+  }
+  // The bell table, ringside south — Coach Dom's perch side.
+  put(boxes, cx, 0.45, cz + 6.8, 1.6, 0.9, 0.8, "wood");
+  cols.push(col(cx, 0.45, cz + 6.8, 1.6, 0.9, 0.8));
+}
+
 // ---- finished interiors: shared helpers ----
 
 // Wallpaper + paint + baseboards for a cladWalls room. The clad liner's
@@ -5877,6 +5926,9 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
   buildCarShopLot(boxes, cols);
   zones.push(addSunsetPark(boxes, cols, 94, 204, 54, 26));
   zones.push(addStadium(boxes, cols, 148, 204, 46, 26));
+  // BOXING: the ring on the apron south of the stadium (scenery only —
+  // the fight lives in runtime.ts, the data in content.ts BOXING_*).
+  addBoxingRing(boxes, cols);
   // Stone promenade linking the z=180 road to the gym + park, so the
   // waterfront venues are reachable on foot, not across bare grass.
   // Butt-jointed (no overlaps): the N/S path ends at the E/W strip and

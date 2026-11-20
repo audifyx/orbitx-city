@@ -821,6 +821,45 @@ export const STADIUM_FINISH_X = 191;
 export const STADIUM_BASE = 45;
 export const STADIUM_PER_SEC = 2;
 export const STADIUM_MIN = 5;
+// Boxing: a real ring on the apron south of the stadium (city.ts
+// addBoxingRing builds it at the same coords — keep the two in sync).
+// Three opponents, escalating: entry is charged on fight start through
+// spend(), a win pays winPay through earn(), a loss loses the entry, a
+// decision draw refunds half. Fights are 3 rounds x 60s with short
+// breaks; win by KO or by HP% at the final bell.
+export const BOXING_RING = { x: 170, z: 238, top: 0.45, half: 3.6 };
+export const BOXING_TRAINER = { name: "Coach Dom", color: "silver", x: 163.2, z: 231.8 };
+export const BOXING_ROUNDS = 3;
+export const BOXING_ROUND_SECS = 60;
+export const BOXING_BREAK_SECS = 8;
+export interface BoxingOpponent {
+  id: string;
+  name: string;
+  title: string;
+  /** makePerson colour key — matches the citizen of the same name. */
+  color: string;
+  hat: string;
+  entry: number;
+  winPay: number;
+  hp: number;
+  /** Approach speed in units/sec (the player walks 5.2, fights at ~3.2). */
+  speed: number;
+  jabDmg: [number, number];
+  heavyDmg: [number, number];
+  /** 0..1 — how often an in-range think turns into an attack. */
+  aggression: number;
+  /** 0..1 — chance a think answers a player attack with a block. */
+  blockChance: number;
+  /** 0..1 — chance a think answers a player heavy with a dodge. */
+  dodgeChance: number;
+  /** Seconds between AI decisions — lower reads the player better. */
+  reaction: number;
+}
+export const BOXING_OPPONENTS: BoxingOpponent[] = [
+  { id: "sal", name: "Sal", title: "Harbor Brawler", color: "white", hat: "cap", entry: 25, winPay: 60, hp: 80, speed: 2.5, jabDmg: [3, 5], heavyDmg: [8, 12], aggression: 0.45, blockChance: 0.12, dodgeChance: 0.04, reaction: 0.42 },
+  { id: "jax", name: "Jax", title: "The Wrench", color: "red", hat: "none", entry: 75, winPay: 190, hp: 100, speed: 2.9, jabDmg: [4, 6], heavyDmg: [10, 14], aggression: 0.6, blockChance: 0.22, dodgeChance: 0.1, reaction: 0.32 },
+  { id: "bruno", name: "Bruno", title: "City Champion", color: "gold", hat: "none", entry: 200, winPay: 500, hp: 125, speed: 3.3, jabDmg: [5, 7], heavyDmg: [12, 17], aggression: 0.75, blockChance: 0.34, dodgeChance: 0.18, reaction: 0.24 },
+];
 // OrbitX Motors car shop — fixed location, same as city.ts (furnishCarShop
 // + buildCarShopLot + the buildCity hook in addFixedPlaces). Keep the two
 // files in sync if the shop ever moves. This is THE place to buy a car:
