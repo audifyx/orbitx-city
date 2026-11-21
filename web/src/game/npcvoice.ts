@@ -88,7 +88,7 @@ const BARKS: Array<[RegExp, string[]]> = [
 const GENERIC_BARKS = [
   "Beautiful day in OrbitX City.",
   "Hey — good to see you out.",
-  "Dec 5th can't come soon enough.",
+  "The city is LIVE — can you feel it?",
   "This city's really coming alive.",
   "Watch the traffic — drivers here are wild.",
   "Fountain at sunset. Trust me.",

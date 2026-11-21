@@ -88,7 +88,7 @@ const BEATS: IntroBeat[] = [
     chapter: "05 LAUNCH",
     kicker: "WORLD PREMIERE",
     cam: "CAM 05 // ORBITX METROPOLIS SKYLINE",
-    title: "LAUNCHES DEC 5, 2026",
+    title: "WE ARE LIVE",
     sub: "Free forever. No fees. No pay-to-win.",
     pills: [
       "60,000 Starter Sol",

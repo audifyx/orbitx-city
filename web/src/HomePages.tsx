@@ -72,7 +72,7 @@ export function MenuFooter({ onNavigate }: { onNavigate: (page: HomePage) => voi
           GitHub
         </a>
       </div>
-      <p className="menu-footer-line">Launches Dec 5, 2026 · Free forever</p>
+      <p className="menu-footer-line">Live now · Free forever</p>
       <p className="menu-footer-line">City Sol is in-game only — no real money. · orbitx.world</p>
     </footer>
   );
@@ -115,8 +115,8 @@ export function AboutPage() {
       </p>
       <h3>Launch</h3>
       <p>
-        OrbitX City launches <b>Saturday, Dec 5, 2026</b>. Until then the city is in open playtesting — what you see
-        is what is live, and your feedback shapes what gets built next.
+        OrbitX City is <b>LIVE</b> — launched <b>Saturday, Nov 21, 2026</b>. The city is open to everyone — what you
+        see is what is live, and your feedback shapes what gets built next.
       </p>
       <p>
         Built by audifyx, Los Angeles, CA. Questions: <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> ·{" "}
@@ -191,7 +191,7 @@ export function SettingsPage({
 export function PrivacyPage() {
   return (
     <PageShell title="Privacy Policy">
-      <p>Last updated: Dec 5, 2026 launch. Plain version — no legalese.</p>
+      <p>Last updated: Nov 21, 2026 launch. Plain version — no legalese.</p>
       <h3>Who runs this</h3>
       <p>
         OrbitX City is built by audifyx, Los Angeles, CA. Contact:{" "}
@@ -225,7 +225,7 @@ export function PrivacyPage() {
 export function TermsPage() {
   return (
     <PageShell title="Terms of Service">
-      <p>Last updated: Dec 5, 2026 launch. Plain version — no legalese.</p>
+      <p>Last updated: Nov 21, 2026 launch. Plain version — no legalese.</p>
       <h3>The game is free</h3>
       <p>
         OrbitX City is free forever. There are no fees to play, and nothing in the game is pay-to-win. City Sol is
@@ -248,8 +248,8 @@ export function TermsPage() {
       </p>
       <h3>The service</h3>
       <p>
-        The city is in active development toward its Dec 5, 2026 launch. Features may change, saves may be adjusted
-        during playtesting, and the service may go down for maintenance. We are not liable for lost in-game progress
+        The city launched on Nov 21, 2026 and is in active development. Features may change, saves may be adjusted,
+        and the service may go down for maintenance. We are not liable for lost in-game progress
         beyond restoring what we reasonably can.
       </p>
       <h3>Contact</h3>
