@@ -5844,6 +5844,67 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   hangLights(boxes, -72, 20, -25.5, 40, 5);
   hangLights(boxes, -60, 20, -7.5, 24, 5);
   hangLights(boxes, -72, 20, 8.5, 40, 5);
+  // EVENT HALL (y=20, Floor 5): the venue floor — built to host Spaces
+  // and events. Stage at the west end with the big screen + podium,
+  // bench rows facing it down a gold aisle runner, lounge at the east
+  // end, City Radio booth in the south aisle. Black/white/gold only.
+  roomSign("hq-f5-plate", -88, 22.6, -27.4, 0, 6, 1.2, ["Event Hall", "Stage · Spaces · Events"], "OrbitX HQ · Floor 5");
+  put(boxes, -72, 20.1, 2, 50, 0.06, 48, "black");
+  put(boxes, -67, 20.16, 0, 44, 0.05, 3, "gold");
+  // Stage platform (0.45 — a walkable step up) + gold face + centre step.
+  put(boxes, -94, 20.22, 0, 10, 0.45, 24, "black");
+  cols.push({ minX: -99, maxX: -89, minY: 19.9, maxY: 20.45, minZ: -12, maxZ: 12 });
+  put(boxes, -88.95, 20.22, 0, 0.15, 0.45, 24, "gold");
+  put(boxes, -88.2, 20.11, 0, 1.4, 0.22, 3, "black");
+  // The big screen: black board, gold frame, dim cyan glass. In host
+  // mode the runtime lights a glow plane + spotlight cone over it.
+  put(boxes, -99.5, 22.7, 0, 0.25, 4.6, 17, "black");
+  put(boxes, -99.42, 25.08, 0, 0.3, 0.18, 17.2, "gold");
+  put(boxes, -99.42, 20.32, 0, 0.3, 0.18, 17.2, "gold");
+  put(boxes, -99.35, 22.7, 0, 0.1, 3.8, 15.4, "cyan");
+  roomSign("hq-event-screen", -99.25, 22.7, 0, Math.PI / 2, 14, 3, ["ORBITX", "FIRST SPACE"], "Live from OrbitX HQ · Dec 7");
+  // Podium + mic stand on the stage (host mode lives at the podium).
+  put(boxes, -91, 21.05, 0, 0.9, 1.2, 1.1, "black");
+  cols.push(col(-91, 21.05, 0, 0.9, 1.2, 1.1));
+  put(boxes, -91, 21.7, 0, 1.1, 0.1, 1.3, "gold");
+  put(boxes, -90, 20.95, 1.8, 0.08, 1.0, 0.08, "black");
+  put(boxes, -90, 21.5, 1.8, 0.2, 0.12, 0.2, "cyanhot");
+  // Bench rows facing the stage, split by the centre aisle.
+  for (const rx of [-84, -80.5, -77, -73.5, -70, -66.5]) {
+    for (const bz of [-7.5, 7.5]) {
+      put(boxes, rx, 20.35, bz, 1.1, 0.45, 11, "black");
+      put(boxes, rx + 0.55, 20.75, bz, 0.25, 0.9, 11, "black");
+      put(boxes, rx - 0.5, 20.5, bz, 0.12, 0.18, 11, "gold");
+      cols.push(col(rx + 0.1, 20.4, bz, 1.3, 0.9, 11));
+    }
+  }
+  // East lounge: rug, two sofas, coffee table, plants.
+  put(boxes, -50, 20.12, 0, 9, 0.06, 14, "gold");
+  put(boxes, -50, 20.16, 0, 7.5, 0.06, 12.5, "black");
+  for (const bz of [-4.5, 4.5]) {
+    put(boxes, -47.2, 20.38, bz, 1.1, 0.45, 3.4, "white");
+    cols.push(col(-47.2, 20.38, bz, 1.1, 0.45, 3.4));
+    put(boxes, -52.8, 20.38, bz, 1.1, 0.45, 3.4, "white");
+    cols.push(col(-52.8, 20.38, bz, 1.1, 0.45, 3.4));
+  }
+  put(boxes, -50, 20.5, 0, 3.2, 0.5, 1.6, "wood");
+  cols.push(col(-50, 20.5, 0, 3.2, 0.5, 1.6));
+  for (const [px, pz] of [[-54.5, -8], [-45.5, 8]] as Array<[number, number]>) {
+    put(boxes, px, 20.5, pz, 0.8, 0.9, 0.8, "leavesDark");
+    cols.push(col(px, 20.5, pz, 0.8, 0.9, 0.8));
+  }
+  // City Radio booth in the south aisle (E opens the radio panel).
+  put(boxes, -94, 20.55, 17, 3, 1.1, 1.4, "black");
+  cols.push(col(-94, 20.55, 17, 3, 1.1, 1.4));
+  put(boxes, -94, 21.16, 17, 3.2, 0.12, 1.6, "gold");
+  put(boxes, -94, 20.85, 16.25, 1.6, 0.5, 0.08, "cyanhot");
+  roomSign("hq-radio", -94, 22.3, 15.8, Math.PI, 4.4, 1.0, ["CITY RADIO"], "Press E — pick the music");
+  // Wall banners + gold trim + ceiling lights.
+  roomSign("hq-event-n", -72, 22.8, -28.3, 0, 12, 1.6, ["SPACES · EVENTS · MEETUPS"], "OrbitX HQ · Floor 5");
+  roomSign("hq-event-s", -72, 22.8, 28.3, Math.PI, 12, 1.6, ["ORBITX CITY"], "Free forever · no download");
+  put(boxes, -72, 21, -28.45, 52, 0.18, 0.12, "gold");
+  put(boxes, -72, 21, 28.45, 52, 0.18, 0.12, "gold");
+  hangLights(boxes, -72, 24, 0, 52, 52);
   // Roof terrace (y=24, above the Event Hall): railing, trees, benches,
   // gold ORBITX sign east.
   for (const [rx, rz, rw, rd] of [[x0 + 0.15, z0 + 0.15, w - 0.3, 0.3], [x0 + 0.15, z0 + d - 0.45, w - 0.3, 0.3], [x0 + 0.15, z0 + 0.15, 0.3, d - 0.3], [x0 + w - 0.45, z0 + 0.15, 0.3, d - 0.3]] as Array<[number, number, number, number]>) {
