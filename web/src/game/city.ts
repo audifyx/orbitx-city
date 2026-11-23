@@ -5885,7 +5885,18 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   put(boxes, -99.42, 25.08, 0, 0.3, 0.18, 17.2, "gold");
   put(boxes, -99.42, 20.32, 0, 0.3, 0.18, 17.2, "gold");
   put(boxes, -99.35, 22.7, 0, 0.1, 3.8, 15.4, "cyan");
-  roomSign("hq-event-screen", -99.25, 22.7, 0, Math.PI / 2, 14, 3, ["ORBITX", "FIRST SPACE"], "Live from OrbitX HQ · Dec 7");
+  roomSign("hq-event-screen", -99.25, 22.7, 0, Math.PI / 2, 14, 3, ["ORBITX", "FIRST SPACE"], "Live from OrbitX HQ · Dec 7 · X @orbitx_wrld");
+  // Flanking social boards on the same stage wall (the screen spans
+  // z -8.5..8.5, the stage z -12..12 — these sit on the wall beyond the
+  // stage edges): the follow/join backdrop every Space screenshot gets.
+  for (const side of [-1, 1]) {
+    const bz = side * 14.5;
+    put(boxes, -99.5, 22.7, bz, 0.25, 4.6, 5, "black");
+    put(boxes, -99.42, 25.08, bz, 0.3, 0.18, 5.2, "gold");
+    put(boxes, -99.42, 20.32, bz, 0.3, 0.18, 5.2, "gold");
+  }
+  roomSign("hq-event-x", -99.25, 22.7, -14.5, Math.PI / 2, 4.6, 3, ["FOLLOW", "X · @orbitx_wrld"], "Every Space, announced first");
+  roomSign("hq-event-tg", -99.25, 22.7, 14.5, Math.PI / 2, 4.6, 3, ["JOIN US", "Telegram · OrbitX"], "The community lives here");
   // Podium + mic stand on the stage (host mode lives at the podium).
   put(boxes, -91, 21.05, 0, 0.9, 1.2, 1.1, "black");
   cols.push(col(-91, 21.05, 0, 0.9, 1.2, 1.1));
