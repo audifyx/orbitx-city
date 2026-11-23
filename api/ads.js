@@ -3506,8 +3506,24 @@ export async function arcadeHistory(ctx, player) {
     .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   const client = ctx?.sb ? ctx.sb() : null;
   if (client && mine.length === 0) {
-    const { data } = await client.from("arcade_games").select("*").or(`user_id.eq.${userId},joiner_id.eq.${userId}`).order("created_at", { ascending: false }).limit(20);
-    for (const row of data || []) {
+    // Two parameterized .eq() queries merged here — never interpolate
+    // the id into a PostgREST .or() filter string: guest ids are
+    // client-chosen, and commas/parentheses in one could broaden the
+    // filter to disclose other players' game history (audit
+    // 2026-11-23, A12).
+    const rows = [];
+    const seenIds = new Set();
+    for (const column of ["user_id", "joiner_id"]) {
+      const { data } = await client.from("arcade_games").select("*").eq(column, userId).order("created_at", { ascending: false }).limit(20);
+      for (const row of data || []) {
+        if (row?.id != null) {
+          if (seenIds.has(row.id)) continue;
+          seenIds.add(row.id);
+        }
+        rows.push(row);
+      }
+    }
+    for (const row of rows) {
       const game = gameFromRow(row);
       if (game) {
         store().arcadeGames.set(game.id, game);
