@@ -35,6 +35,7 @@
 // enabled here — the network comes from wallet.js networkName().
 
 import { attachBurnToSwap, buildSwap, getQuote, signVersionedTransaction, orbitxMint, versionedMessage } from "./jupiter.js";
+import { supabasePublic } from "./auth.js";
 import {
   TOKEN_PROGRAM_ID,
   audit,
@@ -135,14 +136,31 @@ const BILLBOARD_IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
 // An ORBITX-billboard image must be a Supabase Storage object in the
 // billboard-ads bucket (signed-upload flow) or a path inside this game.
 // Anything else is rejected — no hotlinked URLs on the boards.
+function billboardImageHostOk(parsed) {
+  // With a project configured (production), the image must live on
+  // THAT project's Storage host. Unconfigured (dev/tests), any
+  // Supabase host is accepted. The old check never looked at the host
+  // at all — any site could hotlink by putting the bucket name in its
+  // path (audit 2026-11-23, A14).
+  const configured = supabasePublic()?.url || "";
+  if (configured) {
+    try {
+      return parsed.host === new URL(configured).host;
+    } catch {
+      return false;
+    }
+  }
+  return parsed.hostname.endsWith(".supabase.co");
+}
+
 export function billboardImageOk(image) {
   const url = String(image || "");
   if (!url) return true; // text-only ad
   const path = url.split("?")[0].split("#")[0];
-  if (path.startsWith("/")) return true;
+  if (path.startsWith("/") && !path.startsWith("//")) return true;
   try {
     const parsed = new URL(url);
-    return parsed.pathname.includes(`/${BILLBOARD_IMAGE_BUCKET}/`);
+    return billboardImageHostOk(parsed) && parsed.pathname.includes(`/object/public/${BILLBOARD_IMAGE_BUCKET}/`);
   } catch {
     return false;
   }

@@ -5958,6 +5958,9 @@ async function openAccount(account, body) {
 // Free: no money, no burn, no City Sol.
 const RADIO_BUCKET = "radio";
 const RADIO_MAX_BYTES = 15 * 1024 * 1024;
+// Parked-object quotas per player prefix (see radioUploadUrl, A14).
+const RADIO_GUEST_MAX_OBJECTS = 3;
+const RADIO_ACCOUNT_MAX_OBJECTS = 30;
 const RADIO_EXTS = new Set([".mp3", ".m4a", ".wav", ".ogg", ".webm", ".aac", ".flac"]);
 
 function radioExt(name) {
@@ -6002,6 +6005,22 @@ async function radioUploadUrl(player, body) {
   }
   if (!Number.isFinite(size) || size <= 0 || size > RADIO_MAX_BYTES) {
     return { ok: false, message: "Tracks are at most 15 MB.", status: 400 };
+  }
+  // Per-player quota (audit 2026-11-23, A14): a signed URL alone makes
+  // a file public, so count the objects already parked under this
+  // player's prefix — registered or not — before issuing another.
+  // Guests get a small allowance; accounts get more.
+  const parked = await client.storage.from(RADIO_BUCKET).list(`tracks/${player.id}`, { limit: 100 });
+  const parkedCount = Array.isArray(parked.data) ? parked.data.length : 0;
+  const quota = player.authUser ? RADIO_ACCOUNT_MAX_OBJECTS : RADIO_GUEST_MAX_OBJECTS;
+  if (parkedCount >= quota) {
+    return {
+      ok: false,
+      message: player.authUser
+        ? "Your radio shelf is full — you have reached the track limit."
+        : "Guests can park up to 3 tracks — create an account for a bigger radio shelf.",
+      status: 400,
+    };
   }
   const path = `tracks/${player.id}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${ext}`;
   const { data, error } = await client.storage.from(RADIO_BUCKET).createSignedUploadUrl(path);
@@ -6073,8 +6092,18 @@ async function radioRegister(player, body) {
     noteSupabase(error.message);
     return { ok: false, message: "Could not confirm the upload. Try again.", status: 500 };
   }
-  if (!Array.isArray(data) || !data.some((item) => item.name === file)) {
+  const landed = Array.isArray(data) ? data.find((item) => item.name === file) : null;
+  if (!landed) {
     return { ok: false, message: "The upload did not land. Try uploading again.", status: 400 };
+  }
+  // Verify the object's REAL size from Storage metadata: the 15 MB
+  // check at upload-URL time trusts the client-declared size, so an
+  // oversize file could otherwise slip through (audit 2026-11-23,
+  // A14). An oversize object is removed and never reaches the radio.
+  const realSize = Number(landed.metadata?.size);
+  if (Number.isFinite(realSize) && realSize > RADIO_MAX_BYTES) {
+    await client.storage.from(RADIO_BUCKET).remove([path]);
+    return { ok: false, message: "That track is over 15 MB.", status: 400 };
   }
   const { data: inserted, error: insertErr } = await client
     .from("radio_tracks")
