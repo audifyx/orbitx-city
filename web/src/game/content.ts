@@ -1273,6 +1273,8 @@ export const HQ_TERMINAL_SPOTS: Array<{ zone: string; x: number; z: number }> = 
 export const HQ_FOUNDER_SPOT = { x: -88, z: -7.4 };
 export const HQ_PODIUM_SPOT = { x: -91, z: 0 };
 export const HQ_RADIO_SPOT = { x: -94, z: 15 };
+/** "TONIGHT AT HQ" board by the lobby entrance (Dec 7 Space info). */
+export const HQ_EVENT_BOARD_SPOT = { x: -46.2, z: 14 };
 export interface SeatSpot {
   x: number;
   /** Seat-top height — the body y while seated. */

@@ -40,6 +40,7 @@ import {
   DEMO_AD_PRICE,
   GYM_SPOT,
   HQ_BURN_SPOT,
+  HQ_EVENT_BOARD_SPOT,
   HQ_FOUNDER_SPOT,
   HQ_GUIDE_SPOT,
   HQ_PODIUM_SPOT,
@@ -9015,6 +9016,11 @@ export function createRuntime(scene: Scene) {
         if (anchor) openLift(anchor);
         return;
       }
+      if (Math.hypot(body.x - HQ_EVENT_BOARD_SPOT.x, body.z - HQ_EVENT_BOARD_SPOT.z) < 2.4) {
+        say("🗓️ TONIGHT AT HQ — the FIRST OrbitX SPACE: Monday Dec 7, live from the Event Hall (Floor 5). Ride the lobby lift up, grab a bench seat with E — voice is on in the hall, unmute to talk. Hosted from the HQ stage.");
+        notify("🗓️", "Dec 7 — the first Space, live from HQ 🎙️");
+        return;
+      }
     }
     if ((zone?.id === "hq-2" || zone?.id === "hq-3") && HQ_TERMINAL_SPOTS.some((item) => item.zone === zone.id && Math.hypot(body.x - item.x, body.z - item.z) < 2.2)) {
       panel = "trading";
@@ -12578,6 +12584,7 @@ export function createRuntime(scene: Scene) {
     else if (Math.hypot(body.x - WASH_SPOT.x, body.z - WASH_SPOT.z) < 2.5) prompt = `Press E — wash a hover-car (+${WASH_PAY} City Sol)`;
     else if (zone?.id === "hq-g" && Math.hypot(body.x - HQ_BURN_SPOT.x, body.z - HQ_BURN_SPOT.z) < 2.6) prompt = "Press E — read the Burn Counter";
     else if (zone?.id === "hq-g" && Math.hypot(body.x - HQ_GUIDE_SPOT.x, body.z - HQ_GUIDE_SPOT.z) < 2.6) prompt = "Press E — Floor Guide (ride the lift)";
+    else if (zone?.id === "hq-g" && Math.hypot(body.x - HQ_EVENT_BOARD_SPOT.x, body.z - HQ_EVENT_BOARD_SPOT.z) < 2.4) prompt = "Press E — tonight at HQ";
     else if ((zone?.id === "hq-2" || zone?.id === "hq-3") && HQ_TERMINAL_SPOTS.some((item) => item.zone === zone.id && Math.hypot(body.x - item.x, body.z - item.z) < 2.2)) prompt = "Press E — OrbitX terminal (live chart)";
     else if (zone?.id === "hq-4" && Math.hypot(body.x - HQ_FOUNDER_SPOT.x, body.z - HQ_FOUNDER_SPOT.z) < 2.4) prompt = "Press E — Founder's terminal (live chart)";
     else if (zone?.id === "hq-event" && Math.hypot(body.x - HQ_PODIUM_SPOT.x, body.z - HQ_PODIUM_SPOT.z) < 2.6) prompt = performance.now() < hqHostUntil ? "Press E — end host mode" : "Press E — host mode (light the stage)";

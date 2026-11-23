@@ -5731,6 +5731,13 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   cols.push(col(-58.5, 1.2, 6, 0.35, 2.4, 0.35));
   put(boxes, -58.5, 2.5, 6, 0.55, 0.18, 0.55, "gold");
   roomSign("hq-guide", -58.05, 2.9, 6, Math.PI / 2, 3.4, 1.1, ["FLOOR GUIDE"], "Press E — ride the lift to any floor");
+  // TONIGHT AT HQ (east wall, past the door lane): the Dec 7 Space
+  // advertised where everyone walks in — black board, gold trim, same
+  // family as the Burn Counter. E on it prints the details in chat.
+  put(boxes, -44.45, 2.3, 14, 0.25, 2.8, 5, "black");
+  put(boxes, -44.45, 3.78, 14, 0.3, 0.16, 5.2, "gold");
+  put(boxes, -44.45, 0.82, 14, 0.3, 0.16, 5.2, "gold");
+  roomSign("hq-tonight", -44.65, 2.3, 14, -Math.PI / 2, 4.4, 2.6, ["TONIGHT AT HQ", "FIRST SPACE — Dec 7"], "OrbitX HQ · Event Hall · Floor 5");
   // Floor slabs: 8 (with the lobby void hole), 12, 16, 20 (Event Hall),
   // 24 (roof terrace).
   slabWithHoles(boxes, cols, x0, 8, z0, w, d, [[x0, 5, x0 + w, z0 + d], [-99, -27, -95, -23]], "cream");
