@@ -272,6 +272,21 @@ export async function signIn(email: string, password: string): Promise<AuthResul
   return { account: keep(data) };
 }
 
+export async function signInWithX(): Promise<AuthResult> {
+  const cfg = await loadAuthConfig();
+  if (cfg.mode !== "supabase") throw new Error("X sign-in is only available on the live city.");
+  const client = await browser();
+  if (!client) throw new Error("Supabase Auth is not configured.");
+  const { error } = await client.auth.signInWithOAuth({
+    provider: "x",
+    options: { redirectTo: window.location.origin },
+  });
+  if (error) throw new Error(error.message);
+  // The browser is on its way to X; the session lands back here and the
+  // normal restore path (getSession on boot) picks it up.
+  return { pending: true, message: "Opening X…" };
+}
+
 export async function sendMagicLink(email: string): Promise<AuthResult> {
   const cfg = await loadAuthConfig();
   if (cfg.mode === "supabase") {

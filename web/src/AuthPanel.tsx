@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { finishMagic, loadAuthConfig, requestExportCode, restoreAccount, sendMagicLink, signIn, signUp, type Account, type AuthConfig } from "./auth";
+import { finishMagic, loadAuthConfig, requestExportCode, restoreAccount, sendMagicLink, signIn, signInWithX, signUp, type Account, type AuthConfig } from "./auth";
 
 type Props = {
   onAccount: (account: Account) => void;
@@ -77,9 +77,13 @@ export function AuthPanel({ onAccount, onGuest }: Props) {
             if (done.account) onAccount(done.account);
           }
         })}>Email me a link</button>
+        <button id="auth-x" type="button" disabled={busy} onClick={() => run(async () => {
+          const result = await signInWithX();
+          if (result.message) setNote(result.message);
+        })}>Continue with X</button>
       </div>
       <button id="auth-guest" type="button" onClick={onGuest}>Play as guest</button>
-      <p className="help">{cfg?.mode === "supabase" ? "Supabase Auth is on. Email sign-in only." : "No Supabase keys in this server, so login stays on this machine until you connect a project."}</p>
+      <p className="help">{cfg?.mode === "supabase" ? "Supabase Auth is on. Email or X sign-in." : "No Supabase keys in this server, so login stays on this machine until you connect a project."}</p>
       {note ? <p className="help" id="auth-note">{note}</p> : null}
     </div>
   );
