@@ -5573,6 +5573,20 @@ function furnishOfficeSuite(boxes: Box[], cols: Collider[], spec: OfficeSuiteSpe
   hangLights(boxes, cx, y0 + 4, (z0 + z1) / 2, w, d);
 }
 
+// An HQ terminal desk (the Trading Floor's OrbitX computer, turned to
+// face the corridor): black desk, gold edge, glowing chart screen and a
+// gold stool. E at the stool opens the trading terminal (runtime spot,
+// zone-gated per floor) — the same live chart as the Trading Floor.
+function hqTerminalDesk(boxes: Box[], cols: Collider[], x: number, y0: number, z: number) {
+  put(boxes, x, y0 + 0.5, z, 2.4, 1.0, 1.2, "black");
+  cols.push(col(x, y0 + 0.5, z, 2.4, 1.0, 1.2));
+  put(boxes, x, y0 + 1.04, z, 2.45, 0.08, 1.25, "gold");
+  put(boxes, x, y0 + 1.55, z - 0.45, 1.7, 1.0, 0.18, "black");
+  put(boxes, x, y0 + 1.55, z - 0.24, 1.5, 0.8, 0.06, "cyanhot");
+  put(boxes, x, y0 + 1.08, z + 0.35, 1.2, 0.06, 0.5, "white");
+  put(boxes, x, y0 + 0.3, z + 1.4, 0.5, 0.6, 0.5, "gold");
+}
+
 function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: Anchor[]; lifts: Lift[] } {
   const x0 = OFFICE.x0;
   const z0 = OFFICE.z0;
@@ -5743,6 +5757,10 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   put(boxes, -72, 8.55, 4.7, 56, 1.1, 0.3, "gold");
   cols.push({ minX: -100, maxX: -44, minY: 8, maxY: 9.1, minZ: 4.55, maxZ: 4.85 });
   roomSign("hq-f2-plate", -88, 10.6, -27.4, 0, 6, 1.2, ["Floor 2", "Suites 2A – 2H"], "Standard offices");
+  // Terminal desks along the north corridor wall: shared hot-desks whose
+  // screens open the live trading terminal.
+  for (const tx of [-84, -76, -68]) hqTerminalDesk(boxes, cols, tx, 8, -27.7);
+  roomSign("hq-term-f2", -76, 11.1, -28.3, 0, 9, 1.0, ["ORBITX TERMINALS"], "Live chart · press E at a desk");
   hangLights(boxes, -72, 12, -25.5, 40, 5);
   hangLights(boxes, -72, 12, -6.5, 40, 5);
   // Floor 3 (y=12): same two-row shape as floor 2, full depth — north row
@@ -5767,6 +5785,8 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   furnishOfficeSuite(boxes, cols, { id: "office-f3-g", name: "Suite 3G", floorLabel: "Floor 3", tierLabel: "Standard office", x0: -72, x1: -58, y0: 12, z0: 1, z1: 28 });
   furnishOfficeSuite(boxes, cols, { id: "office-f3-h", name: "Suite 3H", floorLabel: "Floor 3", tierLabel: "Standard office", x0: -58, x1: -44, y0: 12, z0: 1, z1: 28 });
   roomSign("hq-f3-plate", -88, 14.6, -27.4, 0, 6, 1.2, ["Floor 3", "Suites 3A – 3H"], "Standard offices");
+  for (const tx of [-84, -76, -68]) hqTerminalDesk(boxes, cols, tx, 12, -27.7);
+  roomSign("hq-term-f3", -76, 15.1, -28.3, 0, 9, 1.0, ["ORBITX TERMINALS"], "Live chart · press E at a desk");
   hangLights(boxes, -72, 16, -25.5, 40, 5);
   hangLights(boxes, -72, 16, -0.5, 40, 5);
   // Floor 4 (y=16): the Founder's Office — the biggest room in the tower
