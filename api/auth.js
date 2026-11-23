@@ -25,10 +25,21 @@ export function authMode() {
 }
 
 function mockSecret() {
-  return process.env.ORBITX_AUTH_SECRET || "orbitx-dev-auth-secret";
+  const env = process.env.ORBITX_AUTH_SECRET || "";
+  if (env) return env;
+  // Fail closed in production: the old hardcoded fallback is printed in
+  // this public source, so any token "signed" with it is forgeable by
+  // anyone (audit 2026-11-23, A3). With NODE_ENV=production and no
+  // configured secret, mock auth must neither issue nor verify tokens.
+  // Local dev and the test suite (no NODE_ENV=production) keep the dev
+  // fallback so mock-mode flows keep working there.
+  if (process.env.NODE_ENV === "production") return null;
+  return "orbitx-dev-auth-secret";
 }
 
 function signMock(user) {
+  const secret = mockSecret();
+  if (!secret) throw new Error("mock auth is disabled: ORBITX_AUTH_SECRET is not set");
   const payload = Buffer.from(JSON.stringify({
     sub: user.id,
     email: user.email,
@@ -37,14 +48,16 @@ function signMock(user) {
     provider: user.provider || "email",
     exp: Date.now() + 7 * 86400000,
   })).toString("base64url");
-  const sig = createHmac("sha256", mockSecret()).update(payload).digest("base64url");
+  const sig = createHmac("sha256", secret).update(payload).digest("base64url");
   return `mock.${payload}.${sig}`;
 }
 
 export function verifyMockToken(token) {
+  const secret = mockSecret();
+  if (!secret) return null;
   const parts = String(token || "").split(".");
   if (parts.length !== 3 || parts[0] !== "mock") return null;
-  const expected = createHmac("sha256", mockSecret()).update(parts[1]).digest("base64url");
+  const expected = createHmac("sha256", secret).update(parts[1]).digest("base64url");
   const left = Buffer.from(parts[2]);
   const right = Buffer.from(expected);
   if (left.length !== right.length || !timingSafeEqual(left, right)) return null;
@@ -69,7 +82,14 @@ const verified = new Map();
 export async function verifyAccessToken(token, fresh = false) {
   const raw = String(token || "");
   if (!raw.includes(".")) return null;
-  if (raw.startsWith("mock.")) return verifyMockToken(raw);
+  if (raw.startsWith("mock.")) {
+    // Mock tokens are the dev/test signer only. Whenever Supabase is
+    // configured — every real deployment — they are refused outright:
+    // verifying them in production let anyone forge an account token
+    // for any email/id with the public dev secret (audit 2026-11-23, A3).
+    if (supabasePublic()) return null;
+    return verifyMockToken(raw);
+  }
   if (!raw.startsWith("eyJ")) return null;
   const pub = supabasePublic();
   if (!pub?.service) return null;
@@ -183,6 +203,12 @@ export async function handleAuthOp(op, body) {
   if (!OPS.has(op)) return null;
   if (authMode() === "supabase" && op !== "auth-reauth") {
     return { ok: false, status: 400, message: "This project uses Supabase Auth. Sign in from the city menu." };
+  }
+  if (authMode() === "mock" && !mockSecret()) {
+    // Production without Supabase and without ORBITX_AUTH_SECRET: mock
+    // auth fails closed (see mockSecret) instead of signing tokens with
+    // a public default. Guest play is unaffected.
+    return { ok: false, status: 503, message: "Sign-in is not configured on this server." };
   }
   if (op === "auth-reauth") {
     if (authMode() === "supabase") {
