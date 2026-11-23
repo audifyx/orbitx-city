@@ -5091,8 +5091,8 @@ function addHome(
 
 const MALL_FLOOR2 = 5;
 const MALL_ROOF = 9.5;
-const OFFICE_FLOORS = [0, 8, 12, 16, 20];
-const OFFICE_STOPS = ["Lobby", "Floor 2", "Floor 3", "Floor 4", "Roof Terrace"];
+const OFFICE_FLOORS = [0, 8, 12, 16, 20, 24];
+const OFFICE_STOPS = ["Lobby", "Floor 2", "Floor 3", "Floor 4", "Event Hall", "Roof Terrace"];
 
 // A glass lift shaft: glass walls + cap, with a door opening on each floor's
 // landing side. The opening is blocked by one solid (invisible) collider per
@@ -5578,7 +5578,7 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   const z0 = OFFICE.z0;
   const w = OFFICE.x1 - OFFICE.x0;
   const d = OFFICE.z1 - OFFICE.z0;
-  const h = 20;
+  const h = 24;
   shellOpen(
     boxes,
     cols,
@@ -5617,7 +5617,7 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   // the floor (groundY defaults to -200 indoors). Same fix as the mall.
   put(boxes, x0 + w / 2, 0.08, z0 + d / 2, w - 2.4, 0.08, d - 2.4, "cream");
   cols.push({ minX: x0 + 1.2, maxX: x0 + w - 1.2, minY: 0.04, maxY: 0.12, minZ: z0 + 1.2, maxZ: z0 + d - 1.2 });
-  cladWallsTall(boxes, x0, z0, w, d, "e", 20);
+  cladWallsTall(boxes, x0, z0, w, d, "e", 24);
   // Gold ORBITX logo wall on the north wall + reception desk at the void edge.
   roomSign("hq-logo", -72, 4.2, z0 + d - 0.75, Math.PI, 14, 3, ["ORBITX"], "The city builds here");
   receptionDesk(boxes, cols, -72, 0, 3.4, true);
@@ -5657,18 +5657,21 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
     put(boxes, px, 0.55, 6, 0.3, 1.1, 0.3, "black");
     cols.push(col(px, 0.55, 6, 0.3, 1.1, 0.3));
   }
-  roomSign("hq-dir-0", -64, 3.35, 6.3, 0, 4.6, 0.85, ["OFFICE DIRECTORY"], "OrbitX HQ");
+  roomSign("hq-dir-0", -64, 3.5, 6.3, 0, 4.6, 0.6, ["OFFICE DIRECTORY"], "OrbitX HQ");
   // Tall vertical sign on the plaza-facing east wall (same wall plane
   // as the ground-floor HQ sign, x -44.4), clear of the lobby door.
   roomSign("hq-sign-v", -44.25, 7, -14, -Math.PI / 2, 3.2, 5.5, ["ORBITX", "HQ"], "Walk in");
-  roomSign("hq-dir-2", -64, 2.45, 6.3, 0, 4.6, 0.85, ["Floor 2", "Suites 2A – 2H"], "Standard offices");
-  roomSign("hq-dir-3", -64, 1.55, 6.3, 0, 4.6, 0.85, ["Floor 3", "Suites 3A – 3H"], "Standard offices");
-  roomSign("hq-dir-4", -64, 0.65, 6.3, 0, 4.6, 0.85, ["Floor 4", "Founder's Office · 4A – 4H"], "Premium suites · Roof Terrace above");
-  // Floor slabs: 8 (with the lobby void hole), 12, 16, 20 (roof terrace).
+  roomSign("hq-dir-2", -64, 2.82, 6.3, 0, 4.6, 0.6, ["Floor 2", "Suites 2A – 2H"], "Standard offices");
+  roomSign("hq-dir-3", -64, 2.14, 6.3, 0, 4.6, 0.6, ["Floor 3", "Suites 3A – 3H"], "Standard offices");
+  roomSign("hq-dir-4", -64, 1.46, 6.3, 0, 4.6, 0.6, ["Floor 4", "Founder's Office · 4A – 4H"], "Premium suites");
+  roomSign("hq-dir-5", -64, 0.78, 6.3, 0, 4.6, 0.6, ["Floor 5", "Event Hall"], "Stage · Spaces · Roof Terrace above");
+  // Floor slabs: 8 (with the lobby void hole), 12, 16, 20 (Event Hall),
+  // 24 (roof terrace).
   slabWithHoles(boxes, cols, x0, 8, z0, w, d, [[x0, 5, x0 + w, z0 + d], [-99, -27, -95, -23]], "cream");
   slabWithHoles(boxes, cols, x0, 12, z0, w, d, [[-99, -27, -95, -23]], "cream");
   slabWithHoles(boxes, cols, x0, 16, z0, w, d, [[-99, -27, -95, -23]], "cream");
   slabWithHoles(boxes, cols, x0, 20, z0, w, d, [[-99, -27, -95, -23]], "cream");
+  slabWithHoles(boxes, cols, x0, 24, z0, w, d, [[-99, -27, -95, -23]], "cream");
   // Floor 2 (y=8, south strip only — the lobby void runs z 5..29): a
   // corridor along the north wall off the lift, four suites in the north row
   // (2A–2D), a middle corridor reached by the east passage, and four suites
@@ -5776,25 +5779,27 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   hangLights(boxes, -72, 20, -25.5, 40, 5);
   hangLights(boxes, -60, 20, -7.5, 24, 5);
   hangLights(boxes, -72, 20, 8.5, 40, 5);
-  // Roof terrace (y=20): railing, trees, benches, gold ORBITX sign east.
+  // Roof terrace (y=24, above the Event Hall): railing, trees, benches,
+  // gold ORBITX sign east.
   for (const [rx, rz, rw, rd] of [[x0 + 0.15, z0 + 0.15, w - 0.3, 0.3], [x0 + 0.15, z0 + d - 0.45, w - 0.3, 0.3], [x0 + 0.15, z0 + 0.15, 0.3, d - 0.3], [x0 + w - 0.45, z0 + 0.15, 0.3, d - 0.3]] as Array<[number, number, number, number]>) {
-    put(boxes, rx + rw / 2, 20.55, rz + rd / 2, rw, 1.1, rd, "gold");
-    cols.push({ minX: rx, maxX: rx + rw, minY: 20, maxY: 21.1, minZ: rz, maxZ: rz + rd });
+    put(boxes, rx + rw / 2, 24.55, rz + rd / 2, rw, 1.1, rd, "gold");
+    cols.push({ minX: rx, maxX: rx + rw, minY: 24, maxY: 25.1, minZ: rz, maxZ: rz + rd });
   }
   for (const [px, pz] of [[-92, 18], [-52, 18], [-92, -18], [-52, -18]] as Array<[number, number]>) {
-    addTree(boxes, cols, px, pz, 20);
-    put(boxes, px + 3, 20.38, pz, 1.1, 0.45, 3.4, "red");
-    cols.push(col(px + 3, 20.38, pz, 1.1, 0.45, 3.4));
+    addTree(boxes, cols, px, pz, 24);
+    put(boxes, px + 3, 24.38, pz, 1.1, 0.45, 3.4, "red");
+    cols.push(col(px + 3, 24.38, pz, 1.1, 0.45, 3.4));
   }
-  roomSign("hq-roof", -43.4, 22.2, 0, Math.PI / 2, 12, 2.4, ["ORBITX"], "Roof terrace · the city below");
+  roomSign("hq-roof", -43.4, 26.2, 0, Math.PI / 2, 12, 2.4, ["ORBITX"], "Roof terrace · the city below");
   // Glass lift shaft (NW corner, through all floors) + roof penthouse cap.
-  buildGlassShaft(boxes, cols, "hq-lift", -99, -27, 4, 4, 22.8, OFFICE_FLOORS, "e");
+  buildGlassShaft(boxes, cols, "hq-lift", -99, -27, 4, 4, 26.8, OFFICE_FLOORS, "e");
   const zones: Zone[] = [
     floorZone("hq-g", "OrbitX HQ — Lobby", "office", x0, z0, w, d, -0.1, 7.9, -72, 3.4, -44.4, 2.6, 14, -Math.PI / 2),
     floorZone("hq-2", "OrbitX HQ — Floor 2", "office", x0, z0, w, d, 7.9, 11.9, -72, -20, -72, 10.4, -27.4, 0),
     floorZone("hq-3", "OrbitX HQ — Floor 3", "office", x0, z0, w, d, 11.9, 15.9, -72, -12, -72, 14.4, -27.4, 0),
     floorZone("hq-4", "OrbitX HQ — Floor 4", "office", x0, z0, w, d, 15.9, 19.9, -85, -15, -72, 18.4, -27.4, 0),
-    floorZone("hq-roof", "OrbitX HQ — Roof Terrace", "office", x0, z0, w, d, 19.9, 24, -72, 0, -72, 22.2, 27.7, Math.PI),
+    floorZone("hq-event", "OrbitX HQ — Event Hall", "office", x0, z0, w, d, 19.9, 23.9, -88, -25, -72, 22.4, -27.4, 0),
+    floorZone("hq-roof", "OrbitX HQ — Roof Terrace", "office", x0, z0, w, d, 23.9, 28, -72, 0, -72, 26.2, 27.7, Math.PI),
   ];
   const anchors: Anchor[] = [
     doorAnchor("orbitx-hq", "OrbitX HQ", "office", x0, z0, w, d, "e"),
@@ -5805,6 +5810,7 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
     { id: "hq-lift-2", name: "HQ Lift", kind: "lift", x: -93.5, y: 12, z: -25, yaw: -Math.PI / 2, slot: 2, liftId: "hq-lift", liftFloor: 2 },
     { id: "hq-lift-3", name: "HQ Lift", kind: "lift", x: -93.5, y: 16, z: -25, yaw: -Math.PI / 2, slot: 3, liftId: "hq-lift", liftFloor: 3 },
     { id: "hq-lift-4", name: "HQ Lift", kind: "lift", x: -93.5, y: 20, z: -25, yaw: -Math.PI / 2, slot: 4, liftId: "hq-lift", liftFloor: 4 },
+    { id: "hq-lift-5", name: "HQ Lift", kind: "lift", x: -93.5, y: 24, z: -25, yaw: -Math.PI / 2, slot: 5, liftId: "hq-lift", liftFloor: 5 },
   ];
   const lifts: Lift[] = [{ id: "hq-lift", name: "HQ Lift", x: -97, z: -25, w: 4, d: 4, floors: OFFICE_FLOORS, stops: OFFICE_STOPS, landing: "e" }];
   return { zones, anchors, lifts };
