@@ -759,6 +759,9 @@ export interface Snap {
   party: { id: string; name: string }[];
   lobbies: { id: string; name: string; members: { id: string; name: string; speaking: boolean }[] }[];
   lobby: string;
+  /** HQ Event Hall host sync: a remote player hosting in the hall
+   * while you are in it too — their name + current radio pick. */
+  hallHost: { name: string; music: { t: string; at: number } | null } | null;
   muted: boolean;
   deafened: boolean;
   pushToTalk: boolean;
@@ -6611,6 +6614,11 @@ export function createRuntime(scene: Scene) {
       party: world.party?.members ?? [],
       lobbies: world.lobbies,
       lobby: world.lobby,
+      hallHost: (() => {
+        if (!lastBody || zoneAt(lastBody)?.id !== "hq-event") return null;
+        const host = hallHostRemote();
+        return host ? { name: host.state.name, music: host.state.music ?? null } : null;
+      })(),
       muted: world.muted,
       deafened: world.deafened,
       pushToTalk: world.pushToTalk,
@@ -7924,6 +7932,24 @@ export function createRuntime(scene: Scene) {
   // HQ HOST MODE (Event Hall podium): lights the big screen + the stage
   // spotlight for 10 minutes. Local stage state — the FX meshes are
   // toggled by the frame loop while the host clock runs.
+  // HQ HOST SYNC: presence carries host/music (NetState) — a remote
+  // whose state says host=true while standing in the Event Hall lights
+  // OUR stage too, and their radio pick plays on our side (App reads
+  // snap.hallHost). hqMusic is what OUR radio is playing right now,
+  // reported by App on every change; it only goes on the wire while
+  // our own Host Mode is live.
+  let hqMusic: { t: string; at: number } | null = null;
+  function setHostMusic(trackId: string | null) {
+    hqMusic = trackId ? { t: trackId, at: Date.now() } : null;
+  }
+  function hallHostRemote(): Remote | null {
+    for (const remote of remotes.values()) {
+      const s = remote.state;
+      if (s.host && s.x >= -101 && s.x <= -43 && s.z >= -29 && s.z <= 29 && s.y >= 19.9 && s.y <= 23.9) return remote;
+    }
+    return null;
+  }
+
   // HQ SPACE VOICE: entering the Event Hall auto-joins the "hq-space"
   // voice lobby via the normal join path (listening in; the mic rules
   // are the usual ones — unmute to talk). Leaving HQ entirely leaves
@@ -12140,10 +12166,11 @@ export function createRuntime(scene: Scene) {
       cab.doorPos += (cab.doorTarget - cab.doorPos) * Math.min(1, dt * 6);
       cab.door.position.set(cab.baseX + cab.slideX * cab.doorPos, 1.3, cab.baseZ + cab.slideZ * cab.doorPos);
     }
-    // HQ host mode: stage FX follow the host clock.
+    // HQ host mode: stage FX follow the host clock — ours, or a remote
+    // host's (presence host sync: their podium lights our stage too).
     if (hqStageFx.length) {
-      const hosting = performance.now() < hqHostUntil;
-      for (const fx of hqStageFx) fx.visible = hosting;
+      const live = performance.now() < hqHostUntil || !!hallHostRemote();
+      for (const fx of hqStageFx) fx.visible = live;
     }
     // Exterior doors slide open on approach, closed otherwise.
     tickDoors(dt, body);
@@ -12682,6 +12709,10 @@ export function createRuntime(scene: Scene) {
         speaking: world.speaking,
         emote: Date.now() < world.emoteUntil ? world.emote : "",
         lobby: world.lobby,
+        // HQ host sync: publish host + the radio pick while our Host
+        // Mode is live (receivers gate on our position in the hall).
+        host: performance.now() < hqHostUntil || undefined,
+        music: performance.now() < hqHostUntil && hqMusic ? hqMusic : undefined,
         holder: !!world.me?.holder,
       };
       if (world.online) {
@@ -16478,6 +16509,9 @@ export function createRuntime(scene: Scene) {
     radioList,
     radioUploadUrl,
     radioRegister,
+    // HQ host sync: App reports the radio's current track (or null) so
+    // a hosting player's pick can ride presence to the hall.
+    setHostMusic,
     // CRIB (home life) — energy speed factor for the engine, plus the
     // Home / Shop panel ops. Energy >= 70 runs 15% faster, 0 runs slow.
     energyFactor() {

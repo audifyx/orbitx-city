@@ -388,6 +388,7 @@ const EMPTY: Snap = {
   party: [],
   lobbies: [],
   lobby: "",
+  hallHost: null,
   muted: false,
   deafened: false,
   pushToTalk: false,
@@ -1012,6 +1013,58 @@ export default function App() {
     if (menu) stopRadio();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menu]);
+
+  // HQ host sync (the host's side): tell the runtime what the radio is
+  // playing — while this player hosts in the Event Hall, the pick
+  // rides presence so the whole hall hears it.
+  useEffect(() => {
+    gameRef.current?.runtime.setHostMusic(playingId);
+  }, [playingId]);
+
+  // HQ host sync (the hall's side): a remote host in the Event Hall
+  // lends the hall their radio pick — play it in sync while they host,
+  // stop it when they finish. The player's own radio always wins: we
+  // only borrow when nothing of ours is playing, and a manual
+  // stop/change during a borrowed track is respected, never fought.
+  const borrowedRef = useRef<{ t: string; at: number } | null>(null);
+  useEffect(() => {
+    const host = snap.hallHost;
+    const borrowed = borrowedRef.current;
+    if (!host?.music) {
+      if (borrowed) {
+        borrowedRef.current = null;
+        if (playingId === borrowed.t) stopRadio();
+      }
+      return;
+    }
+    const want = host.music;
+    if (borrowed && borrowed.t === want.t) {
+      // Already on this pick (playing it, loading it, or the player
+      // stopped/changed it by hand — respected). A host restart (new
+      // start stamp) while we play it re-syncs the position.
+      if (playingId === want.t && borrowed.at !== want.at) {
+        borrowedRef.current = { t: want.t, at: want.at };
+        seekRadioTo(want.at);
+      }
+      return;
+    }
+    if (playingId && !(borrowed && playingId === borrowed.t)) return;
+    // Borrow the host's pick (fresh, or following them to a new track).
+    borrowedRef.current = { t: want.t, at: want.at };
+    const known = radioTracks.find((item) => item.id === want.t);
+    if (known) playBorrowed(known, want.at);
+    else {
+      const rt = gameRef.current?.runtime;
+      if (rt) {
+        void rt.radioList().then((res) => {
+          const tracks = (res as { tracks?: RadioTrack[] }).tracks || [];
+          const found = tracks.find((item) => item.id === want.t);
+          if (found && borrowedRef.current?.t === want.t) playBorrowed(found, want.at);
+        });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snap.hallHost, playingId]);
 
   // Splash theme: the OrbitX City anthem (Suno tracks the user made)
   // plays over the menu screens and stops when the player enters the
@@ -1891,6 +1944,37 @@ export default function App() {
       audio.load();
     }
     setPlayingId(null);
+  };
+
+  // Borrowed playback (HQ host sync): play a track and land at the
+  // host's position in it — (now - start stamp) modulo the duration,
+  // applied once the metadata (and so the duration) is known.
+  const playBorrowed = (track: RadioTrack, at: number) => {
+    const audio = (radioAudioRef.current ??= new Audio());
+    audio.onended = () => setPlayingId(null);
+    audio.src = track.url;
+    audio.addEventListener(
+      "loadedmetadata",
+      () => {
+        if (audio.duration && Number.isFinite(audio.duration)) {
+          audio.currentTime = ((Date.now() - at) / 1000) % audio.duration;
+        }
+      },
+      { once: true },
+    );
+    audio
+      .play()
+      .then(() => setPlayingId(track.id))
+      .catch(() => {
+        setPlayingId(null);
+      });
+  };
+
+  const seekRadioTo = (at: number) => {
+    const audio = radioAudioRef.current;
+    if (audio && audio.duration && Number.isFinite(audio.duration)) {
+      audio.currentTime = ((Date.now() - at) / 1000) % audio.duration;
+    }
   };
 
   const playRadio = (track: RadioTrack) => {

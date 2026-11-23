@@ -12,6 +12,11 @@ export interface NetState {
   speaking?: boolean;
   emote?: string;
   lobby?: string;
+  /** HQ Event Hall: this player is hosting on the stage right now. */
+  host?: boolean;
+  /** The host's current radio pick (track id + start stamp, ms epoch)
+   * — hall listeners play it in sync. Absent when no track is set. */
+  music?: { t: string; at: number };
   look?: string;
   holder?: boolean;
   // Which universe this player is on right now (stamped by the server
