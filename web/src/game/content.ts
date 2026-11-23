@@ -1273,6 +1273,62 @@ export const HQ_TERMINAL_SPOTS: Array<{ zone: string; x: number; z: number }> = 
 export const HQ_FOUNDER_SPOT = { x: -88, z: -7.4 };
 export const HQ_PODIUM_SPOT = { x: -91, z: 0 };
 export const HQ_RADIO_SPOT = { x: -94, z: 15 };
+export interface SeatSpot {
+  x: number;
+  /** Seat-top height — the body y while seated. */
+  y: number;
+  z: number;
+  /** Facing (body yaw) while seated. */
+  yaw: number;
+}
+// SEATS (runtime sit interaction): benches, chairs and sofas the player
+// can actually sit on — E snaps onto the seat with a held sit emote.
+// Facings follow the geometry in city.ts buildCity: Event Hall benches
+// face the stage (-x), lobby pieces face their room/table, the
+// Founder's armchairs face the windows (-x), roof pieces face in.
+export const SEATS: SeatSpot[] = [
+  // Event Hall bench rows: 6 rows x 2 blocks, 3 seats per bench.
+  ...[-84, -80.5, -77, -73.5, -70, -66.5].flatMap((rx) =>
+    [-7.5, 7.5].flatMap((bz) => [-3.5, 0, 3.5].map((off) => ({ x: rx, y: 20.58, z: bz + off, yaw: -Math.PI / 2 }))),
+  ),
+  // HQ lobby wall benches (face into the lobby).
+  { x: -52, y: 0.6, z: -20.85, yaw: -Math.PI / 2 },
+  { x: -52, y: 0.6, z: -19.15, yaw: -Math.PI / 2 },
+  { x: -97.5, y: 0.6, z: -12.85, yaw: Math.PI / 2 },
+  { x: -97.5, y: 0.6, z: -11.15, yaw: Math.PI / 2 },
+  // HQ lobby centrepiece benches (face the coffee table).
+  { x: -72.85, y: 0.6, z: -13.2, yaw: Math.PI },
+  { x: -71.15, y: 0.6, z: -13.2, yaw: Math.PI },
+  { x: -72.85, y: 0.6, z: -2.8, yaw: 0 },
+  { x: -71.15, y: 0.6, z: -2.8, yaw: 0 },
+  { x: -77.5, y: 0.6, z: -8.85, yaw: Math.PI / 2 },
+  { x: -77.5, y: 0.6, z: -7.15, yaw: Math.PI / 2 },
+  { x: -66.5, y: 0.6, z: -8.85, yaw: -Math.PI / 2 },
+  { x: -66.5, y: 0.6, z: -7.15, yaw: -Math.PI / 2 },
+  // Glass meeting room chairs (meeting table 6x4 at (-75.5, -22.5)).
+  ...[-77.5, -75.5, -73.5].map((cx) => ({ x: cx, y: 0.55, z: -25.4, yaw: Math.PI })),
+  ...[-77.5, -75.5, -73.5].map((cx) => ({ x: cx, y: 0.55, z: -19.6, yaw: 0 })),
+  // Founder's Office window armchairs (face the city view, -x).
+  { x: -97.5, y: 16.58, z: -4.5, yaw: -Math.PI / 2 },
+  { x: -97.5, y: 16.58, z: 0.8, yaw: -Math.PI / 2 },
+  // Founder's meeting table chairs (table 8x5 at (-88, -17.2)).
+  ...[-91, -88.33, -85.67].map((cx) => ({ x: cx, y: 16.55, z: -20.6, yaw: Math.PI })),
+  ...[-91, -88.33, -85.67].map((cx) => ({ x: cx, y: 16.55, z: -13.8, yaw: 0 })),
+  // Roof terrace benches (face into the terrace).
+  { x: -89, y: 24.6, z: 17.15, yaw: Math.PI / 2 },
+  { x: -89, y: 24.6, z: 18.85, yaw: Math.PI / 2 },
+  { x: -49, y: 24.6, z: 17.15, yaw: -Math.PI / 2 },
+  { x: -49, y: 24.6, z: 18.85, yaw: -Math.PI / 2 },
+  { x: -89, y: 24.6, z: -18.85, yaw: Math.PI / 2 },
+  { x: -89, y: 24.6, z: -17.15, yaw: Math.PI / 2 },
+  { x: -49, y: 24.6, z: -18.85, yaw: -Math.PI / 2 },
+  { x: -49, y: 24.6, z: -17.15, yaw: -Math.PI / 2 },
+  // Roof lounge sofas (face each other across the table).
+  { x: -60.85, y: 24.6, z: -17, yaw: Math.PI },
+  { x: -59.15, y: 24.6, z: -17, yaw: Math.PI },
+  { x: -60.85, y: 24.6, z: -11, yaw: 0 },
+  { x: -59.15, y: 24.6, z: -11, yaw: 0 },
+];
 export const WORKOUT_COOLDOWN_MS = 30000;
 export const FED_MIN = 10;
 

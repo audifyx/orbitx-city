@@ -45,6 +45,8 @@ import {
   HQ_PODIUM_SPOT,
   HQ_RADIO_SPOT,
   HQ_TERMINAL_SPOTS,
+  SEATS,
+  type SeatSpot,
   HOTEL_COST,
   HOTEL_REST_MIN,
   MUSEUM_BONUS,
@@ -1881,6 +1883,9 @@ export function createRuntime(scene: Scene) {
   // cone) built with the world, shown while hqHostUntil is in the future.
   let hqStageFx: Mesh[] = [];
   let hqHostUntil = 0;
+  // SEATS: the seat the player is currently sitting on (held sit emote
+  // pinned by the frame loop), or null when standing.
+  let seatedSeat: SeatSpot | null = null;
   // Dynamic exterior doors (2026-11-18): every facade door gets a closed
   // double leaf (two 1.8-wide wood leaves + gold pull handles, one
   // InstancedMesh per part for the whole city — 2 draw calls, not 700).
@@ -7540,6 +7545,70 @@ export function createRuntime(scene: Scene) {
     publish();
   }
 
+  // SEATS: E at a bench/chair/sofa sits the player on it — a held sit
+  // emote pinned to the seat by the frame loop (which also tops up the
+  // emote timer, so remotes render the sit for as long as it lasts).
+  // E again stands up with a small step off the seat; any movement
+  // input stands up in place; a panel / drive / lift / teleport cuts
+  // the picked emote and the frame loop drops the seat with it.
+  function seatTaken(seat: SeatSpot): boolean {
+    for (const remote of remotes.values()) {
+      if (Math.abs(remote.state.y - seat.y) < 2.5 && Math.hypot(remote.state.x - seat.x, remote.state.z - seat.z) < 0.9) return true;
+    }
+    return false;
+  }
+
+  function nearestSeat(body: Body, max: number): SeatSpot | null {
+    let best: SeatSpot | null = null;
+    let bestD = max;
+    for (const seat of SEATS) {
+      if (Math.abs(body.y - seat.y) > 2.2) continue;
+      const d = Math.hypot(body.x - seat.x, body.z - seat.z);
+      if (d < bestD && !seatTaken(seat)) {
+        best = seat;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  function sitDown(body: Body, seat: SeatSpot) {
+    seatedSeat = seat;
+    body.x = seat.x;
+    body.z = seat.z;
+    body.y = seat.y;
+    body.yaw = seat.yaw;
+    body.vy = 0;
+    body.flying = false;
+    world.emote = "sit";
+    world.emoteUntil = Date.now() + 600_000;
+    emotePicked = true;
+    emoteStartX = seat.x;
+    emoteStartZ = seat.z;
+    publish();
+  }
+
+  /** State-only seat clear (no body move): movement input uses this —
+   * the body settles off the seat under normal physics next frame. */
+  function clearSeat() {
+    if (!seatedSeat) return;
+    seatedSeat = null;
+    clearPickedEmote();
+  }
+
+  /** E while seated: stand up with a small step forward off the seat,
+   * so the player lands clear of its collider (and doesn't instantly
+   * re-trigger the sit prompt). */
+  function standUp(body: Body) {
+    const seat = seatedSeat;
+    if (!seat) return;
+    clearSeat();
+    body.x = seat.x + Math.sin(seat.yaw) * 0.8;
+    body.z = seat.z - Math.cos(seat.yaw) * 0.8;
+    body.vy = 0;
+    publish();
+  }
+
   function nearGate(body: Body, index: number, radius: number) {
     const gate = GATES[index];
     if (!gate) return false;
@@ -8641,6 +8710,12 @@ export function createRuntime(scene: Scene) {
       publish();
       return;
     }
+    // SEATS: E while seated always stands up — before beds, doors,
+    // lifts and cars can claim the press.
+    if (seatedSeat) {
+      standUp(body);
+      return;
+    }
     // CRIB: E by your own bed sleeps (energy back to 100). The bed is
     // away from the home's service point, so this never steals the
     // home-panel E — but it must still win over a car parked outside.
@@ -8911,6 +8986,14 @@ export function createRuntime(scene: Scene) {
       if (Math.hypot(body.x - HQ_RADIO_SPOT.x, body.z - HQ_RADIO_SPOT.z) < 2.6) {
         panel = "radio";
         publish();
+        return;
+      }
+    }
+    // SEATS: E at a free bench/chair/sofa sits down (held sit emote).
+    if (!dance && !busk && robEndsAt <= Date.now()) {
+      const seat = nearestSeat(body, 1.7);
+      if (seat) {
+        sitDown(body, seat);
         return;
       }
     }
@@ -9578,6 +9661,23 @@ export function createRuntime(scene: Scene) {
   }
 
   function moveAxes(keys: Set<string>) {
+    // SEATED: movement input is ignored — and the first flick of it
+    // stands the player up instead (state-only clear; the body settles
+    // off the seat under normal physics from the next frame).
+    if (seatedSeat) {
+      const intent =
+        Math.hypot(stickX, stickY) > 0.15 ||
+        keys.has("KeyW") ||
+        keys.has("KeyA") ||
+        keys.has("KeyS") ||
+        keys.has("KeyD") ||
+        keys.has("ArrowUp") ||
+        keys.has("ArrowDown") ||
+        keys.has("ArrowLeft") ||
+        keys.has("ArrowRight");
+      if (intent) clearSeat();
+      return { f: 0, s: 0 };
+    }
     let axes: { f: number; s: number };
     if (Math.hypot(stickX, stickY) > 0.15) {
       axes = { f: stickY, s: stickX };
@@ -12175,6 +12275,19 @@ export function createRuntime(scene: Scene) {
       const moved = lastBody ? Math.hypot(lastBody.x - emoteStartX, lastBody.z - emoteStartZ) > 1.4 : false;
       if (driving || paused || moved) clearPickedEmote();
     }
+    // SEATS: the held sit rides the picked emote — if anything else cut
+    // it (panel, drive, teleport) the seat goes with it. Otherwise pin
+    // the body to the seat and keep the emote timer topped up, so the
+    // pose + the published state hold the sit indefinitely.
+    if (seatedSeat && !emotePicked) seatedSeat = null;
+    if (seatedSeat) {
+      body.x = seatedSeat.x;
+      body.z = seatedSeat.z;
+      body.y = seatedSeat.y;
+      body.yaw = seatedSeat.yaw;
+      body.vy = 0;
+      world.emoteUntil = Date.now() + 600_000;
+    }
     const emoteNow = Date.now() < world.emoteUntil ? world.emote : "";
     if (localBody) {
       // Riding: the rider stays visible in third person — a riderless
@@ -12335,6 +12448,7 @@ export function createRuntime(scene: Scene) {
       if (Date.now() < raceHoldUntil) prompt = "Countdown — hold still";
       else if (raceNext >= 0) prompt = `Next gate ${raceNext + 1} of ${GATES.length}`;
       else if (holdPrompt) prompt = holdPrompt;
+      else if (seatedSeat) prompt = "Press E — stand up";
       else if (boxing)
         prompt =
           boxing.phase === "fight"
@@ -12417,6 +12531,7 @@ export function createRuntime(scene: Scene) {
     else if (zone?.id === "hq-4" && Math.hypot(body.x - HQ_FOUNDER_SPOT.x, body.z - HQ_FOUNDER_SPOT.z) < 2.4) prompt = "Press E — Founder's terminal (live chart)";
     else if (zone?.id === "hq-event" && Math.hypot(body.x - HQ_PODIUM_SPOT.x, body.z - HQ_PODIUM_SPOT.z) < 2.6) prompt = performance.now() < hqHostUntil ? "Press E — end host mode" : "Press E — host mode (light the stage)";
     else if (zone?.id === "hq-event" && Math.hypot(body.x - HQ_RADIO_SPOT.x, body.z - HQ_RADIO_SPOT.z) < 2.6) prompt = "Press E — City Radio";
+    else if (nearestSeat(body, 1.7)) prompt = "Press E — sit";
     else if (zone?.id === "gym" && Math.hypot(body.x - GYM_SPOT.x, body.z - GYM_SPOT.z) < 2.5) prompt = "Press E — work out at the gym";
     else if (zone?.kitchen && ownsHome(zone.id) && Math.hypot(body.x - zone.kitchen.x, body.z - zone.kitchen.z) < 2.5) prompt = "Press E — cook in your kitchen";
       else if (!stealthActive() && nearestNpc(body, 3) >= 0) {
