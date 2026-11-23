@@ -5622,8 +5622,9 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   roomSign("hq-logo", -72, 4.2, z0 + d - 0.75, Math.PI, 14, 3, ["ORBITX"], "The city builds here");
   receptionDesk(boxes, cols, -72, 0, 3.4, true);
   loungeSet(boxes, cols, -92, 0, 14, "n", 27.7);
-  // Lobby seating + plants on the south strip (under floor 2).
-  for (const [px, pz] of [[-92, -20], [-52, -20]] as Array<[number, number]>) {
+  // Lobby seating + plants on the south strip (under floor 2). The
+  // south-west bench moved out — the glass meeting room stands there now.
+  for (const [px, pz] of [[-52, -20]] as Array<[number, number]>) {
     put(boxes, px, 0.38, pz, 1.1, 0.45, 3.4, "red");
     cols.push(col(px, 0.38, pz, 1.1, 0.45, 3.4));
     put(boxes, px, 0.5, pz + 2.6, 0.8, 0.9, 0.8, "leavesDark");
@@ -5665,6 +5666,50 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   roomSign("hq-dir-3", -64, 2.14, 6.3, 0, 4.6, 0.6, ["Floor 3", "Suites 3A – 3H"], "Standard offices");
   roomSign("hq-dir-4", -64, 1.46, 6.3, 0, 4.6, 0.6, ["Floor 4", "Founder's Office · 4A – 4H"], "Premium suites");
   roomSign("hq-dir-5", -64, 0.78, 6.3, 0, 4.6, 0.6, ["Floor 5", "Event Hall"], "Stage · Spaces · Roof Terrace above");
+  // GLASS MEETING ROOM (lobby south-west corner, x -100..-85, z -28..-17):
+  // frosted-white glass panels with black frames — the same "glass" read
+  // as the lift shaft — a real meeting table + wall screen inside, door
+  // gap on the lobby face.
+  wallRunX(boxes, cols, -100, -85, 0, -17, 3.2, "white", -91.8, 2.4);
+  wallRunZ(boxes, cols, -28, -17, 0, -85, 3.2, "white", 0, 0);
+  for (const [fx, fz] of [[-100, -17], [-85, -17], [-85, -28]] as Array<[number, number]>) {
+    put(boxes, fx, 1.6, fz, 0.35, 3.2, 0.35, "black");
+  }
+  put(boxes, -92.5, 3.3, -17, 15, 0.18, 0.4, "gold");
+  put(boxes, -85, 3.3, -22.5, 0.4, 0.18, 11, "gold");
+  put(boxes, -92.5, 0.12, -22.5, 11, 0.06, 8, "gold");
+  put(boxes, -92.5, 0.16, -22.5, 9.5, 0.06, 6.5, "black");
+  meetingTable(boxes, cols, -92.5, 0, -22.5, 6, 4);
+  pottedPlant(boxes, cols, -98.6, -18.6, 0);
+  pottedPlant(boxes, cols, -86.4, -26.4, 0);
+  hangLights(boxes, -92.5, 8, -22.5, 12, 9);
+  roomSign("hq-glass-room", -92.5, 2.9, -16.6, 0, 5.5, 1.0, ["GLASS MEETING ROOM"], "Seats six · screen inside");
+  // THE BURN COUNTER (west wall, z 2): a black-and-gold display board
+  // flanked by trophy pedestals. The counter itself is read at the board
+  // (runtime spot): it speaks the player's own burned total — the same
+  // figure the Shop panel and the leaderboards use. There is no public
+  // global burn feed in the client, so the board is labelled for yours.
+  put(boxes, -99.55, 2.3, 2, 0.25, 3.4, 9, "black");
+  cols.push(col(-99.55, 2.3, 2, 0.25, 3.4, 9));
+  put(boxes, -99.5, 4.08, 2, 0.3, 0.16, 9.2, "gold");
+  put(boxes, -99.5, 0.52, 2, 0.3, 0.16, 9.2, "gold");
+  roomSign("hq-burn", -99.35, 2.6, 2, Math.PI / 2, 7.6, 1.7, ["THE BURN COUNTER"], "Your City Sol, burned for good");
+  for (const tz of [-4, 8]) {
+    put(boxes, -98.9, 0.55, tz, 0.9, 1.1, 0.9, "black");
+    cols.push(col(-98.9, 0.55, tz, 0.9, 1.1, 0.9));
+    put(boxes, -98.9, 1.2, tz, 1.1, 0.12, 1.1, "gold");
+    put(boxes, -98.9, 1.5, tz, 0.35, 0.5, 0.35, "gold");
+    put(boxes, -98.9, 1.95, tz, 0.7, 0.45, 0.7, "gold");
+    put(boxes, -98.9, 2.3, tz, 0.22, 0.25, 0.22, "cyanhot");
+  }
+  // FLOOR GUIDE post (east of the directory board): E here opens the HQ
+  // lift panel from the lobby — the directory that actually takes you to
+  // a floor (runtime spot, zone hq-g). Slim black post, gold cap, sign
+  // facing the door lane.
+  put(boxes, -58.5, 1.2, 6, 0.35, 2.4, 0.35, "black");
+  cols.push(col(-58.5, 1.2, 6, 0.35, 2.4, 0.35));
+  put(boxes, -58.5, 2.5, 6, 0.55, 0.18, 0.55, "gold");
+  roomSign("hq-guide", -58.05, 2.9, 6, Math.PI / 2, 3.4, 1.1, ["FLOOR GUIDE"], "Press E — ride the lift to any floor");
   // Floor slabs: 8 (with the lobby void hole), 12, 16, 20 (Event Hall),
   // 24 (roof terrace).
   slabWithHoles(boxes, cols, x0, 8, z0, w, d, [[x0, 5, x0 + w, z0 + d], [-99, -27, -95, -23]], "cream");
