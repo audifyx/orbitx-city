@@ -5811,6 +5811,22 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   roomSign("suite-office-f4-founder", -91.3, 18.6, -22.35, Math.PI, 5.0, 1.0, ["Founder's Office"], "Floor 4 · Private — not for sale");
   // Gold ORBITX wall on the west wall + gold rug under the hero desk.
   roomSign("founder-logo", -99.7, 19, 0, Math.PI / 2, 8, 2, ["ORBITX"], "Founder's Office");
+  // KOL PORTRAIT WALL (west wall, north of the logo): framed voxel
+  // portraits of the twelve playable City characters, names plated
+  // underneath in gold.
+  for (const pz of [-18, -14.5, -11, -7.5]) {
+    voxelPainting(boxes, -100.55, 18.3, pz, Math.PI / 2, 2.6, 2.0);
+  }
+  roomSign("hq-kol-names-1", -100.5, 16.8, -16.2, Math.PI / 2, 9, 0.65, ["TJR · Ansem · Poor Goat"], "Cupsy · Cobie · Hsaka");
+  roomSign("hq-kol-names-2", -100.5, 16.8, -9.3, Math.PI / 2, 9, 0.65, ["Gainzy · ZachXBT · Threadguy"], "Murad · Frank · Kaleo");
+  // Window lounge: two gold armchairs facing the west windows (the city
+  // view) in the Founder's Office.
+  for (const cz of [-4.5, 0.8]) {
+    put(boxes, -97.5, 16.35, cz, 1.0, 0.45, 1.1, "gold");
+    cols.push(col(-97.5, 16.35, cz, 1.0, 0.45, 1.1));
+    put(boxes, -96.9, 16.75, cz, 0.25, 0.9, 1.1, "gold");
+    cols.push(col(-96.9, 16.75, cz, 0.25, 0.9, 1.1));
+  }
   put(boxes, -88, 16.12, -8, 10, 0.06, 8, "gold");
   put(boxes, -88, 16.16, -8, 8.5, 0.06, 6.5, "red");
   // Hero desk (facing south) with a gold chair.
@@ -5917,6 +5933,27 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
     cols.push(col(px + 3, 24.38, pz, 1.1, 0.45, 3.4));
   }
   roomSign("hq-roof", -43.4, 26.2, 0, Math.PI / 2, 12, 2.4, ["ORBITX"], "Roof terrace · the city below");
+  // Rooftop lounge corner (south-west): rug, facing sofas, table.
+  put(boxes, -60, 24.12, -14, 9, 0.06, 10, "gold");
+  put(boxes, -60, 24.16, -14, 7.5, 0.06, 8.5, "black");
+  for (const bz of [-17, -11]) {
+    put(boxes, -60, 24.38, bz, 3.4, 0.45, 1.1, "white");
+    cols.push(col(-60, 24.38, bz, 3.4, 0.45, 1.1));
+  }
+  put(boxes, -60, 24.5, -14, 1.6, 0.5, 3.2, "wood");
+  cols.push(col(-60, 24.5, -14, 1.6, 0.5, 3.2));
+  // Planters along the south rail.
+  for (const px of [-84, -72, -48]) {
+    put(boxes, px, 24.5, 26.8, 4, 0.9, 1, "leavesDark");
+    cols.push(col(px, 24.5, 26.8, 4, 0.9, 1));
+  }
+  // PHOTO SPOT: a gold picture frame at the east edge — stand west of it
+  // (the spot in content.ts) and the city fills the frame behind you.
+  put(boxes, -46, 25.1, 7.6, 0.25, 2.2, 0.25, "gold");
+  put(boxes, -46, 25.1, 12.4, 0.25, 2.2, 0.25, "gold");
+  put(boxes, -46, 26.3, 10, 0.25, 0.25, 5, "gold");
+  put(boxes, -46, 24.15, 10, 0.25, 0.25, 5, "gold");
+  roomSign("hq-roof-photo", -46.4, 27, 10, -Math.PI / 2, 4.4, 0.9, ["PHOTO SPOT"], "Stand in the frame · press E");
   // Glass lift shaft (NW corner, through all floors) + roof penthouse cap.
   buildGlassShaft(boxes, cols, "hq-lift", -99, -27, 4, 4, 26.8, OFFICE_FLOORS, "e");
   const zones: Zone[] = [

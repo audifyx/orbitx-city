@@ -762,6 +762,7 @@ export interface PhotoSpot {
   name: string;
   x: number;
   z: number;
+  y?: number;
 }
 export const PHOTO_SPOTS: PhotoSpot[] = [
   { id: "fountain", name: "Fountain plaza", x: 14, z: 12 },
@@ -771,6 +772,7 @@ export const PHOTO_SPOTS: PhotoSpot[] = [
   // "Enter office" instead. Fountain and pier spots untouched.
   { id: "tower", name: "ORBITX tower", x: -30, z: 8 },
   { id: "pier", name: "Harbor pier", x: 0, z: 232 },
+  { id: "hq-roof", name: "OrbitX HQ rooftop", x: -54, z: 10, y: 24 },
 ];
 export const PHOTO_REWARD = 10;
 
