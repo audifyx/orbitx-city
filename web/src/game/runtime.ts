@@ -39,6 +39,12 @@ import {
   DANCE_SPOT,
   DEMO_AD_PRICE,
   GYM_SPOT,
+  HQ_BURN_SPOT,
+  HQ_FOUNDER_SPOT,
+  HQ_GUIDE_SPOT,
+  HQ_PODIUM_SPOT,
+  HQ_RADIO_SPOT,
+  HQ_TERMINAL_SPOTS,
   HOTEL_COST,
   HOTEL_REST_MIN,
   MUSEUM_BONUS,
@@ -1871,6 +1877,10 @@ export function createRuntime(scene: Scene) {
     slideZ: number;
   }
   const liftCabs = new Map<string, LiftCab>();
+  // HQ Event Hall host mode: stage FX meshes (screen glow + spotlight
+  // cone) built with the world, shown while hqHostUntil is in the future.
+  let hqStageFx: Mesh[] = [];
+  let hqHostUntil = 0;
   // Dynamic exterior doors (2026-11-18): every facade door gets a closed
   // double leaf (two 1.8-wide wood leaves + gold pull handles, one
   // InstancedMesh per part for the whole city — 2 draw calls, not 700).
@@ -5090,6 +5100,28 @@ export function createRuntime(scene: Scene) {
     }
   }
 
+  // HQ Event Hall stage FX (host mode): a glow plane over the big screen
+  // and a gold spotlight cone over the stage. Two meshes, hidden unless
+  // a player is hosting from the podium — visibility toggled per frame.
+  {
+    const glow = new Mesh(
+      new PlaneGeometry(15.4, 3.8),
+      new MeshLambertMaterial({ color: 0x9be9f2, emissive: 0x2b7f8c, transparent: true, opacity: 0.4, depthWrite: false, side: DoubleSide }),
+    );
+    glow.position.set(-99.15, 22.7, 0);
+    glow.rotation.y = Math.PI / 2;
+    glow.visible = false;
+    root.add(glow);
+    const cone = new Mesh(
+      new CylinderGeometry(0.5, 5.5, 3.6, 20, 1, true),
+      new MeshLambertMaterial({ color: 0xffd24a, emissive: 0x8a6a10, transparent: true, opacity: 0.16, depthWrite: false, side: DoubleSide }),
+    );
+    cone.position.set(-93, 22.25, 0);
+    cone.visible = false;
+    root.add(cone);
+    hqStageFx = [glow, cone];
+  }
+
   // Dynamic exterior doors: one InstancedMesh for all wood leaves and one
   // for all gold pull handles. Two leaves per door (1.8 wide each, closed
   // centres at -0.9 / +0.9 along the wall); open, each slides 2.0 into
@@ -7560,6 +7592,9 @@ export function createRuntime(scene: Scene) {
     let best: PhotoSpot | null = null;
     let bestD = max;
     for (const spot of PHOTO_SPOTS) {
+      // A spot can pin a floor (the HQ rooftop spot shares its x/z with
+      // the lobby far below) — skip it unless the player is on its level.
+      if (spot.y !== undefined && Math.abs(body.y - spot.y) > 2) continue;
       const d = Math.hypot(spot.x - body.x, spot.z - body.z);
       if (d < bestD) {
         best = spot;
@@ -7808,6 +7843,30 @@ export function createRuntime(scene: Scene) {
     }
     paintShop = null;
     publish();
+  }
+
+  // HQ BURN COUNTER: reads the player's own burned total — the same
+  // wallet figure the Shop panel shows. (No public global burn feed
+  // reaches the client, so the board is labelled "your City Sol".)
+  function readBurnCounter() {
+    say(`🔥 THE BURN COUNTER — you have burned ${Math.round(wallet.burned).toLocaleString("en-US")} City Sol for good. Every City Sol burned in OrbitX City is gone forever.`);
+  }
+
+  // HQ HOST MODE (Event Hall podium): lights the big screen + the stage
+  // spotlight for 10 minutes. Local stage state — the FX meshes are
+  // toggled by the frame loop while the host clock runs.
+  function toggleHostMode() {
+    if (performance.now() < hqHostUntil) {
+      hqHostUntil = 0;
+      say("🎙️ Host mode off — the stage goes dark. Thanks for coming to OrbitX HQ.");
+      return;
+    }
+    hqHostUntil = performance.now() + 10 * 60 * 1000;
+    burst(-93, 22.5, 0);
+    burst(-91, 22.5, -6);
+    burst(-91, 22.5, 6);
+    say("🎙️ You are LIVE on the HQ stage — screen lit, spotlight on. Host mode runs 10 minutes; use the podium again to end it early.");
+    notify("🎙️", "You're hosting on the Event Hall stage", "success");
   }
 
   function takePhoto(spot: PhotoSpot) {
@@ -8817,6 +8876,41 @@ export function createRuntime(scene: Scene) {
     for (const point of CHARGE_POINTS) {
       if (Math.hypot(body.x - point.x, body.z - point.z) < 3.2) {
         startFill(true, point);
+        return;
+      }
+    }
+    // ORBITX HQ spots (zone-gated, the gym-floor pattern): Burn Counter
+    // + Floor Guide in the lobby, terminal desks on Floors 2–3, the
+    // Founder's desk terminal, the Event Hall podium + radio booth.
+    if (zone?.id === "hq-g") {
+      if (Math.hypot(body.x - HQ_BURN_SPOT.x, body.z - HQ_BURN_SPOT.z) < 2.6) {
+        readBurnCounter();
+        return;
+      }
+      if (Math.hypot(body.x - HQ_GUIDE_SPOT.x, body.z - HQ_GUIDE_SPOT.z) < 2.6) {
+        const anchor = anchors.find((item) => item.id === "hq-lift-0");
+        if (anchor) openLift(anchor);
+        return;
+      }
+    }
+    if ((zone?.id === "hq-2" || zone?.id === "hq-3") && HQ_TERMINAL_SPOTS.some((item) => item.zone === zone.id && Math.hypot(body.x - item.x, body.z - item.z) < 2.2)) {
+      panel = "trading";
+      publish();
+      return;
+    }
+    if (zone?.id === "hq-4" && Math.hypot(body.x - HQ_FOUNDER_SPOT.x, body.z - HQ_FOUNDER_SPOT.z) < 2.4) {
+      panel = "trading";
+      publish();
+      return;
+    }
+    if (zone?.id === "hq-event") {
+      if (Math.hypot(body.x - HQ_PODIUM_SPOT.x, body.z - HQ_PODIUM_SPOT.z) < 2.6) {
+        toggleHostMode();
+        return;
+      }
+      if (Math.hypot(body.x - HQ_RADIO_SPOT.x, body.z - HQ_RADIO_SPOT.z) < 2.6) {
+        panel = "radio";
+        publish();
         return;
       }
     }
@@ -11924,6 +12018,11 @@ export function createRuntime(scene: Scene) {
       cab.doorPos += (cab.doorTarget - cab.doorPos) * Math.min(1, dt * 6);
       cab.door.position.set(cab.baseX + cab.slideX * cab.doorPos, 1.3, cab.baseZ + cab.slideZ * cab.doorPos);
     }
+    // HQ host mode: stage FX follow the host clock.
+    if (hqStageFx.length) {
+      const hosting = performance.now() < hqHostUntil;
+      for (const fx of hqStageFx) fx.visible = hosting;
+    }
     // Exterior doors slide open on approach, closed otherwise.
     tickDoors(dt, body);
     // HERO POWERS: projectiles, beacons, rally, scope, trail, stealth.
@@ -12312,6 +12411,12 @@ export function createRuntime(scene: Scene) {
     else if (parcel === "carried" && Math.hypot(body.x - PARCEL_DELIVER.x, body.z - PARCEL_DELIVER.z) < 2.5) prompt = `Press E — deliver the parcel (+${PARCEL_REWARD} City Sol)`;
     else if (Math.hypot(body.x - BUSK_SPOT.x, body.z - BUSK_SPOT.z) < 2.5) prompt = "Press E — busk at the plaza corner";
     else if (Math.hypot(body.x - WASH_SPOT.x, body.z - WASH_SPOT.z) < 2.5) prompt = `Press E — wash a hover-car (+${WASH_PAY} City Sol)`;
+    else if (zone?.id === "hq-g" && Math.hypot(body.x - HQ_BURN_SPOT.x, body.z - HQ_BURN_SPOT.z) < 2.6) prompt = "Press E — read the Burn Counter";
+    else if (zone?.id === "hq-g" && Math.hypot(body.x - HQ_GUIDE_SPOT.x, body.z - HQ_GUIDE_SPOT.z) < 2.6) prompt = "Press E — Floor Guide (ride the lift)";
+    else if ((zone?.id === "hq-2" || zone?.id === "hq-3") && HQ_TERMINAL_SPOTS.some((item) => item.zone === zone.id && Math.hypot(body.x - item.x, body.z - item.z) < 2.2)) prompt = "Press E — OrbitX terminal (live chart)";
+    else if (zone?.id === "hq-4" && Math.hypot(body.x - HQ_FOUNDER_SPOT.x, body.z - HQ_FOUNDER_SPOT.z) < 2.4) prompt = "Press E — Founder's terminal (live chart)";
+    else if (zone?.id === "hq-event" && Math.hypot(body.x - HQ_PODIUM_SPOT.x, body.z - HQ_PODIUM_SPOT.z) < 2.6) prompt = performance.now() < hqHostUntil ? "Press E — end host mode" : "Press E — host mode (light the stage)";
+    else if (zone?.id === "hq-event" && Math.hypot(body.x - HQ_RADIO_SPOT.x, body.z - HQ_RADIO_SPOT.z) < 2.6) prompt = "Press E — City Radio";
     else if (zone?.id === "gym" && Math.hypot(body.x - GYM_SPOT.x, body.z - GYM_SPOT.z) < 2.5) prompt = "Press E — work out at the gym";
     else if (zone?.kitchen && ownsHome(zone.id) && Math.hypot(body.x - zone.kitchen.x, body.z - zone.kitchen.z) < 2.5) prompt = "Press E — cook in your kitchen";
       else if (!stealthActive() && nearestNpc(body, 3) >= 0) {

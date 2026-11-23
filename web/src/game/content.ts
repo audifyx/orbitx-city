@@ -1256,6 +1256,23 @@ export const GYM_WORKOUTS: GymWorkout[] = [
   { id: "bag", name: "Heavy Bag", cost: 5, gain: 2, desc: "Work the bag. Shoulders and spite." },
 ];
 export const GYM_SPOT = { x: 73, z: 217 };
+// OrbitX HQ interactable spots (runtime checks them zone-gated, the
+// GYM_SPOT pattern): the Burn Counter board + Floor Guide post in the
+// lobby, the terminal-desk stools on Floors 2–3, the Founder's desk,
+// the Event Hall podium (host mode) and the City Radio booth.
+export const HQ_BURN_SPOT = { x: -97.6, z: 2 };
+export const HQ_GUIDE_SPOT = { x: -58.5, z: 6 };
+export const HQ_TERMINAL_SPOTS: Array<{ zone: string; x: number; z: number }> = [
+  { zone: "hq-2", x: -84, z: -26.3 },
+  { zone: "hq-2", x: -76, z: -26.3 },
+  { zone: "hq-2", x: -68, z: -26.3 },
+  { zone: "hq-3", x: -84, z: -26.3 },
+  { zone: "hq-3", x: -76, z: -26.3 },
+  { zone: "hq-3", x: -68, z: -26.3 },
+];
+export const HQ_FOUNDER_SPOT = { x: -88, z: -7.4 };
+export const HQ_PODIUM_SPOT = { x: -91, z: 0 };
+export const HQ_RADIO_SPOT = { x: -94, z: 15 };
 export const WORKOUT_COOLDOWN_MS = 30000;
 export const FED_MIN = 10;
 
