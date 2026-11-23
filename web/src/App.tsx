@@ -542,6 +542,11 @@ function shotMode(): PlayMode | null {
     shot === "malln" ||
     shot === "office" ||
     shot === "office2" ||
+    shot === "hq-lobby" ||
+    shot === "hq-office" ||
+    shot === "hq-event" ||
+    shot === "hq-exec" ||
+    shot === "hq-roof" ||
     shot === "roof" ||
     shot === "lift" ||
     shot === "liftcall" ||

@@ -7866,7 +7866,7 @@ export function createRuntime(scene: Scene) {
     burst(-91, 22.5, -6);
     burst(-91, 22.5, 6);
     say("🎙️ You are LIVE on the HQ stage — screen lit, spotlight on. Host mode runs 10 minutes; use the podium again to end it early.");
-    notify("🎙️", "You're hosting on the Event Hall stage", "success");
+    notify("🎙️", "You're hosting on the Event Hall stage", "event");
   }
 
   function takePhoto(spot: PhotoSpot) {
@@ -13265,10 +13265,46 @@ export function createRuntime(scene: Scene) {
       body.pitch = 0.05;
     } else if (shot === "roof") {
       body.x = -80;
-      body.y = 20;
+      body.y = 24;
       body.z = 0;
       body.yaw = Math.PI / 2;
       body.pitch = 0.15;
+    } else if (shot === "hq-lobby") {
+      // HQ lobby: reception desk + directory ahead, logo wall beyond,
+      // glass meeting room + Burn Counter off to the sides.
+      body.x = -72;
+      body.y = 0;
+      body.z = -10;
+      body.yaw = 0;
+      body.pitch = 0.05;
+    } else if (shot === "hq-office") {
+      // Floor 2 corridor: terminal desks along the wall, facing them.
+      body.x = -76;
+      body.y = 8;
+      body.z = -19;
+      body.yaw = Math.PI;
+      body.pitch = 0.05;
+    } else if (shot === "hq-event") {
+      // Event Hall from the aisle: bench rows, stage + FIRST SPACE screen.
+      body.x = -56;
+      body.y = 20;
+      body.z = 0;
+      body.yaw = -Math.PI / 2;
+      body.pitch = 0.03;
+    } else if (shot === "hq-exec") {
+      // Founder's Office: hero desk, logo wall, KOL portraits.
+      body.x = -79;
+      body.y = 16;
+      body.z = -6;
+      body.yaw = -1.35;
+      body.pitch = 0.05;
+    } else if (shot === "hq-roof") {
+      // Roof terrace (y=24): lounge corner behind, photo frame + city east.
+      body.x = -66;
+      body.y = 24;
+      body.z = -6;
+      body.yaw = Math.PI / 2;
+      body.pitch = 0.12;
     } else if (shot === "home") {
       const zone = zones.find((item) => item.id.startsWith("home-"));
       if (zone) {
