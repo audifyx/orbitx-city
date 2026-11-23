@@ -7,8 +7,68 @@ const OPS = new Set(["auth-signup", "auth-login", "auth-magic", "auth-magic-fini
 
 function authStore() {
   const slot = globalThis;
-  if (!slot.__orbitxAuth) slot.__orbitxAuth = { users: new Map(), byEmail: new Map(), otps: new Map() };
+  if (!slot.__orbitxAuth) slot.__orbitxAuth = { users: new Map(), byEmail: new Map(), otps: new Map(), attempts: new Map() };
   return slot.__orbitxAuth;
+}
+
+// --- Attempt throttling for the mock-mode code/password paths ----------
+// (Audit 2026-11-23, A11.) Production login/reauth delegate to Supabase
+// Auth, which throttles itself; these counters protect the mock-mode
+// server paths, which previously allowed unlimited guesses — notably
+// the 6-digit reauth OTP (10-minute life, no attempt limit).
+const LOGIN_MAX_FAILS = 10; // failed logins per email per window
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_LOCK_MS = 15 * 60 * 1000;
+const OTP_MAX_TRIES = 5; // wrong guesses before a reauth code is burned
+const REAUTH_MAX_ISSUES = 5; // reauth codes issued per account per window
+const REAUTH_ISSUE_WINDOW_MS = 60 * 60 * 1000;
+
+function attemptRow(key) {
+  const store = authStore();
+  let row = store.attempts.get(key);
+  if (!row) {
+    row = { fails: 0, firstAt: 0, lockedUntil: 0, issues: 0, issueFirstAt: 0 };
+    store.attempts.set(key, row);
+  }
+  return row;
+}
+
+function loginLocked(email) {
+  const row = authStore().attempts.get(`login:${email}`);
+  return !!row && row.lockedUntil > Date.now();
+}
+
+function noteLoginFail(email) {
+  const row = attemptRow(`login:${email}`);
+  const now = Date.now();
+  if (!row.firstAt || now - row.firstAt > LOGIN_WINDOW_MS) {
+    row.fails = 0;
+    row.firstAt = now;
+  }
+  row.fails += 1;
+  if (row.fails >= LOGIN_MAX_FAILS) {
+    row.lockedUntil = now + LOGIN_LOCK_MS;
+    row.fails = 0;
+    row.firstAt = 0;
+  }
+}
+
+function clearLoginFails(email) {
+  authStore().attempts.delete(`login:${email}`);
+}
+
+// Returns false when the account has already been issued too many
+// reauth codes inside the window.
+function noteReauthIssue(userId) {
+  const row = attemptRow(`reauth-issue:${userId}`);
+  const now = Date.now();
+  if (!row.issueFirstAt || now - row.issueFirstAt > REAUTH_ISSUE_WINDOW_MS) {
+    row.issues = 0;
+    row.issueFirstAt = now;
+  }
+  if (row.issues >= REAUTH_MAX_ISSUES) return false;
+  row.issues += 1;
+  return true;
 }
 
 export function supabasePublic() {
@@ -171,9 +231,17 @@ export async function checkReauth(account, body) {
     if (!user) return false;
     if (password && checkPassword(user, password)) return true;
     if (otp) {
-      const row = authStore().otps.get(`${account.id}:reauth`);
-      if (!row || row.exp < Date.now() || row.code !== otp) return false;
-      authStore().otps.delete(`${account.id}:reauth`);
+      const key = `${account.id}:reauth`;
+      const row = authStore().otps.get(key);
+      if (!row || row.exp < Date.now()) return false;
+      if (row.code !== otp) {
+        // Burn the code after OTP_MAX_TRIES wrong guesses so a 6-digit
+        // code cannot be brute-forced inside its 10-minute life.
+        row.tries = Number(row.tries || 0) + 1;
+        if (row.tries >= OTP_MAX_TRIES) authStore().otps.delete(key);
+        return false;
+      }
+      authStore().otps.delete(key);
       return true;
     }
     return false;
@@ -217,8 +285,11 @@ export async function handleAuthOp(op, body) {
     const email = String(body.email || "").trim().toLowerCase();
     const user = mockUserByEmail(email);
     if (!user) return { ok: false, status: 404, message: "No account with that email." };
+    if (!noteReauthIssue(user.id)) {
+      return { ok: false, status: 429, message: "Too many codes requested. Wait a while and try again." };
+    }
     const code = String(100000 + Math.floor(Math.random() * 900000));
-    authStore().otps.set(`${user.id}:reauth`, { code, exp: Date.now() + 10 * 60 * 1000 });
+    authStore().otps.set(`${user.id}:reauth`, { code, exp: Date.now() + 10 * 60 * 1000, tries: 0 });
     return { ok: true, message: "Dev mailbox only. A hosted project emails this code.", devCode: code };
   }
   if (op === "auth-signup") {
@@ -241,10 +312,15 @@ export async function handleAuthOp(op, body) {
   }
   if (op === "auth-login") {
     const email = String(body.email || "").trim().toLowerCase();
+    if (loginLocked(email)) {
+      return { ok: false, status: 429, message: "Too many failed tries. Wait a few minutes and try again." };
+    }
     const user = mockUserByEmail(email);
     if (!user || !checkPassword(user, String(body.password || ""))) {
+      noteLoginFail(email);
       return { ok: false, status: 401, message: "Email or password did not match." };
     }
+    clearLoginFails(email);
     return issue(user);
   }
   if (op === "auth-magic") {
