@@ -1305,7 +1305,9 @@ const MISSIONS = [
 //   buy:   VERIFIED — player.owned must have grown since the mission
 //          started (snapshot taken when progress is created).
 //   chat / drive: client-attested (no server-side position/chat log to
-//          check cheaply); order + cooldown + one-time still enforced.
+//          check cheaply); order + cooldown + one-time still enforced,
+//          and — like visit — a live sync presence is required so the
+//          step can't be replayed by a bare-token script (A10).
 // Total chain payout: 50 + 100 + 80 + 120 + 150 + 300 = 800 City Sol.
 const MISSION_CHAIN = [
   {
@@ -2660,6 +2662,29 @@ async function readWorld() {
     else people.push(state);
   }
   return people;
+}
+
+// The player's own presence state, only while it is fresh (synced
+// within PRESENCE_MS). Used to sanity-check client-attested earning
+// claims: the claimant must actually be in the world right now, not a
+// script replaying ops with a bare token (audit 2026-11-23, A10).
+async function ownPresence(playerId) {
+  const client = sb();
+  if (client) {
+    const since = new Date(Date.now() - PRESENCE_MS).toISOString();
+    const { data, error } = await client.from("presence").select("state, seen").eq("id", playerId).gt("seen", since).maybeSingle();
+    if (!error && data) return typeof data.state === "string" ? JSON.parse(data.state) : data.state;
+    if (error) noteSupabase(error.message);
+  }
+  const cache = redis();
+  if (cache) {
+    const raw = await cache.hget("orbitx:world", playerId);
+    if (!raw) return null;
+    const state = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return state && Date.now() - Number(state.seen || 0) <= PRESENCE_MS ? state : null;
+  }
+  const state = memory().world.get(playerId);
+  return state && Date.now() - Number(state.seen || 0) <= PRESENCE_MS ? state : null;
 }
 
 async function writePresence(state) {
@@ -5375,6 +5400,9 @@ const BUSK_PAY = 20;
 const BUSK_COOLDOWN_MS = 60000;
 const PHOTO_PAY = 15;
 const PHOTO_PLACES = ["plaza", "tower", "dock", "hall", "cafe", "shop", "market", "museum"];
+// Minimum stroll between paid photo claims — landmarks are far apart,
+// so a burst of claims inside this gap is a script, not a walk.
+const PHOTO_CLAIM_GAP_MS = 10000;
 
 async function missionListOp(player, save) {
   const before = Object.keys(save.missions || {}).length;
@@ -5409,6 +5437,14 @@ async function advanceMission(player, save, body) {
   if (!step) return { ok: false, message: "That mission is already complete.", status: 400 };
   if (progress.at && Date.now() - Number(progress.at) < MISSION_STEP_COOLDOWN_MS) {
     return { ok: false, message: "Stay a moment before the next step.", status: 400 };
+  }
+  // Client-attested kinds (visit / chat / drive) advance on the client's
+  // word for the trigger, so require a live presence — the player must
+  // be in the world syncing right now, not a script replaying steps
+  // with a bare token (audit 2026-11-23, A10). Server-verified kinds
+  // (job / daily / buy) check real state and don't need this.
+  if ((step.kind === "visit" || step.kind === "chat" || step.kind === "drive") && !(await ownPresence(player.id))) {
+    return { ok: false, message: "The city can't see you — move around a moment, then try again.", status: 400 };
   }
   // Per-kind checks — see the MISSION_CHAIN header for the trust model.
   if (step.kind === "visit") {
@@ -5483,13 +5519,25 @@ async function photoOp(player, save, body) {
   if (!PHOTO_PLACES.includes(place)) {
     return { ok: false, message: "That is not a photo spot. Try the plaza, tower, harbor, hall, cafe, shop, market, or museum.", status: 400 };
   }
+  // Client-attested claim (audit 2026-11-23, A10): the amount and the
+  // once-per-place-per-day cap are server-side; now the claim also
+  // requires a live presence (the player is in the world syncing, not
+  // replaying this op with a bare token) and a minimum stroll between
+  // landmarks, so a forged claim can't be burst-farmed.
+  if (!(await ownPresence(player.id))) {
+    return { ok: false, message: "The city can't see you — move around a moment, then snap the photo.", status: 400 };
+  }
   const daily = ensureDaily(save);
   const today = todayISO();
   if (!daily.photos || typeof daily.photos !== "object") daily.photos = {};
   if (daily.photos[place] === today) {
     return { ok: false, message: `Already photographed ${place} today.`, status: 400 };
   }
+  if (Number(daily.photoAt || 0) && Date.now() - Number(daily.photoAt) < PHOTO_CLAIM_GAP_MS) {
+    return { ok: false, message: "Enjoy the view a moment before the next photo.", status: 400 };
+  }
   daily.photos[place] = today;
+  daily.photoAt = Date.now();
   save.balance += PHOTO_PAY;
   save.earned = Number(save.earned || 0) + PHOTO_PAY;
   await saveSave(save);
