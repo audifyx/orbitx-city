@@ -7924,6 +7924,28 @@ export function createRuntime(scene: Scene) {
   // HQ HOST MODE (Event Hall podium): lights the big screen + the stage
   // spotlight for 10 minutes. Local stage state — the FX meshes are
   // toggled by the frame loop while the host clock runs.
+  // HQ SPACE VOICE: entering the Event Hall auto-joins the "hq-space"
+  // voice lobby via the normal join path (listening in; the mic rules
+  // are the usual ones — unmute to talk). Leaving HQ entirely leaves
+  // the lobby again, but only when WE auto-joined it and the player
+  // hasn't since taken voice into their own hands.
+  let hqVoiceAuto = false;
+  function hqSpaceVoiceTick(prevZone: string, zone: string) {
+    if (zone === "hq-event" && prevZone !== "hq-event" && !world.lobby && !hqVoiceAuto) {
+      hqVoiceAuto = true;
+      void joinVoice("hq-space").then((ok) => {
+        if (ok) say("🔊 You're in the Space voice — everyone in the hall can hear you. Unmute to talk.");
+        else hqVoiceAuto = false;
+      });
+    }
+    // The player changed or left voice themselves — stop managing it.
+    if (hqVoiceAuto && world.lobby !== "hq-space") hqVoiceAuto = false;
+    if (!zone.startsWith("hq-") && prevZone.startsWith("hq-") && hqVoiceAuto && world.lobby === "hq-space") {
+      leaveVoice();
+      hqVoiceAuto = false;
+    }
+  }
+
   function toggleHostMode() {
     if (performance.now() < hqHostUntil) {
       hqHostUntil = 0;
@@ -12405,7 +12427,9 @@ export function createRuntime(scene: Scene) {
       // indoors) — the 2026-11-18 HQ floor glitch.
       inBelowGrade = !!zone && zone.minY !== undefined && zone.minY < -1;
       if (insideName && insideName !== prevInsideName) triggerHaptic("door");
+      const prevZoneId = prevInsideName;
       prevInsideName = insideName;
+      hqSpaceVoiceTick(prevZoneId, insideName);
       if (zone?.id === "project-0" && world.mintSet && !world.me?.holder && !driving) {
         const limit = zone.minX + 5;
         if (body.x < limit) {
