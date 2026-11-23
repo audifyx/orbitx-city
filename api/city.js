@@ -6157,10 +6157,25 @@ export async function POST(request) {
         auth: authMode(),
       });
     }
-    const wanted = String(body.id || "").slice(0, 64);
+    const wantedRaw = String(body.id || "").slice(0, 64);
+    // Ids the server issues are hex or uuid-shaped. A client-supplied id
+    // outside that charset is ignored (a fresh server id is generated
+    // below) so ids stay safe in storage paths and query filters.
+    let wanted = /^[A-Za-z0-9_-]+$/.test(wantedRaw) ? wantedRaw : "";
     const known = String(body.token || "");
     let player = wanted ? await playerById(wanted) : null;
-    if (player && (player.token !== known || player.authUser)) player = null;
+    if (player && (player.authUser || !known || player.token !== known)) {
+      // The id exists but ownership was NOT proven: the row belongs to
+      // an account, or the presented token is absent/wrong. Never
+      // overwrite that row and never hand out its token — the old code
+      // minted a fresh player under the victim's id and upserted it over
+      // their row, a one-POST account takeover (audit 2026-11-23, A2).
+      // The unproven caller instead starts as a brand-new guest under a
+      // server-generated id, exactly like a first visit; the existing
+      // row is left completely untouched.
+      player = null;
+      wanted = "";
+    }
     if (!player) {
       player = freshPlayer(wanted || randomBytes(12).toString("hex"), body.name);
       await savePlayer(player);
