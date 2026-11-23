@@ -5637,8 +5637,10 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   receptionDesk(boxes, cols, -72, 0, 3.4, true);
   loungeSet(boxes, cols, -92, 0, 14, "n", 27.7);
   // Lobby seating + plants on the south strip (under floor 2). The
-  // south-west bench moved out — the glass meeting room stands there now.
-  for (const [px, pz] of [[-52, -20]] as Array<[number, number]>) {
+  // Lobby benches: east side + one back on the west wall — the west
+  // original was moved out for the v56 glass meeting room and returns
+  // in v57 now the room sits on the south wall, clear of the lift.
+  for (const [px, pz] of [[-52, -20], [-97.5, -12]] as Array<[number, number]>) {
     put(boxes, px, 0.38, pz, 1.1, 0.45, 3.4, "red");
     cols.push(col(px, 0.38, pz, 1.1, 0.45, 3.4));
     put(boxes, px, 0.5, pz + 2.6, 0.8, 0.9, 0.8, "leavesDark");
@@ -5680,24 +5682,29 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   roomSign("hq-dir-3", -64, 2.14, 6.3, 0, 4.6, 0.6, ["Floor 3", "Suites 3A – 3H"], "Standard offices");
   roomSign("hq-dir-4", -64, 1.46, 6.3, 0, 4.6, 0.6, ["Floor 4", "Founder's Office · 4A – 4H"], "Premium suites");
   roomSign("hq-dir-5", -64, 0.78, 6.3, 0, 4.6, 0.6, ["Floor 5", "Event Hall"], "Stage · Spaces · Roof Terrace above");
-  // GLASS MEETING ROOM (lobby south-west corner, x -100..-85, z -28..-17):
+  // GLASS MEETING ROOM (lobby south wall, x -83..-68, z -28..-17):
   // frosted-white glass panels with black frames — the same "glass" read
   // as the lift shaft — a real meeting table + wall screen inside, door
-  // gap on the lobby face.
-  wallRunX(boxes, cols, -100, -85, 0, -17, 3.2, "white", -91.8, 2.4);
-  wallRunZ(boxes, cols, -28, -17, 0, -85, 3.2, "white", 0, 0);
-  for (const [fx, fz] of [[-100, -17], [-85, -17], [-85, -28]] as Array<[number, number]>) {
+  // gap on the lobby face. Moved east off the lift in v57: the original
+  // SW-corner spot wrapped the glass lift shaft (x -99..-95, z -27..-23,
+  // door faces east), so the lift landed INSIDE the room. The shaft now
+  // exits into open lobby, 12 clear units west of the room's west wall.
+  wallRunX(boxes, cols, -83, -68, 0, -17, 3.2, "white", -75.5, 2.4);
+  wallRunZ(boxes, cols, -28, -17, 0, -83, 3.2, "white", 0, 0);
+  wallRunZ(boxes, cols, -28, -17, 0, -68, 3.2, "white", 0, 0);
+  for (const [fx, fz] of [[-83, -17], [-68, -17], [-68, -28], [-83, -28]] as Array<[number, number]>) {
     put(boxes, fx, 1.6, fz, 0.35, 3.2, 0.35, "black");
   }
-  put(boxes, -92.5, 3.3, -17, 15, 0.18, 0.4, "gold");
-  put(boxes, -85, 3.3, -22.5, 0.4, 0.18, 11, "gold");
-  put(boxes, -92.5, 0.12, -22.5, 11, 0.06, 8, "gold");
-  put(boxes, -92.5, 0.16, -22.5, 9.5, 0.06, 6.5, "black");
-  meetingTable(boxes, cols, -92.5, 0, -22.5, 6, 4);
-  pottedPlant(boxes, cols, -98.6, -18.6, 0);
-  pottedPlant(boxes, cols, -86.4, -26.4, 0);
-  hangLights(boxes, -92.5, 8, -22.5, 12, 9);
-  roomSign("hq-glass-room", -92.5, 2.9, -16.6, 0, 5.5, 1.0, ["GLASS MEETING ROOM"], "Seats six · screen inside");
+  put(boxes, -75.5, 3.3, -17, 15, 0.18, 0.4, "gold");
+  put(boxes, -83, 3.3, -22.5, 0.4, 0.18, 11, "gold");
+  put(boxes, -68, 3.3, -22.5, 0.4, 0.18, 11, "gold");
+  put(boxes, -75.5, 0.12, -22.5, 11, 0.06, 8, "gold");
+  put(boxes, -75.5, 0.16, -22.5, 9.5, 0.06, 6.5, "black");
+  meetingTable(boxes, cols, -75.5, 0, -22.5, 6, 4);
+  pottedPlant(boxes, cols, -81.6, -18.6, 0);
+  pottedPlant(boxes, cols, -69.4, -26.4, 0);
+  hangLights(boxes, -75.5, 8, -22.5, 12, 9);
+  roomSign("hq-glass-room", -75.5, 2.9, -16.6, 0, 5.5, 1.0, ["GLASS MEETING ROOM"], "Seats six · screen inside");
   // THE BURN COUNTER (west wall, z 2): a black-and-gold display board
   // flanked by trophy pedestals. The counter itself is read at the board
   // (runtime spot): it speaks the player's own burned total — the same
