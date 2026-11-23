@@ -7879,6 +7879,14 @@ function sanitizeState(player, raw) {
     emote: String(raw.emote || "").slice(0, 16),
     holder: !!player.holder,
     lobby: String(raw.lobby || "").slice(0, 40),
+    // HQ Event Hall host sync: a boolean + the host's radio pick
+    // (track id + start stamp). Validated, never trusted raw — the
+    // stamp is clamped to a sane window around now.
+    host: Boolean(raw.host),
+    music:
+      raw.music && typeof raw.music === "object" && typeof raw.music.t === "string" && Number.isFinite(Number(raw.music.at))
+        ? { t: String(raw.music.t).slice(0, 64), at: Math.max(0, Math.min(Number(raw.music.at), Date.now() + 60000)) }
+        : undefined,
     seen: Date.now(),
   };
 }
