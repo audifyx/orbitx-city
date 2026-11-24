@@ -14,8 +14,9 @@
 //   recolors one box and calls it a new car: a Cybertruck wedge, a limo
 //   stretch, a low sportbike and a skateboard deck are different shapes
 //   coming out of the same template.
-//   Follows the existing makeCar approach in runtime.ts: one shared unit
-//   BoxGeometry, scaled meshes, wheels named "wheel" (so the existing
+//   Follows the existing makeCar approach in runtime.ts: an extruded
+//   side-profile body (extrudedBodyMesh, shared with makeCar), scaled
+//   meshes for the details, wheels named "wheel" (so the existing
 //   wheel-spin code in drive() keeps working), and group.userData.paints
 //   (so the existing retint() keeps working).
 //
@@ -28,11 +29,15 @@ import {
   BoxGeometry,
   CanvasTexture,
   Color,
+  ConeGeometry,
   CylinderGeometry,
+  ExtrudeGeometry,
   Group,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
+  Shape,
   SRGBColorSpace,
   type Material,
 } from "three";
@@ -1664,6 +1669,50 @@ export function paintHex(color: string, fallback = "black"): number {
   return VEHICLE_COLORS[color] ?? CUSTOM_PAINT_HEX[color] ?? VEHICLE_COLORS[fallback];
 }
 
+/**
+ * Extruded side-profile car body (realistic overhaul, 2026-11-24):
+ * a low, sleek side profile — sloped lower nose, flat top where the
+ * hood / cabin / trunk sit, gentle tail taper — extruded across the
+ * width with a small bevel so the edges catch light instead of reading
+ * as a box. Shared by buildVehicle and runtime.makeCar so every car
+ * gets the same shaped body. The profile spans x -length/2..length/2
+ * and y 0..bodyH; the mesh is positioned so its top lands exactly at
+ * bodyY + bodyH/2 (the bevel's +0.04 rise is compensated in the y
+ * offset) and its centre at x.
+ */
+export function extrudedBodyMesh(
+  material: Material,
+  length: number,
+  bodyH: number,
+  width: number,
+  bodyY: number,
+  x = 0,
+): Mesh {
+  const half = length / 2;
+  const s = new Shape();
+  s.moveTo(-half + 0.3, 0);
+  s.lineTo(half - 0.55, 0);
+  s.lineTo(half, 0.3); // sloped lower nose
+  s.lineTo(half, bodyH); // flat front face, full height
+  s.lineTo(-half + 0.2, bodyH); // flat top — hood/cabin/trunk sit here
+  s.lineTo(-half, bodyH - 0.1); // gentle tail taper
+  s.lineTo(-half, 0.14);
+  s.closePath();
+  const geo = new ExtrudeGeometry(s, {
+    depth: width - 0.08,
+    bevelEnabled: true,
+    bevelThickness: 0.04,
+    bevelSize: 0.04,
+    bevelSegments: 2,
+    steps: 1,
+  });
+  geo.translate(0, 0, -(width - 0.08) / 2);
+  const mesh = new Mesh(geo, material);
+  mesh.position.set(x, bodyY - bodyH / 2 - 0.04, 0);
+  mesh.castShadow = true;
+  return mesh;
+}
+
 function partMaterial(mat: PartMat, paint: MeshStandardMaterial, tint = 0): Material {
   switch (mat) {
     case "paint":
@@ -1861,8 +1910,9 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
   };
   const half = p.length / 2;
 
-  // Main body slab.
-  add(paint, 0, p.bodyY, 0, p.length, p.bodyH, p.width);
+  // Main body: extruded side profile (realistic overhaul) — sloped
+  // nose, flat top for the hood/cabin/trunk, tapered tail — not a box.
+  group.add(extrudedBodyMesh(paint, p.length, p.bodyH, p.width, p.bodyY));
 
   // Hood / nose slab at the front (+X).
   if (p.hoodLen > 0) {
@@ -2055,6 +2105,30 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
       );
     } else {
       add(MATERIALS.cyan, 0, 0.06, 0, p.length - 0.9, 0.05, 0.3);
+    }
+  }
+
+  // Exhaust flames (realistic overhaul): dual cones at the rear bumper,
+  // hidden until drive() flares them while Ctrl-boosting. Baked size
+  // (scale 1) so drive()'s flicker scale.set(1, flick, 1) stretches the
+  // flame length. Cars/bikes/atvs only — boards and flyers have no
+  // exhausts here.
+  if (!isBoard && v.kind !== "flying") {
+    const flameMat = new MeshBasicMaterial({ color: 0xff7a1a, toneMapped: false, transparent: true, opacity: 0.95 });
+    const flameCoreMat = new MeshBasicMaterial({ color: 0xffd23c, toneMapped: false, transparent: true, opacity: 0.95 });
+    for (const side of [-1, 1]) {
+      const flame = new Mesh(new ConeGeometry(0.13, 0.65, 8), flameMat);
+      flame.rotation.z = Math.PI / 2; // cone tip points -X (rearward)
+      flame.position.set(-half - 0.28, p.bodyY - 0.12, side * 0.45);
+      flame.name = "flame";
+      flame.visible = false;
+      group.add(flame);
+      const core = new Mesh(new ConeGeometry(0.07, 0.45, 8), flameCoreMat);
+      core.rotation.z = Math.PI / 2;
+      core.position.set(-half - 0.2, p.bodyY - 0.12, side * 0.45);
+      core.name = "flame";
+      core.visible = false;
+      group.add(core);
     }
   }
 
