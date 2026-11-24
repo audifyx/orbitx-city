@@ -35,9 +35,9 @@ const BEATS: IntroBeat[] = [
     at: 0,
     chapter: "01 PLAZA",
     kicker: "WELCOME TO",
-    cam: "CAM 01 // ORBITX PLAZA & TOWER",
+    cam: "CAM 01 // AERIAL · GATE · PLAZA",
     title: "ORBITX CITY",
-    sub: "A living voxel metropolis you can walk, drive, fly, and own.",
+    sub: "A living realistic metropolis you can walk, drive, fly, and own.",
     pills: [
       `${CITY_FACTS.universes} Universes`,
       `${CITY_FACTS.characters} Characters`,

@@ -231,7 +231,7 @@ export function CharacterSelect({ seedText, setSeedText, webglMissing, busy, onP
       <div className="char-body">
         <div className="char-preview">
           {previewDead && shots[look.id] ? (
-            <img src={shots[look.id]} alt={`${look.displayName} voxel avatar`} className="char-view-img" />
+            <img src={shots[look.id]} alt={`${look.displayName} avatar`} className="char-view-img" />
           ) : (
             <canvas ref={canvasRef} className="char-view" width={480} height={560} />
           )}
@@ -258,7 +258,7 @@ export function CharacterSelect({ seedText, setSeedText, webglMissing, busy, onP
               onClick={() => setIndex(itemIndex)}
             >
               {shots[item.id] ? (
-                <img src={shots[item.id]} alt={`${item.displayName} voxel avatar`} />
+                <img src={shots[item.id]} alt={`${item.displayName} avatar`} />
               ) : (
                 <span className="char-blank" style={{ background: item.colors.outfit }} />
               )}

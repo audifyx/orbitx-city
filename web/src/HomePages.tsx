@@ -91,7 +91,7 @@ export function AboutPage() {
   return (
     <PageShell title="About OrbitX City">
       <p>
-        <b>OrbitX City</b> is a voxel city you can own — a GTA-style open world that runs in your browser, on your
+        <b>OrbitX City</b> is a realistic city you can own — a GTA-style open world that runs in your browser, on your
         phone or your PC. {CITY_FACTS.states} states, one city: {CITY_FACTS.stateNames}, joined by real bridges you
         can walk and drive across.
       </p>

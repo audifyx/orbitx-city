@@ -284,6 +284,12 @@ body,
   padding: 28px 24px 0;
   color: #ffffff;
   overflow: auto;
+  /* Home hero (realistic overhaul): the style-video home frame behind
+   * the landing, under a dark gradient so the white copy stays
+   * high-contrast (white on black, never light-on-light). */
+  background:
+    linear-gradient(to bottom, rgba(2, 6, 17, 0.78) 0%, rgba(2, 6, 17, 0.5) 42%, rgba(2, 6, 17, 0.84) 100%),
+    url("/home-hero.jpg") center / cover no-repeat;
 }
 
 .menu-hero {
