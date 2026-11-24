@@ -1,4 +1,13 @@
-import { BoxGeometry, Group, Mesh, MeshStandardMaterial } from "three";
+import {
+  BufferGeometry,
+  CapsuleGeometry,
+  CylinderGeometry,
+  Group,
+  Mesh,
+  MeshStandardMaterial,
+  SphereGeometry,
+} from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { CHAIN_COLORS, OUTFIT_DEFS, SHOE_COLORS, WATCH_COLORS, type WardrobeSlots } from "./wardrobe";
 
 export interface Look {
@@ -198,18 +207,88 @@ const SHOP_COLORS: Record<string, string> = {
   silver: "#c9ced6",
 };
 
-const box = new BoxGeometry(1, 1, 1);
+// --- Shaped parts (realistic overhaul, 2026-11-24) --------------------
+// No BoxGeometry people anywhere: every part is a sphere, capsule,
+// disc (cylinder) or rounded box, all unit-extent so a mesh's scale IS
+// its size — except capsules, whose unit height is 2, so add() halves
+// the Y scale for them. movement.ts's finders match the legs/torso/
+// head by name first, then by the old position+scale ranges, so the
+// named body meshes below keep their exact old positions and scales.
+const UNIT_SPHERE = new SphereGeometry(0.5, 14, 10);
+const UNIT_CAPSULE = new CapsuleGeometry(0.5, 1, 4, 12); // height 2, diameter 1
+const UNIT_CAPSULE_X = UNIT_CAPSULE.clone().rotateZ(Math.PI / 2);
+const UNIT_CAPSULE_Z = UNIT_CAPSULE.clone().rotateX(Math.PI / 2);
+const UNIT_DISC = new CylinderGeometry(0.5, 0.5, 1, 16);
+const UNIT_ROUNDED = new RoundedBoxGeometry(1, 1, 1, 2, 0.09);
 
+const matCache = new Map<string, MeshStandardMaterial>();
 function mat(color: string, roughness = 0.55) {
-  return new MeshStandardMaterial({ color, roughness, metalness: 0.08 });
+  const key = `${color}|${roughness}`;
+  let m = matCache.get(key);
+  if (!m) {
+    m = new MeshStandardMaterial({ color, roughness, metalness: 0.08 });
+    matCache.set(key, m);
+  }
+  return m;
 }
 
+/** Add a shaped part of size (sx, sy, sz) at (x, y, z). Picks the
+ * geometry by proportion: flat/tall round parts become discs (brims,
+ * chips, cups, tophats, bats), near-cubes become spheres (heads, hair
+ * puffs, buns), tall thin parts become capsules (locks, gear, horns),
+ * everything else a rounded box (torsos, stripes, belts). */
 function add(group: Group, color: string, x: number, y: number, z: number, sx: number, sy: number, sz: number, rotZ = 0) {
-  const mesh = new Mesh(box, mat(color));
+  const m = Math.max(sx, sy, sz);
+  const n = Math.min(sx, sy, sz);
+  const sxz = Math.abs(sx - sz) / Math.max(sx, sz) < 0.2;
+  const yRatio = sy / Math.max(sx, sz);
+  let geo: BufferGeometry;
+  let scale: [number, number, number] = [sx, sy, sz];
+  if (sxz && (yRatio < 0.45 || yRatio > 1.25)) {
+    geo = UNIT_DISC; // round in plan, flat or tall: brim, chip, cup, bat, staff
+  } else if (m / n < 2.0) {
+    geo = UNIT_SPHERE; // near-cube: head, hair puff, bun, knob
+  } else if (sy === m && sy > sx * 1.4 && sy > sz * 1.4) {
+    geo = UNIT_CAPSULE; // tall: hair lock, gear, horn
+    scale = [sx, sy / 2, sz];
+  } else if (sx === m && sx > sy * 1.4 && sx > sz * 1.4) {
+    geo = UNIT_CAPSULE_X; // long in X: crossbow limb, belt, mouth
+    scale = [sx / 2, sy, sz];
+  } else if (sz === m && sz > sx * 1.4 && sz > sy * 1.4) {
+    geo = UNIT_CAPSULE_Z; // long in Z: plume crest
+    scale = [sx, sy, sz / 2];
+  } else {
+    geo = UNIT_ROUNDED; // the rest: torso slabs, stripes, collars
+  }
+  const mesh = new Mesh(geo, mat(color));
   mesh.position.set(x, y, z);
-  mesh.scale.set(sx, sy, sz);
+  mesh.scale.set(scale[0], scale[1], scale[2]);
   mesh.rotation.z = rotZ;
   mesh.castShadow = true;
+  group.add(mesh);
+  return mesh;
+}
+
+/** Add a part whose scale must stay EXACTLY (sx, sy, sz) — the
+ * finder-sensitive meshes (legs/torso/head, static shoes, watch).
+ * movement.ts matches those by position+scale, so no capsule /2 here. */
+function addExact(
+  group: Group,
+  geo: BufferGeometry,
+  color: string,
+  x: number,
+  y: number,
+  z: number,
+  sx: number,
+  sy: number,
+  sz: number,
+  name?: string,
+) {
+  const mesh = new Mesh(geo, mat(color));
+  mesh.position.set(x, y, z);
+  mesh.scale.set(sx, sy, sz);
+  mesh.castShadow = true;
+  if (name) mesh.name = name;
   group.add(mesh);
   return mesh;
 }
@@ -275,15 +354,19 @@ export function dressPerson(
   // front 0.215 vs torso 0.20) — at 0.16 the stripe's front face was
   // exactly coplanar with the torso's and flickered (walk-fix 2026-11-17).
   const chestStripe = outfitStyle?.tie ?? (shirtStyle?.layer === "jacket" ? shirtStyle.inner ?? accent : accent);
-  add(group, legsColor, 0, 0.3, 0, 0.5, 0.46, 0.34);
-  // Wardrobe shoes: two visible shoes at the feet (the legs box above
-  // ends at y 0.07; the shoes sit on the ground under it).
+  // Realistic body (2026-11-24): rounded-box legs + torso, sphere head.
+  // Named "legs"/"torso"/"head" so movement.ts finds them by name;
+  // positions + scales are the old ones, so the range fallback still
+  // matches too. The walker replaces the legs with two capsule limbs.
+  addExact(group, UNIT_ROUNDED, legsColor, 0, 0.3, 0, 0.5, 0.46, 0.34, "legs");
+  // Wardrobe shoes: two ROUND shoes at the feet (spheres, not boxes) —
+  // built exact so the walker's static-shoe removal still matches.
   if (shop.wardrobe?.shoes && SHOE_COLORS[shop.wardrobe.shoes]) {
     const shoeColor = SHOE_COLORS[shop.wardrobe.shoes];
-    add(group, shoeColor, -0.13, 0.05, 0.03, 0.22, 0.1, 0.32);
-    add(group, shoeColor, 0.13, 0.05, 0.03, 0.22, 0.1, 0.32);
+    addExact(group, UNIT_SPHERE, shoeColor, -0.13, 0.05, 0.03, 0.22, 0.1, 0.32);
+    addExact(group, UNIT_SPHERE, shoeColor, 0.13, 0.05, 0.03, 0.22, 0.1, 0.32);
   }
-  add(group, torsoColor, 0, 0.9, 0, 0.66, 0.78, 0.4);
+  addExact(group, UNIT_ROUNDED, torsoColor, 0, 0.9, 0, 0.66, 0.78, 0.4, "torso");
   add(group, chestStripe, 0, 1.05, 0.175, 0.28, 0.42, 0.08);
   // Belt at the waist (dark, gold buckle) + a collar band at the neck
   // (accent colour) — the outfit read as one flat slab before; now it
@@ -300,9 +383,13 @@ export function dressPerson(
     add(group, shirtStyle.color, 0, 1.72, -0.08, 0.52, 0.46, 0.36);
     add(group, shirtStyle.color, 0, 1.96, 0, 0.5, 0.16, 0.48);
   }
-  // Dress skirt, over the top of the legs.
+  // Dress skirt, over the top of the legs: a flared cone, not a slab.
   if (outfitStyle?.skirt) {
-    add(group, outfitStyle.torso, 0, 0.52, 0, 0.72, 0.38, 0.46);
+    const skirt = new Mesh(new CylinderGeometry(0.28, 0.4, 0.38, 12), mat(outfitStyle.torso));
+    skirt.position.set(0, 0.52, 0);
+    skirt.scale.set(0.9, 1, 0.58);
+    skirt.castShadow = true;
+    group.add(skirt);
   }
   // Outfit silhouette extras — only a wardrobe outfit has one.
   if (outfitDef?.style === "hoodie") {
@@ -312,29 +399,35 @@ export function dressPerson(
   } else if (outfitDef?.style === "leather") {
     // Gold zipper down the chest front.
     add(group, "#e0b33a", 0, 0.92, 0.21, 0.06, 0.62, 0.03);
+    // OrbitX patches on the jacket (home-frame hero look: the leather
+    // jacket is covered in patches) — clear of the chest stripe.
+    add(group, "#ff2ea6", -0.19, 1.12, 0.21, 0.12, 0.1, 0.02);
+    add(group, "#00e5ff", 0.19, 1.12, 0.21, 0.12, 0.1, 0.02);
+    add(group, "#e0b33a", -0.19, 0.82, 0.21, 0.12, 0.1, 0.02);
   } else if (outfitDef?.style === "suit") {
     // Gold tie bar down the chest front.
     add(group, "#e0b33a", 0, 1.02, 0.21, 0.1, 0.5, 0.03);
   }
-  add(group, skin, 0, 1.58, 0, 0.4, 0.4, 0.4);
+  // Sphere head (realistic proportions, same size/position as before).
+  addExact(group, UNIT_SPHERE, skin, 0, 1.58, 0, 0.4, 0.4, 0.4, "head");
   // Cupsy has NO face (user decision 2026-11-11 — faceless by design).
   // No eyes, no mouth, no face features at all. Do not match a real
   // face, do not invent one.
   if (look.id !== "cupsy") {
     const eyes = look.colors.eyes ?? "#1a1a1a";
-    // Eyebrows (hair colour, above the eyes) + nose (a shade darker
-    // than this character's own skin) + mouth (dark line). The face
-    // used to read as two floating dots — now it reads as a face.
-    add(group, hair, -0.08, 1.71, 0.2, 0.09, 0.03, 0.04);
-    add(group, hair, 0.08, 1.71, 0.2, 0.09, 0.03, 0.04);
+    // Eyebrows + nose + mouth. The head is a sphere now, so the
+    // features sit closer to the surface (z 0.14-0.16) than the old
+    // cube's flat front (z 0.2) — at 0.2 they would float in the air.
+    add(group, hair, -0.08, 1.71, 0.14, 0.09, 0.03, 0.04);
+    add(group, hair, 0.08, 1.71, 0.14, 0.09, 0.03, 0.04);
     add(group, eyes, -0.08, 1.64, 0.2, 0.07, 0.06, 0.04);
     add(group, eyes, 0.08, 1.64, 0.2, 0.07, 0.06, 0.04);
     add(group, shade(skin, 0.8), 0, 1.56, 0.2, 0.05, 0.07, 0.03);
-    add(group, "#5a2e1e", 0, 1.46, 0.2, 0.1, 0.02, 0.03);
+    add(group, "#5a2e1e", 0, 1.46, 0.15, 0.1, 0.02, 0.03);
   }
   if (look.accessories.beard) {
-    add(group, hair, 0, 1.42, 0.2, 0.26, 0.14, 0.08);
-    add(group, hair, 0, 1.5, 0.2, 0.2, 0.05, 0.05);
+    add(group, hair, 0, 1.42, 0.14, 0.26, 0.14, 0.08);
+    add(group, hair, 0, 1.5, 0.16, 0.2, 0.05, 0.05);
   }
   // A bought hairstyle overrides the character's own hair. New wardrobe
   // styles (afro / dreads / bun / fade) get their own branches; the rest
@@ -366,7 +459,9 @@ export function dressPerson(
     add(group, hair, -0.14, 1.84, 0, 0.1, 0.22, 0.1, 0.4);
     add(group, hair, 0.14, 1.84, 0, 0.1, 0.22, 0.1, -0.4);
   } else if (style === "long") {
-    add(group, hair, 0, 1.78, -0.18, 0.44, 0.2, 0.22);
+    // Back panel lowered onto the sphere head (was y 1.78, the very top
+    // of the old cube — on a sphere that point has zero width).
+    add(group, hair, 0, 1.66, -0.14, 0.44, 0.2, 0.22);
     add(group, hair, -0.18, 1.35, -0.06, 0.12, 0.55, 0.14);
     add(group, hair, 0.18, 1.35, -0.06, 0.12, 0.55, 0.14);
   } else if (style === "mohawk") {
@@ -569,8 +664,9 @@ export function dressPerson(
   // wrist rests at 0.72. The band is group-space, not arm-attached:
   // it sits at the rest position and is visible in every camera.
   if (shop.wardrobe?.watch && WATCH_COLORS[shop.wardrobe.watch]) {
-    add(group, WATCH_COLORS[shop.wardrobe.watch], -0.38, 0.72, 0, 0.22, 0.09, 0.22);
-    add(group, "#f4f6fa", -0.38, 0.72, 0.1, 0.1, 0.05, 0.02);
+    // Built exact so the walker's watch re-hang still matches.
+    addExact(group, UNIT_ROUNDED, WATCH_COLORS[shop.wardrobe.watch], -0.38, 0.72, 0, 0.22, 0.09, 0.22);
+    addExact(group, UNIT_ROUNDED, "#f4f6fa", -0.38, 0.72, 0.1, 0.1, 0.05, 0.02);
   }
   // Threadguy: the mic is his job (Spaces host) — his extra is the
   // rainbow visor, so the mic branch above never fires for him.

@@ -4,12 +4,13 @@
  * DEAD CODE until wired — see WIRING.md at the repo root for the exact
  * call sites (engine.ts tick(), runtime.ts after()/placeCamera()).
  *
- * Why this file exists: the player model is a box person with ONE fused
- * legs box (dressPerson in avatar.ts, makePerson in runtime.ts) and no
- * limb animation anywhere, so the character slides instead of walking.
- * This module retrofits a two-leg + two-arm walker onto any group built
- * by dressPerson/makePerson, without editing those builders and without
- * changing any character look.
+ * Why this file exists: the player model is a realistic humanoid with
+ * ONE fused legs part (dressPerson in avatar.ts, makePerson in
+ * runtime.ts) and no limb animation anywhere, so the character slides
+ * instead of walking. This module retrofits a two-leg + two-arm walker
+ * onto any group built by dressPerson/makePerson, without editing those
+ * builders and without changing any character look. Limbs are capsules
+ * (realistic overhaul, 2026-11-24) — no box limbs anywhere.
  *
  * Survival rule: dressPerson() removes every child except "ring"/"tag"
  * when the look changes, so walker pivots get wiped on a re-dress.
@@ -25,21 +26,24 @@
  * top of applyEmote's rotation — both are recomputed every frame, so
  * calling animateWalk before after() would be overwritten and invisible.
  *
- * Phone cost: 4 extra meshes + 2 extra groups per walker, one shared
- * unit BoxGeometry, no new materials in the common path (colours are
- * sampled from the meshes dressPerson/makePerson already built). The
- * per-frame work is a handful of sin() calls and rotation writes.
- * No allocations in the hot path (animateWalk allocates nothing).
+ * Phone cost: 4 extra meshes + 2 extra groups per walker, shared unit
+ * geometries, no new materials in the common path (colours are sampled
+ * from the meshes dressPerson/makePerson already built). The per-frame
+ * work is a handful of sin() calls and rotation writes. No allocations
+ * in the hot path (animateWalk allocates nothing).
  */
 
 import {
-  BoxGeometry,
+  CapsuleGeometry,
   Group,
   Mesh,
   MeshStandardMaterial,
+  SphereGeometry,
+  TorusGeometry,
   Vector3,
   type Material,
 } from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import type { Clothes, Look } from "./avatar";
 import { SHOES_COLORS } from "./avatar";
 import { SHOE_COLORS, WATCH_COLORS, type WardrobeSlots } from "./wardrobe";
@@ -57,8 +61,13 @@ export interface WalkerHandle {
   amp: number;
 }
 
-/** One shared unit box for every walker limb — never disposed. */
-const UNIT_BOX = new BoxGeometry(1, 1, 1);
+/** Shared unit geometries for every walker limb — never disposed.
+ * Capsule (height 2, diameter 1): scale.y is halved in makeLimb so a
+ * limb's scale reads as its size. Sphere for round shoes, rounded box
+ * for flat plates (tattoos, watch face). */
+const UNIT_CAPSULE = new CapsuleGeometry(0.5, 1, 4, 12);
+const UNIT_SPHERE = new SphereGeometry(0.5, 12, 10);
+const UNIT_ROUNDED = new RoundedBoxGeometry(1, 1, 1, 2, 0.09);
 
 /** Fallback material, created once, only used when a group has no
  *  dressable meshes to sample colours from (should not happen in game). */
@@ -90,12 +99,18 @@ function isMesh(child: unknown): child is Mesh {
 }
 
 /**
- * The fused single legs box dressPerson/makePerson build:
- * makePerson  -> pos (0, 0.28, 0), scale (0.58, 0.45, 0.36)
- * dressPerson -> pos (0, 0.28, 0), scale (0.50, 0.42, 0.34)
+ * The fused single legs part dressPerson/makePerson build:
+ * makePerson  -> pos (0, 0.28, 0), scale (0.58, 0.45, 0.36), name "legs"
+ * dressPerson -> pos (0, 0.30, 0), scale (0.50, 0.46, 0.34), name "legs"
+ * Name-first (realistic overhaul): the builders name the part; the
+ * position+scale ranges stay as the fallback for legacy/unnamed groups.
  * Nothing else in a person group sits at that height with that bulk.
  */
 function findFusedLegs(group: Group): Mesh | null {
+  for (const child of group.children) {
+    if (!isMesh(child)) continue;
+    if (child.name === "legs") return child;
+  }
   for (const child of group.children) {
     if (!isMesh(child)) continue;
     const p = child.position;
@@ -111,8 +126,12 @@ function findFusedLegs(group: Group): Mesh | null {
   return null;
 }
 
-/** Torso mesh: the widest box at chest height. Its material is the outfit. */
+/** Torso mesh: the widest part at chest height. Its material is the outfit. */
 function findTorso(group: Group): Mesh | null {
+  for (const child of group.children) {
+    if (!isMesh(child)) continue;
+    if (child.name === "torso") return child;
+  }
   for (const child of group.children) {
     if (!isMesh(child)) continue;
     const p = child.position;
@@ -124,8 +143,12 @@ function findTorso(group: Group): Mesh | null {
   return null;
 }
 
-/** Head mesh: the 0.4 skin cube at face height. Its material is the skin. */
+/** Head mesh: the 0.4 sphere at face height. Its material is the skin. */
 function findHead(group: Group): Mesh | null {
+  for (const child of group.children) {
+    if (!isMesh(child)) continue;
+    if (child.name === "head") return child;
+  }
   for (const child of group.children) {
     if (!isMesh(child)) continue;
     const p = child.position;
@@ -137,9 +160,11 @@ function findHead(group: Group): Mesh | null {
   return null;
 }
 
+/** A capsule limb of size (sx, sy, sz) hanging from y (pivot space).
+ * The unit capsule is 2 tall, so scale.y is halved to keep the size. */
 function makeLimb(material: Material, sx: number, sy: number, sz: number, y: number): Mesh {
-  const mesh = new Mesh(UNIT_BOX, material);
-  mesh.scale.set(sx, sy, sz);
+  const mesh = new Mesh(UNIT_CAPSULE, material);
+  mesh.scale.set(sx, sy / 2, sz);
   mesh.position.y = y;
   mesh.castShadow = true;
   return mesh;
@@ -193,8 +218,8 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
   legR.position.set(0.13, 0.5, 0);
   legR.add(makeLimb(legMaterial, 0.24, 0.5, 0.32, -0.25));
 
-  // Shoes: a box on the bottom of each leg pivot so the shoe swings
-  // with the foot instead of floating static under the body.
+  // Shoes: a round shoe on the bottom of each leg pivot so the shoe
+  // swings with the foot instead of floating static under the body.
   // dressPerson stores the worn clothes AND the wardrobe on
   // group.userData. Two sources, one pair of feet:
   //   - shop shoes (clothes.shoes) win — they are the worn item;
@@ -230,7 +255,8 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
   if (shoeColor) {
     const shoeMat = outfitMaterial(shoeColor);
     for (const leg of [legL, legR]) {
-      const shoe = new Mesh(UNIT_BOX, shoeMat);
+      // Round shoe (realistic overhaul): a sphere, not a box.
+      const shoe = new Mesh(UNIT_SPHERE, shoeMat);
       shoe.scale.set(0.26, 0.12, 0.42);
       shoe.position.set(0, -0.47, 0.04);
       shoe.castShadow = true;
@@ -281,8 +307,14 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
   }
   const wardrobeWatch = wardrobe?.watch ? WATCH_COLORS[wardrobe.watch] : undefined;
   if (wardrobeWatch) {
-    armL.add(makeLimb(outfitMaterial(wardrobeWatch), 0.22, 0.09, 0.22, -0.52));
-    const face = new Mesh(UNIT_BOX, outfitMaterial("#f4f6fa"));
+    // Torus band around the wrist (realistic overhaul) + a rounded
+    // face on top — the old version was a static box band.
+    const band = new Mesh(new TorusGeometry(0.11, 0.035, 8, 16), outfitMaterial(wardrobeWatch));
+    band.rotation.x = Math.PI / 2;
+    band.position.set(0, -0.52, 0);
+    band.castShadow = true;
+    armL.add(band);
+    const face = new Mesh(UNIT_ROUNDED, outfitMaterial("#f4f6fa"));
     face.scale.set(0.1, 0.05, 0.02);
     face.position.set(0, -0.52, 0.11);
     face.castShadow = true;
@@ -300,13 +332,14 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
     armL.add(makeLimb(outfitMaterial("#e0b33a"), 0.18, 0.07, 0.2, -0.5));
   } else if (lookId === "gainzy") {
     // Gainzy: dragon tattoos on both arms (from his public avatar).
+    // Flat rounded plates on the arm surface, not capsules.
     const tattoo = outfitMaterial("#7a1f2a");
-    const tatL = new Mesh(UNIT_BOX, tattoo);
+    const tatL = new Mesh(UNIT_ROUNDED, tattoo);
     tatL.scale.set(0.03, 0.4, 0.14);
     tatL.position.set(-0.09, -0.27, 0);
     tatL.castShadow = true;
     armL.add(tatL);
-    const tatR = new Mesh(UNIT_BOX, tattoo);
+    const tatR = new Mesh(UNIT_ROUNDED, tattoo);
     tatR.scale.set(0.03, 0.4, 0.14);
     tatR.position.set(0.09, -0.27, 0);
     tatR.castShadow = true;
