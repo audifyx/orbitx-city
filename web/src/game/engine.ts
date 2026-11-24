@@ -27,6 +27,8 @@ import { isWater, WATER_SURFACE_Y } from "./water";
 import { createMoveSmoother } from "./movement";
 import { applyDayNightLighting, applyEnvironment, applyGraphicsPreset, upgradeMaterials, type GraphicsQuality } from "./graphics";
 import { mountPretty, setPrettyNight, type QualityName } from "./pretty";
+import { makeRain, mountLandmarks } from "./landmarks";
+import { setSignGlow } from "./signs";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
@@ -216,12 +218,14 @@ export function createGame(
   // the parse accepts it for the graphics calls below, never as a default.
   const graphicsQuality: GraphicsQuality = savedQuality === "ultra" ? "ultra" : quality;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality === "low" ? 1 : quality === "medium" ? 1.25 : 1.5));
-  renderer.setClearColor(0xf09158, 1);
+  renderer.setClearColor(0x7a5578, 1);
   renderer.shadowMap.enabled = quality !== "low";
   renderer.shadowMap.type = PCFSoftShadowMap;
 
   const scene = new Scene();
-  const baseFog = new Fog(0xf09158, touch ? 100 : 170, touch ? 2000 : 2800);
+  // Dusk fog is mauve-purple (realistic overhaul) — the indigo/pink
+  // dusk of the splash frames, not the old orange sunset haze.
+  const baseFog = new Fog(0x7a5578, touch ? 100 : 170, touch ? 2000 : 2800);
   scene.fog = baseFog;
   const runtime = createRuntime(scene);
 
@@ -345,10 +349,18 @@ export function createGame(
   scene.add(sky);
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  composer.addPass(new UnrealBloomPass(new Vector2(1024, 1024), 0.32, 0.45, 0.86));
+  // Bloom strength follows the time of day (realistic overhaul): the
+  // neon only blooms hard after dark — 0.55 at night, 0.32 at dusk,
+  // 0.18 in daylight. Driven per frame in frame() via the sky uniforms.
+  const bloomPass = new UnrealBloomPass(new Vector2(1024, 1024), 0.32, 0.45, 0.86);
+  composer.addPass(bloomPass);
 
   const unit = new BoxGeometry(1, 1, 1);
   const dummy = new Object3D();
+  // Night rain (realistic overhaul): light streaks around the camera,
+  // visible only at night — driven per frame in frame().
+  const rain = makeRain(500);
+  scene.add(rain.lines);
   let staticRoot = new Group();
   scene.add(staticRoot);
 
@@ -373,13 +385,15 @@ export function createGame(
   let playing = false;
 
   // Intro flyover: a 5-act 30s cinematic trailer tour across the entire
-  // multi-state world — Act 1 (0-6s) sweeps low over the Plaza fountain and
-  // climbs the OrbitX Tower atrium & crown; Act 2 (6-12s) soars across the
-  // Empire Span to New York, Los Angeles, and Florida; Act 3 (12-18s) glides
-  // down through the furnished avenues, homes, and storefronts; Act 4 (18-24s)
-  // showcases the electric neon skyline alongside the elevated Loop Train and
-  // hover ships; Act 5 (24-30s) pulls back into the hero orbit circle
-  // (190, 78, 10 -> looking at 0, 26, 20) for a seamless handoff.
+  // multi-state world — Act 1 (0-6s) is the style-video opening: a high
+  // aerial over the glass towers at dusk, sweeping down through the
+  // ORBITX CITY gate and into the plaza fountain; Act 2 (6-12s) soars
+  // across the Empire Span to New York, Los Angeles, and Florida; Act 3
+  // (12-18s) glides down through the furnished avenues, homes, and
+  // storefronts; Act 4 (18-24s) showcases the electric neon skyline
+  // alongside the elevated Loop Train and hover ships; Act 5 (24-30s)
+  // pulls back into the hero orbit circle (190, 78, 10 -> looking at
+  // 0, 26, 20) for a seamless handoff.
   const INTRO_LEN = 30;
   interface IntroKey {
     t: number;
@@ -390,10 +404,11 @@ export function createGame(
     cut?: boolean;
   }
   const INTRO_KEYS: IntroKey[] = [
-    // Act 1 (0..6s): Plaza fountain low sweep -> climbing the OrbitX Tower crown
-    { t: 0, pos: [0, 11, 44], look: [0, 14, -12], fov: 58, roll: 0 },
-    { t: 2.8, pos: [-26, 28, 36], look: [0, 28, -14], fov: 54, roll: -0.045 },
-    { t: 6.0, pos: [46, 68, 72], look: [0, 34, -10], fov: 50, roll: 0.035 },
+    // Act 1 (0..6s): Aerial over the glass towers at dusk -> down
+    // through the ORBITX CITY gate -> into the plaza fountain
+    { t: 0, pos: [60, 120, 180], look: [0, 40, 0], fov: 58, roll: 0 },
+    { t: 2.8, pos: [0, 55, 110], look: [0, 16, 44], fov: 54, roll: -0.03 },
+    { t: 6.0, pos: [0, 9, 62], look: [0, 10, 12], fov: 56, roll: 0.02 },
     // Act 2 (6..12s): Empire Span & New York -> Los Angeles & Florida coast
     { t: 6.01, pos: [-340, 58, 88], look: [-680, 36, -15], fov: 58, roll: -0.04, cut: true },
     { t: 9.0, pos: [-620, 74, 155], look: [-780, 34, -35], fov: 52, roll: 0.03 },
@@ -737,6 +752,9 @@ export function createGame(
       staticRoot.add(mesh);
     }
     staticRoot.add(mountPretty(city.facades, quality));
+    // Landmarks: gate, palms, market, ring, fountain light, street
+    // sign, district neon (realistic overhaul, landmarks.ts).
+    staticRoot.add(mountLandmarks(city, quality));
     scene.add(staticRoot);
     window.__ORBITX_BOXES = city.boxes.length;
   }
@@ -1292,7 +1310,7 @@ export function createGame(
         baseFog.color.setHex(0xb7d4ea);
         setPrettyNight(0.2);
       } else {
-        baseFog.color.setHex(0xf09158);
+        baseFog.color.setHex(0x7a5578);
         setPrettyNight(0.6);
       }
     } else {
@@ -1309,10 +1327,20 @@ export function createGame(
         baseFog.color.setHex(0xb7d4ea);
         setPrettyNight(0.15);
       } else {
-        baseFog.color.setHex(0xf09158);
+        baseFog.color.setHex(0x7a5578);
         setPrettyNight(0.5);
       }
     }
+    // Bloom + sign glow + rain follow the same time-of-day drive
+    // (uNight/uDay were just set by the branch above): bloom 0.55 at
+    // night, 0.32 at dusk, 0.18 in daylight; signs blaze at dusk/night
+    // and rest in daylight; rain falls only at night.
+    const nightF = skyMat.uniforms.uNight.value as number;
+    const dayF = skyMat.uniforms.uDay.value as number;
+    bloomPass.strength = 0.18 + 0.37 * nightF + 0.14 * (1 - nightF - dayF);
+    setSignGlow(Math.max(nightF, 1 - dayF));
+    rain.lines.visible = nightF > 0.4;
+    if (rain.lines.visible) rain.update(dt, camera.position.x, camera.position.z);
     scene.fog = runtime.indoors() ? null : baseFog;
     const tookCamera = runtime.after(dt, player, camera, { orbit: mode === "orbit", fountain, trains: trainPoses });
     if (mode === "orbit") {
