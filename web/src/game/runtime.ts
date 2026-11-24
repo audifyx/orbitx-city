@@ -1,6 +1,8 @@
 import {
   BoxGeometry,
   CanvasTexture,
+  CapsuleGeometry,
+  ConeGeometry,
   CylinderGeometry,
   DoubleSide,
   DynamicDrawUsage,
@@ -12,6 +14,7 @@ import {
   MeshLambertMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
+  SphereGeometry,
   Sprite,
   SpriteMaterial,
   TorusGeometry,
@@ -20,6 +23,7 @@ import {
   type PerspectiveCamera,
   type Scene,
 } from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import type { Anchor, Art, BoardSlot, City, Collider, DoorDef, Lift, Zone } from "./city";
 import { TRAIN_LINE_Z, TRAIN_STATIONS, trainTrackY } from "./city";
 import { BUS_BOARD_DIST, BUS_LENGTH, BUS_WIDTH, BusSim, buildBusMesh } from "./bus";
@@ -1419,17 +1423,31 @@ function makeLabel(text: string, person = false) {
   return sprite;
 }
 
+// Shared shaped geometries for people (realistic overhaul, 2026-11-24):
+// no box bodies — rounded-box torso/legs, sphere head, discs for hats.
+const PERSON_ROUNDED = new RoundedBoxGeometry(1, 1, 1, 2, 0.09);
+const PERSON_SPHERE = new SphereGeometry(0.5, 14, 10);
+const PERSON_DISC = new CylinderGeometry(0.5, 0.5, 1, 16);
+const PERSON_CAPSULE = new CapsuleGeometry(0.5, 1, 4, 12);
+const PERSON_CAPSULE_X = PERSON_CAPSULE.clone().rotateZ(Math.PI / 2);
+const PERSON_CONE = new ConeGeometry(0.5, 1, 10);
+
 function makePerson(color: string, hat: string) {
   const group = new Group();
-  const box = new BoxGeometry(1, 1, 1);
   const cloth = new MeshLambertMaterial({ color: COLORS[color] ?? COLORS.white });
-  const body = new Mesh(box, cloth);
+  // Realistic body: rounded-box torso + legs, sphere head — named so
+  // movement.ts finds them by name; same positions/scales as the old
+  // boxes, so the range fallback still matches.
+  const body = new Mesh(PERSON_ROUNDED, cloth);
+  body.name = "torso";
   body.scale.set(0.62, 0.95, 0.4);
   body.position.y = 0.85;
-  const head = new Mesh(box, MATERIALS.white);
+  const head = new Mesh(PERSON_SPHERE, MATERIALS.white);
+  head.name = "head";
   head.scale.set(0.4, 0.4, 0.4);
   head.position.y = 1.62;
-  const legs = new Mesh(box, MATERIALS.black);
+  const legs = new Mesh(PERSON_ROUNDED, MATERIALS.black);
+  legs.name = "legs";
   legs.scale.set(0.58, 0.45, 0.36);
   legs.position.y = 0.28;
   const ring = new Mesh(
@@ -1441,91 +1459,89 @@ function makePerson(color: string, hat: string) {
   ring.position.y = 0.05;
   ring.visible = false;
   group.add(body, head, legs, ring);
-  addHat(group, box, hat);
+  addHat(group, hat);
   return group;
 }
 
-function addHat(group: Group, box: BoxGeometry, hat: string) {
+function addHat(group: Group, hat: string) {
   const old = group.getObjectByName("hat");
   if (old) group.remove(old);
   if (hat === "none" || !hat) return;
   const node = new Group();
   node.name = "hat";
+  // Shaped hats (realistic overhaul): discs for crowns/brims/bands,
+  // capsule for the antenna pole, sphere for tips/poms, cone for the
+  // crown point. Same positions/scales as the old boxes.
   if (hat === "cap") {
-    const cap = new Mesh(box, MATERIALS.black);
+    const cap = new Mesh(PERSON_DISC, MATERIALS.black);
     cap.scale.set(0.46, 0.16, 0.46);
     cap.position.y = 1.9;
-    const brim = new Mesh(box, MATERIALS.black);
+    const brim = new Mesh(PERSON_ROUNDED, MATERIALS.black);
     brim.scale.set(0.34, 0.08, 0.22);
     brim.position.set(0, 1.84, 0.28);
     node.add(cap, brim);
   } else if (hat === "antenna") {
-    const pole = new Mesh(box, MATERIALS.gray);
-    pole.scale.set(0.08, 0.55, 0.08);
+    const pole = new Mesh(PERSON_CAPSULE, MATERIALS.gray);
+    pole.scale.set(0.08, 0.275, 0.08);
     pole.position.y = 2.05;
-    const tip = new Mesh(box, MATERIALS.cyanhot);
+    const tip = new Mesh(PERSON_SPHERE, MATERIALS.cyanhot);
     tip.scale.set(0.16, 0.16, 0.16);
     tip.position.y = 2.38;
     node.add(pole, tip);
   } else if (hat === "visor") {
     // Open-top sun visor: a band across the forehead + a brim forward.
     // (Was falling through to the crown — the server grants "visor".)
-    const band = new Mesh(box, MATERIALS.black);
+    const band = new Mesh(PERSON_DISC, MATERIALS.black);
     band.scale.set(0.46, 0.1, 0.46);
     band.position.y = 1.88;
-    const brim = new Mesh(box, MATERIALS.black);
+    const brim = new Mesh(PERSON_ROUNDED, MATERIALS.black);
     brim.scale.set(0.4, 0.06, 0.26);
     brim.position.set(0, 1.84, 0.3);
     node.add(band, brim);
   } else if (hat === "tophat") {
-    const crownTop = new Mesh(box, MATERIALS.black);
+    const crownTop = new Mesh(PERSON_DISC, MATERIALS.black);
     crownTop.scale.set(0.36, 0.52, 0.36);
     crownTop.position.y = 2.1;
-    const brim = new Mesh(box, MATERIALS.black);
+    const brim = new Mesh(PERSON_DISC, MATERIALS.black);
     brim.scale.set(0.56, 0.07, 0.56);
     brim.position.y = 1.84;
-    const band = new Mesh(box, GOLD);
+    const band = new Mesh(PERSON_DISC, GOLD);
     band.scale.set(0.38, 0.1, 0.38);
     band.position.y = 1.9;
     node.add(crownTop, brim, band);
   } else if (hat === "beanie") {
-    const cap = new Mesh(box, MATERIALS.black);
+    const cap = new Mesh(PERSON_SPHERE, MATERIALS.black);
     cap.scale.set(0.46, 0.2, 0.46);
     cap.position.y = 1.88;
-    const fold = new Mesh(box, MATERIALS.gray);
+    const fold = new Mesh(PERSON_DISC, MATERIALS.gray);
     fold.scale.set(0.48, 0.08, 0.48);
     fold.position.y = 1.8;
-    const pom = new Mesh(box, MATERIALS.gray);
+    const pom = new Mesh(PERSON_SPHERE, MATERIALS.gray);
     pom.scale.set(0.14, 0.12, 0.14);
     pom.position.y = 2.02;
     node.add(cap, fold, pom);
   } else if (hat === "headphones") {
-    const band = new Mesh(box, MATERIALS.black);
-    band.scale.set(0.5, 0.07, 0.14);
+    const band = new Mesh(PERSON_CAPSULE_X, MATERIALS.black);
+    band.scale.set(0.25, 0.07, 0.14);
     band.position.y = 1.92;
-    const cupL = new Mesh(box, MATERIALS.gray);
+    const cupL = new Mesh(PERSON_ROUNDED, MATERIALS.gray);
     cupL.scale.set(0.1, 0.2, 0.16);
     cupL.position.set(-0.24, 1.7, 0);
-    const cupR = new Mesh(box, MATERIALS.gray);
+    const cupR = new Mesh(PERSON_ROUNDED, MATERIALS.gray);
     cupR.scale.set(0.1, 0.2, 0.16);
     cupR.position.set(0.24, 1.7, 0);
     node.add(band, cupL, cupR);
   } else {
-    const crown = new Mesh(box, GOLD);
+    const crown = new Mesh(PERSON_DISC, GOLD);
     crown.scale.set(0.5, 0.22, 0.5);
     crown.position.y = 1.92;
-    const point = new Mesh(box, GOLD);
+    const point = new Mesh(PERSON_CONE, GOLD);
     point.scale.set(0.16, 0.22, 0.16);
     point.position.y = 2.12;
     node.add(crown, point);
   }
   group.add(node);
 }
-
-// Shared unit box for paintPerson's shop-hat post-process (visor /
-// tophat / headphones are not branches in avatar.ts dressPerson, so the
-// local player would otherwise render no hat at all for them).
-const HAT_BOX = new BoxGeometry(1, 1, 1);
 
 function makeCar(skin: string, style: number, vehicleId?: string) {
   // Catalog car — buildVehicle already returns rotation.order YXZ, named
@@ -1647,6 +1663,30 @@ export function wantsTouch() {
   if (params.get("touch") === "1") return true;
   if (params.get("touch") === "0") return false;
   return window.matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
+}
+
+// --- Boost flame + drift smoke (realistic overhaul, 2026-11-24) --------
+// Soft radial puff texture for the drift-smoke sprites (lazy — only
+// built when a car first drifts, so node/test imports never touch the
+// DOM). The flames themselves are cones buildVehicle() mounts at the
+// exhausts (vehicles.ts); drive() just flares them.
+let smokeTexture: CanvasTexture | null = null;
+function getSmokeTexture(): CanvasTexture {
+  if (smokeTexture) return smokeTexture;
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const grad = ctx.createRadialGradient(32, 32, 4, 32, 32, 30);
+    grad.addColorStop(0, "rgba(255,255,255,0.85)");
+    grad.addColorStop(0.6, "rgba(255,255,255,0.35)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 64, 64);
+  }
+  smokeTexture = new CanvasTexture(canvas);
+  return smokeTexture;
 }
 
 export function createRuntime(scene: Scene) {
@@ -9753,6 +9793,54 @@ export function createRuntime(scene: Scene) {
     return axes;
   }
 
+  // Drift-smoke pool: 24 sprites living in the scene, reused across
+  // cars. A puff spawns at a rear wheel's world position while the car
+  // slides, then grows + fades over ~0.9s. updateSmoke() runs every
+  // frame from after(), so puffs fade even after the player exits.
+  const smokePool: Sprite[] = [];
+  const smokeLife: number[] = [];
+  function ensureSmokePool() {
+    if (smokePool.length) return;
+    const tex = getSmokeTexture();
+    for (let i = 0; i < 24; i++) {
+      const s = new Sprite(new SpriteMaterial({ map: tex, color: 0xcfd3da, transparent: true, opacity: 0, depthWrite: false }));
+      s.scale.setScalar(0.01);
+      s.visible = false;
+      scene.add(s);
+      smokePool.push(s);
+      smokeLife.push(1);
+    }
+  }
+  let smokeIdx = 0;
+  let smokeClock = 0;
+  function spawnSmoke(x: number, y: number, z: number) {
+    ensureSmokePool();
+    const idx = smokeIdx;
+    smokeIdx = (smokeIdx + 1) % smokePool.length;
+    const s = smokePool[idx];
+    s.position.set(x, y, z);
+    s.scale.setScalar(0.8);
+    (s.material as SpriteMaterial).opacity = 0.55;
+    s.visible = true;
+    smokeLife[idx] = 0;
+  }
+  function updateSmoke(dt: number) {
+    for (let i = 0; i < smokePool.length; i++) {
+      const s = smokePool[i];
+      if (!s.visible) continue;
+      smokeLife[i] += dt;
+      const t = smokeLife[i] / 0.9;
+      if (t >= 1) {
+        s.visible = false;
+        (s.material as SpriteMaterial).opacity = 0;
+        continue;
+      }
+      s.scale.setScalar(0.8 + t * 2.2);
+      (s.material as SpriteMaterial).opacity = 0.55 * (1 - t);
+      s.position.y += dt * 0.6; // smoke rises as it fades
+    }
+  }
+
   function drive(dt: number, body: Body, keys: Set<string>, blocked: (x: number, z: number) => boolean) {
     if (Date.now() < raceHoldUntil) {
       carSpeed = 0;
@@ -10011,6 +10099,35 @@ export function createRuntime(scene: Scene) {
       else if (spinning && child.name === "prop") child.rotation.x += dt * 18;
     }
     car.group.rotation.z = -car.lean;
+    // Boost flames + drift smoke (realistic overhaul): the exhaust
+    // cones buildVehicle() mounted flare while Ctrl-boosting at speed
+    // (flickering length), and the car puffs drift smoke from the rear
+    // wheels while it slides (hard steer at speed).
+    if (!isBoat) {
+      const flaring = ctrl && Math.abs(carSpeed) > 6;
+      for (const child of car.group.children) {
+        if (child.name !== "flame") continue;
+        child.visible = flaring;
+        if (flaring) child.scale.set(1, 0.8 + Math.random() * 0.5, 1);
+      }
+      const sliding = Math.abs(steerSm) > 0.45 && Math.abs(carSpeed) > 8;
+      smokeClock += dt;
+      if (sliding && smokeClock > 0.06) {
+        smokeClock = 0;
+        const fx = Math.sin(car.yaw);
+        const fz = -Math.cos(car.yaw);
+        const rx = Math.cos(car.yaw);
+        const rz = Math.sin(car.yaw);
+        const halfLen = ((car.group.userData.length as number) || 4.4) / 2;
+        for (const side of [-1, 1]) {
+          spawnSmoke(
+            car.x - fx * halfLen + rx * side * 0.8,
+            car.group.position.y + 0.25,
+            car.z - fz * halfLen + rz * side * 0.8,
+          );
+        }
+      }
+    }
     body.x = car.x;
     body.y = 0.2 + car.alt;
     body.z = car.z;
@@ -11855,6 +11972,8 @@ export function createRuntime(scene: Scene) {
     try {
     clock += dt;
     lastBody = body;
+    // Drift smoke keeps fading even when the player is not driving.
+    updateSmoke(dt);
     // PHOTO MODE: fly the free camera from the App overlay's input
     // vector (stick + look + up/down holds). The body stays frozen —
     // enterPhotoMode set paused, so the engine never moves it.
@@ -12771,7 +12890,7 @@ export function createRuntime(scene: Scene) {
     // for them — addHat renders them here instead. Beanie already has a
     // dressPerson branch; cap / antenna / crown do too.
     if (hat === "visor" || hat === "tophat" || hat === "headphones") {
-      addHat(group, HAT_BOX, hat);
+      addHat(group, hat);
     }
   }
 
