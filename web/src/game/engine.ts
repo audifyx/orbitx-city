@@ -1339,7 +1339,7 @@ export function createGame(
     const dayF = skyMat.uniforms.uDay.value as number;
     bloomPass.strength = 0.18 + 0.37 * nightF + 0.14 * (1 - nightF - dayF);
     setSignGlow(Math.max(nightF, 1 - dayF));
-    rain.lines.visible = nightF > 0.4 && !runtime.indoors();
+    rain.lines.visible = nightF > 0.4;
     if (rain.lines.visible) rain.update(dt, camera.position.x, camera.position.z);
     scene.fog = runtime.indoors() ? null : baseFog;
     const tookCamera = runtime.after(dt, player, camera, { orbit: mode === "orbit", fountain, trains: trainPoses });
