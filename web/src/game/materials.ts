@@ -554,7 +554,10 @@ interface MatSpec {
 }
 
 const SPECS: Record<Mat, MatSpec> = {
-  asphalt: { color: 0x2a2f3a, tex: "asphalt" },
+  // Wet asphalt (realistic overhaul, 2026-11-24): low roughness + a
+  // touch of metalness so the street picks up neon + env reflections
+  // like the rain-slick roads in the style videos.
+  asphalt: { color: 0x2a2f3a, tex: "asphalt", roughness: 0.42, metalness: 0.14 },
   sidewalk: { color: 0xcfd3da, tex: "cement" },
   sidewalkField: { color: 0xcfd3da, tex: "pavement", polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2 },
   plaza: { color: 0xe4e7ee, tex: "pavers" },
@@ -626,5 +629,38 @@ for (const [key, spec] of Object.entries(SPECS) as Array<[Mat, MatSpec]>) {
   MATERIALS[key] = mat;
 }
 MATERIALS.water.depthWrite = false;
+
+/**
+ * Night-glow registry (realistic overhaul, 2026-11-24): shared
+ * emissive materials whose intensity follows the time of day — neon,
+ * lamps and water glow brighter after dark. pretty.ts's setPrettyNight
+ * drives this via applyNightGlow(f) alongside its own per-facade
+ * nightMats, and engine.ts calls setPrettyNight on every time-of-day
+ * change, so one drive point covers both registries.
+ */
+export interface NightGlowEntry {
+  mat: MeshStandardMaterial;
+  day: number;
+  night: number;
+}
+const NIGHT_GLOW: NightGlowEntry[] = [];
+export function registerNightGlow(mat: MeshStandardMaterial, day: number, night: number) {
+  NIGHT_GLOW.push({ mat, day, night });
+  return mat;
+}
+export function applyNightGlow(f: number) {
+  const t = Math.max(0, Math.min(1, f));
+  for (const entry of NIGHT_GLOW) {
+    entry.mat.emissiveIntensity = entry.day + (entry.night - entry.day) * t;
+  }
+}
+// The shared neon/lamp/water materials brighten after dark.
+registerNightGlow(MATERIALS.cyan, 0.95, 1.7);
+registerNightGlow(MATERIALS.cyanhot, 1.15, 2.0);
+registerNightGlow(MATERIALS.warm, 0.85, 1.5);
+registerNightGlow(MATERIALS.red, 0.45, 1.0);
+registerNightGlow(MATERIALS.gold, 0.35, 0.8);
+registerNightGlow(MATERIALS.ceil, 0.72, 1.3);
+registerNightGlow(MATERIALS.water, 0.55, 1.2);
 
 export const GOLD = MATERIALS.gold;

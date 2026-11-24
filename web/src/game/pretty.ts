@@ -15,7 +15,7 @@ import {
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { Facade, Face } from "./city";
 import { porchPosts, porchSlab } from "./city";
-import { textureFor } from "./materials";
+import { applyNightGlow, textureFor } from "./materials";
 
 export type QualityName = "low" | "medium" | "high";
 
@@ -29,6 +29,8 @@ export function setPrettyNight(f: number) {
   for (const entry of nightMats) {
     entry.mat.emissiveIntensity = entry.day + (entry.night - entry.day) * t;
   }
+  // Also drive the shared neon/lamp/water registry in materials.ts.
+  applyNightGlow(t);
 }
 
 // Deterministic per-cell variation for the facade canvases (no rng

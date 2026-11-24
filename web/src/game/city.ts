@@ -279,6 +279,8 @@ export interface City {
   spawn: { x: number; y: number; z: number; yaw: number; pitch: number };
   focus: { x: number; y: number; z: number };
   fountain: { x: number; z: number };
+  /** Realistic palm positions (landmarks.ts renders them shaped). */
+  palms: Array<{ x: number; y: number; z: number }>;
   anchors: Anchor[];
   boards: BoardSlot[];
   cars: CarSpawn[];
@@ -308,6 +310,8 @@ const TRACK_Y = 30;
 let visualHide = false;
 const facades: Facade[] = [];
 const art: Art[] = [];
+/** Palm positions recorded by addTree (rendered shaped by landmarks.ts). */
+const palms: Array<{ x: number; y: number; z: number }> = [];
 
 // Mega buildings: superblocks east (mall) and west (OrbitX office) of the
 // plaza. Each is 58x58 and straddles the x=±72 road and the z=0 road, so
@@ -726,22 +730,14 @@ function towerSample(len: number) {
   };
 }
 
-function addTree(boxes: Box[], cols: Collider[], x: number, z: number, y0: number) {
-  put(boxes, x, y0 + 2.1, z, 0.85, 4.2, 0.85, "trunk");
+function addTree(_boxes: Box[], cols: Collider[], x: number, z: number, y0: number) {
+  // Realistic palms (2026-11-24 overhaul): the visual tree is a shaped
+  // palm rendered by landmarks.ts from the recorded positions — no more
+  // box trunk + box leaf cubes. The trunk collider stays, so walking,
+  // driving and door approaches are unchanged. The palm itself is only
+  // recorded when visuals are on (mirrors put()'s visualHide guard).
+  if (!visualHide) palms.push({ x, y: y0, z });
   cols.push(col(x, y0 + 2.1, z, 0.85, 4.2, 0.85));
-  const layers: Array<{ y: number; r: number; mat: Mat }> = [
-    { y: 4.3, r: 2, mat: "leavesDark" },
-    { y: 5.35, r: 2, mat: "leaves" },
-    { y: 6.4, r: 1, mat: "leaves" },
-  ];
-  for (const layer of layers) {
-    for (let dx = -layer.r; dx <= layer.r; dx++) {
-      for (let dz = -layer.r; dz <= layer.r; dz++) {
-        if (Math.abs(dx) === layer.r && Math.abs(dz) === layer.r) continue;
-        put(boxes, x + dx, y0 + layer.y, z + dz, 0.94, 0.94, 0.94, layer.mat);
-      }
-    }
-  }
 }
 
 function addLamp(boxes: Box[], x: number, z: number, y0 = 0) {
@@ -6259,6 +6255,7 @@ function blocked(cols: Collider[], x: number, z: number) {
 export function buildCity(seed: number): City {
   facades.length = 0;
   art.length = 0;
+  palms.length = 0;
   const rng = makeRng(seed || 1);
   const boxes: Box[] = [];
   const colliders: Collider[] = [];
@@ -6326,6 +6323,7 @@ export function buildCity(seed: number): City {
     spawn: { x: sx, y: 0, z: sz, yaw: 0, pitch: 0.44 },
     focus: { x: 0, y: Math.max(36, towerTop * 0.45), z: -10 },
     fountain: FOUNTAIN,
+    palms: [...palms],
     anchors: [...fixed.anchors, ...built.anchors, ...mall.anchors, ...office.anchors, ...emergencyParts.anchors, tower.anchor, ...station.anchors],
     boards: fixed.boards,
     zones: [...fixed.zones, ...built.zones, ...mall.zones, ...office.zones, ...emergencyParts.zones, tower.zone, ...trainLine.zones],
