@@ -12,6 +12,7 @@
  */
 import {
   CanvasTexture,
+  Color,
   DoubleSide,
   Mesh,
   MeshBasicMaterial,
@@ -54,6 +55,25 @@ export interface NeonSignOptions {
 }
 
 const texCache = new Map<string, CanvasTexture>();
+
+// --- Day/night sign glow -------------------------------------------------
+// Every sign material, so the engine can dim the neon in daylight and let
+// it blaze at dusk/night. f = 0 (day) -> 55% brightness, f = 1
+// (dusk/night) -> full. Driven per frame from engine.ts frame().
+const signMaterials = new Set<MeshBasicMaterial>();
+const signBaseColors = new Map<MeshBasicMaterial, Color>();
+function trackSignMaterial(mat: MeshBasicMaterial) {
+  signMaterials.add(mat);
+  signBaseColors.set(mat, mat.color.clone());
+}
+export function setSignGlow(f: number) {
+  const t = Math.max(0, Math.min(1, f));
+  const k = 0.55 + 0.45 * t;
+  for (const m of signMaterials) {
+    const base = signBaseColors.get(m);
+    if (base) m.color.copy(base).multiplyScalar(k);
+  }
+}
 
 function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
@@ -189,6 +209,7 @@ export function makeNeonSign(text: string, opts: NeonSignOptions): Mesh | null {
     side: opts.doubleSide ? DoubleSide : undefined,
     depthWrite: false,
   });
+  trackSignMaterial(mat);
   const mesh = new Mesh(new PlaneGeometry(opts.width, height), mat);
   mesh.name = `neon:${text}`;
   if (opts.vertical) mesh.rotation.z = Math.PI / 2;
@@ -261,6 +282,7 @@ export function makeBillboard(
     texCache.set(key, tex);
   }
   const mat = new MeshBasicMaterial({ map: tex, toneMapped: false, depthWrite: false });
+  trackSignMaterial(mat);
   const mesh = new Mesh(new PlaneGeometry(opts.width, opts.width / 2), mat);
   mesh.name = `billboard:${text}`;
   mesh.castShadow = false;

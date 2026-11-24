@@ -37,7 +37,7 @@ import {
 } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { City, Facade } from "./city";
-import { makeBillboard, makeNeonSign, NEON, type NeonColor } from "./signs";
+import { makeBillboard, makeNeonSign, type NeonColor } from "./signs";
 import type { QualityName } from "./pretty";
 
 /** Where the entrance gate stands: on the x=0 road between spawn and the plaza. */
@@ -197,16 +197,21 @@ export function buildPalms(palms: Array<{ x: number; y: number; z: number }>): G
   const trunkGeo = new CylinderGeometry(0.26, 0.42, 5.4, 8);
   const trunks = new InstancedMesh(trunkGeo, trunkMat, palms.length);
   trunks.castShadow = true;
-  // Crowns: 7 drooping frond cones merged into one geometry, top at local 0.
+  // Crowns: 7 drooping frond cones merged into one geometry. Each cone
+  // is translated so its BASE sits at the local origin and its tip
+  // extends +3, then tilted outward-down and fanned around — a real
+  // palm crown, not a spiky ball (the cones used to be centred on the
+  // origin, so half of each frond poked out the opposite side).
   const fronds: import("three").BufferGeometry[] = [];
   for (let i = 0; i < 7; i++) {
     const cone = new ConeGeometry(0.55, 3.0, 5);
+    cone.translate(0, 1.5, 0); // base at origin, tip at +3
     cone.rotateX(Math.PI / 2 + 0.62); // tip outward-down
     cone.rotateY((i / 7) * Math.PI * 2);
     cone.translate(0, -0.35, 0);
     fronds.push(cone);
   }
-  const crownGeo = mergeGeometries(fronds);
+  const crownGeo = mergeGeometries(fronds) ?? fronds[0]!;
   const crowns = new InstancedMesh(crownGeo, frondMat, palms.length);
   crowns.castShadow = true;
   // Neon trunk rings (pink), two per palm.
