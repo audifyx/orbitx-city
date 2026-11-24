@@ -4,7 +4,9 @@
 // v21 (2026-11-18): MEGA PUSH — building-entry doors, vehicle fixes, bus+train
 // operator jobs, Home Workshop 2D editor, 25 ORBITX billboards, Arcade PvP
 // pot games (Coin Flip + Dice Roll).
-const CACHE = "orbitx-city-v58";
+// v59 (2026-11-24): REALISTIC OVERHAUL — neon signs, entrance gate, shaped people
+// and cars, bloom by time of day, hero images, realistic copy.
+const CACHE = "orbitx-city-v59";
 const PRECACHE = [
   "/",
   "/index.html",
