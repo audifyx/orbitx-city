@@ -179,7 +179,6 @@ import {
   CUSTOM_PAINT_HEX,
   dirtPaintHex,
   driveParamsFor,
-  extrudedBodyMesh,
   garageCap,
   garageUpgradePrice,
   getVehicle,
@@ -1584,25 +1583,23 @@ function makeCar(skin: string, style: number, vehicleId?: string) {
   const grille = new MeshStandardMaterial({ color: 0x111318, roughness: 0.5, metalness: 0.5 });
   const chrome = new MeshStandardMaterial({ color: 0xc9ced6, roughness: 0.25, metalness: 0.8 });
   if (style === 1) {
-    // Low coupe: extruded side-profile body (shared with buildVehicle),
-    // stepped hood lid, spoiler blade on the trunk.
-    group.add(extrudedBodyMesh(body, 3.7, 0.32, 1.72, 0.42, 0.15));
+    // Low coupe: stepped hood lid, spoiler blade on the trunk.
+    add(body, 0.15, 0.42, 0, 3.7, 0.32, 1.72);
     add(body, 0.3, 0.56, 0, 1.1, 0.1, 1.5);
     add(body, -0.25, 0.68, 0, 1.55, 0.28, 1.42);
     add(glass, -0.05, 0.74, 0, 1.05, 0.18, 1.2);
     add(body, -1.55, 0.86, 0, 0.12, 0.28, 1.55);
     add(body, -1.78, 1.02, 0, 0.5, 0.07, 1.5);
   } else if (style === 2) {
-    // Tall wagon: extruded body + roof rails.
-    group.add(extrudedBodyMesh(body, 3.35, 0.62, 1.62, 0.62, 0.05));
+    // Tall wagon: roof rails.
+    add(body, 0.05, 0.62, 0, 3.35, 0.62, 1.62);
     add(body, -0.2, 1.15, 0, 2.15, 0.52, 1.5);
     add(glass, 0.2, 1.18, 0, 1.35, 0.32, 1.32);
     add(GOLD, -0.15, 1.52, 0, 0.55, 0.16, 0.7);
     add(chrome, -0.2, 1.46, 0.62, 2.0, 0.06, 0.08);
     add(chrome, -0.2, 1.46, -0.62, 2.0, 0.06, 0.08);
   } else {
-    // Sedan: extruded body + hood lid + cabin.
-    group.add(extrudedBodyMesh(body, 3.45, 0.42, 1.62, 0.5, 0.1));
+    add(body, 0.1, 0.5, 0, 3.45, 0.42, 1.62);
     add(body, 0.3, 0.64, 0, 1.0, 0.1, 1.45);
     add(body, -0.2, 0.88, 0, 1.65, 0.36, 1.42);
     add(glass, 0.02, 0.92, 0, 1.15, 0.22, 1.22);
