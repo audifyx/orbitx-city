@@ -2454,7 +2454,7 @@ function furnishShop(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   // Round 4: curved gold bullnose on the counter front + a round clock
   // on the back wall above it.
   counterBullnose(back, counterAlongX, 7.2, door, 1.08);
-  backWallClock(x0, z0, w, d, door, back);
+  sideWallClock(x0, z0, w, d, door);
   const shelfZ = [z0 + 2.3, z0 + d - 2.3];
   const goods: Mat[] = ["cyan", "gold", "red", "white", "warm", "cyan"];
   for (const z of shelfZ) {
@@ -2635,7 +2635,7 @@ function furnishCafe(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   // Round 4: curved gold bullnose on the counter front + a round clock
   // on the back wall above it.
   counterBullnose(back, alongX, 8, door, 1.18);
-  backWallClock(x0, z0, w, d, door, back);
+  sideWallClock(x0, z0, w, d, door);
   const seats: Array<[number, number]> = [
     [cx - 3.2, cz - 3.4],
     [cx + 3.2, cz - 3.4],
@@ -2708,7 +2708,7 @@ function furnishRestaurant(
   // Round 4: curved gold bullnose on the counter front + a round clock
   // on the back wall above it.
   counterBullnose(back, alongX, 8, door, 1.18);
-  backWallClock(x0, z0, w, d, door, back);
+  sideWallClock(x0, z0, w, d, door);
   const seats: Array<[number, number]> = [
     [cx - 3.2, cz - 3.4],
     [cx + 3.2, cz - 3.4],
@@ -4028,7 +4028,7 @@ function furnishHotel(boxes: Box[], cols: Collider[], x0: number, z0: number, w:
   // Round 4: curved gold bullnose on the desk front + a round clock on
   // the back wall above it.
   counterBullnose(desk, alongX, 6.4, door, 1.08);
-  backWallClock(x0, z0, w, d, door, desk);
+  sideWallClock(x0, z0, w, d, door);
   // Lobby armchairs + a small table, clear of the desk service point.
   for (const az of [cz - 4, cz + 4]) {
     // Round 4: shaped armchair instead of base + back boxes. The back
@@ -4867,12 +4867,14 @@ function counterBullnose(back: { x: number; z: number }, alongX: boolean, len: n
   }
 }
 
-/** A round wall clock on the back wall above the counter / desk. */
-function backWallClock(x0: number, z0: number, w: number, d: number, door: Face, back: { x: number; z: number }) {
-  const rot = door === "n" ? Math.PI : door === "s" ? 0 : door === "w" ? -Math.PI / 2 : Math.PI / 2;
-  const x = door === "n" || door === "s" ? back.x : door === "w" ? x0 + w - 1.35 : x0 + 1.35;
-  const z = door === "n" ? z0 + d - 1.35 : door === "s" ? z0 + 1.35 : back.z;
-  wallClock(x, 2.6, z, rot);
+/** A round wall clock on the side wall near the back corner. The back
+ * wall carries the zone sign (a 4.2x1.7 plane at y ~2.3), which would
+ * hide a clock hung there — the side wall is bare wallpaper at y 2.6. */
+function sideWallClock(x0: number, z0: number, w: number, d: number, door: Face) {
+  if (door === "n") wallClock(x0 + 1.35, 2.6, z0 + d - 4, Math.PI / 2);
+  else if (door === "s") wallClock(x0 + w - 1.35, 2.6, z0 + 4, -Math.PI / 2);
+  else if (door === "w") wallClock(x0 + w - 4, 2.6, z0 + 1.35, 0);
+  else wallClock(x0 + 4, 2.6, z0 + d - 1.35, Math.PI);
 }
 
 // A wall shelf with books. rotY follows voxelPainting (0 = faces +z).
