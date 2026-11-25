@@ -110,9 +110,11 @@ export function buildSeaBeach(city: City): void {
     sandStrip(city, 200, z, 320, 8);
   }
   // West strait shores (home west edge x -380..-372, NY east edge
-  // x -610..-602) and east strait shores (home east 372..380, LA west
-  // 602..610), two segments each side of the Empire/Sunset spans.
-  for (const x of [-376, -606, 376, 606]) {
+  // x -618..-610) and east strait shores (home east 372..380, LA west
+  // 610..618), two segments each side of the Empire/Sunset spans.
+  // The region-side strips sit ON the region slab, abutting the strait
+  // edge — never over the water itself.
+  for (const x of [-376, -614, 376, 614]) {
     sandStrip(city, x, -200, 8, 320);
     sandStrip(city, x, 200, 8, 320);
   }
@@ -413,7 +415,7 @@ export function buildSeaLayer(city: City, quality: QualityName): SeaLayer {
   const fishMat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, metalness: 0.05 });
   const fishMesh = new InstancedMesh(fishGeo, fishMat, Math.max(1, fish.length));
   fishMesh.frustumCulled = false;
-  fish.forEach((a, i) => {
+  fish.forEach((_a, i) => {
     color.setHex(FISH_COLORS[i % FISH_COLORS.length] as number);
     fishMesh.setColorAt(i, color);
   });
@@ -421,11 +423,11 @@ export function buildSeaLayer(city: City, quality: QualityName): SeaLayer {
   group.add(fishMesh);
 
   const dolphinCenters = [
-    { cx: -495, cz: -120, rx: 110, rz: 140 },
-    { cx: 495, cz: 120, rx: 110, rz: 140 },
+    { cx: -495, cz: -120, rx: 75, rz: 140 },
+    { cx: 495, cz: 120, rx: 75, rz: 140 },
     { cx: 0, cz: 545, rx: 160, rz: 70 },
-    { cx: -495, cz: 200, rx: 90, rz: 110 },
-    { cx: 495, cz: -220, rx: 90, rz: 110 },
+    { cx: -495, cz: 200, rx: 75, rz: 110 },
+    { cx: 495, cz: -220, rx: 75, rz: 110 },
     { cx: 150, cz: 545, rx: 120, rz: 60 },
   ];
   const dolphins = planAnimals(rng, counts.dolphins, dolphinCenters, -2.4, -2.0, 0.05, 0.09, 1.0, 1.4, 1.15, 0.55, 0.1);
@@ -437,11 +439,15 @@ export function buildSeaLayer(city: City, quality: QualityName): SeaLayer {
   dolphinMesh.frustumCulled = false;
   group.add(dolphinMesh);
 
+  // Loop radii are sized (with the ±15 centre jitter and 0.75–1.25
+  // radius jitter in planAnimals) so no loop ever leaves its strait:
+  // an animal clipping under a shore slab would read as swimming
+  // through the beach.
   const turtleCenters = [
-    { cx: -300, cz: 400, rx: 60, rz: 40 }, // off the south home beach
-    { cx: 250, cz: 690, rx: 60, rz: 40 }, // off the FL beach
-    { cx: -420, cz: -200, rx: 50, rz: 60 },
-    { cx: 420, cz: 200, rx: 50, rz: 60 },
+    { cx: -300, cz: 450, rx: 45, rz: 35 }, // off the south home beach
+    { cx: 250, cz: 650, rx: 50, rz: 30 }, // off the FL beach
+    { cx: -430, cz: -200, rx: 25, rz: 50 },
+    { cx: 430, cz: 200, rx: 25, rz: 50 },
   ];
   const turtles = planAnimals(rng, counts.turtles, turtleCenters, -1.8, -1.5, 0.02, 0.03, 0.9, 1.2, 0.2, 0.4, 0.05);
   const turtleMesh = new InstancedMesh(
@@ -453,7 +459,7 @@ export function buildSeaLayer(city: City, quality: QualityName): SeaLayer {
   group.add(turtleMesh);
 
   const sharkCenters = [
-    { cx: -495, cz: 0, rx: 100, rz: 160 },
+    { cx: -495, cz: 0, rx: 75, rz: 160 },
     { cx: 0, cz: 545, rx: 150, rz: 70 },
   ];
   const sharks = planAnimals(rng, counts.sharks, sharkCenters, -4.5, -4.0, 0.025, 0.035, 1.3, 1.6, 0.3, 0.5, 0.08);
@@ -469,7 +475,7 @@ export function buildSeaLayer(city: City, quality: QualityName): SeaLayer {
     { cx: -430, cz: 40, rx: 10, rz: 12 }, // drifting by the west-home dock
     { cx: 430, cz: -40, rx: 10, rz: 12 }, // by the east-home dock
     { cx: 40, cz: 430, rx: 12, rz: 10 }, // by the south-home dock
-    { cx: -40, cz: 680, rx: 10, rz: 12 },
+    { cx: -40, cz: 670, rx: 10, rz: 12 },
   ];
   const jellies = planAnimals(rng, counts.jellies, jellyCenters, -1.5, -1.3, 0.04, 0.06, 0.8, 1.2, 0.25, 0.8, 0.03);
   const jellyMesh = new InstancedMesh(
