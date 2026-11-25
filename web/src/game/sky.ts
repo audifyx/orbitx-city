@@ -266,6 +266,7 @@ function circlePoints(cx: number, cz: number, r: number, n: number): Array<{ x: 
 
 const CLOTHES = ["#1d3248", "#522620", "#2a2a2e", "#e8e4da", "#c9a227", "#0f766e", "#7a4fd0", "#b3402e", "#3d5a3a", "#5b4a68"];
 const SKINS = ["#f1c27d", "#e0ac69", "#c68642", "#8d5524", "#ffdbac"];
+const HAIR = ["#1a1a1a", "#3a2a1a", "#6b6b6b", "#8a5a2a", "#2a1a12"];
 const CAR_PAINTS = ["#d43a2e", "#e0b33a", "#e8ecf2", "#16181f", "#0aa5a0", "#ff2ea6", "#c9ced6"];
 
 export function buildSkyLayer(city: City, quality: QualityName): SkyLayer {
@@ -508,10 +509,10 @@ export function buildSkyLayer(city: City, quality: QualityName): SkyLayer {
   if (quality !== "low") {
     const ringN = quality === "high" ? 8 : 5;
     for (let i = 0; i < ringN; i++) {
-      walkers.push(walkerFromPoints(circlePoints(fountain.x, fountain.z, 6.2, 12), true, 0.9 + rng() * 0.5, 0.92 + rng() * 0.16, rng()));
+      walkers.push(walkerFromPoints(circlePoints(fountain.x, fountain.z, 6.2, 12), true, 0.9 + rng() * 0.5, 0.88 + rng() * 0.24, rng()));
     }
     for (let i = 0; i < ringN; i++) {
-      walkers.push(walkerFromPoints(circlePoints(fountain.x, fountain.z, 7.4, 12), true, 0.9 + rng() * 0.5, 0.92 + rng() * 0.16, rng()));
+      walkers.push(walkerFromPoints(circlePoints(fountain.x, fountain.z, 7.4, 12), true, 0.9 + rng() * 0.5, 0.88 + rng() * 0.24, rng()));
     }
     const perN = quality === "high" ? 14 : 8;
     // Notched around the Tower: the Tower (x -14..14, z -29..-3) + its
@@ -523,7 +524,7 @@ export function buildSkyLayer(city: City, quality: QualityName): SkyLayer {
       { x: 17, z: -27 }, { x: 27, z: -27 }, { x: 27, z: 27 }, { x: -27, z: 27 },
     ];
     for (let i = 0; i < perN; i++) {
-      walkers.push(walkerFromPoints(per, true, 1.0 + rng() * 0.6, 0.92 + rng() * 0.16, rng()));
+      walkers.push(walkerFromPoints(per, true, 1.0 + rng() * 0.6, 0.88 + rng() * 0.24, rng()));
     }
     const segN = quality === "high" ? 13 : 7;
     let placed = 0;
@@ -551,12 +552,13 @@ export function buildSkyLayer(city: City, quality: QualityName): SkyLayer {
       if (blocked) continue;
       placed++;
       for (let k = 0; k < 2; k++) {
-        walkers.push(walkerFromPoints(seg, false, 0.8 + rng() * 0.5, 0.92 + rng() * 0.16, rng()));
+        walkers.push(walkerFromPoints(seg, false, 0.8 + rng() * 0.5, 0.88 + rng() * 0.24, rng()));
       }
     }
   }
   let crowdBodies: InstancedMesh | null = null;
   let crowdHeads: InstancedMesh | null = null;
+  let crowdLegs: InstancedMesh | null = null;
   if (walkers.length) {
     // Shaped people (round-1 look): capsule torso + sphere head, NO boxes.
     const bodyGeo = new CapsuleGeometry(0.5, 1, 4, 10);
@@ -567,16 +569,36 @@ export function buildSkyLayer(city: City, quality: QualityName): SkyLayer {
     crowdBodies.frustumCulled = false;
     crowdHeads = new InstancedMesh(headGeo, headMat, walkers.length);
     crowdHeads.frustumCulled = false;
+    // Round 4: two swinging legs per walker (one extra InstancedMesh
+    // draw for BOTH legs — 2 instances per walker, shared geometry +
+    // material, per-instance colour from the body palette). The leg
+    // geometry is translated so its TOP sits at the pivot (y 0): the
+    // per-frame rotation.x swings the foot around the hip. Off on low
+    // quality, like the crowds themselves (no walkers at all there).
+    const legGeo = new CapsuleGeometry(0.5, 1, 4, 8);
+    legGeo.translate(0, -1, 0);
+    const legMat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.72, metalness: 0.05 });
+    crowdLegs = new InstancedMesh(legGeo, legMat, walkers.length * 2);
+    crowdLegs.frustumCulled = false;
     const c = new Color();
     for (let i = 0; i < walkers.length; i++) {
       c.set(CLOTHES[i % CLOTHES.length] as string);
       crowdBodies.setColorAt(i, c);
-      c.set(SKINS[Math.floor(rng() * SKINS.length)] as string);
+      crowdLegs.setColorAt(i * 2, c);
+      crowdLegs.setColorAt(i * 2 + 1, c);
+      // Round 4: a quarter of the crowd reads as haired/hatted — a dark
+      // hair colour on the head instance instead of a skin tone.
+      if (rng() < 0.25) {
+        c.set(HAIR[Math.floor(rng() * HAIR.length)] as string);
+      } else {
+        c.set(SKINS[Math.floor(rng() * SKINS.length)] as string);
+      }
       crowdHeads.setColorAt(i, c);
     }
     if (crowdBodies.instanceColor) crowdBodies.instanceColor.needsUpdate = true;
     if (crowdHeads.instanceColor) crowdHeads.instanceColor.needsUpdate = true;
-    group.add(crowdBodies, crowdHeads);
+    if (crowdLegs.instanceColor) crowdLegs.instanceColor.needsUpdate = true;
+    group.add(crowdBodies, crowdHeads, crowdLegs);
   }
 
   const pose = { x: 0, z: 0, yaw: 0 };
@@ -703,6 +725,11 @@ export function buildSkyLayer(city: City, quality: QualityName): SkyLayer {
 
     // Crowds.
     if (crowdBodies && crowdHeads) {
+      // Legs swing in the walker's facing frame: yaw first, then the
+      // pitch around the hip (Euler YXZ). The shared dummy is also
+      // used for flyers/drones with a single yaw axis, where the order
+      // makes no difference.
+      dummy.rotation.order = "YXZ";
       for (let i = 0; i < walkers.length; i++) {
         const w = walkers[i] as Walker;
         w.dist += w.dir * w.speed * clampedDt;
@@ -726,9 +753,26 @@ export function buildSkyLayer(city: City, quality: QualityName): SkyLayer {
         dummy.scale.setScalar(0.34 * w.scale);
         dummy.updateMatrix();
         crowdHeads.setMatrixAt(i, dummy.matrix);
+        // Round 4: legs swing with the walker's phase/speed, opposite
+        // legs opposite phase, same cadence as the bob. Hip at
+        // 0.55 * scale, leg 0.55 * scale long, so the foot plants at
+        // ground level at rest.
+        if (crowdLegs) {
+          const swing = Math.sin(t * 5 * w.speed + w.phase * 9) * 0.45;
+          for (let l = 0; l < 2; l++) {
+            const side = l === 0 ? -0.11 : 0.11;
+            rotOffset(side, 0, pose.yaw, off);
+            dummy.position.set(pose.x + off.x, (0.55 + bob) * w.scale, pose.z + off.z);
+            dummy.rotation.set(l === 0 ? swing : -swing, pose.yaw, 0);
+            dummy.scale.set(0.13 * w.scale, 0.275 * w.scale, 0.13 * w.scale);
+            dummy.updateMatrix();
+            crowdLegs.setMatrixAt(i * 2 + l, dummy.matrix);
+          }
+        }
       }
       crowdBodies.instanceMatrix.needsUpdate = true;
       crowdHeads.instanceMatrix.needsUpdate = true;
+      if (crowdLegs) crowdLegs.instanceMatrix.needsUpdate = true;
     }
   }
 
