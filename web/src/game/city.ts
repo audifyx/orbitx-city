@@ -117,6 +117,19 @@ export interface Facade {
    * the face centre (district office upper towers: the lift balcony slot
    * on the east face). */
   glassSkip?: { face: Face; from: number; to: number };
+  /** Stepped shell (round-2 de-boxing): one hollow segment per step,
+   * recorded from the shell loop's setback decisions — the ground step
+   * carries the door gap, upper steps are sealed. When present, pretty
+   * renders a stepped hollow shell instead of one flat box. This replaces
+   * the old `tiers` field (solid sealed stacks with no door gap) for
+   * enterable blocks. */
+  steps?: Array<{ x: number; z: number; w: number; d: number; h: number; y0: number }>;
+  /** Tapered tower: the top of the shell is `taper` × the base footprint
+   * (0.55..0.95). Pretty renders the upper shell as a square frustum
+   * instead of a straight box. Visual only — colliders stay full-width. */
+  taper?: number;
+  /** Rounded glass corner columns on the ground step (street level). */
+  roundedCorners?: boolean;
 }
 
 export interface Collider {
@@ -281,6 +294,24 @@ export interface City {
   fountain: { x: number; z: number };
   /** Realistic palm positions (landmarks.ts renders them shaped). */
   palms: Array<{ x: number; y: number; z: number }>;
+  /** Street props recorded by city.ts, rendered shaped by landmarks.ts
+   * (round-2 de-boxing — the old box puts are gone, colliders stay). */
+  benches: Array<{ x: number; z: number; alongX: boolean }>;
+  planters: Array<{ x: number; z: number }>;
+  bins: Array<{ x: number; z: number; i: number }>;
+  lamps: Array<{ x: number; z: number; y0: number }>;
+  kiosks: Array<{ x: number; z: number; top: Mat }>;
+  fuelStations: Array<{ x: number; z: number; axis: "ew" | "ns" }>;
+  chargePoints: Array<{ x: number; z: number; axis: "ew" | "ns" }>;
+  trafficLights: Array<{ x: number; z: number }>;
+  /** Voxel discs, recorded for shaped rendering (real cylinders/rings). */
+  discs: Array<{ x: number; y: number; z: number; r: number; h: number; mat: Mat; hole: number }>;
+  /** Beveled curb runs (trapezoid prisms) along road edges. */
+  curbs: Array<{ x: number; z: number; len: number; alongX: boolean }>;
+  /** Gold bollards ringing the plaza (rendered as cylinders). */
+  bollards: Array<{ x: number; z: number }>;
+  /** Bus shelter / station canopies (rendered as barrel vaults). */
+  shelters: Array<{ x: number; z: number; axis: "ns" | "ew"; rw: number; rd: number; y: number }>;
   anchors: Anchor[];
   boards: BoardSlot[];
   cars: CarSpawn[];
@@ -312,6 +343,25 @@ const facades: Facade[] = [];
 const art: Art[] = [];
 /** Palm positions recorded by addTree (rendered shaped by landmarks.ts). */
 const palms: Array<{ x: number; y: number; z: number }> = [];
+/** Street-prop positions recorded by the add* builders below (rendered
+ * shaped by landmarks.ts — same record+render pattern as the palms). */
+const benches: Array<{ x: number; z: number; alongX: boolean }> = [];
+const planters: Array<{ x: number; z: number }> = [];
+const bins: Array<{ x: number; z: number; i: number }> = [];
+const lamps: Array<{ x: number; z: number; y0: number }> = [];
+const kiosks: Array<{ x: number; z: number; top: Mat }> = [];
+const fuelStations: Array<{ x: number; z: number; axis: "ew" | "ns" }> = [];
+const chargePoints: Array<{ x: number; z: number; axis: "ew" | "ns" }> = [];
+const trafficLights: Array<{ x: number; z: number }> = [];
+const discs: Array<{ x: number; y: number; z: number; r: number; h: number; mat: Mat; hole: number }> = [];
+const curbs: Array<{ x: number; z: number; len: number; alongX: boolean }> = [];
+const bollards: Array<{ x: number; z: number }> = [];
+
+/** One beveled curb run: centre + length along its axis. */
+function recordCurb(x: number, z: number, len: number, alongX: boolean) {
+  if (len < 1) return;
+  curbs.push({ x, z, len, alongX });
+}
 
 // Mega buildings: superblocks east (mall) and west (OrbitX office) of the
 // plaza. Each is 58x58 and straddles the x=±72 road and the z=0 road, so
@@ -353,38 +403,33 @@ function col(x: number, y: number, z: number, sx: number, sy: number, sz: number
   };
 }
 
-// FUEL NETWORK: one gas-station forecourt — two pumps under a canopy,
-// gold price board on top. `axis` is the forecourt's long axis: "ew"
-// runs the pumps along x (the original Motors layout), "ns" rotates
-// the whole forecourt 90° so it fronts an east-west avenue. Meshes and
-// colliders are exactly the original station's when axis is "ew".
-function addFuelStation(boxes: Box[], cols: Collider[], cx: number, cz: number, axis: "ew" | "ns") {
+// FUEL NETWORK: one gas-station forecourt. Recorded for shaped rendering
+// by landmarks.ts (round canopy, cylinder pumps/posts) — the old flat
+// canopy + box pumps are gone. Colliders stay exactly the original
+// station's, so driving and walking are unchanged.
+function addFuelStation(_boxes: Box[], cols: Collider[], cx: number, cz: number, axis: "ew" | "ns") {
+  if (!visualHide) fuelStations.push({ x: cx, z: cz, axis });
   const along = (d: number): { x: number; z: number } => (axis === "ew" ? { x: cx + d, z: cz } : { x: cx, z: cz + d });
   const across = (dx: number, dz: number): { x: number; z: number } => (axis === "ew" ? { x: cx + dx, z: cz + dz } : { x: cx + dz, z: cz + dx });
   for (const d of [-2, 2]) {
     const p = along(d);
-    put(boxes, p.x, 0.7, p.z, axis === "ew" ? 0.9 : 0.7, 1.4, axis === "ew" ? 0.7 : 0.9, "white");
-    put(boxes, p.x, 1.52, p.z, axis === "ew" ? 1.0 : 0.8, 0.18, axis === "ew" ? 0.8 : 1.0, "gold");
     cols.push(col(p.x, 0.8, p.z, axis === "ew" ? 0.9 : 0.7, 1.6, axis === "ew" ? 0.7 : 0.9));
   }
   for (const dx of [-3.5, 3.5]) {
     for (const dz of [-3, 3]) {
       const p = across(dx, dz);
-      put(boxes, p.x, 1.7, p.z, 0.28, 3.4, 0.28, "black");
+      cols.push(col(p.x, 1.7, p.z, 0.28, 3.4, 0.28));
     }
   }
-  put(boxes, cx, 3.55, cz, axis === "ew" ? 9 : 8, 0.3, axis === "ew" ? 8 : 9, "white");
-  put(boxes, cx, 3.95, cz, axis === "ew" ? 3.4 : 0.6, 0.55, axis === "ew" ? 0.6 : 3.4, "gold");
 }
 
-// FUEL NETWORK: one EV charge point — two charge posts side by side
-// along the point's axis, at the original plaza offsets (-1 / +1.4).
-function addChargePoint(boxes: Box[], cols: Collider[], cx: number, cz: number, axis: "ew" | "ns") {
+// FUEL NETWORK: one EV charge point — recorded for shaped rendering
+// (cylinder posts + cyan glow rings). Colliders stay the originals.
+function addChargePoint(_boxes: Box[], cols: Collider[], cx: number, cz: number, axis: "ew" | "ns") {
+  if (!visualHide) chargePoints.push({ x: cx, z: cz, axis });
   for (const d of [-1, 1.4]) {
     const px = axis === "ew" ? cx + d : cx;
     const pz = axis === "ew" ? cz : cz + d;
-    put(boxes, px, 0.6, pz, axis === "ew" ? 0.55 : 0.45, 1.2, axis === "ew" ? 0.45 : 0.55, "black");
-    put(boxes, px, 1.32, pz, axis === "ew" ? 0.6 : 0.5, 0.14, axis === "ew" ? 0.5 : 0.6, "cyanhot");
     cols.push(col(px, 0.7, pz, axis === "ew" ? 0.55 : 0.45, 1.4, axis === "ew" ? 0.45 : 0.55));
   }
 }
@@ -740,55 +785,46 @@ function addTree(_boxes: Box[], cols: Collider[], x: number, z: number, y0: numb
   cols.push(col(x, y0 + 2.1, z, 0.85, 4.2, 0.85));
 }
 
-function addLamp(boxes: Box[], x: number, z: number, y0 = 0) {
-  put(boxes, x, y0 + 2.15, z, 0.26, 4.3, 0.26, "black");
-  put(boxes, x, y0 + 4.42, z, 0.78, 0.16, 0.78, "black");
-  put(boxes, x, y0 + 4.18, z, 0.55, 0.48, 0.55, "cyan");
+function addLamp(_boxes: Box[], x: number, z: number, y0 = 0) {
+  // Shaped street lamp (landmarks.ts): tapered cylinder pole + warm
+  // globe. The old box pole + box head are gone; no collider (lamps
+  // never had one — the player walks through the post's old spot, as
+  // before).
+  if (!visualHide) lamps.push({ x, z, y0 });
 }
 
-function addBench(boxes: Box[], cols: Collider[], x: number, z: number, alongX: boolean) {
+function addBench(_boxes: Box[], cols: Collider[], x: number, z: number, alongX: boolean) {
+  // Shaped bench (landmarks.ts): sloped wood seat + tilted backrest +
+  // cylinder legs. Collider stays the original seat box.
+  if (!visualHide) benches.push({ x, z, alongX });
   const sx = alongX ? 1.7 : 0.5;
   const sz = alongX ? 0.5 : 1.7;
-  // Wooden slats (the AI demo's sidewalks have wooden benches) + legs so
-  // the seat no longer floats.
-  put(boxes, x, 0.48, z, sx, 0.16, sz, "trunk");
-  put(boxes, x, 0.78, z, alongX ? sx : 0.16, 0.5, alongX ? 0.16 : sz, "trunk");
-  const lx = alongX ? 0.7 : 0;
-  const lz = alongX ? 0 : 0.7;
-  put(boxes, x - lx, 0.2, z - lz, 0.12, 0.4, 0.12, "black");
-  put(boxes, x + lx, 0.2, z + lz, 0.12, 0.4, 0.12, "black");
   cols.push(col(x, 0.55, z, sx, 0.7, sz));
 }
 
-// Street trash bins (world-quality upgrade 2026-11-13): the AI demo's
-// sidewalks have coloured bins by the shops (black, grey, green). One
-// body + lid, door-guarded like the lamps so a bin never lands in a
-// door walk-up.
-const BIN_MATS: Mat[] = ["black", "gray", "leaves"];
-function addBin(boxes: Box[], cols: Collider[], x: number, z: number, i: number) {
-  put(boxes, x, 0.5, z, 0.7, 1.0, 0.7, BIN_MATS[i % BIN_MATS.length]);
-  put(boxes, x, 1.06, z, 0.78, 0.12, 0.78, "gray");
+// Street trash bins (world-quality upgrade 2026-11-13): recorded for
+// shaped rendering (cylinder body + lid, colour by index — see
+// landmarks.ts BIN_COLORS), door-guarded like the lamps so a bin never
+// lands in a door walk-up. Collider stays.
+function addBin(_boxes: Box[], cols: Collider[], x: number, z: number, i: number) {
+  if (!visualHide) bins.push({ x, z, i });
   cols.push(col(x, 0.55, z, 0.7, 1.1, 0.7));
 }
 
-// Street planters (world-quality upgrade 2026-11-13): the AI demo's
-// sidewalks have grey planters with a green shrub beside the benches.
-// One stone tub + a leaves shrub, door-guarded like the lamps.
-function addPlanter(boxes: Box[], cols: Collider[], x: number, z: number) {
-  put(boxes, x, 0.35, z, 0.9, 0.7, 0.9, "gray");
-  put(boxes, x, 0.95, z, 0.7, 0.5, 0.7, "leaves");
-  put(boxes, x, 1.3, z, 0.45, 0.3, 0.45, "leavesDark");
+// Street planters (world-quality upgrade 2026-11-13): recorded for shaped
+// rendering (tapered cylinder tub + sphere shrubs), door-guarded like
+// the lamps. Collider stays.
+function addPlanter(_boxes: Box[], cols: Collider[], x: number, z: number) {
+  if (!visualHide) planters.push({ x, z });
   cols.push(col(x, 0.6, z, 0.9, 1.2, 0.9));
 }
 
-function disc(boxes: Box[], cx: number, cy: number, cz: number, r: number, h: number, mat: Mat, hole = 0) {
-  const R = Math.ceil(r);
-  for (let x = -R; x <= R; x++) {
-    for (let z = -R; z <= R; z++) {
-      const d = Math.hypot(x, z);
-      if (d <= r && d >= hole) put(boxes, cx + x, cy, cz + z, 0.96, h, 0.96, mat);
-    }
-  }
+function disc(_boxes: Box[], cx: number, cy: number, cz: number, r: number, h: number, mat: Mat, hole = 0) {
+  // Round-2 de-boxing: a "disc" of 1x1 boxes reads as a pixelated circle
+  // from above (fountain tiers, roulette table, pond, rope coil).
+  // Recorded for shaped rendering (real cylinders / flat rings) instead.
+  if (visualHide) return;
+  discs.push({ x: cx, y: cy, z: cz, r, h, mat, hole });
 }
 
 function holoOn(c: number, r: number, cols: number, rows: number, kind: number) {
@@ -1200,7 +1236,7 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
       if (dist < 62 && rng() > 0.72) height += 8;
       height = Math.min(height, 54);
       // Outer blocks read residential (brick / cream); downtown uses all styles.
-      const style = dist > 100 ? (rng() < 0.5 ? 1 : 3) : Math.floor(rng() * 6);
+      let style = dist > 100 ? (rng() < 0.5 ? 1 : 3) : Math.floor(rng() * 6);
       const face = frontFace(cx, cz);
       // Front yard: set the building back 3 units on its street face so the
       // outside reads finished — lawn, path, hedge, tree — not a bare slab.
@@ -1322,7 +1358,23 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
           awning = varRng() < 0.7;
         }
       }
-      facades.push({
+      // Round-2 de-boxing (glass / taper / rounded corners): tall downtown
+      // blocks get real curtain glass (not the baked window-grid texture),
+      // a tapered top on the tallest, and glass corner columns on some.
+      // Brick/stone styles (1, 3) keep their masonry look. Draws only on
+      // varRng, so the main sequence never moves.
+      let glass: Facade["glass"];
+      let taper: number | undefined;
+      let roundedCorners = false;
+      if (downtown && height > 24) {
+        glass = "curtain";
+        if (style === 1 || style === 3) style = varRng() < 0.5 ? 0 : 5;
+        if (height > 30) taper = 0.72 + varRng() * 0.13;
+        roundedCorners = varRng() < 0.35;
+      } else if (downtown && height > 12 && style !== 1 && style !== 3 && varRng() < 0.6) {
+        glass = "curtain";
+      }
+      const facadeRec: Facade = {
         id: `block-${x0}-${z0}`,
         x: fbx,
         z: fbz,
@@ -1332,10 +1384,12 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
         style,
         // 2026-11-12: blocks are real buildings now — a door on the
         // street face and a furnished ground floor (see the shell loop
-        // below). `tiers` is dropped on purpose: pretty renders tiered
+        // below). `tiers` stays dropped on purpose: pretty renders tiered
         // facades as solid stacked boxes with no door gap, so a tiered
-        // block would stay sealed; as a flat hollow shell it reads as a
-        // tall enterable building instead.
+        // block would stay sealed. The stepped silhouette comes from
+        // `steps` instead (recorded from the shell loop below): the same
+        // setback tower, rendered as a stepped hollow shell with the door
+        // gap only on the ground step.
         door: face,
         enterable: true,
         hero: false,
@@ -1348,16 +1402,26 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
         cornice,
         chimney,
         wing,
-      });
+        glass,
+        taper,
+        roundedCorners,
+      };
+      facades.push(facadeRec);
       const baseX = fbx;
       const baseZ = fbz;
       const baseW = fbw;
       const baseD = fbd;
+      // Stepped shell: record each shell-loop slice's rect + base Y. The
+      // shell loop advances y by slice+1 (each slice's roof slab), so step
+      // heights are the gaps between successive bases, with the last step
+      // running to the facade top — the pretty shell is exactly h tall.
+      const steps: Array<{ x: number; z: number; w: number; d: number; h: number; y0: number }> = [];
       let y = 0;
       let guard = 0;
       while (y < height && guard < 8) {
         guard++;
         const slice = Math.min(8, height - y);
+        steps.push({ x: fbx, z: fbz, w: fbw, d: fbd, h: 0, y0: y });
         if (y === 0) {
           // Ground floor: a real enterable interior, not a sealed shell.
           // shellOpen leaves the 4-wide door gap in the wall colliders
@@ -1420,6 +1484,13 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
           fbd = Math.max(8, fbd - 4);
         }
       }
+      // Fill in the recorded step heights now the loop has run: each step
+      // runs to the next step's base (or the facade top for the last one).
+      for (let i = 0; i < steps.length; i++) {
+        const s = steps[i]!;
+        s.h = (i + 1 < steps.length ? steps[i + 1]!.y0 : height) - s.y0;
+      }
+      if (steps.length > 1) facadeRec.steps = steps;
       const roofY = height + 0.42;
       // The garden roll is drawn exactly when the original code drew it;
       // a pitched roof just means the garden is not placed.
@@ -1559,32 +1630,32 @@ function addRoads(boxes: Box[]) {
   // Zebra crosswalks at every core intersection (the plaza one has none —
   // pedestrians own the plaza), curbs along road edges between intersections,
   // traffic lights at intersections, gold bollards ringing the plaza.
+  // Crosswalks are deep (2.6-long stripes, 1.0 wide) so they read from the
+  // street, not as hairlines. Curbs are recorded as beveled trapezoid runs
+  // (landmarks.ts) instead of sharp 90° boxes; traffic lights + bollards
+  // are recorded for shaped rendering too.
   for (const cx of CENTERS) {
     for (const cz of CENTERS) {
       if (cx === 0 && cz === 0) continue;
       for (const approach of [-10.5, 10.5]) {
         if (cx === 0 && Math.abs(cz + approach) < 31) continue;
         for (let i = -2; i <= 2; i++) {
-          if (inMega(cx + i * 1.5, cz + approach)) continue;
-          put(boxes, cx + i * 1.5, 0.118, cz + approach, 0.7, 0.035, 1.7, "lane");
+          if (inMega(cx + i * 1.9, cz + approach)) continue;
+          put(boxes, cx + i * 1.9, 0.118, cz + approach, 1.0, 0.035, 2.6, "lane");
         }
       }
       for (const approach of [-10.5, 10.5]) {
         if (cz === 0 && Math.abs(cx + approach) < 31) continue;
         for (let i = -2; i <= 2; i++) {
-          if (inMega(cx + approach, cz + i * 1.5)) continue;
-          put(boxes, cx + approach, 0.118, cz + i * 1.5, 1.7, 0.035, 0.7, "lane");
+          if (inMega(cx + approach, cz + i * 1.9)) continue;
+          put(boxes, cx + approach, 0.118, cz + i * 1.9, 2.6, 0.035, 1.0, "lane");
         }
       }
-      // Traffic light on the +x/+z corner: pole + head + red/amber/green.
+      // Traffic light on the +x/+z corner: recorded for shaped rendering
+      // (cylinder pole + head + glowing lenses).
       const lx = cx + 6.8;
       const lz = cz + 6.8;
-      if (inMega(lx, lz)) continue;
-      put(boxes, lx, 1.9, lz, 0.22, 3.8, 0.22, "black");
-      put(boxes, lx, 3.95, lz, 0.55, 1.1, 0.55, "black");
-      put(boxes, lx, 4.3, lz + 0.3, 0.3, 0.26, 0.1, "red");
-      put(boxes, lx, 3.95, lz + 0.3, 0.3, 0.26, 0.1, "warm");
-      put(boxes, lx, 3.6, lz + 0.3, 0.3, 0.26, 0.1, "leaves");
+      if (!inMega(lx, lz)) trafficLights.push({ x: lx, z: lz });
     }
   }
   for (const cx of CENTERS) {
@@ -1597,7 +1668,7 @@ function addRoads(boxes: Box[]) {
         if (cx === 0 && z0 < 34 && z1 > -34) continue;
         if (Math.abs(x) < 32 && z0 < 32 && z1 > -32) continue;
         if (rectHitsMega(x - 0.2, z0, x + 0.2, z1)) continue;
-        put(boxes, x, 0.09, (z0 + z1) / 2, 0.3, 0.06, z1 - z0, "stone");
+        recordCurb(x, (z0 + z1) / 2, z1 - z0, false);
       }
     }
   }
@@ -1611,13 +1682,29 @@ function addRoads(boxes: Box[]) {
         if (cz === 0 && x0 < 34 && x1 > -34) continue;
         if (Math.abs(z) < 32 && x0 < 32 && x1 > -32) continue;
         if (rectHitsMega(x0, z - 0.2, x1, z + 0.2)) continue;
-        put(boxes, (x0 + x1) / 2, 0.09, z, x1 - x0, 0.06, 0.3, "stone");
+        recordCurb((x0 + x1) / 2, z, x1 - x0, true);
       }
     }
   }
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
-    put(boxes, Math.cos(a) * 30.5, 0.35, Math.sin(a) * 30.5, 0.5, 0.7, 0.5, "gold");
+    bollards.push({ x: Math.cos(a) * 30.5, z: Math.sin(a) * 30.5 });
+  }
+  // Varied sidewalk slab tones: one thin slab per block, alternating
+  // sidewalk / stone with a warm block every seventh — the 400u field
+  // slab alone reads as one flat grey sheet. Skips the plaza + mega
+  // superblocks (their own slabs own the ground there).
+  for (let i = 0; i < CENTERS.length - 1; i++) {
+    for (let j = 0; j < CENTERS.length - 1; j++) {
+      const x0 = CENTERS[i] + 7;
+      const x1 = CENTERS[i + 1] - 7;
+      const z0 = CENTERS[j] + 7;
+      const z1 = CENTERS[j + 1] - 7;
+      if (intervalsOverlap(x0, x1, -31, 31) && intervalsOverlap(z0, z1, -31, 31)) continue;
+      if (rectHitsMega(x0, z0, x1, z1)) continue;
+      const tone: Mat = (i + j) % 7 === 0 ? "warm" : (i + j) % 2 === 0 ? "sidewalk" : "stone";
+      put(boxes, (x0 + x1) / 2, 0.06, (z0 + z1) / 2, x1 - x0, 0.04, z1 - z0, tone);
+    }
   }
 }
 
@@ -1647,8 +1734,8 @@ function addBusRoads(boxes: Box[]) {
       else put(boxes, cx, 0.1, p, 0.26, 0.04, 2.1, "lane");
     }
     for (const s of [-1, 1]) {
-      if (alongX) put(boxes, cx, 0.095, cz + s * 5.6, w - 12, 0.06, 0.3, "stone");
-      else put(boxes, cx + s * 5.6, 0.095, cz, 0.3, 0.06, d - 12, "stone");
+      if (alongX) recordCurb(cx, cz + s * 5.6, w - 12, true);
+      else recordCurb(cx + s * 5.6, cz, d - 12, false);
     }
   };
   // East detour (z=28): abuts the x=144 road at x=149, splits around the
@@ -6009,10 +6096,10 @@ function addPark(boxes: Box[], cols: Collider[], x0: number, z0: number, x1: num
   addLamp(boxes, cx, cz + 6);
 }
 
-function addKiosk(boxes: Box[], cols: Collider[], x: number, z: number, top: Mat) {
-  put(boxes, x, 0.85, z, 1.5, 1.5, 1.5, "black");
-  put(boxes, x, 1.72, z, 1.7, 0.22, 1.7, top);
-  put(boxes, x, 2.05, z, 0.4, 0.5, 0.4, "cyanhot");
+function addKiosk(_boxes: Box[], cols: Collider[], x: number, z: number, top: Mat) {
+  // Shaped kiosk (landmarks.ts): cylinder base + curved cone roof +
+  // cyan beacon. The old box body + flat cap are gone. Collider stays.
+  if (!visualHide) kiosks.push({ x, z, top });
   cols.push(col(x, 0.9, z, 1.5, 1.6, 1.5));
 }
 
@@ -6256,6 +6343,17 @@ export function buildCity(seed: number): City {
   facades.length = 0;
   art.length = 0;
   palms.length = 0;
+  benches.length = 0;
+  planters.length = 0;
+  bins.length = 0;
+  lamps.length = 0;
+  kiosks.length = 0;
+  fuelStations.length = 0;
+  chargePoints.length = 0;
+  trafficLights.length = 0;
+  discs.length = 0;
+  curbs.length = 0;
+  bollards.length = 0;
   const rng = makeRng(seed || 1);
   const boxes: Box[] = [];
   const colliders: Collider[] = [];
@@ -6324,6 +6422,18 @@ export function buildCity(seed: number): City {
     focus: { x: 0, y: Math.max(36, towerTop * 0.45), z: -10 },
     fountain: FOUNTAIN,
     palms: [...palms],
+    benches: [...benches],
+    planters: [...planters],
+    bins: [...bins],
+    lamps: [...lamps],
+    kiosks: [...kiosks],
+    fuelStations: [...fuelStations],
+    chargePoints: [...chargePoints],
+    trafficLights: [...trafficLights],
+    discs: [...discs],
+    curbs: [...curbs],
+    bollards: [...bollards],
+    shelters: [],
     anchors: [...fixed.anchors, ...built.anchors, ...mall.anchors, ...office.anchors, ...emergencyParts.anchors, tower.anchor, ...station.anchors],
     boards: fixed.boards,
     zones: [...fixed.zones, ...built.zones, ...mall.zones, ...office.zones, ...emergencyParts.zones, tower.zone, ...trainLine.zones],

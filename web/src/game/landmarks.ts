@@ -14,14 +14,21 @@
  * city.ts records (see `palms` on the City object); the old box trees are
  * no longer emitted. Colliders stay in city.ts (trunk colliders), so
  * gameplay and door approaches are unchanged.
+ * Round-2 (2026-11-24): the same record+render pattern now covers the
+ * whole street level — benches, planters, bins, lamps, kiosks, fuel
+ * stations, charge points, traffic lights, bollards, beveled curbs,
+ * voxel discs (fountain/roulette/pond) and bus-shelter vaults.
  */
 import {
+  BoxGeometry,
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
+  Color,
   ConeGeometry,
   CylinderGeometry,
   DoubleSide,
+  ExtrudeGeometry,
   Group,
   InstancedMesh,
   LineBasicMaterial,
@@ -32,11 +39,14 @@ import {
   Object3D,
   PlaneGeometry,
   PointLight,
+  RingGeometry,
+  Shape,
+  SphereGeometry,
   SRGBColorSpace,
   TorusGeometry,
 } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import type { City, Facade } from "./city";
+import type { City, Facade, Mat } from "./city";
 import { makeBillboard, makeNeonSign, type NeonColor } from "./signs";
 import type { QualityName } from "./pretty";
 
@@ -63,6 +73,27 @@ const cyanGlowMat = new MeshStandardMaterial({
   roughness: 0.3,
   metalness: 0.1,
 });
+
+// ---- round-2 street-prop materials (shaped benches / planters / bins /
+// lamps / kiosks / fuel / charge / traffic lights / curbs / discs). ----
+const globeMat = new MeshStandardMaterial({ color: 0xffe4b0, emissive: 0xffb347, emissiveIntensity: 1.6, roughness: 0.25, metalness: 0 });
+const benchWoodMat = new MeshStandardMaterial({ color: 0x7a5a3a, roughness: 0.8, metalness: 0.05 });
+const planterStoneMat = new MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.7, metalness: 0.1 });
+const shrubMat = new MeshStandardMaterial({ color: 0x37b24a, roughness: 0.8, metalness: 0 });
+const shrubDarkMat = new MeshStandardMaterial({ color: 0x2a7a33, roughness: 0.85, metalness: 0 });
+const binBodyMat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, metalness: 0.3 });
+const binLidMat = new MeshStandardMaterial({ color: 0x6a7076, roughness: 0.55, metalness: 0.4 });
+const kioskWhiteMat = new MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.5, metalness: 0.1 });
+const fuelWhiteMat = new MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.45, metalness: 0.15 });
+const curbStoneMat = new MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.7, metalness: 0.05 });
+const waterDiscMat = new MeshStandardMaterial({ color: 0x2fa8cc, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.78 });
+const stoneDiscMat = new MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.7, metalness: 0.05 });
+const warmDiscMat = new MeshStandardMaterial({ color: 0xc9a06a, roughness: 0.85, metalness: 0 });
+const blackDiscMat = new MeshStandardMaterial({ color: 0x141820, roughness: 0.6, metalness: 0.25 });
+const goldDiscMat = new MeshStandardMaterial({ color: 0xe0b33a, roughness: 0.35, metalness: 0.7 });
+const vaultGoldMat = new MeshStandardMaterial({ color: 0xe0b33a, roughness: 0.35, metalness: 0.7, side: DoubleSide });
+/** Bin body colours by index (black / grey / green — the old BIN_MATS). */
+const BIN_COLORS = [0x141820, 0x6a7076, 0x2a7a33];
 
 function mesh(geo: BufferGeometry, mat: import("three").Material, x = 0, y = 0, z = 0): Mesh {
   const m = new Mesh(geo, mat);
@@ -520,6 +551,360 @@ export function makeRain(count = 500): { lines: LineSegments; update: (dt: numbe
   return { lines, update };
 }
 
+/**
+ * Round-2 street props: shaped benches / planters / bins / lamps /
+ * kiosks / fuel stations / charge points / traffic lights / bollards,
+ * instanced from the positions city.ts records. The old box puts are
+ * gone — colliders still live in city.ts, so gameplay is unchanged.
+ */
+export function buildStreetProps(city: City): Group {
+  const g = new Group();
+  g.name = "street-props";
+  const dummy = new Object3D();
+
+  // Lamps: tapered cylinder pole + warm globe.
+  const lamps = city.lamps ?? [];
+  if (lamps.length) {
+    const poles = new InstancedMesh(new CylinderGeometry(0.07, 0.12, 4.3, 8), darkMetal, lamps.length);
+    const globes = new InstancedMesh(new SphereGeometry(0.3, 10, 8), globeMat, lamps.length);
+    lamps.forEach((l, i) => {
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(1);
+      dummy.position.set(l.x, l.y0 + 2.15, l.z);
+      dummy.updateMatrix();
+      poles.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(l.x, l.y0 + 4.45, l.z);
+      dummy.updateMatrix();
+      globes.setMatrixAt(i, dummy.matrix);
+    });
+    poles.instanceMatrix.needsUpdate = true;
+    globes.instanceMatrix.needsUpdate = true;
+    poles.castShadow = true;
+    g.add(poles, globes);
+  }
+
+  // Benches: sloped wood seat + tilted backrest + cylinder legs.
+  const benches = city.benches ?? [];
+  if (benches.length) {
+    // Seat pre-tilted so the front edge dips; backrest pre-tilted back.
+    const seatGeo = new BoxGeometry(1.7, 0.12, 0.55);
+    seatGeo.rotateX(0.12);
+    const seats = new InstancedMesh(seatGeo, benchWoodMat, benches.length);
+    const backGeo = new BoxGeometry(1.7, 0.55, 0.1);
+    backGeo.rotateX(-0.28);
+    const backs = new InstancedMesh(backGeo, benchWoodMat, benches.length);
+    const legs = new InstancedMesh(new CylinderGeometry(0.05, 0.06, 0.48, 8), darkMetal, benches.length * 2);
+    benches.forEach((b, i) => {
+      const ry = b.alongX ? 0 : Math.PI / 2;
+      dummy.rotation.set(0, ry, 0);
+      dummy.scale.setScalar(1);
+      dummy.position.set(b.x, 0.48, b.z);
+      dummy.updateMatrix();
+      seats.setMatrixAt(i, dummy.matrix);
+      // Backrest at the seat's rear edge (local -Z).
+      dummy.position.set(b.alongX ? b.x : b.x - 0.26, 0.82, b.alongX ? b.z - 0.26 : b.z);
+      dummy.updateMatrix();
+      backs.setMatrixAt(i, dummy.matrix);
+      for (let j = 0; j < 2; j++) {
+        const off = j === 0 ? -0.7 : 0.7;
+        dummy.rotation.set(0, 0, 0);
+        dummy.position.set(b.alongX ? b.x + off : b.x, 0.24, b.alongX ? b.z : b.z + off);
+        dummy.updateMatrix();
+        legs.setMatrixAt(i * 2 + j, dummy.matrix);
+      }
+    });
+    seats.instanceMatrix.needsUpdate = true;
+    backs.instanceMatrix.needsUpdate = true;
+    legs.instanceMatrix.needsUpdate = true;
+    seats.castShadow = true;
+    backs.castShadow = true;
+    g.add(seats, backs, legs);
+  }
+
+  // Planters: tapered cylinder tub + squashed sphere shrub + top tuft.
+  const planters = city.planters ?? [];
+  if (planters.length) {
+    const tubs = new InstancedMesh(new CylinderGeometry(0.55, 0.42, 0.7, 10), planterStoneMat, planters.length);
+    const shrubs = new InstancedMesh(new SphereGeometry(0.5, 8, 6), shrubMat, planters.length);
+    const tops = new InstancedMesh(new SphereGeometry(0.32, 8, 6), shrubDarkMat, planters.length);
+    planters.forEach((p, i) => {
+      const s = 0.9 + (((i * 37) % 20) / 100); // deterministic 0.9..1.09 variety
+      dummy.rotation.set(0, 0, 0);
+      dummy.position.set(p.x, 0.35, p.z);
+      dummy.scale.setScalar(1);
+      dummy.updateMatrix();
+      tubs.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(p.x, 0.95, p.z);
+      dummy.scale.set(s, s * 0.75, s);
+      dummy.updateMatrix();
+      shrubs.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(p.x + 0.15 * s, 1.28, p.z);
+      dummy.scale.setScalar(s * 0.9);
+      dummy.updateMatrix();
+      tops.setMatrixAt(i, dummy.matrix);
+    });
+    tubs.instanceMatrix.needsUpdate = true;
+    shrubs.instanceMatrix.needsUpdate = true;
+    tops.instanceMatrix.needsUpdate = true;
+    tubs.castShadow = true;
+    g.add(tubs, shrubs, tops);
+  }
+
+  // Bins: cylinder body (colour by index) + lid.
+  const bins = city.bins ?? [];
+  if (bins.length) {
+    const bodies = new InstancedMesh(new CylinderGeometry(0.34, 0.3, 1.0, 10), binBodyMat, bins.length);
+    const lids = new InstancedMesh(new CylinderGeometry(0.38, 0.38, 0.1, 10), binLidMat, bins.length);
+    bins.forEach((b, i) => {
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(1);
+      dummy.position.set(b.x, 0.5, b.z);
+      dummy.updateMatrix();
+      bodies.setMatrixAt(i, dummy.matrix);
+      bodies.setColorAt(i, new Color(BIN_COLORS[((b.i % 3) + 3) % 3]));
+      dummy.position.set(b.x, 1.05, b.z);
+      dummy.updateMatrix();
+      lids.setMatrixAt(i, dummy.matrix);
+    });
+    if (bodies.instanceColor) bodies.instanceColor.needsUpdate = true;
+    bodies.instanceMatrix.needsUpdate = true;
+    lids.instanceMatrix.needsUpdate = true;
+    bodies.castShadow = true;
+    g.add(bodies, lids);
+  }
+
+  // Kiosks: cylinder base + curved cone roof + cyan beacon.
+  for (const k of city.kiosks ?? []) {
+    const kg = new Group();
+    kg.add(mesh(new CylinderGeometry(0.85, 0.9, 1.5, 12), darkMetal, k.x, 0.75, k.z));
+    const roofMat = k.top === "cyan" ? cyanGlowMat : kioskWhiteMat;
+    kg.add(mesh(new ConeGeometry(1.15, 0.55, 12), roofMat, k.x, 1.78, k.z));
+    const beaconK = mesh(new CylinderGeometry(0.16, 0.2, 0.5, 8), cyanGlowMat, k.x, 2.3, k.z);
+    beaconK.castShadow = false;
+    kg.add(beaconK);
+    g.add(kg);
+  }
+
+  // Fuel stations: round canopy + gold rim + sign disc, cylinder posts
+  // and pumps.
+  for (const st of city.fuelStations ?? []) {
+    const fg = new Group();
+    fg.add(mesh(new CylinderGeometry(5.2, 5.2, 0.28, 24), fuelWhiteMat, st.x, 3.55, st.z));
+    const rimF = mesh(new TorusGeometry(5.2, 0.09, 8, 32), goldTrim, st.x, 3.68, st.z);
+    rimF.rotation.x = Math.PI / 2;
+    rimF.castShadow = false;
+    fg.add(rimF);
+    fg.add(mesh(new CylinderGeometry(1.0, 1.0, 0.5, 16), goldTrim, st.x, 3.95, st.z));
+    const dot = mesh(new CylinderGeometry(0.3, 0.3, 0.12, 12), cyanGlowMat, st.x, 4.25, st.z);
+    dot.castShadow = false;
+    fg.add(dot);
+    for (const dx of [-3.5, 3.5]) {
+      for (const dz of [-3, 3]) {
+        const p = st.axis === "ew" ? { x: st.x + dx, z: st.z + dz } : { x: st.x + dz, z: st.z + dx };
+        fg.add(mesh(new CylinderGeometry(0.14, 0.16, 3.4, 8), darkMetal, p.x, 1.7, p.z));
+      }
+    }
+    for (const d of [-2, 2]) {
+      const p = st.axis === "ew" ? { x: st.x + d, z: st.z } : { x: st.x, z: st.z + d };
+      fg.add(mesh(new CylinderGeometry(0.32, 0.36, 1.4, 10), fuelWhiteMat, p.x, 0.7, p.z));
+      fg.add(mesh(new CylinderGeometry(0.36, 0.36, 0.15, 10), goldTrim, p.x, 1.48, p.z));
+    }
+    g.add(fg);
+  }
+
+  // EV charge points: cylinder posts + cyan glow rings.
+  for (const cp of city.chargePoints ?? []) {
+    const cg = new Group();
+    for (const d of [-1, 1.4]) {
+      const px = cp.axis === "ew" ? cp.x + d : cp.x;
+      const pz = cp.axis === "ew" ? cp.z : cp.z + d;
+      cg.add(mesh(new CylinderGeometry(0.2, 0.24, 1.2, 10), darkMetal, px, 0.6, pz));
+      const ring = mesh(new TorusGeometry(0.24, 0.05, 8, 16), cyanGlowMat, px, 1.28, pz);
+      ring.rotation.x = Math.PI / 2;
+      ring.castShadow = false;
+      cg.add(ring);
+      cg.add(mesh(new CylinderGeometry(0.24, 0.24, 0.1, 10), darkMetal, px, 1.32, pz));
+    }
+    g.add(cg);
+  }
+
+  // Traffic lights: cylinder pole + head + glowing lenses (red/amber/green).
+  const lights = city.trafficLights ?? [];
+  if (lights.length) {
+    const tlPoles = new InstancedMesh(new CylinderGeometry(0.09, 0.13, 3.8, 8), darkMetal, lights.length);
+    const heads = new InstancedMesh(new CylinderGeometry(0.26, 0.26, 1.1, 10), darkMetal, lights.length);
+    const lenses = new InstancedMesh(
+      new SphereGeometry(0.13, 8, 6),
+      new MeshBasicMaterial({ color: 0xffffff }),
+      lights.length * 3,
+    );
+    const LENS_COLORS = [0xff2a2a, 0xffb347, 0x37b24a];
+    const LENS_Y = [4.3, 3.95, 3.6];
+    lights.forEach((t, i) => {
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(1);
+      dummy.position.set(t.x, 1.9, t.z);
+      dummy.updateMatrix();
+      tlPoles.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(t.x, 3.95, t.z);
+      dummy.updateMatrix();
+      heads.setMatrixAt(i, dummy.matrix);
+      for (let j = 0; j < 3; j++) {
+        dummy.position.set(t.x, LENS_Y[j], t.z + 0.26);
+        dummy.updateMatrix();
+        lenses.setMatrixAt(i * 3 + j, dummy.matrix);
+        lenses.setColorAt(i * 3 + j, new Color(LENS_COLORS[j]));
+      }
+    });
+    if (lenses.instanceColor) lenses.instanceColor.needsUpdate = true;
+    tlPoles.instanceMatrix.needsUpdate = true;
+    heads.instanceMatrix.needsUpdate = true;
+    lenses.instanceMatrix.needsUpdate = true;
+    tlPoles.castShadow = true;
+    g.add(tlPoles, heads, lenses);
+  }
+
+  // Plaza bollards: gold cylinders with a dome cap.
+  const bollards = city.bollards ?? [];
+  if (bollards.length) {
+    const bols = new InstancedMesh(new CylinderGeometry(0.26, 0.3, 0.7, 10), goldTrim, bollards.length);
+    const caps = new InstancedMesh(new SphereGeometry(0.26, 10, 6), goldTrim, bollards.length);
+    bollards.forEach((b, i) => {
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(1);
+      dummy.position.set(b.x, 0.35, b.z);
+      dummy.updateMatrix();
+      bols.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(b.x, 0.72, b.z);
+      dummy.updateMatrix();
+      caps.setMatrixAt(i, dummy.matrix);
+    });
+    bols.instanceMatrix.needsUpdate = true;
+    caps.instanceMatrix.needsUpdate = true;
+    bols.castShadow = true;
+    g.add(bols, caps);
+  }
+
+  return g;
+}
+
+/** Beveled curbs: trapezoid-profile prisms along the road edges, with
+ * rounded end caps at each run's ends (the sidewalk corners). */
+export function buildCurbs(curbs: Array<{ x: number; z: number; len: number; alongX: boolean }>): Group {
+  const g = new Group();
+  g.name = "curbs";
+  if (!curbs.length) return g;
+  // Trapezoid cross-section: 0.6 wide at the base, 0.32 at the top, 0.18 high.
+  const shape = new Shape();
+  shape.moveTo(-0.3, 0);
+  shape.lineTo(0.3, 0);
+  shape.lineTo(0.16, 0.18);
+  shape.lineTo(-0.16, 0.18);
+  shape.closePath();
+  const prismGeo = new ExtrudeGeometry(shape, { depth: 1, bevelEnabled: false });
+  prismGeo.translate(0, 0, -0.5);
+  const prisms = new InstancedMesh(prismGeo, curbStoneMat, curbs.length);
+  const caps = new InstancedMesh(new CylinderGeometry(0.3, 0.3, 0.2, 10), curbStoneMat, curbs.length * 2);
+  const dummy = new Object3D();
+  curbs.forEach((c, i) => {
+    dummy.position.set(c.x, 0.04, c.z);
+    dummy.rotation.set(0, c.alongX ? Math.PI / 2 : 0, 0);
+    dummy.scale.set(1, 1, c.len);
+    dummy.updateMatrix();
+    prisms.setMatrixAt(i, dummy.matrix);
+    for (let j = 0; j < 2; j++) {
+      const s = j === 0 ? -1 : 1;
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(1);
+      dummy.position.set(
+        c.alongX ? c.x + (s * c.len) / 2 : c.x,
+        0.13,
+        c.alongX ? c.z : c.z + (s * c.len) / 2,
+      );
+      dummy.updateMatrix();
+      caps.setMatrixAt(i * 2 + j, dummy.matrix);
+    }
+  });
+  prisms.instanceMatrix.needsUpdate = true;
+  caps.instanceMatrix.needsUpdate = true;
+  prisms.receiveShadow = true;
+  caps.receiveShadow = true;
+  g.add(prisms, caps);
+  return g;
+}
+
+/** Shaped discs: the old 1x1-box discs (fountain tiers, roulette table,
+ * pond, rope coil) as real cylinders; holed discs as flat water rings. */
+export function buildDiscs(
+  discs: Array<{ x: number; y: number; z: number; r: number; h: number; mat: Mat; hole: number }>,
+): Group {
+  const g = new Group();
+  g.name = "discs";
+  if (!discs.length) return g;
+  const dummy = new Object3D();
+  const byMat = new Map<string, typeof discs>();
+  for (const d of discs) {
+    if (d.hole > 0) continue; // rings handled below
+    const list = byMat.get(d.mat) ?? [];
+    list.push(d);
+    byMat.set(d.mat, list);
+  }
+  const unitCyl = new CylinderGeometry(1, 1, 1, 20);
+  const matFor: Record<string, MeshStandardMaterial> = {
+    stone: stoneDiscMat,
+    water: waterDiscMat,
+    gold: goldDiscMat,
+    black: blackDiscMat,
+    warm: warmDiscMat,
+  };
+  for (const [matName, list] of byMat) {
+    const mat = matFor[matName] ?? stoneDiscMat;
+    const inst = new InstancedMesh(unitCyl, mat, list.length);
+    list.forEach((d, i) => {
+      dummy.position.set(d.x, d.y, d.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(d.r, d.h, d.r);
+      dummy.updateMatrix();
+      inst.setMatrixAt(i, dummy.matrix);
+    });
+    inst.instanceMatrix.needsUpdate = true;
+    inst.receiveShadow = true;
+    g.add(inst);
+  }
+  // Holed discs: flat rings at the water's top surface (the basin wall
+  // hides the missing side — the water reads as a surface, as before).
+  for (const d of discs) {
+    if (d.hole <= 0) continue;
+    const ring = new Mesh(new RingGeometry(d.hole, d.r, 32), waterDiscMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(d.x, d.y + d.h / 2 + 0.01, d.z);
+    g.add(ring);
+  }
+  return g;
+}
+
+/** Bus shelter canopies as barrel vaults (gold half-cylinder shells),
+ * replacing the flat gold slabs. The vault's length runs along the
+ * shelter's long axis; the arch springs from the post tops. */
+export function buildShelterVaults(
+  shelters: Array<{ x: number; z: number; axis: "ns" | "ew"; rw: number; rd: number; y: number }>,
+): Group {
+  const g = new Group();
+  g.name = "shelter-vaults";
+  for (const s of shelters) {
+    const r = Math.min(s.rw, s.rd) / 2 + 0.3;
+    const len = Math.max(s.rw, s.rd) + 0.4;
+    const geo = new CylinderGeometry(r, r, len, 16, 1, true, 0, Math.PI);
+    geo.rotateZ(Math.PI / 2); // axis along X, shell arches upward
+    const vault = new Mesh(geo, vaultGoldMat);
+    vault.position.set(s.x, s.y, s.z);
+    if (s.axis === "ns") vault.rotation.y = Math.PI / 2;
+    vault.castShadow = true;
+    g.add(vault);
+  }
+  return g;
+}
+
 /** Mount every landmark into one group (called once per city build). */
 export function mountLandmarks(city: City, _quality: QualityName): Group {
   const g = new Group();
@@ -537,5 +922,9 @@ export function mountLandmarks(city: City, _quality: QualityName): Group {
     g.add(streetSign);
   }
   g.add(mountDistrictSigns(city.facades));
+  g.add(buildStreetProps(city));
+  g.add(buildCurbs(city.curbs ?? []));
+  g.add(buildDiscs(city.discs ?? []));
+  g.add(buildShelterVaults(city.shelters ?? []));
   return g;
 }

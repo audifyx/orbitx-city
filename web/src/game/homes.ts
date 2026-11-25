@@ -548,6 +548,9 @@ export function buildHome(city: City, home: HomeDef): void {
     style: arch.style, door, enterable: true, hero: false,
     face: door, roof: arch.roof, roofDir: door, roofMat: arch.roofMat,
     porch: arch.porch, chimney: arch.chimney, awning: arch.awning,
+    // Round-2: flat-roof modern homes get a gold trim band at the wall
+    // top so the roofline isn't a bare slab edge.
+    cornice: arch.roof === "flat",
     // Glazing: real see-through windows flanking the door on the street
     // face. Glass-modern archetypes get a wide glass wall instead.
     glass: "home",

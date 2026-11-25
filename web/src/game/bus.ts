@@ -600,7 +600,9 @@ function buildShelter(city: City, spec: ShelterSpec): void {
     bx(dx, dz, 0.3, 2.6, 0.3, "black");
     bc(dx, dz, 0.3, 2.6, 0.3);
   }
-  bx(0, 0, rw, 0.22, rd, "gold", 2.7);
+  // Round-2: the gold canopy is a barrel vault (landmarks.ts), not a flat
+  // slab — record it and skip the flat box.
+  city.shelters.push({ x: spec.x, z: spec.z, axis: spec.axis, rw, rd, y: 2.62 });
   // Back wall on the side away from the road + bench facing the road.
   if (ns) {
     const away = spec.x > 0 ? 1 : -1;
@@ -659,7 +661,9 @@ export function buildBusStation(city: City): void {
     pushBox(city, cx + dx, 1.7, cz + dz, 0.35, 3.4, 0.35, "black");
     pushCol(city, cx + dx, 1.7, cz + dz, 0.35, 3.4, 0.35);
   }
-  pushBox(city, cx, 3.5, cz, 8.6, 0.25, 3.6, "gold");
+  // Round-2: the station canopy is a barrel vault (landmarks.ts), not a
+  // flat slab — record it and skip the flat box.
+  city.shelters.push({ x: cx, z: cz, axis: "ew", rw: 8.6, rd: 3.6, y: 3.42 });
   // Back wall (north side, away from the road) + two benches facing the road.
   pushBox(city, cx, 1.0, cz - 1.45, 8.6, 2.0, 0.3, "white");
   pushCol(city, cx, 1.0, cz - 1.45, 8.6, 2.0, 0.3);

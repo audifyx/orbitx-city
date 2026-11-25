@@ -229,6 +229,14 @@ export function districtForLocal(state: StateDef, lx: number, lz: number): Distr
   return found;
 }
 
+/** Round-2: facade canvas styles that read as glass/commercial (0 glass
+ * curtain, 2 cool concrete/glass, 4 neon commercial, 5 dark OrbitX
+ * identity). Brick (1) and stone (3) keep their masonry look and never
+ * get curtain bands. */
+export function facadeStyleIsGlassy(style: number): boolean {
+  return style === 0 || style === 2 || style === 4 || style === 5;
+}
+
 /** Outer-ring blocks (max(|x|,|z|) >= 108) are the residential ring. */
 export function isOuterRingPlot(lx: number, lz: number): boolean {
   return Math.max(Math.abs(lx), Math.abs(lz)) >= 108;
@@ -428,6 +436,8 @@ export function buildRegionCore(city: City, state: StateDef): void {
     style: t.style, door: "s", enterable: true, hero: true,
     face: "s", roof: "stepped", roofMat: t.roofMat, cornice: t.cornice,
     glass: "curtain",
+    // Round-2: tall landmark towers taper toward the roof.
+    taper: t.towerH > 18 ? 0.8 : undefined,
   };
   city.facades.push(tower);
   pushWallColliders(city, cx - tw / 2, cz - tw / 2, tw, tw, 8, "s");
@@ -966,10 +976,11 @@ export function buildDistrictBlocks(city: City, state: StateDef, rng: Rng): void
       // Roofline: the theme's roof most of the time, a neighbour's sometimes.
       const roofRoll = rng();
       const roof = roofRoll < 0.7 ? t.roof : roofRoll < 0.85 ? "gable" : "flat";
+      const bStyle = (t.style + (district.quadrant === "ne" || district.quadrant === "sw" ? 1 : 0)) % 6;
       const facade: Facade = {
         id: `${state.id}-b-${n}`,
         x: cx + bx - fw / 2, z: cz + bz - fd / 2, w: fw, d: fd, h,
-        style: (t.style + (district.quadrant === "ne" || district.quadrant === "sw" ? 1 : 0)) % 6,
+        style: bStyle,
         // 2026-11-12: was a solid block (facade + full-volume collider,
         // nothing inside). Now a real building: ground-floor shell with
         // a south door + furnished interior, solid only above the
@@ -977,6 +988,10 @@ export function buildDistrictBlocks(city: City, state: StateDef, rng: Rng): void
         door: "s", enterable: true, hero: false,
         face: "s", roof, roofMat: t.roofMat,
         cornice: t.cornice, awning: t.awning,
+        // Round-2: tall non-masonry blocks get real curtain glass and a
+        // tapered top instead of a flat textured slab.
+        glass: h >= 14 && facadeStyleIsGlassy(bStyle) ? "curtain" : undefined,
+        taper: h >= 20 ? 0.82 : undefined,
       };
       city.facades.push(facade);
       const bx0 = cx + bx - fw / 2;
@@ -1115,6 +1130,9 @@ export function buildEmergencyServices(city: City, state: StateDef): void {
     city.facades.push({
       id, x: x0, z: z0, w, d, h, style: 2, door, enterable: true,
       hero: false, face: door, roof: "flat", roofMat: 0,
+      // Round-2: gold trim + awning so the small civic blocks don't read
+      // as bare slabs next to the glass towers.
+      cornice: true, awning: true,
     });
     pushWallColliders(city, x0, z0, w, d, h, door);
     pushBox(city, x0 + w / 2, 0.08, z0 + d / 2, w - 2.4, 0.08, d - 2.4, "wood");
@@ -1337,6 +1355,9 @@ export function buildOfficeTower(city: City, state: StateDef): void {
     style: t.style, door: "s", enterable: true, hero: false,
     face: "s", roof: "flat", roofMat: t.roofMat, cornice: t.cornice,
     glass: "curtain",
+    // Round-2: the glass lobby reads as a shopfront — real storefront
+    // panes + awning on the street face.
+    storefront: true, awning: true,
   });
   pushWallColliders(city, lx0, lz0, lobbyW, lobbyD, lobbyH, "s");
   pushBox(city, cx, 0.08, cz - 58, lobbyW - 2.4, 0.08, lobbyD - 2.4, "plazaField");

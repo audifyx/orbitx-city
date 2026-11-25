@@ -882,6 +882,9 @@ export function buildDepartment(
     storefront: kind === "hospital" || kind === "police",
     awning: kind === "fire",
     cornice: true,
+    // Round-2: the modern civic departments (hospital / police) get real
+    // curtain glass bands instead of a flat textured wall.
+    glass: kind === "hospital" || kind === "police" ? "curtain" : undefined,
   });
   parts.zones.push(zone);
   parts.anchors.push(anchor);
@@ -1181,6 +1184,10 @@ export function buildDistrictTower(district: District, parts: CityParts): Distri
     cornice: true,
     crown: style.crown ?? undefined,
     glass: "curtain",
+    // Round-2: the district towers taper toward the roof and get rounded
+    // glass corners at street level instead of a straight slab.
+    taper: 0.8,
+    roundedCorners: true,
   });
   parts.zones.push(...zones);
   parts.anchors.push(...anchors);

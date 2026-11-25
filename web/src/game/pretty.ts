@@ -11,6 +11,7 @@ import {
   RepeatWrapping,
   Shape,
   SRGBColorSpace,
+  TorusGeometry,
 } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { Facade, Face } from "./city";
@@ -757,6 +758,204 @@ interface WallOpening {
   door?: boolean;
 }
 
+// ---- round-2 de-boxing: tapered frustum shells + stepped hollow shells ----
+
+/** A square frustum shell (tapered tower top): 4 trapezoid planes from the
+ * base rect to a smaller top rect, canvas texture tiled in world units
+ * like worldUvBox, plus a thin cap slab that seals the open top under
+ * the roof kit. Open at the bottom — it sits on the step below. */
+function addFrustum(
+  group: Group,
+  x: number,
+  z: number,
+  w: number,
+  d: number,
+  y0: number,
+  h: number,
+  topScale: number,
+  mat: MeshStandardMaterial,
+) {
+  const cx = x + w / 2;
+  const cz = z + d / 2;
+  const geo = new CylinderGeometry(topScale, 1, 1, 4, 1, true);
+  geo.rotateY(Math.PI / 4);
+  geo.scale(w / Math.SQRT2, h, d / Math.SQRT2);
+  geo.translate(cx, y0 + h / 2, cz);
+  geo.computeVertexNormals();
+  // Re-tile the canvas texture in world units (same rule as worldUvBox).
+  const pos = geo.attributes.position;
+  const norm = geo.attributes.normal;
+  const uv = geo.attributes.uv;
+  if (pos && norm && uv) {
+    for (let i = 0; i < pos.count; i++) {
+      const vx = pos.getX(i);
+      const vy = pos.getY(i);
+      const vz = pos.getZ(i);
+      const nx = Math.abs(norm.getX(i));
+      if (nx > 0.5) uv.setXY(i, (vz - z) / 10, (vy - y0) / 14);
+      else uv.setXY(i, (vx - x) / 10, (vy - y0) / 14);
+    }
+    uv.needsUpdate = true;
+  }
+  const mesh = new Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  const cap = new Mesh(
+    worldUvBox(cx, y0 + h + 0.15, cz, w * topScale + 0.2, 0.3, d * topScale + 0.2, 10, 14),
+    DARK_MAT,
+  );
+  cap.castShadow = true;
+  cap.receiveShadow = true;
+  group.add(cap);
+}
+
+/** Glass curtain bands on one step's upper walls (office towers only) —
+ * the same bands hollow() paints on the ground shell, factored out so
+ * stepped upper steps get them too. yStart/yEnd are absolute. */
+function addCurtainBands(
+  group: Group,
+  x: number,
+  z: number,
+  w: number,
+  d: number,
+  yStart: number,
+  yEnd: number,
+) {
+  const bandMat = CURTAIN_GLASS_MAT;
+  for (let y = yStart; y + 0.9 < yEnd - 0.4; y += 4) {
+    for (const face of ["n", "s", "w", "e"] as const) {
+      const alongX = face === "n" || face === "s";
+      const span = alongX ? w : d;
+      const origin = alongX ? x : z;
+      const mid = origin + span / 2;
+      const len = span - 1;
+      const off = 0.06;
+      if (face === "n") {
+        glassPane(group, bandMat, mid, y, z - off, len, 1.8, 0.1);
+        frameMesh(group, len, 1.8, mid, y, z - off - 0.02, faceRotY(face), true);
+      } else if (face === "s") {
+        glassPane(group, bandMat, mid, y, z + d + off, len, 1.8, 0.1);
+        frameMesh(group, len, 1.8, mid, y, z + d + off + 0.02, faceRotY(face), true);
+      } else if (face === "w") {
+        glassPane(group, bandMat, x - off, y, mid, 0.1, 1.8, len);
+        frameMesh(group, len, 1.8, x - off - 0.02, y, mid, faceRotY(face), true);
+      } else {
+        glassPane(group, bandMat, x + w + off, y, mid, 0.1, 1.8, len);
+        frameMesh(group, len, 1.8, x + w + off + 0.02, y, mid, faceRotY(face), true);
+      }
+      glassStats.panes++;
+    }
+  }
+}
+
+/** Corner pilasters for one step — the stepped shell's replacement for
+ * addArchitecturalDetails, whose full-height pilasters + belt courses
+ * would float past the setbacks. */
+function stepTrim(
+  group: Group,
+  x: number,
+  z: number,
+  w: number,
+  d: number,
+  y0: number,
+  h: number,
+  mat: MeshStandardMaterial,
+) {
+  const trimBoxes: BoxTuple[] = [];
+  for (const px of [x + 0.04, x + w - 0.04]) {
+    for (const pz of [z + 0.04, z + d - 0.04]) {
+      trimBoxes.push([px, y0 + h / 2, pz, 0.34, h, 0.34]);
+      trimBoxes.push([px, y0 + 0.32, pz, 0.46, 0.64, 0.46]);
+      trimBoxes.push([px, y0 + h - 0.22, pz, 0.48, 0.44, 0.48]);
+    }
+  }
+  addMergedBoxes(group, trimBoxes, mat, false);
+}
+
+/** Rounded glass corner columns: vertical glass cylinders at a step's
+ * corners, so the base reads curved, not square. */
+function addCornerColumns(group: Group, f: Facade, y0: number, y1: number) {
+  const h = y1 - y0;
+  if (h <= 0.5) return;
+  const geo = new CylinderGeometry(0.5, 0.5, 1, 12);
+  for (const px of [f.x, f.x + f.w]) {
+    for (const pz of [f.z, f.z + f.d]) {
+      const m = new Mesh(geo, CURTAIN_GLASS_MAT);
+      m.position.set(px, y0 + h / 2, pz);
+      m.scale.set(1, h, 1);
+      group.add(m);
+    }
+  }
+}
+
+/** A stepped enterable tower: one hollow segment per recorded step.
+ * Ground step = the full hollow() shell (door gap, windows, storefront
+ * interior, roof cap as the setback ledge). Upper steps are sealed
+ * hollow walls with curtain bands, corner pilasters, and a gold-edged
+ * ledge slab at each setback; the top step tapers when facade.taper is
+ * set. */
+function steppedHollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) {
+  const steps = facade.steps!;
+  const group = new Group();
+  const ground = steps[0]!;
+  const groundTop = ground.y0 + ground.h;
+  // Ground step: full hollow shell, cut down to the first step's height.
+  // Taper + rounded corners are stripped here — taper belongs to the top
+  // step only, and the corner columns are added below at full ground
+  // height (hollow() would only run them to baseH).
+  const groundFacade: Facade = { ...facade, h: groundTop, steps: undefined, taper: undefined, roundedCorners: undefined };
+  group.add(hollow(groundFacade, material, glaze));
+  const trimMat = facade.style === 1 || facade.style === 3 ? STONE_TRIM_MAT : DARK_MAT;
+  const ledgeGold: BoxTuple[] = [
+    [facade.x + facade.w / 2, groundTop + 0.06, facade.z + facade.d / 2, facade.w + 0.45, 0.12, facade.d + 0.45],
+  ];
+  if (!facade.roundedCorners) {
+    stepTrim(group, facade.x, facade.z, facade.w, facade.d, 0, ground.h, trimMat);
+  } else {
+    addCornerColumns(group, facade, 0, groundTop);
+  }
+  for (let i = 1; i < steps.length; i++) {
+    const s = steps[i]!;
+    const top = s.y0 + s.h;
+    const isTop = i === steps.length - 1;
+    const taper = isTop ? facade.taper : undefined;
+    if (taper) {
+      addFrustum(group, s.x, s.z, s.w, s.d, s.y0, s.h, taper, material);
+    } else {
+      // Sealed hollow walls — no door gap above the ground floor.
+      const t = 0.45;
+      const wallBoxes: UvBoxTuple[] = [
+        [s.x + s.w / 2, s.y0 + s.h / 2, s.z + t / 2, s.w, s.h, t, s.x, s.y0, s.z],
+        [s.x + s.w / 2, s.y0 + s.h / 2, s.z + s.d - t / 2, s.w, s.h, t, s.x, s.y0, s.z],
+        [s.x + t / 2, s.y0 + s.h / 2, s.z + s.d / 2, t, s.h, s.d, s.x, s.y0, s.z],
+        [s.x + s.w - t / 2, s.y0 + s.h / 2, s.z + s.d / 2, t, s.h, s.d, s.x, s.y0, s.z],
+      ];
+      addWorldUvBoxes(group, wallBoxes, material, 10, 14, true);
+    }
+    if (facade.glass === "curtain" && !taper) {
+      addCurtainBands(group, s.x, s.z, s.w, s.d, s.y0 + 2.0, top);
+    }
+    // No pilasters on a tapered top step — a vertical pilaster at the
+    // base corner would float past the sloping wall.
+    if (!taper) stepTrim(group, s.x, s.z, s.w, s.d, s.y0, s.h, trimMat);
+    if (!isTop) {
+      // Gold-edged ledge slab at this step's top — the next step sits on
+      // it, its smaller footprint leaving a terrace ring.
+      ledgeGold.push([s.x + s.w / 2, top + 0.06, s.z + s.d / 2, s.w + 0.45, 0.12, s.d + 0.45]);
+      const ledgeDark: BoxTuple[] = [[s.x + s.w / 2, top + 0.15, s.z + s.d / 2, s.w + 0.3, 0.3, s.d + 0.3]];
+      addMergedBoxes(group, ledgeDark, DARK_MAT, false);
+    } else if (!taper) {
+      // Cap slab sealing the top step (the roof kit only adds a rim —
+      // without this the hollow top step would read open from above).
+      const capSlab: BoxTuple[] = [[s.x + s.w / 2, top + 0.15, s.z + s.d / 2, s.w + 0.3, 0.3, s.d + 0.3]];
+      addMergedBoxes(group, capSlab, DARK_MAT, false);
+    }
+  }
+  addMergedBoxes(group, ledgeGold, GOLD_MAT, false);
+  return group;
+}
+
 function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) {
   const group = new Group();
   const { x, z, w, d, h, door, passThrough } = facade;
@@ -983,8 +1182,9 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
     }
     solidBase(cursor, origin + span);
 
-    // Upper stories (baseH..h): single full-width unbroken facade wall per face
-    if (h > baseH + 0.05) {
+    // Upper stories (baseH..h): single full-width unbroken facade wall per face.
+    // Tapered towers skip these — the frustum below replaces them.
+    if (h > baseH + 0.05 && !facade.taper) {
       const upH = h - baseH;
       const upY = baseH + upH / 2;
       const mid = origin + span / 2;
@@ -1043,11 +1243,35 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
     addWorldUvBoxes(group, upperWallBoxes, material, 10, 14, true);
   }
 
+  // Tapered tower: the upper shell is a square frustum (full footprint
+  // at the ground-floor top, `taper` × at the roof) instead of a straight
+  // box. Ground-level trim here — addArchitecturalDetails is skipped for
+  // tapered facades, since its full-height pilasters would float past
+  // the slope. Rounded glass corners run to the taper break.
+  if (facade.taper && h > baseH + 0.05) {
+    addFrustum(group, x, z, w, d, baseH, h - baseH, facade.taper, material);
+    const trimBoxes: BoxTuple[] = [];
+    for (const px of [x + 0.04, x + w - 0.04]) {
+      for (const pz of [z + 0.04, z + d - 0.04]) {
+        trimBoxes.push([px, baseH / 2, pz, 0.34, baseH, 0.34]);
+      }
+    }
+    trimBoxes.push([cx, baseH + 0.1, z - 0.06, w + 0.22, 0.2, 0.14]);
+    trimBoxes.push([cx, baseH + 0.1, z + d + 0.06, w + 0.22, 0.2, 0.14]);
+    trimBoxes.push([x - 0.06, baseH + 0.1, cz, 0.14, 0.2, d + 0.22]);
+    trimBoxes.push([x + w + 0.06, baseH + 0.1, cz, 0.14, 0.2, d + 0.22]);
+    addMergedBoxes(group, trimBoxes, GOLD_MAT, false);
+  }
+  if (facade.roundedCorners) addCornerColumns(group, facade, 0, baseH);
+
   if (door === "n" || door === "s") addDoor(true);
   else if (door === "w" || door === "e") addDoor(false);
 
   // ---- glass curtain bands on the upper floors (office towers only) ----
-  if (glass === "curtain") {
+  // Skipped on tapered shells — the bands sit on the full-width plane
+  // and would float off the sloping frustum; the frustum's glass canvas
+  // carries the look instead.
+  if (glass === "curtain" && !facade.taper) {
     const startY = proud > 0 ? 9.8 : 5.8;
     const bandMat = CURTAIN_GLASS_MAT;
     for (let y = startY; y + 0.9 < h - 0.4; y += 4) {
@@ -1089,9 +1313,10 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
   }
 
   const capPad = proud > 0 ? 0.6 : 0;
+  const topScale = facade.taper ?? 1;
   const roofCap = new Mesh(box, DARK_MAT);
   roofCap.position.set(cx, h + 0.2, cz);
-  roofCap.scale.set(w + capPad, 0.4, d + capPad);
+  roofCap.scale.set(w * topScale + capPad, 0.4, d * topScale + capPad);
   roofCap.castShadow = true;
   roofCap.receiveShadow = true;
   group.add(roofCap);
@@ -1251,6 +1476,16 @@ function addRoofKit(group: Group, x: number, z: number, w: number, d: number, h:
   beacon.position.set(x + w * 0.85, h + 2.9, z + d * 0.2);
   beacon.scale.set(0.35, 0.35, 0.35);
   group.add(beacon);
+
+  // Edge lighting (round-2): a thin emissive cyan strip along the
+  // parapet rim top so the roofline glows at dusk like the frames.
+  const edgeBoxes: BoxTuple[] = [
+    [x + w / 2, h + rim + 0.03, z + 0.1, w + 0.12, 0.07, 0.1],
+    [x + w / 2, h + rim + 0.03, z + d - 0.1, w + 0.12, 0.07, 0.1],
+    [x + 0.1, h + rim + 0.03, z + d / 2, 0.1, 0.07, d + 0.12],
+    [x + w - 0.1, h + rim + 0.03, z + d / 2, 0.1, 0.07, d + 0.12],
+  ];
+  addMergedBoxes(group, edgeBoxes, CYAN_BEACON_MAT, false);
 }
 
 // ---- real-architecture kit: pitched roofs, porches, chimneys, storefronts,
@@ -1517,6 +1752,73 @@ function addStorefront(group: Group, f: Facade) {
     }
   }
   addMergedBoxes(group, darkBoxes, DARK_MAT, false);
+
+  // Display-window mullions: thin vertical bars across the storefront
+  // panes + a transom bar, so the glass reads as framed panes, not one
+  // flat sheet. They sit in the window opening, straddling the glass
+  // plane (wallPlane - outSign*0.22 — the glass sits 0.225 inside the
+  // wall face), not on the outer wall. Skips the door gap when the door
+  // shares this face.
+  const glassPlane = wallPlane - outSign * 0.22;
+  const doorGap = f.door === face ? 2.3 : 0;
+  const mullionBoxes: BoxTuple[] = [];
+  const sC = alongX ? cx : cz;
+  for (let o = 2.0; o < paneW - 0.5; o += 2.0) {
+    const p = sC - paneW / 2 + o;
+    if (Math.abs(p - sC) < doorGap) continue;
+    if (alongX) mullionBoxes.push([p, 1.75, glassPlane, 0.09, 3.2, 0.1]);
+    else mullionBoxes.push([glassPlane, 1.75, p, 0.1, 3.2, 0.09]);
+  }
+  const transomSeg = paneW / 2 - doorGap;
+  if (transomSeg > 0.5) {
+    for (const side of [-1, 1]) {
+      const segC = sC + side * (doorGap + transomSeg / 2);
+      if (alongX) mullionBoxes.push([segC, 2.6, glassPlane, transomSeg, 0.1, 0.1]);
+      else mullionBoxes.push([glassPlane, 2.6, segC, 0.1, 0.1, transomSeg]);
+    }
+  }
+  addMergedBoxes(group, mullionBoxes, DARK_MAT, false);
+
+  // Recessed-entry portal: two splayed side returns angled out from the
+  // wall at the door edges, so the doorway reads as a vestibule instead
+  // of a flat hole. (The door leaf itself stays on the wall plane — the
+  // collider gap is there — only the reveal splays outward.)
+  if (f.door === face) {
+    for (const s of [-1, 1]) {
+      const off = s * 2.35;
+      const jamb = new Mesh(box, STONE_TRIM_MAT);
+      const jx = alongX ? cx + off : wallPlane + outSign * 0.55;
+      const jz = alongX ? wallPlane + outSign * 0.55 : cz + off;
+      jamb.position.set(jx, 1.65, jz);
+      jamb.scale.set(alongX ? 0.14 : 1.1, 3.3, alongX ? 1.1 : 0.14);
+      jamb.rotation.y = alongX ? s * 0.5 : -s * 0.5;
+      jamb.castShadow = true;
+      group.add(jamb);
+    }
+    // Projecting entry canopy over the portal (skipped when the shop
+    // awning already covers the entry — the two would stack).
+    if (!f.awning) {
+      const canopy = new Mesh(box, DARK_MAT);
+      if (alongX) {
+        canopy.position.set(cx, 3.55, wallPlane + outSign * 0.9);
+        canopy.scale.set(5.6, 0.18, 1.9);
+      } else {
+        canopy.position.set(wallPlane + outSign * 0.9, 3.55, cz);
+        canopy.scale.set(1.9, 0.18, 5.6);
+      }
+      canopy.castShadow = true;
+      group.add(canopy);
+      const lip = new Mesh(box, CYAN_BEACON_MAT);
+      if (alongX) {
+        lip.position.set(cx, 3.5, wallPlane + outSign * 1.85);
+        lip.scale.set(5.6, 0.08, 0.08);
+      } else {
+        lip.position.set(wallPlane + outSign * 1.85, 3.5, cz);
+        lip.scale.set(0.08, 0.08, 5.6);
+      }
+      group.add(lip);
+    }
+  }
 }
 
 // Full 3D architectural relief for every building:
@@ -1526,7 +1828,10 @@ function addStorefront(group: Group, f: Facade) {
 // 4. Residential home window shutters, under-window flower planter boxes, and upper-floor windows.
 // 5. Mid/high-rise protruding window sills & wrought-iron Juliet balconies.
 function addArchitecturalDetails(group: Group, f: Facade) {
-  if (f.tiers || f.glassProud) return;
+  // Stepped + tapered shells carry their own per-step trim (stepTrim /
+  // the taper break band) — full-height pilasters and belt courses would
+  // float past the setbacks and the slope.
+  if (f.tiers || f.glassProud || f.steps || f.taper) return;
   const { x, z, w, d, h, door, passThrough } = f;
   const cx = x + w / 2;
   const cz = z + d / 2;
@@ -1568,13 +1873,16 @@ function addArchitecturalDetails(group: Group, f: Facade) {
   addPlinthRun("w", false, x - 0.06);
   addPlinthRun("e", false, x + w + 0.06);
 
-  // 2. 4 Corner pilasters / quoins running full height
+  // 2. 4 Corner pilasters / quoins running full height (skipped when the
+  // facade has rounded glass corners — the columns own the corners).
   const pilW = 0.34;
-  for (const px of [x + 0.04, x + w - 0.04]) {
-    for (const pz of [z + 0.04, z + d - 0.04]) {
-      trimBoxes.push([px, h / 2, pz, pilW, h, pilW]);
-      trimBoxes.push([px, 0.32, pz, pilW + 0.12, 0.64, pilW + 0.12]);
-      trimBoxes.push([px, h - 0.22, pz, pilW + 0.14, 0.44, pilW + 0.14]);
+  if (!f.roundedCorners) {
+    for (const px of [x + 0.04, x + w - 0.04]) {
+      for (const pz of [z + 0.04, z + d - 0.04]) {
+        trimBoxes.push([px, h / 2, pz, pilW, h, pilW]);
+        trimBoxes.push([px, 0.32, pz, pilW + 0.12, 0.64, pilW + 0.12]);
+        trimBoxes.push([px, h - 0.22, pz, pilW + 0.14, 0.44, pilW + 0.14]);
+      }
     }
   }
 
@@ -1807,6 +2115,12 @@ function solidTower(facade: Facade) {
   let y = 0;
   const goldFinBoxes: BoxTuple[] = [];
   const cyanFinBoxes: BoxTuple[] = [];
+  // Rounded glass corner columns (round-2): one vertical glass cylinder
+  // per tier corner, so the tower's edges read curved, not square. The
+  // old gold fin boxes at the corners are gone; the cyan nodes become
+  // glowing caps on the column tops.
+  const cornerGeo = new CylinderGeometry(0.5, 0.5, 1, 12);
+  const cornerCols: Array<{ x: number; y: number; z: number; h: number }> = [];
   tiers.forEach((tier, index) => {
     const material = facadeMaterial(index % 2 === 0 ? 5 : 0);
     const cz = -3 - tier.d / 2;
@@ -1817,17 +2131,23 @@ function solidTower(facade: Facade) {
     if (index > 0) {
       goldFinBoxes.push([0, y, cz, tier.w + 0.4, 0.38, tier.d + 0.4]);
     }
-    // Illuminated corner vertical fins & setback beacon nodes on every tier
+    // Illuminated corner columns + setback beacon caps on every tier
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
-        const fx = sx * (tier.w / 2 + 0.08);
-        const fz = cz + sz * (tier.d / 2 + 0.08);
-        goldFinBoxes.push([fx, y + tier.h / 2, fz, 0.32, tier.h, 0.32]);
-        cyanFinBoxes.push([fx, y + tier.h - 0.3, fz, 0.44, 0.32, 0.44]);
+        const fx = sx * (tier.w / 2);
+        const fz = cz + sz * (tier.d / 2);
+        cornerCols.push({ x: fx, y: y + tier.h / 2, z: fz, h: tier.h });
+        cyanFinBoxes.push([fx, y + tier.h - 0.12, fz, 0.5, 0.24, 0.5]);
       }
     }
     y += tier.h;
   });
+  for (const c of cornerCols) {
+    const colMesh = new Mesh(cornerGeo, CURTAIN_GLASS_MAT);
+    colMesh.position.set(c.x, c.y, c.z);
+    colMesh.scale.set(1, c.h, 1);
+    group.add(colMesh);
+  }
   addMergedBoxes(group, goldFinBoxes, GOLD_MAT, false);
   addMergedBoxes(group, cyanFinBoxes, CYAN_BEACON_MAT, false);
 
@@ -1873,6 +2193,32 @@ function solidTower(facade: Facade) {
 
   const top = tiers[tiers.length - 1];
   const roofY = y + 1.35;
+  // Helipad on the tallest tower (round-2): a dark disc with a gold rim
+  // ring, an emissive H, and cyan edge lights on the top tier, clear of
+  // the ORBITX signs at the front edge. The mast + beacon move to the
+  // top tier's rear corner so the pad stays clear.
+  const padY = y + 0.15;
+  const padCZ = -3 - top.d / 2;
+  const pad = new Mesh(new CylinderGeometry(3.6, 3.6, 0.3, 24), DARK_MAT);
+  pad.position.set(0, padY, padCZ);
+  pad.castShadow = true;
+  pad.receiveShadow = true;
+  group.add(pad);
+  const padRim = new Mesh(new TorusGeometry(3.6, 0.08, 8, 32), GOLD_MAT);
+  padRim.rotation.x = Math.PI / 2;
+  padRim.position.set(0, padY + 0.16, padCZ);
+  group.add(padRim);
+  const hMat = new MeshStandardMaterial({ color: 0x9af6ff, emissive: 0x1ad8ff, emissiveIntensity: 1.6, roughness: 0.3 });
+  for (const off of [-1.1, 1.1]) {
+    const bar = new Mesh(box, hMat);
+    bar.position.set(off, padY + 0.18, padCZ);
+    bar.scale.set(0.28, 0.06, 3.2);
+    group.add(bar);
+  }
+  const hCross = new Mesh(box, hMat);
+  hCross.position.set(0, padY + 0.18, padCZ);
+  hCross.scale.set(2.5, 0.06, 0.28);
+  group.add(hCross);
   const front = orbitWord();
   front.position.set(0, roofY, -2.55);
   group.add(front);
@@ -1906,11 +2252,11 @@ function solidTower(facade: Facade) {
   group.add(lip);
 
   const pole = new Mesh(box, POLE_MAT);
-  pole.position.set(0, y + 1.6, -3 - top.d / 2);
+  pole.position.set(-top.w / 2 + 0.8, y + 1.6, -3 - top.d + 0.8);
   pole.scale.set(0.2, 3.2, 0.2);
   group.add(pole);
   const beacon = new Mesh(box, CYAN_BEACON_MAT);
-  beacon.position.set(0, y + 3.4, -3 - top.d / 2);
+  beacon.position.set(-top.w / 2 + 0.8, y + 3.4, -3 - top.d + 0.8);
   beacon.scale.set(0.5, 0.5, 0.5);
   group.add(beacon);
   group.name = facade.id;
@@ -1947,6 +2293,28 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
       if (facade.wing) addWing(root, facade, material);
       continue;
     }
+    // Stepped enterable tower (round-2): one hollow segment per recorded
+    // shell-loop step, door gap only on the ground step. The roof kit
+    // sits on the top step (tapered rect when the tower tapers); the
+    // cornice is skipped — the gold setback ledges are the trim.
+    if (facade.steps && facade.steps.length > 1 && facade.enterable) {
+      root.add(steppedHollow(facade, material, !!facade.glass));
+      const top = facade.steps[facade.steps.length - 1]!;
+      const ts = facade.taper ?? 1;
+      const topF: Facade = {
+        ...facade,
+        x: top.x + (top.w * (1 - ts)) / 2,
+        z: top.z + (top.d * (1 - ts)) / 2,
+        w: top.w * ts,
+        d: top.d * ts,
+      };
+      const stepRise = addRoof(root, topF);
+      if (facade.chimney) addChimney(root, topF, stepRise);
+      if (facade.storefront) addStorefront(root, facade);
+      if (facade.crown) addCrownBox(root, topF, material);
+      if (facade.wing) addWing(root, facade, material);
+      continue;
+    }
     if (facade.enterable) {
       root.add(hollow(facade, material, !!facade.glass));
     } else {
@@ -1968,12 +2336,23 @@ export function mountPretty(facades: Facade[], quality: QualityName) {
       root.add(mesh);
     }
     addArchitecturalDetails(root, facade);
-    const rise = addRoof(root, facade);
+    // Tapered shells: the roof kit / cornice / chimney / crown sit on
+    // the tapered top rect, not the full base footprint.
+    const roofF = facade.taper
+      ? {
+          ...facade,
+          x: facade.x + (facade.w * (1 - facade.taper)) / 2,
+          z: facade.z + (facade.d * (1 - facade.taper)) / 2,
+          w: facade.w * facade.taper,
+          d: facade.d * facade.taper,
+        }
+      : facade;
+    const rise = addRoof(root, roofF);
     if (facade.porch) addPorch(root, facade);
-    if (facade.chimney) addChimney(root, facade, rise);
+    if (facade.chimney) addChimney(root, roofF, rise);
     if (facade.storefront) addStorefront(root, facade);
-    if (facade.cornice) addCornice(root, facade);
-    if (facade.crown) addCrownBox(root, facade, material);
+    if (facade.cornice) addCornice(root, roofF);
+    if (facade.crown) addCrownBox(root, roofF, material);
     if (facade.wing) addWing(root, facade, material);
   }
   if (typeof window !== "undefined") {
