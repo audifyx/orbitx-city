@@ -19,6 +19,10 @@ body,
   --ox-gold: #e0b33a;
   --ox-gold-bright: #f2cc60;
   --ox-gold-deep: #b57f10;
+  /* Round 5: the style videos' neon pair — pink + cyan — used only as
+     glow and gradient-rule accents on dark, never as body text color. */
+  --ox-neon-pink: #ff2ea6;
+  --ox-neon-cyan: #00e5ff;
   --ox-blue: #60a5fa;
   --ox-ink: #020611;
   --ox-glass: rgba(13, 18, 32, 0.72);
@@ -324,7 +328,10 @@ body,
   font-weight: 900;
   color: #ffffff;
   text-shadow: 0 3px 0 rgba(0, 0, 0, 0.85), 0 14px 38px rgba(0, 0, 0, 0.65);
-  border-bottom: 4px solid #e0b33a;
+  /* Neon gradient rule (Round 5): pink → gold → cyan, the style-video
+     palette, in place of the flat gold rule. */
+  border-bottom: none;
+  background: linear-gradient(90deg, var(--ox-neon-pink), var(--ox-gold) 55%, var(--ox-neon-cyan)) left bottom / 100% 4px no-repeat;
   border-radius: 2px;
   padding-bottom: 14px;
   display: inline-block;
@@ -334,6 +341,7 @@ body,
   width: min(560px, 88vw);
   height: auto;
   display: block;
+  filter: drop-shadow(0 0 18px rgba(255, 46, 166, 0.35)) drop-shadow(0 4px 18px rgba(0, 0, 0, 0.6));
 }
 
 .menu-sub {
@@ -354,12 +362,14 @@ body,
 
 .menu-cta {
   margin-top: 0;
-  padding: 16px 34px;
-  font-size: 20px;
+  padding: 18px 40px;
+  font-size: 21px;
   border-radius: 18px;
   background: linear-gradient(180deg, var(--ox-gold-bright), var(--ox-gold));
   color: #000000;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55), 0 6px 22px rgba(224, 179, 58, 0.35);
+  /* Round 5: the Play flow is the point of the page — the CTA is the
+     biggest thing on it, with a warm glow so the eye lands there first. */
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55), 0 6px 26px rgba(224, 179, 58, 0.5);
 }
 
 .menu-ghost {
@@ -450,7 +460,7 @@ body,
 .menu-stats {
   display: flex;
   justify-content: center;
-  gap: 26px;
+  gap: 10px;
   flex-wrap: wrap;
   margin: 26px 0 0;
   color: #ffffff;
@@ -458,10 +468,88 @@ body,
   text-shadow: 0 1px 3px #000000;
 }
 
+.menu-stats span {
+  padding: 9px 14px;
+  background: rgba(8, 13, 26, 0.66);
+  -webkit-backdrop-filter: var(--ox-blur-soft);
+  backdrop-filter: var(--ox-blur-soft);
+  border: 1px solid var(--ox-hairline-soft);
+  border-top: 2px solid var(--ox-neon-pink);
+  border-radius: 14px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
 .menu-stats b {
   color: #e0b33a;
   font-size: 20px;
   margin-right: 4px;
+}
+
+/* See the city (Round 5): the style-video frames as a tour strip —
+   three cinematic shots with a caption plate, so the landing shows the
+   look before a word of copy does. Grid on desktop, swipeable strip
+   on phone. */
+.menu-tour {
+  margin: 30px auto 0;
+  max-width: 860px;
+}
+
+.menu-tour h2 {
+  margin: 0 0 12px;
+  color: #e0b33a;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  text-shadow: 0 1px 3px #000000;
+}
+
+.menu-tour-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  text-align: left;
+}
+
+.menu-tour-shot {
+  margin: 0;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--ox-hairline-soft);
+  border-radius: var(--ox-r-md);
+  box-shadow: var(--ox-shadow-soft);
+  background: #07142b;
+}
+
+.menu-tour-shot img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+}
+
+.menu-tour-shot figcaption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 22px 12px 10px;
+  background: linear-gradient(to top, rgba(2, 6, 17, 0.92) 30%, rgba(2, 6, 17, 0) 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.menu-tour-shot figcaption b {
+  color: #e0b33a;
+  font-size: 13px;
+  letter-spacing: 0.14em;
+}
+
+.menu-tour-shot figcaption span {
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1.35;
+  text-shadow: 0 1px 3px #000000;
 }
 
 /* What's in the city — the feature grid on the menu home. Reads the
@@ -551,20 +639,15 @@ body,
   to { transform: translateX(-50%); }
 }
 
-.menu-skyline {
-  display: flex;
-  align-items: flex-end;
-  gap: 3px;
-  height: 84px;
-  padding: 0 4px;
-}
-
-.sky-b {
-  flex: 1;
-  background-color: #071530;
-  background-image: radial-gradient(circle, rgba(224, 179, 58, 0.92) 1.5px, transparent 1.7px);
-  background-size: 13px 17px;
-  border-top: 2px solid #3b82f6;
+/* Round 5: the blocky CSS skyline bars are gone — the old placeholder
+   look. A single neon hairline (pink → gold → cyan) closes the page
+   above the footer instead. */
+.menu-neon-line {
+  height: 4px;
+  margin: 0 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--ox-neon-pink), var(--ox-gold) 55%, var(--ox-neon-cyan));
+  box-shadow: 0 0 16px rgba(255, 46, 166, 0.45);
 }
 
 .menu-foot {
@@ -2124,12 +2207,26 @@ body.touch .touch-ui {
   }
 
   .menu-stats {
-    gap: 14px;
+    gap: 8px;
     font-size: 13px;
   }
 
-  .menu-skyline {
-    height: 56px;
+  /* Tour strip becomes one swipeable row on phone — every shot
+     reachable, none cut off mid-grid. */
+  .menu-tour-strip {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 8px;
+    padding-bottom: 4px;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .menu-tour-shot {
+    flex: 0 0 78%;
+    scroll-snap-align: start;
   }
 
   .char-body {
@@ -2859,7 +2956,10 @@ body.touch .touch-ui {
   max-width: 900px;
   margin: 0 auto;
   padding: 26px 30px;
-  background: rgba(6, 10, 22, 0.52);
+  /* Round 5: the card is glass, not a box — light enough that the
+     flyover shows through, so the intro reads like the style videos
+     (title over the city) instead of a menu floating on it. */
+  background: rgba(6, 10, 22, 0.3);
   -webkit-backdrop-filter: var(--ox-blur);
   backdrop-filter: var(--ox-blur);
   border: 1px solid var(--ox-hairline-soft);
@@ -2878,6 +2978,17 @@ body.touch .touch-ui {
   from { opacity: 0; transform: translateY(22px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
+/* Round 5: the chapter tag names where the camera is ("01 · PLAZA")
+   in neon pink, above the gold kicker — the beat's location, not just
+   its slogan. */
+.intro-chapter-tag {
+  margin: 0 0 6px;
+  color: var(--ox-neon-pink);
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  font-size: 12px;
+  text-shadow: 0 0 14px rgba(255, 46, 166, 0.8), 0 2px 6px #000000;
+}
 .intro-kicker {
   margin: 0 0 10px;
   color: #e0b33a;
@@ -2893,8 +3004,16 @@ body.touch .touch-ui {
   letter-spacing: 0.06em;
   font-weight: 900;
   color: #ffffff;
-  text-shadow: 0 4px 0 #000000, 0 12px 36px rgba(0, 0, 0, 0.85);
-  border-bottom: 4px solid #e0b33a;
+  /* Round 5: neon signage glow — pink + cyan halos like the tower
+     signs in the style videos — over a neon gradient rule. White text
+     on dark, high contrast, unchanged. */
+  text-shadow:
+    0 0 18px rgba(255, 46, 166, 0.55),
+    0 0 42px rgba(0, 229, 255, 0.35),
+    0 4px 0 #000000,
+    0 12px 36px rgba(0, 0, 0, 0.85);
+  border-bottom: none;
+  background: linear-gradient(90deg, var(--ox-neon-pink), var(--ox-gold) 55%, var(--ox-neon-cyan)) left bottom / 100% 4px no-repeat;
   padding-bottom: 14px;
   display: inline-block;
 }
@@ -3006,6 +3125,10 @@ body.touch .touch-ui {
   background: linear-gradient(90deg, var(--ox-gold-deep), var(--ox-gold-bright));
   border-radius: var(--ox-r-pill);
   transition: width 0.08s linear;
+}
+.intro-chapter.active .intro-chapter-bar i {
+  background: linear-gradient(90deg, var(--ox-neon-pink), var(--ox-gold-bright) 55%, var(--ox-neon-cyan));
+  box-shadow: 0 0 10px rgba(255, 46, 166, 0.55);
 }
 .intro-feature {
   margin: 0 0 10px;

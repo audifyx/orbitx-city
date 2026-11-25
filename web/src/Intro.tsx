@@ -9,9 +9,15 @@ import { CITY_FACTS, FEATURE_HIGHLIGHTS } from "./game/cityFacts";
 // the intro can never block entry.
 //
 // GTA VI trailer feel, phone-first: huge condensed title cards with a
-// gold rule, a cinematic vignette over the flyover, and a rotating
+// neon rule, a cinematic vignette over the flyover, and a rotating
 // feature strip (one highlight every 3s) so the intro always shows what
 // is actually in the city right now.
+//
+// Round 5: the cards read like the style videos — neon pink/cyan glow
+// on the title, a neon gradient rule, and a glass card light enough
+// that the flyover shows through instead of hiding behind a dark box.
+// Chapter tag ("01 · PLAZA") rides above the kicker so each beat names
+// where the camera is.
 //
 // The beats are NOT a hardcoded feature list: the numbers and the state
 // names come from CITY_FACTS (game/cityFacts.ts), which derives them from
@@ -196,6 +202,9 @@ export function IntroScene({ onDone }: { onDone: () => void }) {
       </div>
 
       <div className="intro-card" key={beat}>
+        <p className="intro-chapter-tag" aria-hidden="true">
+          {card.chapter}
+        </p>
         <p className="intro-kicker">{card.kicker}</p>
         <h1 className="intro-title">{card.title}</h1>
         <p className="intro-sub">{card.sub}</p>

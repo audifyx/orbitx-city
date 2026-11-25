@@ -27,7 +27,14 @@ const HOW_TO = [
   ["Own", "Buy a lot, build on it, rent it out. The shop sells colors, hats and cars."],
 ];
 
-const SKYLINE = [46, 68, 38, 82, 56, 74, 34, 90, 60, 44, 76, 52, 86, 40, 64, 48, 72, 58, 80, 36];
+// Round 5: the landing tour — real frames from the style videos, not
+// placeholder art. Dusk gate, morning plaza, neon night: the three looks
+// the player actually lands in.
+const TOUR = [
+  { src: "/splash-hero.jpg", alt: "The OrbitX City gate at dusk, fountains lit pink and blue", name: "THE GATE", blurb: "Dusk at the plaza — fountains, crowds, flying cars." },
+  { src: "/intro-plaza.jpg", alt: "Downtown plaza in bright morning light, crowds and market stalls", name: "DOWNTOWN", blurb: "Morning crowds, market stalls, Route 12." },
+  { src: "/world-night.jpg", alt: "The neon nightlife district in the rain", name: "NEON DISTRICT", blurb: "Rain, clubs, wet streets that glow." },
+];
 
 interface MenuHomeProps {
   gate: "login" | "city";
@@ -71,7 +78,7 @@ export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogi
       <div className="menu-hero">
         <p className="menu-kicker">ORBITX · WE ARE LIVE</p>
         <h1 className="menu-title"><img src="/logo/logo-lockup.svg" alt="ORBITX CITY" className="menu-logo" /></h1>
-        <p className="menu-sub">A realistic city you can own. {CITY_FACTS.characters} characters. Twenty jobs. One economy — City Sol.</p>
+        <p className="menu-sub">A realistic city you can own. {CITY_FACTS.characters} characters. {CITY_FACTS.jobs} jobs. One economy — City Sol.</p>
         {gate === "login" ? (
           <div className="menu-auth">
             <AuthPanel
@@ -116,6 +123,22 @@ export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogi
           <span><b>{CITY_FACTS.homes}</b> homes</span>
           <span><b>{CITY_FACTS.vehicles}</b> vehicles</span>
           <span><b>0</b> fees</span>
+        </div>
+        {/* See the city — the style-video frames as a swipeable tour, so
+            the landing shows the look before a word of copy does. */}
+        <div className="menu-tour" aria-label="See the city">
+          <h2>SEE THE CITY</h2>
+          <div className="menu-tour-strip">
+            {TOUR.map((shot) => (
+              <figure key={shot.name} className="menu-tour-shot">
+                <img src={shot.src} alt={shot.alt} loading="lazy" />
+                <figcaption>
+                  <b>{shot.name}</b>
+                  <span>{shot.blurb}</span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
         </div>
         {/* What's in the city — reads FEATURE_HIGHLIGHTS from the same
             registry as the intro (game/cityFacts.ts). Add a feature to
@@ -176,11 +199,7 @@ export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogi
             ))}
           </div>
         </div>
-        <div className="menu-skyline" aria-hidden="true">
-          {SKYLINE.map((height, i) => (
-            <div key={i} className="sky-b" style={{ height: `${height}%` }} />
-          ))}
-        </div>
+        <div className="menu-neon-line" aria-hidden="true" />
         <MenuFooter onNavigate={onOpenPage} />
       </div>
     </div>
