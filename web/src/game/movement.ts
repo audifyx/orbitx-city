@@ -12,6 +12,9 @@
  * builders and without changing any character look. Limbs are capsules
  * (realistic overhaul, 2026-11-24) — no box limbs anywhere.
  *
+ * Round 4 proportions (2026-11-24): hip pivot y 0.62, shoulder y 1.30,
+ * head 0.32 dia at y 1.60. The finders below match those ranges.
+ *
  * Survival rule: dressPerson() removes every child except "ring"/"tag"
  * when the look changes, so walker pivots get wiped on a re-dress.
  * That is why `ensureWalker()` exists — the wiring agent calls it every
@@ -55,6 +58,17 @@ export interface WalkerHandle {
   legR: Group;
   armL: Group;
   armR: Group;
+  /** Elbow pivots (round 4): the forearm + hand hang from these, so
+   * the elbow can bend a touch while walking. */
+  elbowL: Group;
+  elbowR: Group;
+  /** Torso mesh (round 4): counter-rotated a touch each stride so the
+   * shoulders twist opposite the hips. Null when the group has none. */
+  torso: Mesh | null;
+  /** Head mesh (round 4): bobs a touch each stride. */
+  head: Mesh | null;
+  /** Head rest height, so the bob is additive and never drifts. */
+  baseHeadY: number;
   /** Walk-cycle phase in radians. */
   phase: number;
   /** Current swing amplitude (0 = standing still). Eased, never snapped. */
@@ -99,9 +113,9 @@ function isMesh(child: unknown): child is Mesh {
 }
 
 /**
- * The fused single legs part dressPerson/makePerson build:
- * makePerson  -> pos (0, 0.28, 0), scale (0.58, 0.45, 0.36), name "legs"
- * dressPerson -> pos (0, 0.30, 0), scale (0.50, 0.46, 0.34), name "legs"
+ * The fused single legs part dressPerson/makePerson build (round 4):
+ * makePerson  -> pos (0, 0.31, 0), scale (0.44, 0.62, 0.30), name "legs"
+ * dressPerson -> pos (0, 0.31, 0), scale (0.44, 0.62, 0.30), name "legs"
  * Name-first (realistic overhaul): the builders name the part; the
  * position+scale ranges stay as the fallback for legacy/unnamed groups.
  * Nothing else in a person group sits at that height with that bulk.
@@ -116,9 +130,9 @@ function findFusedLegs(group: Group): Mesh | null {
     const p = child.position;
     const s = child.scale;
     if (
-      p.y > 0.2 && p.y < 0.36 &&
-      s.x > 0.45 && s.x < 0.65 &&
-      s.y > 0.35 && s.y < 0.5
+      p.y > 0.2 && p.y < 0.4 &&
+      s.x > 0.38 && s.x < 0.52 &&
+      s.y > 0.55 && s.y < 0.7
     ) {
       return child;
     }
@@ -136,14 +150,14 @@ function findTorso(group: Group): Mesh | null {
     if (!isMesh(child)) continue;
     const p = child.position;
     const s = child.scale;
-    if (p.y > 0.78 && p.y < 1.0 && s.x > 0.55 && s.x < 0.72 && s.y > 0.7 && s.y < 1.0) {
+    if (p.y > 0.9 && p.y < 1.06 && s.x > 0.5 && s.x < 0.62 && s.y > 0.6 && s.y < 0.72) {
       return child;
     }
   }
   return null;
 }
 
-/** Head mesh: the 0.4 sphere at face height. Its material is the skin. */
+/** Head mesh: the 0.32 sphere at face height. Its material is the skin. */
 function findHead(group: Group): Mesh | null {
   for (const child of group.children) {
     if (!isMesh(child)) continue;
@@ -153,7 +167,7 @@ function findHead(group: Group): Mesh | null {
     if (!isMesh(child)) continue;
     const p = child.position;
     const s = child.scale;
-    if (p.y > 1.5 && p.y < 1.66 && s.x > 0.35 && s.x < 0.45 && s.y > 0.35 && s.y < 0.45) {
+    if (p.y > 1.55 && p.y < 1.66 && s.x > 0.28 && s.x < 0.36 && s.y > 0.28 && s.y < 0.36) {
       return child;
     }
   }
@@ -207,16 +221,18 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
       ? (torso.material as Material)
       : outfitMaterial("#3a404c");
 
-  // Legs: pivots at hip height (top of the old fused box, y ~= 0.5).
-  // Each leg box hangs 0.5 below its pivot so rotation.x swings the foot.
+  // Legs: pivots at hip height (top of the fused box, y = 0.62 round 4).
+  // Each leg capsule hangs 0.62 below its pivot so rotation.x swings
+  // the foot. Longer + slimmer than the old 0.5 legs, to match the
+  // round 4 proportions.
   const legL = new Group();
   legL.name = "walkLegL";
-  legL.position.set(-0.13, 0.5, 0);
-  legL.add(makeLimb(legMaterial, 0.24, 0.5, 0.32, -0.25));
+  legL.position.set(-0.11, 0.62, 0);
+  legL.add(makeLimb(legMaterial, 0.2, 0.62, 0.26, -0.31));
   const legR = new Group();
   legR.name = "walkLegR";
-  legR.position.set(0.13, 0.5, 0);
-  legR.add(makeLimb(legMaterial, 0.24, 0.5, 0.32, -0.25));
+  legR.position.set(0.11, 0.62, 0);
+  legR.add(makeLimb(legMaterial, 0.2, 0.62, 0.26, -0.31));
 
   // Shoes: a round shoe on the bottom of each leg pivot so the shoe
   // swings with the foot instead of floating static under the body.
@@ -238,11 +254,11 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
     const s = child.scale;
     if (
       Math.abs(p.y - 0.05) < 0.01 &&
-      Math.abs(Math.abs(p.x) - 0.13) < 0.01 &&
+      Math.abs(Math.abs(p.x) - 0.11) < 0.01 &&
       Math.abs(p.z - 0.03) < 0.01 &&
-      Math.abs(s.x - 0.22) < 0.01 &&
-      Math.abs(s.y - 0.1) < 0.01 &&
-      Math.abs(s.z - 0.32) < 0.01
+      Math.abs(s.x - 0.2) < 0.01 &&
+      Math.abs(s.y - 0.09) < 0.01 &&
+      Math.abs(s.z - 0.3) < 0.01
     ) {
       group.remove(child);
     }
@@ -257,51 +273,71 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
     for (const leg of [legL, legR]) {
       // Round shoe (realistic overhaul): a sphere, not a box.
       const shoe = new Mesh(UNIT_SPHERE, shoeMat);
-      shoe.scale.set(0.26, 0.12, 0.42);
-      shoe.position.set(0, -0.47, 0.04);
+      shoe.scale.set(0.24, 0.11, 0.4);
+      shoe.position.set(0, -0.59, 0.04);
       shoe.castShadow = true;
       leg.add(shoe);
     }
   }
 
-  // Arms: the avatar has none — add them. Pivots at shoulder height,
-  // boxes hang 0.6 below so the swing reads from across the plaza.
-  // Two-tone like the AI demo's people: an outfit-coloured sleeve on
-  // top, a skin forearm + hand below (same 0.6 total reach as before).
+  // Arms: the avatar has none — add them. Pivots at shoulder height
+  // (round 4: 1.30, torso top 1.31, narrower torso so ±0.32).
+  // Sleeve on the shoulder pivot, then an ELBOW pivot at -0.30
+  // carrying the skin forearm + a round hand — the elbow bends a touch
+  // while walking (round 4), instead of one stiff arm capsule.
+  // Same ~0.6 total reach as before, so the wrist still lands ~0.72.
   const skinMaterial: Material = look
     ? outfitMaterial(look.colors.skin)
     : (findHead(group)?.material as Material) ?? outfitMaterial("#f0c2a0");
   const armL = new Group();
   armL.name = "walkArmL";
-  armL.position.set(-0.38, 1.24, 0);
-  armL.rotation.z = 0.08;
-  armL.add(makeLimb(armMaterial, 0.16, 0.36, 0.18, -0.15));
-  armL.add(makeLimb(skinMaterial, 0.14, 0.24, 0.16, -0.45));
+  armL.position.set(-0.32, 1.3, 0);
+  armL.rotation.z = 0.06;
+  armL.add(makeLimb(armMaterial, 0.14, 0.3, 0.16, -0.13));
+  const elbowL = new Group();
+  elbowL.name = "walkElbowL";
+  elbowL.position.set(0, -0.3, 0);
+  elbowL.add(makeLimb(skinMaterial, 0.12, 0.22, 0.14, -0.11));
+  const handL = new Mesh(UNIT_SPHERE, skinMaterial);
+  handL.scale.set(0.13, 0.15, 0.13);
+  handL.position.set(0, -0.26, 0);
+  handL.castShadow = true;
+  elbowL.add(handL);
+  armL.add(elbowL);
   const armR = new Group();
   armR.name = "walkArmR";
-  armR.position.set(0.38, 1.24, 0);
-  armR.rotation.z = -0.08;
-  armR.add(makeLimb(armMaterial, 0.16, 0.36, 0.18, -0.15));
-  armR.add(makeLimb(skinMaterial, 0.14, 0.24, 0.16, -0.45));
+  armR.position.set(0.32, 1.3, 0);
+  armR.rotation.z = -0.06;
+  armR.add(makeLimb(armMaterial, 0.14, 0.3, 0.16, -0.13));
+  const elbowR = new Group();
+  elbowR.name = "walkElbowR";
+  elbowR.position.set(0, -0.3, 0);
+  elbowR.add(makeLimb(skinMaterial, 0.12, 0.22, 0.14, -0.11));
+  const handR = new Mesh(UNIT_SPHERE, skinMaterial);
+  handR.scale.set(0.13, 0.15, 0.13);
+  handR.position.set(0, -0.26, 0);
+  handR.castShadow = true;
+  elbowR.add(handR);
+  armR.add(elbowR);
 
   group.add(legL, legR, armL, armR);
 
   // Wardrobe watch: dressPerson adds it as a static box at the rest
-  // pose (-0.38, 0.72) — once the arm swings, the watch floats in the
+  // pose (-0.32, 0.72) — once the arm swings, the watch floats in the
   // air where the wrist used to be. Take the static band + face off
-  // here and hang the watch on the left arm pivot instead, so it rides
-  // the wrist. (The static face's front was also exactly coplanar with
-  // the static band's front — a z-fight on the watch face; the arm
+  // here and hang the watch on the left ELBOW pivot instead, so it
+  // rides the wrist. (The static face's front was also exactly coplanar
+  // with the static band's front — a z-fight on the watch face; the arm
   // version sits 0.01 proud.)
   for (const child of [...group.children]) {
     if (!isMesh(child)) continue;
     const p = child.position;
     const s = child.scale;
     const isBand =
-      Math.abs(p.x + 0.38) < 0.01 && Math.abs(p.y - 0.72) < 0.01 && Math.abs(p.z) < 0.01 &&
+      Math.abs(p.x + 0.32) < 0.01 && Math.abs(p.y - 0.72) < 0.01 && Math.abs(p.z) < 0.01 &&
       Math.abs(s.x - 0.22) < 0.01 && Math.abs(s.y - 0.09) < 0.01 && Math.abs(s.z - 0.22) < 0.01;
     const isFace =
-      Math.abs(p.x + 0.38) < 0.01 && Math.abs(p.y - 0.72) < 0.01 && Math.abs(p.z - 0.1) < 0.01 &&
+      Math.abs(p.x + 0.32) < 0.01 && Math.abs(p.y - 0.72) < 0.01 && Math.abs(p.z - 0.1) < 0.01 &&
       Math.abs(s.x - 0.1) < 0.01 && Math.abs(s.y - 0.05) < 0.01 && Math.abs(s.z - 0.02) < 0.01;
     if (isBand || isFace) group.remove(child);
   }
@@ -311,14 +347,14 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
     // face on top — the old version was a static box band.
     const band = new Mesh(new TorusGeometry(0.11, 0.035, 8, 16), outfitMaterial(wardrobeWatch));
     band.rotation.x = Math.PI / 2;
-    band.position.set(0, -0.52, 0);
+    band.position.set(0, -0.22, 0);
     band.castShadow = true;
-    armL.add(band);
+    elbowL.add(band);
     const face = new Mesh(UNIT_ROUNDED, outfitMaterial("#f4f6fa"));
     face.scale.set(0.1, 0.05, 0.02);
-    face.position.set(0, -0.52, 0.11);
+    face.position.set(0, -0.22, 0.11);
     face.castShadow = true;
-    armL.add(face);
+    elbowL.add(face);
   }
 
   // Character-specific arm details. dressPerson stores the character id
@@ -329,29 +365,40 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
     // TJR: watch + bracelet on the left wrist (from his verified photo).
     // Skipped when the player wears a bought wardrobe watch — one watch
     // per wrist, the bought one wins.
-    armL.add(makeLimb(outfitMaterial("#e0b33a"), 0.18, 0.07, 0.2, -0.5));
+    elbowL.add(makeLimb(outfitMaterial("#e0b33a"), 0.18, 0.07, 0.2, -0.2));
   } else if (lookId === "gainzy") {
     // Gainzy: dragon tattoos on both arms (from his public avatar).
-    // Flat rounded plates on the arm surface, not capsules.
+    // Flat rounded plates on the forearm surface, not capsules.
     const tattoo = outfitMaterial("#7a1f2a");
     const tatL = new Mesh(UNIT_ROUNDED, tattoo);
-    tatL.scale.set(0.03, 0.4, 0.14);
-    tatL.position.set(-0.09, -0.27, 0);
+    tatL.scale.set(0.03, 0.34, 0.12);
+    tatL.position.set(-0.08, -0.11, 0);
     tatL.castShadow = true;
-    armL.add(tatL);
+    elbowL.add(tatL);
     const tatR = new Mesh(UNIT_ROUNDED, tattoo);
-    tatR.scale.set(0.03, 0.4, 0.14);
-    tatR.position.set(0.09, -0.27, 0);
+    tatR.scale.set(0.03, 0.34, 0.12);
+    tatR.position.set(0.08, -0.11, 0);
     tatR.castShadow = true;
-    armR.add(tatR);
+    elbowR.add(tatR);
   }
 
+  // Round 4: keep the torso + head meshes on the handle so animateWalk
+  // can counter-rotate the torso and bob the head. Read AFTER the
+  // limbs are built — findTorso/findHead match by name, so a re-dress
+  // that swapped the meshes still resolves to the new ones.
+  const torsoMesh = findTorso(group);
+  const headMesh = findHead(group);
   const handle: WalkerHandle = {
     group,
     legL,
     legR,
     armL,
     armR,
+    elbowL,
+    elbowR,
+    torso: torsoMesh,
+    head: headMesh,
+    baseHeadY: headMesh ? headMesh.position.y : 1.6,
     phase: existing ? existing.phase : 0,
     amp: existing ? existing.amp : 0,
   };
@@ -427,22 +474,37 @@ export function animateWalk(
   handle.armL.rotation.x = -swing * 0.7;
   handle.armR.rotation.x = swing * 0.7;
   // Arms flare a touch outward as they swing forward and tuck as they
-  // swing back (base ±0.08 from makeWalker) — the arms used to hang
+  // swing back (base ±0.06 from makeWalker) — the arms used to hang
   // rigidly parallel; now they breathe with the stride.
-  handle.armL.rotation.z = 0.08 + swing * 0.035;
-  handle.armR.rotation.z = -(0.08 - swing * 0.035);
+  handle.armL.rotation.z = 0.06 + swing * 0.035;
+  handle.armR.rotation.z = -(0.06 - swing * 0.035);
+  // Round 4: elbow bend — the forearm hangs from its own pivot, so it
+  // can flex a touch while walking (more bend as the arm swings
+  // forward, less as it swings back). Small (max ~25°) so it never
+  // reads as a raised arm.
+  const ampN = handle.amp / 0.62;
+  const elbowBase = -(0.12 + 0.22 * ampN);
+  handle.elbowL.rotation.x = elbowBase - swing * 0.2;
+  handle.elbowR.rotation.x = elbowBase + swing * 0.2;
+  // Round 4: torso counter-rotation — shoulders twist opposite the
+  // hips (the legs swing with the group, the torso twists against
+  // them). Max ~4°, subtle, no new materials in the hot path.
+  if (handle.torso) handle.torso.rotation.y = -Math.sin(handle.phase) * 0.07 * ampN;
 
   // Bob: two bounces per cycle, strongest at mid-stride. Additive on top
   // of the position runtime.after() already set this frame.
-  const bob = Math.abs(Math.cos(handle.phase)) * 0.045 * (handle.amp / 0.62);
+  const bob = Math.abs(Math.cos(handle.phase)) * 0.045 * ampN;
   handle.group.position.y += bob;
+  // Round 4: head bob — the head rides the stride a touch on its own,
+  // in phase with the body bob, so the face doesn't look bolted on.
+  if (handle.head) handle.head.position.y = handle.baseHeadY + Math.abs(Math.cos(handle.phase)) * 0.018 * ampN;
 
   // Forward lean while moving, additive on top of applyEmote's rotation.
-  handle.group.rotation.x += 0.05 * (handle.amp / 0.62);
+  handle.group.rotation.x += 0.05 * ampN;
   // Torso sway: a gentle side-to-side lean that peaks at mid-stride,
   // so the whole body rolls with the walk instead of staying bolt
   // upright. Subtle (max ~1.4°) — it reads as a walk, not a tilt.
-  handle.group.rotation.z += Math.sin(handle.phase) * 0.025 * (handle.amp / 0.62);
+  handle.group.rotation.z += Math.sin(handle.phase) * 0.025 * ampN;
 }
 
 /** Snap a walker back to a neutral standing pose (teleports, emotes). */
@@ -456,9 +518,15 @@ export function resetWalkPose(handle: WalkerHandle): void {
   // animateWalk drives rotation.z on the arms (flare) and the group
   // (sway) — reset those too, or a reset character keeps a mid-stride
   // lean until the next walk frame.
-  handle.armL.rotation.z = 0.08;
-  handle.armR.rotation.z = -0.08;
+  handle.armL.rotation.z = 0.06;
+  handle.armR.rotation.z = -0.06;
   handle.group.rotation.z = 0;
+  // Round 4 additions: straighten the elbows, untwist the torso, and
+  // drop the head back to its rest height.
+  handle.elbowL.rotation.x = 0;
+  handle.elbowR.rotation.x = 0;
+  if (handle.torso) handle.torso.rotation.y = 0;
+  if (handle.head) handle.head.position.y = handle.baseHeadY;
 }
 
 /**

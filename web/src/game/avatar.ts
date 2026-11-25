@@ -698,7 +698,7 @@ export function dressPerson(
     }
   }
   // Wardrobe watch — a band on the left wrist. The walker's left arm
-  // pivot sits at (-0.38, 1.24) and the limb hangs to ~0.67, so the
+  // pivot sits at (-0.32, 1.30) and the limb hangs to ~0.72, so the
   // wrist rests at 0.72. The band is group-space, not arm-attached:
   // it sits at the rest position and is visible in every camera.
   if (shop.wardrobe?.watch && WATCH_COLORS[shop.wardrobe.watch]) {
