@@ -316,18 +316,49 @@ function stateHomeCeiling(city: City, home: HomeDef): void {
   pushBox(city, cx, 3.62, cz, w - 2.15, 0.14, d - 2.15, "ceil");
   pushCol(city, cx, 3.62, cz, w - 2, 0.25, d - 2);
   for (const [dx, dz] of [[-4.2, -3.2], [4.2, -3.2], [-4.2, 3.2], [4.2, 3.2], [0, 0]] as Array<[number, number]>) {
-    pushBox(city, cx + dx, 3.2, cz + dz, 0.12, 0.55, 0.12, "gray");
+    // Rod runs into the ceiling slab (bottom 3.55) — the old 0.55 rod
+    // stopped 0.075 short and floated.
+    pushBox(city, cx + dx, 3.25, cz + dz, 0.12, 0.7, 0.12, "gray");
     pushBox(city, cx + dx, 2.85, cz + dz, 0.55, 0.16, 0.55, "warm");
   }
   if (w >= d) {
-    for (const off of [-w / 6, w / 6]) pushBox(city, cx + off, 3.42, cz, 0.5, 0.24, d - 2.5, "wood");
+    // Beams run into the ceiling slab too (old 3.42 centre left a 0.01 gap).
+    for (const off of [-w / 6, w / 6]) pushBox(city, cx + off, 3.45, cz, 0.5, 0.28, d - 2.5, "wood");
   } else {
-    for (const off of [-d / 6, d / 6]) pushBox(city, cx, 3.42, cz + off, w - 2.5, 0.24, 0.5, "wood");
+    for (const off of [-d / 6, d / 6]) pushBox(city, cx, 3.45, cz + off, w - 2.5, 0.28, 0.5, "wood");
   }
 }
 
+/** Distance from a plot centre to the nearest road edge (roads sit 18 out,
+ * half-width 5). Anything a house sticks out past this line is in the
+ * driving lane. */
+export const HOME_ROAD_EDGE = 13;
+
+/** Backyard depth that fits the plot: the back wall is `fd` from the plot
+ * centre (fd = half the house depth along the door axis), the road edge
+ * is 13 out, and the yard keeps 0.6 clear of it. The old fixed 5.5
+ * overflowed the road on every plot (the yard is only 1.4–4.4 deep once
+ * the house is 16–22 deep). */
+export function homeYardDepth(home: HomeDef): number {
+  const fd = home.door === "n" || home.door === "s" ? home.d / 2 : home.w / 2;
+  return Math.max(0.6, Math.min(5.5, HOME_ROAD_EDGE - fd - 0.6));
+}
+
 /** A small yard tree: trunk + two leaf layers (pushBox/pushCol only). */
-function stateHomeTree(city: City, x: number, z: number): void {
+function stateHomeTree(city: City, x: number, z: number, small = false): void {
+  if (small) {
+    pushBox(city, x, 1.5, z, 0.6, 3, 0.6, "trunk");
+    pushCol(city, x, 1.5, z, 0.6, 3, 0.6);
+    for (const [y, r, mat] of [[3.2, 1, "leavesDark"], [4.0, 1, "leaves"]] as Array<[number, number, Mat]>) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+          if (Math.abs(dx) === r && Math.abs(dz) === r) continue;
+          pushBox(city, x + dx, y, z + dz, 0.94, 0.94, 0.94, mat);
+        }
+      }
+    }
+    return;
+  }
   pushBox(city, x, 2.1, z, 0.85, 4.2, 0.85, "trunk");
   pushCol(city, x, 2.1, z, 0.85, 4.2, 0.85);
   for (const [y, r, mat] of [[4.3, 2, "leavesDark"], [5.35, 2, "leaves"], [6.4, 1, "leaves"]] as Array<[number, number, Mat]>) {
@@ -342,23 +373,27 @@ function stateHomeTree(city: City, x: number, z: number): void {
 
 /** A backyard behind the house (opposite the door): grass, hedge fence
  * (open toward the house), stone path, bench, tree, grill, flowers.
- * State plots are 36-spaced with houses at most 22 wide, so the full
- * 5.5-deep yard always stays inside the plot. */
+ * The yard is clamped to the plot (see homeYardDepth) — the old fixed
+ * 5.5-deep yard ran its far hedge + collider into the back road on
+ * every home. The yard's lateral size is the house depth for w/e doors
+ * (the lateral axis is d there, not w). */
 function stateHomeBackyard(city: City, home: HomeDef): void {
   const { x0, z0, w, d, door } = home;
   const cx = x0 + w / 2;
   const cz = z0 + d / 2;
-  const depth = 5.5;
+  const depth = homeYardDepth(home);
+  // Lateral extent of the yard: the house dimension across the door axis.
+  const lat = door === "w" || door === "e" ? d - 2 : w - 2;
   if (door === "w" || door === "e") {
     const yxx0 = door === "w" ? x0 + w + 0.6 : x0 - 0.6 - depth;
     const yxx1 = door === "w" ? x0 + w + 0.6 + depth : x0 - 0.6;
     const farX = door === "w" ? yxx1 : yxx0;
     const dirX = door === "w" ? 1 : -1;
-    pushBox(city, (yxx0 + yxx1) / 2, 0.06, cz, depth, 0.1, w - 2, "grass");
-    pushBox(city, farX, 0.3, cz, 0.5, 0.6, w - 2, "hedge");
-    pushCol(city, farX, 0.3, cz, 0.5, 0.6, w - 2);
+    pushBox(city, (yxx0 + yxx1) / 2, 0.06, cz, depth, 0.1, lat, "grass");
+    pushBox(city, farX, 0.3, cz, 0.5, 0.6, lat, "hedge");
+    pushCol(city, farX, 0.3, cz, 0.5, 0.6, lat);
     for (const side of [-1, 1]) {
-      const fz = cz + side * (w - 2) / 2;
+      const fz = cz + side * lat / 2;
       pushBox(city, (yxx0 + yxx1) / 2, 0.3, fz, depth, 0.6, 0.5, "hedge");
       pushCol(city, (yxx0 + yxx1) / 2, 0.3, fz, depth, 0.6, 0.5);
     }
@@ -370,7 +405,11 @@ function stateHomeBackyard(city: City, home: HomeDef): void {
     pushBox(city, (yxx0 + yxx1) / 2, 0.48, cz + 2.2, 0.5, 0.16, 1.7, "gray");
     pushBox(city, (yxx0 + yxx1) / 2, 0.78, cz + 2.2, 0.16, 0.5, 1.7, "black");
     pushCol(city, (yxx0 + yxx1) / 2, 0.55, cz + 2.2, 0.5, 0.7, 1.7);
-    stateHomeTree(city, (yxx0 + yxx1) / 2 - 1, cz - (w - 2) / 2 + 1.6);
+    // Tree at the yard centre (the old centre-minus-1 put the canopy
+    // through the back wall). Full tree only fits a 4.5+ yard; a small
+    // tree fits 2.5+; the shallowest yards get none.
+    if (depth >= 4.5) stateHomeTree(city, (yxx0 + yxx1) / 2, cz - lat / 2 + 1.6);
+    else if (depth >= 2.5) stateHomeTree(city, (yxx0 + yxx1) / 2, cz - lat / 2 + 1.6, true);
     for (const side of [-1, 1]) {
       pushBox(city, gx, 0.25, cz + side * 3.4, 0.5, 0.4, 0.5, side < 0 ? "red" : "gold");
     }
@@ -380,11 +419,11 @@ function stateHomeBackyard(city: City, home: HomeDef): void {
   const yz1 = door === "n" ? z0 + d + 0.6 + depth : z0 - 0.6;
   const farZ = door === "n" ? yz1 : yz0;
   const dirZ = door === "n" ? 1 : -1;
-  pushBox(city, cx, 0.06, (yz0 + yz1) / 2, w - 2, 0.1, depth, "grass");
-  pushBox(city, cx, 0.3, farZ, w - 2, 0.6, 0.5, "hedge");
-  pushCol(city, cx, 0.3, farZ, w - 2, 0.6, 0.5);
+  pushBox(city, cx, 0.06, (yz0 + yz1) / 2, lat, 0.1, depth, "grass");
+  pushBox(city, cx, 0.3, farZ, lat, 0.6, 0.5, "hedge");
+  pushCol(city, cx, 0.3, farZ, lat, 0.6, 0.5);
   for (const side of [-1, 1]) {
-    const fx = cx + side * (w - 2) / 2;
+    const fx = cx + side * lat / 2;
     pushBox(city, fx, 0.3, (yz0 + yz1) / 2, 0.5, 0.6, depth, "hedge");
     pushCol(city, fx, 0.3, (yz0 + yz1) / 2, 0.5, 0.6, depth);
   }
@@ -396,7 +435,9 @@ function stateHomeBackyard(city: City, home: HomeDef): void {
   pushBox(city, cx + 2.2, 0.48, (yz0 + yz1) / 2, 1.7, 0.16, 0.5, "gray");
   pushBox(city, cx + 2.2, 0.78, (yz0 + yz1) / 2, 1.7, 0.5, 0.16, "black");
   pushCol(city, cx + 2.2, 0.55, (yz0 + yz1) / 2, 1.7, 0.7, 0.5);
-  stateHomeTree(city, cx - (w - 2) / 2 + 1.6, (yz0 + yz1) / 2 - 1);
+  // Tree at the yard centre (see the w/e branch for why it is tiered).
+  if (depth >= 4.5) stateHomeTree(city, cx - lat / 2 + 1.6, (yz0 + yz1) / 2);
+  else if (depth >= 2.5) stateHomeTree(city, cx - lat / 2 + 1.6, (yz0 + yz1) / 2, true);
   for (const side of [-1, 1]) {
     pushBox(city, cx + side * 3.4, 0.25, gz, 0.5, 0.4, 0.5, side < 0 ? "red" : "gold");
   }
@@ -420,11 +461,15 @@ function furnishStateHome(city: City, home: HomeDef, arch: HomeArchetype): void 
   stateHomeCeiling(city, home);
   const wallMat: Mat = home.state === "ny" ? "gray" : home.state === "la" ? "warm" : "white";
   stateHomeWallpaper(city, home, wallMat, arch.rug);
-  // TV on the far wall + rug + sofa facing it.
+  // TV on the far wall + rug + sofa facing it. The cyan screen sits
+  // 0.08 proud of the black body toward the room — centred exactly
+  // inside it, it was fully embedded and invisible.
   const tvPos = backPoint(door, x0, z0, w, d, 0.88);
   const back = backPoint(door, x0, z0, w, d, 1.38);
   pushBox(city, tvPos.x, 1.5, tvPos.z, alongX ? 3.6 : 0.2, 2, alongX ? 0.2 : 3.6, "black");
-  pushBox(city, tvPos.x, 1.5, tvPos.z, alongX ? 3.2 : 0.1, 1.6, alongX ? 0.1 : 3.2, "cyan");
+  const roomDx = door === "w" ? 1 : door === "e" ? -1 : 0;
+  const roomDz = door === "n" ? 1 : door === "s" ? -1 : 0;
+  pushBox(city, tvPos.x + roomDx * 0.08, 1.5, tvPos.z + roomDz * 0.08, alongX ? 3.2 : 0.1, 1.6, alongX ? 0.1 : 3.2, "cyan");
   pushBox(city, cx, 0.12, cz, alongX ? 5 : 3.6, 0.05, alongX ? 3.6 : 5, arch.rug);
   const s = door === "s" || door === "e" ? 1 : -1;
   if (alongX) {
@@ -440,14 +485,22 @@ function furnishStateHome(city: City, home: HomeDef, arch: HomeArchetype): void 
     pushBox(city, cx - s * 0.3, 0.4, cz, 0.9, 0.35, 1.6, "wood");
     pushCol(city, cx - s * 0.3, 0.4, cz, 0.9, 0.35, 1.6);
   }
-  // Kitchenette along the back wall: counter + cabinets + fridge.
+  // Kitchenette along the back wall: counter + cabinets + fridge. The
+  // fridge offset is clamped to the house's half-dimension minus 1 —
+  // the old fixed 7.8 poked the 0.9-wide fridge 0.25 through the
+  // outside wall on every 16-deep home (66 of 150). The counter
+  // shrinks to match so the fridge never swallows its end.
   const kx = alongX ? cx + 5 : back.x;
   const kz = alongX ? back.z : cz + 5;
-  pushBox(city, kx, 0.55, kz, alongX ? 4.6 : 1.1, 1.05, alongX ? 1.1 : 4.6, "stone");
-  pushCol(city, kx, 0.55, kz, alongX ? 4.6 : 1.1, 1.05, alongX ? 1.1 : 4.6);
-  pushBox(city, kx, 1.2, kz, alongX ? 4.8 : 1.2, 0.14, alongX ? 1.2 : 4.8, "wood");
-  pushBox(city, alongX ? kx + 2.8 : kx, 1.0, alongX ? kz : kz + 2.8, 0.9, 2, 0.9, "white");
-  pushCol(city, alongX ? kx + 2.8 : kx, 1.0, alongX ? kz : kz + 2.8, 0.9, 2, 0.9);
+  const fridgeOff = Math.min(7.8, (alongX ? w : d) / 2 - 1.0);
+  const counterW = Math.min(4.6, 2 * (fridgeOff - 5.5));
+  const fridgeX = alongX ? cx + fridgeOff : kx;
+  const fridgeZ = alongX ? kz : cz + fridgeOff;
+  pushBox(city, kx, 0.55, kz, alongX ? counterW : 1.1, 1.05, alongX ? 1.1 : counterW, "stone");
+  pushCol(city, kx, 0.55, kz, alongX ? counterW : 1.1, 1.05, alongX ? 1.1 : counterW);
+  pushBox(city, kx, 1.2, kz, alongX ? counterW + 0.2 : 1.2, 0.14, alongX ? 1.2 : counterW + 0.2, "wood");
+  pushBox(city, fridgeX, 1.0, fridgeZ, 0.9, 2, 0.9, "white");
+  pushCol(city, fridgeX, 1.0, fridgeZ, 0.9, 2, 0.9);
   // Bedroom nook: bed + nightstand. The bed lives south-east — except
   // when the kitchen is on the south-east side too (doors "n" and "w"),
   // where the counter and the fridge would swallow it; then it moves
@@ -475,12 +528,14 @@ function furnishStateHome(city: City, home: HomeDef, arch: HomeArchetype): void 
   // Rug beside the bed, on the room side of it.
   pushBox(city, bedX + (bedSE ? -2.2 : 2.2), 0.145, bedZ, 2.5, 0.05, 3, arch.rug);
   // Paintings flush on the side walls (never on the door wall) + a plant by the door.
+  // The wall's inner face is 0.45 in from the facade edge, so a 0.15-thick
+  // painting centres at 0.53 — the old 0.84 floated 0.315 off the wall.
   if (alongX) {
-    pushBox(city, x0 + 0.84, 1.9, cz - 3.6, 0.15, 1.5, 2.2, arch.rug);
-    pushBox(city, x0 + w - 0.84, 1.9, cz - 3.6, 0.15, 1.5, 2.2, "gold");
+    pushBox(city, x0 + 0.53, 1.9, cz - 3.6, 0.15, 1.5, 2.2, arch.rug);
+    pushBox(city, x0 + w - 0.53, 1.9, cz - 3.6, 0.15, 1.5, 2.2, "gold");
   } else {
-    pushBox(city, cx + 4.5, 1.9, z0 + 0.84, 2.2, 1.5, 0.15, arch.rug);
-    pushBox(city, cx - 3.5, 1.9, z0 + d - 0.84, 2.2, 1.5, 0.15, "gold");
+    pushBox(city, cx + 4.5, 1.9, z0 + 0.53, 2.2, 1.5, 0.15, arch.rug);
+    pushBox(city, cx - 3.5, 1.9, z0 + d - 0.53, 2.2, 1.5, 0.15, "gold");
   }
   const plant = backPoint(door === "n" ? "s" : door === "s" ? "n" : door === "w" ? "e" : "w", x0, z0, w, d);
   pushBox(city, plant.x, 0.5, plant.z, 0.7, 0.9, 0.7, "leavesDark");
@@ -499,7 +554,9 @@ function furnishStateHome(city: City, home: HomeDef, arch: HomeArchetype): void 
   pushBox(city, lampX, 1.85, z0 + 2.6, 0.5, 0.3, 0.5, "warm");
   pushCol(city, lampX, 0.9, z0 + 2.6, 0.3, 1.8, 0.3);
   const shelfX = cx - 5.2;
-  const shelfZ = door === "n" ? z0 + d - 0.98 : z0 + 0.98;
+  // Shelf depth 0.45 against the wall inner face (0.45) centres at 0.68 —
+  // the old 0.98 floated 0.3 off the wall.
+  const shelfZ = door === "n" ? z0 + d - 0.68 : z0 + 0.68;
   pushBox(city, shelfX, 1.8, shelfZ, 3, 0.12, 0.45, "wood");
   const shelfMats: Mat[] = ["red", "cyan", "gold", "white"];
   for (let i = 0; i < 4; i++) {
@@ -515,17 +572,26 @@ function furnishStateHome(city: City, home: HomeDef, arch: HomeArchetype): void 
     pushCol(city, fx, 1.0, fz, alongX ? 1.0 : 4, 2, alongX ? 4 : 1.0);
     pushBox(city, fx, 2.1, fz, alongX ? 1.2 : 4.2, 0.25, alongX ? 4.2 : 1.2, "gold");
   } else if (arch.extra === "patio" || arch.extra === "deck") {
-    // Outdoor slab past the door + one palm (LA) or umbrella (FL).
-    // The palm / umbrella sits at the slab's far corner, 2.8 off the door
-    // centre line — never dead in front of the door. (A palm on the
-    // centre line draped its 3.4-wide canopy over the door + sign.)
+    // Outdoor slab past the door, clamped to the plot: the old 6-deep
+    // slab ran 1–4 into the front road on 84 homes. The palm / umbrella
+    // moves to the backyard's far corner — the front yard is too shallow
+    // for it once the garage bay sits there, and the backyard corner
+    // clears the roof overhang (outward >= 2.1 from the back wall).
     const dx = door === "e" ? 1 : door === "w" ? -1 : 0;
     const dz = door === "s" ? 1 : door === "n" ? -1 : 0;
-    const px = cx + dx * (w / 2 + 3);
-    const pz = cz + dz * (d / 2 + 3);
-    pushBox(city, px, 0.06, pz, 6, 0.1, 6, arch.extra === "deck" ? "wood" : "stone");
-    const ox = px + dx * 2 - dz * 2.8;
-    const oz = pz + dz * 2 + dx * 2.8;
+    const fd = alongX ? d / 2 : w / 2;
+    const slabD = Math.min(6, HOME_ROAD_EDGE - fd - 0.5);
+    const px = cx + dx * (w / 2 + slabD / 2);
+    const pz = cz + dz * (d / 2 + slabD / 2);
+    pushBox(city, px, 0.06, pz, alongX ? 6 : slabD, 0.1, alongX ? slabD : 6, arch.extra === "deck" ? "wood" : "stone");
+    const yardDepth = homeYardDepth(home);
+    const yardLat = alongX ? w - 2 : d - 2;
+    const backOut = Math.max(2.1, 0.6 + yardDepth - 1);
+    const bdx = -dx;
+    const bdz = -dz;
+    const halfBack = alongX ? d / 2 : w / 2;
+    const ox = cx + bdx * halfBack + bdx * backOut + (alongX ? yardLat / 2 - 1 : 0);
+    const oz = cz + bdz * halfBack + bdz * backOut + (alongX ? 0 : yardLat / 2 - 1);
     if (arch.extra === "patio") {
       pushBox(city, ox, 2, oz, 0.6, 4, 0.6, "trunk");
       pushBox(city, ox, 4.6, oz, 3.4, 1.1, 3.4, "leaves");
@@ -664,24 +730,30 @@ export function isHomeOwnedOn(save: PlayerHomesSave, homeId: string, server: Ser
 // ---------------------------------------------------------------------------
 // Garage — park your own cars at home (City Sol only, no new server data)
 // ---------------------------------------------------------------------------
-// The garage is a bay in front of the home, to one side of the door so
-// the front path stays clear. The cars in it are the player's OWNED
-// ground vehicles from the per-server save (save.vehicles) — no new
-// data, no new column. Flyers (planes, helicopters, the blimp, flying
-// cars) park in the sky, not the bay: a helicopter rotor spans 5.4+
-// against a 3.2 slot pitch. The runtime filters them out before it
-// counts slots (see garageParkedVehicles); the panel still lists them
-// all, and selecting one still drives it out. Every owned ground car
-// parks here; the only one that hides is the car that drove out of a
-// garage (activeCarHomeId in runtime.ts) — it waits out front until
-// another car is picked or it is respawned at the shop.
+// The garage is a carport in front of the home, centred on the door,
+// with the cars parallel-parked along the front wall. Nose-in parking
+// could never fit: the front yard is only 2–5 deep (the road edge is
+// 13 from the plot centre) while a nose-in car needs 8.6, so every bay
+// ran into the street and the cars stood in the driving lane. A
+// parallel car is 2 wide, so a 3.4-deep bay (0.6 wall gap + car +
+// 0.8 margin) fits the yard and the cars clear the road. The cars in
+// it are the player's OWNED ground vehicles from the per-server save
+// (save.vehicles) — no new data, no new column. Flyers (planes,
+// helicopters, the blimp, flying cars) park in the sky, not the bay:
+// the carport roof clears 3.31, so a tall flyer would clip it. The
+// runtime filters them out before it counts slots (see
+// garageParkedVehicles); the panel still lists them all, and selecting
+// one still drives it out. Every owned ground car parks here; the only
+// one that hides is the car that drove out of a garage
+// (activeCarHomeId in runtime.ts) — it waits out front until another
+// car is picked or it is respawned at the shop.
 
 /** Max cars shown parked in one home garage (the panel lists them all). */
 export const GARAGE_MAX_SLOTS = 4;
-/** Centre-to-centre slot pitch — catalog cars are at most 2 wide. */
-export const GARAGE_SLOT_PITCH = 3.2;
-/** Bay depth from the home's front wall (the longest catalog car is 6.4). */
-export const GARAGE_BAY_DEPTH = 8;
+/** Centre-to-centre slot pitch — a parallel car is 6.4 long + 0.6 gap. */
+export const GARAGE_SLOT_PITCH = 7;
+/** Bay depth outward from the home's front wall (parallel car 2 wide + margins). */
+export const GARAGE_BAY_DEPTH = 3.4;
 
 export interface GarageSlot {
   x: number;
@@ -694,8 +766,10 @@ export interface GarageLayout {
   homeId: string;
   /** Bay rect centre + size, in world coords. f = outward from the door wall, s = along it. */
   bay: { cx: number; cz: number; w: number; d: number; fx: number; fz: number; sx: number; sz: number };
-  /** Parked-car spots, nose out toward the street. */
+  /** Parked-car spots, parallel to the front wall. */
   slots: GarageSlot[];
+  /** White divider stripes between slots, as lateral offsets from the bay centre. */
+  dividers: number[];
   /** Where a selected car spawns to drive, one per slot, just past the bay. */
   driveOut: GarageSlot[];
   /** E-prompt / walk-up point: the middle of the bay. */
@@ -717,31 +791,41 @@ export function garageLayoutFor(home: HomeDef, carCount: number): GarageLayout {
   const slotsN = Math.max(1, Math.min(Math.max(0, carCount), GARAGE_MAX_SLOTS));
   const bayW = slotsN * GARAGE_SLOT_PITCH + 1.6;
   const bayD = GARAGE_BAY_DEPTH;
-  // The bay sits to one side of the door (patio slab is 6 wide, centred on
-  // the door; the bay's inner edge starts 3.4 out, so they never touch).
-  // The side alternates by home so two neighbouring garages face away
-  // from each other. At 4 slots the bay spans 17.8 laterally — inside the
-  // 36-wide plot — and 8.6 out from the front wall, short of the next lot.
+  // The bay is centred on the door and the cars parallel-park along the
+  // wall. Slot offsets are side-preference first (the side alternates
+  // by home) so the first car always lands on the bay's preferred side;
+  // the nearest slot is ±6, whose inner edge (6 − 3.2 = 2.8) clears the
+  // porch posts (±2.35) by 0.45. At 4 slots the bay spans 29.6
+  // laterally — inside the 36-wide plot, and centred, so neighbouring
+  // bays sit 6.4 apart and can never overlap. Outward the bay runs
+  // fd+0.6 to fd+4.0: clear of the road (edge 13) except on the
+  // deepest (fd=11) homes, where the outer 2.0 sits on the road's near
+  // edge — the slab there is 0.04 below the asphalt, so it reads as a
+  // kerb strip, and 8.0 of road stays clear.
   const side = home.index % 2 === 0 ? 1 : -1;
-  const bayLat = side * (3.4 + bayW / 2);
+  const pref = side === 1 ? [6, 13, -6, -13] : [-6, -13, 6, 13];
+  const slotLats = pref.slice(0, slotsN);
+  const bayLat = 0;
   const bayOut = fd + 0.6 + bayD / 2;
-  const yaw = Math.atan2(fx, -fz);
+  // Parallel to the wall: forward along s, not out of the wall.
+  const yaw = Math.atan2(sx, -sz);
   const at = (lat: number, out: number): GarageSlot => ({
     x: cx + fx * out + sx * lat,
     z: cz + fz * out + sz * lat,
     yaw,
   });
-  const slots = Array.from({ length: slotsN }, (_, i) =>
-    at(bayLat + (i - (slotsN - 1) / 2) * GARAGE_SLOT_PITCH, bayOut));
-  const driveOut = Array.from({ length: slotsN }, (_, i) =>
-    at(bayLat + (i - (slotsN - 1) / 2) * GARAGE_SLOT_PITCH, fd + 0.6 + bayD + 3.2));
+  const slots = slotLats.map((lat) => at(lat, bayOut));
+  const sorted = [...slotLats].sort((a, b) => a - b);
+  const dividers = sorted.slice(1).map((lat, i) => (sorted[i] + lat) / 2);
+  const driveOut = slotLats.map((lat) => at(lat, fd + 0.6 + bayD + 3.2));
   return {
     homeId: home.id,
     bay: { cx: cx + fx * bayOut + sx * bayLat, cz: cz + fz * bayOut + sz * bayLat, w: bayW, d: bayD, fx, fz, sx, sz },
     slots,
+    dividers,
     driveOut,
     service: { x: cx + fx * bayOut + sx * bayLat, z: cz + fz * bayOut + sz * bayLat },
-    sign: { x: cx + fx * (fd + 0.18) + sx * bayLat, y: 4.2, z: cz + fz * (fd + 0.18) + sz * bayLat, rot: Math.atan2(fx, fz) },
+    sign: { x: cx + fx * (fd + 0.18) + sx * side * 5.5, y: 4.2, z: cz + fz * (fd + 0.18) + sz * side * 5.5, rot: Math.atan2(fx, fz) },
   };
 }
 

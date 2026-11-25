@@ -5940,10 +5940,10 @@ export function createRuntime(scene: Scene) {
 
   // The vehicles that park in the bay: ground vehicles only. Flyers
   // (planes, helicopters, the blimp, flying cars) park in the sky —
-  // a helicopter rotor spans 5.4+ against a 3.2 slot pitch, so one
-  // would clip through its neighbours. They stay listed (and
-  // selectable) in the garage panel; only the 3D bay skips them.
-  // Unknown catalog ids park as ground vehicles (safer default).
+  // the carport roof clears 3.31, so a tall flyer would clip it.
+  // They stay listed (and selectable) in the garage panel; only the
+  // 3D bay skips them. Unknown catalog ids park as ground vehicles
+  // (safer default).
   function garageParkedVehicles(): OwnedVehicle[] {
     return localVehicles.filter((v) => !(getVehicle(v.id)?.fly ?? false));
   }
@@ -5991,11 +5991,13 @@ export function createRuntime(scene: Scene) {
         bayGroup.add(mesh);
         return mesh;
       };
-      // Concrete slab + gold front edge + white slot dividers.
-      add(MATERIALS.stone, 0, 0.06, 0, bay.w, 0.12, bay.d);
-      add(GOLD, 0, 0.14, bay.d / 2 - 0.09, bay.w, 0.06, 0.18);
-      for (let i = 1; i < layout.slots.length; i++) {
-        add(MATERIALS.white, -bay.w / 2 + 0.8 + i * 3.2, 0.14, 0, 0.1, 0.05, bay.d - 0.6);
+      // Concrete slab + gold front edge + white slot dividers. The slab
+      // top sits at 0.08 — 0.04 below the road asphalt (0.12) and 0.03
+      // below the patio slab (0.11) — so neither face z-fights.
+      add(MATERIALS.stone, 0, 0.02, 0, bay.w, 0.12, bay.d);
+      add(GOLD, 0, 0.11, bay.d / 2 - 0.09, bay.w, 0.06, 0.18);
+      for (const div of layout.dividers) {
+        add(MATERIALS.white, div, 0.11, 0, 0.1, 0.05, bay.d - 0.6);
       }
       // Four posts + a flat dark roof: an open carport, so the parked
       // cars stay visible from the street.
@@ -6013,9 +6015,9 @@ export function createRuntime(scene: Scene) {
       sign.position.set(layout.sign.x, layout.sign.y, layout.sign.z);
       sign.rotation.y = layout.sign.rot;
       group.add(sign);
-      // The owned ground vehicles, parked nose-out in their slots —
-      // every one except the car that drove out of a garage, which
-      // waits out front. Flyers park in the sky, not the bay.
+      // The owned ground vehicles, parked parallel to the front wall in
+      // their slots — every one except the car that drove out of a
+      // garage, which waits out front. Flyers park in the sky, not the bay.
       let slot = 0;
       for (const v of parked) {
         if (v.id === localActiveVehicle && activeCarHomeId !== null) continue;
