@@ -212,8 +212,17 @@ const SHOP_COLORS: Record<string, string> = {
 // disc (cylinder) or rounded box, all unit-extent so a mesh's scale IS
 // its size — except capsules, whose unit height is 2, so add() halves
 // the Y scale for them. movement.ts's finders match the legs/torso/
-// head by name first, then by the old position+scale ranges, so the
-// named body meshes below keep their exact old positions and scales.
+// head by name first, then by the position+scale ranges below, so the
+// named body meshes keep their exact positions and scales.
+//
+// Round 4 proportions (2026-11-24): realistic ~1:6 head/body, not the
+// old ~1:4.5 cartoon. Total height ~1.76 so camera/door/collision
+// math still works. Head dia 0.32 at HEAD_Y, torso narrower (0.56),
+// legs longer (hip at HIP_Y 0.62). movement.ts pivots match these.
+const HEAD_Y = 1.6;
+const HEAD_D = 0.32;
+const HIP_Y = 0.62;
+const TORSO_Y = 0.98;
 const UNIT_SPHERE = new SphereGeometry(0.5, 14, 10);
 const UNIT_CAPSULE = new CapsuleGeometry(0.5, 1, 4, 12); // height 2, diameter 1
 const UNIT_CAPSULE_X = UNIT_CAPSULE.clone().rotateZ(Math.PI / 2);
@@ -354,39 +363,40 @@ export function dressPerson(
   // front 0.215 vs torso 0.20) — at 0.16 the stripe's front face was
   // exactly coplanar with the torso's and flickered (walk-fix 2026-11-17).
   const chestStripe = outfitStyle?.tie ?? (shirtStyle?.layer === "jacket" ? shirtStyle.inner ?? accent : accent);
-  // Realistic body (2026-11-24): rounded-box legs + torso, sphere head.
+  // Realistic body (round 4, 2026-11-24): longer legs (hip 0.62),
+  // narrower torso (0.56 wide), smaller head (0.32 dia at 1.60).
   // Named "legs"/"torso"/"head" so movement.ts finds them by name;
-  // positions + scales are the old ones, so the range fallback still
-  // matches too. The walker replaces the legs with two capsule limbs.
-  addExact(group, UNIT_ROUNDED, legsColor, 0, 0.3, 0, 0.5, 0.46, 0.34, "legs");
+  // the walker replaces the legs with two capsule limbs pivoting at
+  // HIP_Y and hangs arms from shoulder height (TORSO_Y + 0.32).
+  addExact(group, UNIT_ROUNDED, legsColor, 0, 0.31, 0, 0.44, 0.62, 0.3, "legs");
   // Wardrobe shoes: two ROUND shoes at the feet (spheres, not boxes) —
   // built exact so the walker's static-shoe removal still matches.
   if (shop.wardrobe?.shoes && SHOE_COLORS[shop.wardrobe.shoes]) {
     const shoeColor = SHOE_COLORS[shop.wardrobe.shoes];
-    addExact(group, UNIT_SPHERE, shoeColor, -0.13, 0.05, 0.03, 0.22, 0.1, 0.32);
-    addExact(group, UNIT_SPHERE, shoeColor, 0.13, 0.05, 0.03, 0.22, 0.1, 0.32);
+    addExact(group, UNIT_SPHERE, shoeColor, -0.11, 0.05, 0.03, 0.2, 0.09, 0.3);
+    addExact(group, UNIT_SPHERE, shoeColor, 0.11, 0.05, 0.03, 0.2, 0.09, 0.3);
   }
-  addExact(group, UNIT_ROUNDED, torsoColor, 0, 0.9, 0, 0.66, 0.78, 0.4, "torso");
-  add(group, chestStripe, 0, 1.05, 0.175, 0.28, 0.42, 0.08);
+  addExact(group, UNIT_ROUNDED, torsoColor, 0, TORSO_Y, 0, 0.56, 0.66, 0.34, "torso");
+  add(group, chestStripe, 0, 1.02, 0.16, 0.24, 0.36, 0.06);
   // Belt at the waist (dark, gold buckle) + a collar band at the neck
   // (accent colour) — the outfit read as one flat slab before; now it
   // has a waist and a neckline. Skipped for dresses (the skirt covers
   // the waist) and for the suit (the tie bar is already the chest
   // detail).
   if (!outfitStyle?.skirt && outfitDef?.style !== "suit") {
-    add(group, "#1a1c22", 0, 0.56, 0, 0.68, 0.07, 0.42);
-    add(group, "#e0b33a", 0, 0.56, 0.21, 0.08, 0.05, 0.02);
-    add(group, accent, 0, 1.27, 0, 0.4, 0.07, 0.42);
+    add(group, "#1a1c22", 0, 0.68, 0, 0.58, 0.06, 0.36);
+    add(group, "#e0b33a", 0, 0.68, 0.185, 0.07, 0.045, 0.02);
+    add(group, accent, 0, 1.28, 0, 0.34, 0.06, 0.36);
   }
   // Hoodie hood, behind the head (same shape as the "hood" hat branch).
   if (shirtStyle?.layer === "hood") {
-    add(group, shirtStyle.color, 0, 1.72, -0.08, 0.52, 0.46, 0.36);
-    add(group, shirtStyle.color, 0, 1.96, 0, 0.5, 0.16, 0.48);
+    add(group, shirtStyle.color, 0, 1.62, -0.1, 0.46, 0.36, 0.28);
+    add(group, shirtStyle.color, 0, 1.86, 0, 0.44, 0.13, 0.42);
   }
   // Dress skirt, over the top of the legs: a flared cone, not a slab.
   if (outfitStyle?.skirt) {
-    const skirt = new Mesh(new CylinderGeometry(0.28, 0.4, 0.38, 12), mat(outfitStyle.torso));
-    skirt.position.set(0, 0.52, 0);
+    const skirt = new Mesh(new CylinderGeometry(0.24, 0.34, 0.36, 12), mat(outfitStyle.torso));
+    skirt.position.set(0, 0.55, 0);
     skirt.scale.set(0.9, 1, 0.58);
     skirt.castShadow = true;
     group.add(skirt);
@@ -394,157 +404,185 @@ export function dressPerson(
   // Outfit silhouette extras — only a wardrobe outfit has one.
   if (outfitDef?.style === "hoodie") {
     // Hood bunched behind the neck + a hood rim over the shoulders.
-    add(group, outfit, 0, 1.72, -0.12, 0.52, 0.4, 0.3);
-    add(group, outfit, 0, 1.94, 0, 0.5, 0.14, 0.48);
+    add(group, outfit, 0, 1.62, -0.1, 0.46, 0.36, 0.28);
+    add(group, outfit, 0, 1.86, 0, 0.44, 0.13, 0.42);
   } else if (outfitDef?.style === "leather") {
     // Gold zipper down the chest front.
-    add(group, "#e0b33a", 0, 0.92, 0.21, 0.06, 0.62, 0.03);
+    add(group, "#e0b33a", 0, 0.98, 0.18, 0.05, 0.55, 0.02);
     // OrbitX patches on the jacket (home-frame hero look: the leather
     // jacket is covered in patches) — clear of the chest stripe.
-    add(group, "#ff2ea6", -0.19, 1.12, 0.21, 0.12, 0.1, 0.02);
-    add(group, "#00e5ff", 0.19, 1.12, 0.21, 0.12, 0.1, 0.02);
-    add(group, "#e0b33a", -0.19, 0.82, 0.21, 0.12, 0.1, 0.02);
+    add(group, "#ff2ea6", -0.16, 1.1, 0.18, 0.1, 0.09, 0.02);
+    add(group, "#00e5ff", 0.16, 1.1, 0.18, 0.1, 0.09, 0.02);
+    add(group, "#e0b33a", -0.16, 0.84, 0.18, 0.1, 0.09, 0.02);
   } else if (outfitDef?.style === "suit") {
     // Gold tie bar down the chest front.
-    add(group, "#e0b33a", 0, 1.02, 0.21, 0.1, 0.5, 0.03);
+    add(group, "#e0b33a", 0, 1.0, 0.18, 0.09, 0.44, 0.02);
   }
-  // Sphere head (realistic proportions, same size/position as before).
-  addExact(group, UNIT_SPHERE, skin, 0, 1.58, 0, 0.4, 0.4, 0.4, "head");
+  // Sphere head, round 4 size (0.32 dia at HEAD_Y 1.60) — the old
+  // 0.40 ball at 1.58 was ~1:4.5 cartoon; this is ~1:6.
+  addExact(group, UNIT_SPHERE, skin, 0, HEAD_Y, 0, HEAD_D, HEAD_D, HEAD_D, "head");
   // Cupsy has NO face (user decision 2026-11-11 — faceless by design).
   // No eyes, no mouth, no face features at all. Do not match a real
   // face, do not invent one.
   if (look.id !== "cupsy") {
-    const eyes = look.colors.eyes ?? "#1a1a1a";
-    // Eyebrows + nose + mouth. The head is a sphere now, so the
-    // features sit closer to the surface (z 0.14-0.16) than the old
-    // cube's flat front (z 0.2) — at 0.2 they would float in the air.
-    add(group, hair, -0.08, 1.71, 0.14, 0.09, 0.03, 0.04);
-    add(group, hair, 0.08, 1.71, 0.14, 0.09, 0.03, 0.04);
-    add(group, eyes, -0.08, 1.64, 0.2, 0.07, 0.06, 0.04);
-    add(group, eyes, 0.08, 1.64, 0.2, 0.07, 0.06, 0.04);
-    add(group, shade(skin, 0.8), 0, 1.56, 0.2, 0.05, 0.07, 0.03);
-    add(group, "#5a2e1e", 0, 1.46, 0.15, 0.1, 0.02, 0.03);
+    // Real face (round 4): a slightly narrower jaw sphere under the
+    // head sphere tapers the lower face so it reads as a jaw/chin,
+    // not a ball; eye whites + coloured iris + dark pupil (not dots);
+    // angled capsule brows; a nose with a bridge + tip; two-tone
+    // lips; ears. All positions are relative to HEAD_Y and the 0.16
+    // head radius, so they sit on the sphere surface, not floating.
+    const eyes = look.colors.eyes ?? "#3a2a1a";
+    const lipDark = "#8a4438";
+    const lipLight = "#c07a68";
+    // Jaw/chin: narrower than the head sphere, overlapping its lower
+    // half — the taper that makes a face instead of a ball.
+    addExact(group, UNIT_SPHERE, skin, 0, HEAD_Y - 0.08, 0.01, 0.24, 0.17, 0.24);
+    // Ears, flush with the sides of the head.
+    addExact(group, UNIT_SPHERE, skin, -0.15, HEAD_Y, 0, 0.035, 0.065, 0.03);
+    addExact(group, UNIT_SPHERE, skin, 0.15, HEAD_Y, 0, 0.035, 0.065, 0.03);
+    for (const side of [-1, 1]) {
+      const ex = side * 0.062;
+      // Angled brow (capsule via add), sloping down toward the nose.
+      add(group, hair, ex, HEAD_Y + 0.105, 0.13, 0.085, 0.022, 0.03, -side * 0.12);
+      // Eye white, then the coloured iris, then the dark pupil —
+      // three depths (z 0.125 / 0.143 / 0.15) so nothing z-fights and
+      // the pupil reads proud of the white.
+      addExact(group, UNIT_SPHERE, "#f4f6fa", ex, HEAD_Y + 0.035, 0.125, 0.07, 0.05, 0.035);
+      addExact(group, UNIT_SPHERE, eyes, ex, HEAD_Y + 0.035, 0.143, 0.045, 0.045, 0.02);
+      addExact(group, UNIT_SPHERE, "#14100c", ex, HEAD_Y + 0.035, 0.15, 0.026, 0.026, 0.02);
+    }
+    // Nose: a vertical capsule bridge + a round tip, a shade darker
+    // than the skin so it reads on every skin tone.
+    add(group, shade(skin, 0.85), 0, HEAD_Y - 0.01, 0.14, 0.04, 0.08, 0.03);
+    addExact(group, UNIT_SPHERE, shade(skin, 0.82), 0, HEAD_Y - 0.055, 0.145, 0.05, 0.04, 0.04);
+    // Lips: darker upper lip, fuller lighter lower lip.
+    add(group, lipDark, 0, HEAD_Y - 0.095, 0.135, 0.085, 0.018, 0.025);
+    add(group, lipLight, 0, HEAD_Y - 0.115, 0.13, 0.065, 0.022, 0.025);
   }
   if (look.accessories.beard) {
-    add(group, hair, 0, 1.42, 0.14, 0.26, 0.14, 0.08);
-    add(group, hair, 0, 1.5, 0.16, 0.2, 0.05, 0.05);
+    add(group, hair, 0, 1.46, 0.11, 0.22, 0.1, 0.07);
+    add(group, hair, 0, 1.52, 0.13, 0.17, 0.04, 0.04);
   }
   // A bought hairstyle overrides the character's own hair. New wardrobe
   // styles (afro / dreads / bun / fade) get their own branches; the rest
   // reuse the character-hair branches below.
   const style = shop.wardrobe?.hair || look.accessories.hair;
+  // Hair sits on the round 4 head (top 1.76, radius 0.16) — every
+  // branch below is anchored to that, not the old 0.40 ball.
   if (style === "afro") {
-    add(group, hair, 0, 1.86, 0, 0.56, 0.3, 0.52);
-    add(group, hair, -0.26, 1.76, 0, 0.18, 0.2, 0.2);
-    add(group, hair, 0.26, 1.76, 0, 0.18, 0.2, 0.2);
+    add(group, hair, 0, 1.8, 0, 0.46, 0.26, 0.44);
+    add(group, hair, -0.2, 1.72, 0, 0.16, 0.18, 0.18);
+    add(group, hair, 0.2, 1.72, 0, 0.16, 0.18, 0.18);
   } else if (style === "dreads") {
-    add(group, hair, 0, 1.82, 0, 0.44, 0.16, 0.44);
-    add(group, hair, -0.2, 1.4, -0.04, 0.1, 0.5, 0.12);
-    add(group, hair, 0.2, 1.4, -0.04, 0.1, 0.5, 0.12);
-    add(group, hair, 0, 1.4, -0.2, 0.12, 0.5, 0.1);
-    // Front locks sit proud of the face (z 0.2, front 0.245 vs head
-    // 0.20) — at 0.14 they were buried inside the head and invisible
-    // from the front (walk-fix 2026-11-17).
-    add(group, hair, -0.1, 1.45, 0.2, 0.09, 0.4, 0.09);
-    add(group, hair, 0.1, 1.45, 0.2, 0.09, 0.4, 0.09);
+    add(group, hair, 0, 1.78, 0, 0.38, 0.14, 0.38);
+    add(group, hair, -0.17, 1.38, -0.04, 0.09, 0.45, 0.11);
+    add(group, hair, 0.17, 1.38, -0.04, 0.09, 0.45, 0.11);
+    add(group, hair, 0, 1.38, -0.17, 0.11, 0.45, 0.09);
+    // Front locks sit proud of the face (z 0.14, front 0.185 vs head
+    // 0.16) — at the old 0.2 they would float in front of the smaller
+    // head (walk-fix 2026-11-17, re-anchored round 4).
+    add(group, hair, -0.09, 1.44, 0.14, 0.08, 0.36, 0.08);
+    add(group, hair, 0.09, 1.44, 0.14, 0.08, 0.36, 0.08);
   } else if (style === "bun") {
-    add(group, hair, 0, 1.8, 0, 0.42, 0.1, 0.42);
-    add(group, hair, 0, 1.98, 0, 0.16, 0.18, 0.16);
+    add(group, hair, 0, 1.76, 0, 0.36, 0.09, 0.36);
+    add(group, hair, 0, 1.92, 0, 0.14, 0.16, 0.14);
   } else if (style === "fade") {
     // Skin fade: close on the sides, a crisp flat top.
-    add(group, hair, 0, 1.8, 0, 0.42, 0.1, 0.42);
-    add(group, hair, 0, 1.88, 0, 0.3, 0.08, 0.3);
+    add(group, hair, 0, 1.76, 0, 0.36, 0.09, 0.36);
+    add(group, hair, 0, 1.83, 0, 0.26, 0.07, 0.26);
   } else if (style === "spiky") {
-    add(group, hair, 0, 1.9, 0, 0.12, 0.28, 0.12);
-    add(group, hair, -0.14, 1.84, 0, 0.1, 0.22, 0.1, 0.4);
-    add(group, hair, 0.14, 1.84, 0, 0.1, 0.22, 0.1, -0.4);
+    add(group, hair, 0, 1.84, 0, 0.1, 0.24, 0.1);
+    add(group, hair, -0.12, 1.79, 0, 0.09, 0.2, 0.09, 0.4);
+    add(group, hair, 0.12, 1.79, 0, 0.09, 0.2, 0.09, -0.4);
   } else if (style === "long") {
     // Back panel lowered onto the sphere head (was y 1.78, the very top
     // of the old cube — on a sphere that point has zero width).
-    add(group, hair, 0, 1.66, -0.14, 0.44, 0.2, 0.22);
-    add(group, hair, -0.18, 1.35, -0.06, 0.12, 0.55, 0.14);
-    add(group, hair, 0.18, 1.35, -0.06, 0.12, 0.55, 0.14);
+    add(group, hair, 0, 1.62, -0.12, 0.38, 0.18, 0.2);
+    add(group, hair, -0.15, 1.33, -0.05, 0.11, 0.5, 0.13);
+    add(group, hair, 0.15, 1.33, -0.05, 0.11, 0.5, 0.13);
   } else if (style === "mohawk") {
-    add(group, hair, 0, 1.95, 0, 0.1, 0.42, 0.36);
+    add(group, hair, 0, 1.88, 0, 0.09, 0.36, 0.3);
   } else if (style === "curly") {
-    add(group, hair, 0, 1.82, 0, 0.5, 0.22, 0.46);
-    add(group, hair, -0.18, 1.7, 0.08, 0.16, 0.16, 0.16);
-    add(group, hair, 0.18, 1.7, 0.08, 0.16, 0.16, 0.16);
+    add(group, hair, 0, 1.77, 0, 0.42, 0.2, 0.4);
+    add(group, hair, -0.15, 1.66, 0.07, 0.14, 0.14, 0.14);
+    add(group, hair, 0.15, 1.66, 0.07, 0.14, 0.14, 0.14);
   } else if (style === "side") {
     // Short hair swept to one side (Hsaka). Pushed 0.03 proud of the
-    // head front (z 0.13, front 0.23 vs head 0.20) — at 0.1 the front
+    // head front (z 0.11, front 0.21 vs head 0.16) — at 0.1 the front
     // face was exactly coplanar with the head's and flickered.
-    add(group, hair, 0.04, 1.84, 0, 0.4, 0.12, 0.42);
-    add(group, hair, -0.16, 1.76, 0.13, 0.16, 0.1, 0.2);
+    add(group, hair, 0.03, 1.79, 0, 0.34, 0.11, 0.36);
+    add(group, hair, -0.13, 1.72, 0.11, 0.14, 0.09, 0.18);
   } else if (style === "buzz") {
-    add(group, hair, 0, 1.8, 0, 0.42, 0.1, 0.42);
+    add(group, hair, 0, 1.76, 0, 0.36, 0.09, 0.36);
   }
   const hat = shop.hat && shop.hat !== "none" ? shop.hat : look.accessories.hat;
+  // Hats sit on the round 4 head (top 1.76) — re-anchored from the old
+  // 0.40 ball (top 1.78, radius 0.20).
   if (hat === "cap") {
-    add(group, "#16181f", 0, 1.86, 0, 0.46, 0.14, 0.46);
-    add(group, "#16181f", 0, 1.8, 0.24, 0.36, 0.06, 0.18);
+    add(group, "#16181f", 0, 1.8, 0, 0.4, 0.13, 0.4);
+    add(group, "#16181f", 0, 1.75, 0.2, 0.32, 0.05, 0.16);
   } else if (hat === "sheriff") {
     // Sheriff's hat: wide tan brim + tall crown + dark band, and a gold
     // star badge on the chest (Cole Maddox).
-    add(group, "#8a7a56", 0, 1.88, 0, 0.62, 0.06, 0.62);
-    add(group, "#8a7a56", 0, 2.0, 0, 0.4, 0.2, 0.4);
-    add(group, "#6b5a3e", 0, 1.94, 0, 0.42, 0.05, 0.42);
-    add(group, "#e0b33a", -0.14, 1.12, 0.21, 0.1, 0.1, 0.03);
+    add(group, "#8a7a56", 0, 1.82, 0, 0.54, 0.05, 0.54);
+    add(group, "#8a7a56", 0, 1.93, 0, 0.34, 0.18, 0.34);
+    add(group, "#6b5a3e", 0, 1.88, 0, 0.36, 0.04, 0.36);
+    add(group, "#e0b33a", -0.12, 1.1, 0.18, 0.09, 0.09, 0.03);
   } else if (hat === "beanie") {
-    add(group, accent, 0, 1.86, 0, 0.44, 0.22, 0.44);
+    add(group, accent, 0, 1.8, 0, 0.38, 0.2, 0.38);
   } else if (hat === "hood") {
-    add(group, outfit, 0, 1.72, -0.08, 0.52, 0.46, 0.36);
-    add(group, outfit, 0, 1.96, 0, 0.5, 0.16, 0.48);
+    add(group, outfit, 0, 1.62, -0.1, 0.46, 0.36, 0.28);
+    add(group, outfit, 0, 1.86, 0, 0.44, 0.13, 0.42);
   } else if (hat === "horns") {
-    add(group, accent, -0.16, 1.92, 0, 0.08, 0.28, 0.08, 0.35);
-    add(group, accent, 0.16, 1.92, 0, 0.08, 0.28, 0.08, -0.35);
-    add(group, skin, -0.22, 1.62, 0, 0.1, 0.12, 0.06);
-    add(group, skin, 0.22, 1.62, 0, 0.1, 0.12, 0.06);
+    add(group, accent, -0.14, 1.86, 0, 0.07, 0.26, 0.07, 0.35);
+    add(group, accent, 0.14, 1.86, 0, 0.07, 0.26, 0.07, -0.35);
+    add(group, skin, -0.19, 1.58, 0, 0.09, 0.11, 0.05);
+    add(group, skin, 0.19, 1.58, 0, 0.09, 0.11, 0.05);
   } else if (hat === "antenna") {
-    add(group, "#9aa3ad", 0, 2.05, 0, 0.06, 0.46, 0.06);
-    add(group, "#7ef6ff", 0, 2.32, 0, 0.14, 0.14, 0.14);
+    add(group, "#9aa3ad", 0, 1.98, 0, 0.05, 0.4, 0.05);
+    add(group, "#7ef6ff", 0, 2.22, 0, 0.12, 0.12, 0.12);
   } else if (hat === "crown") {
-    add(group, "#e0b33a", 0, 1.9, 0, 0.48, 0.16, 0.48);
-    add(group, "#e0b33a", -0.16, 2.08, 0, 0.1, 0.18, 0.1);
-    add(group, "#e0b33a", 0, 2.12, 0, 0.1, 0.22, 0.1);
-    add(group, "#e0b33a", 0.16, 2.08, 0, 0.1, 0.18, 0.1);
+    add(group, "#e0b33a", 0, 1.84, 0, 0.42, 0.14, 0.42);
+    add(group, "#e0b33a", -0.14, 2.0, 0, 0.09, 0.16, 0.09);
+    add(group, "#e0b33a", 0, 2.04, 0, 0.09, 0.2, 0.09);
+    add(group, "#e0b33a", 0.14, 2.0, 0, 0.09, 0.16, 0.09);
   } else if (hat === "bullcap") {
     // Poor Goat: red cap + big curved grey horns, mustache, tongue out.
-    add(group, accent, 0, 1.86, 0, 0.46, 0.14, 0.46);
-    add(group, accent, 0, 1.8, 0.24, 0.36, 0.06, 0.18);
-    add(group, "#9aa3ad", -0.18, 1.98, 0, 0.08, 0.3, 0.08, 0.35);
-    add(group, "#9aa3ad", 0.18, 1.98, 0, 0.08, 0.3, 0.08, -0.35);
+    add(group, accent, 0, 1.8, 0, 0.4, 0.13, 0.4);
+    add(group, accent, 0, 1.75, 0.2, 0.32, 0.05, 0.16);
+    add(group, "#9aa3ad", -0.16, 1.92, 0, 0.07, 0.28, 0.07, 0.35);
+    add(group, "#9aa3ad", 0.16, 1.92, 0, 0.07, 0.28, 0.07, -0.35);
     // Mustache + tongue out (from his black-bull public avatar).
-    add(group, "#3a3d45", 0, 1.48, 0.21, 0.24, 0.06, 0.05);
-    add(group, "#e87a8a", 0, 1.39, 0.22, 0.1, 0.12, 0.04);
+    add(group, "#3a3d45", 0, 1.5, 0.16, 0.21, 0.05, 0.04);
+    add(group, "#e87a8a", 0, 1.43, 0.17, 0.09, 0.11, 0.03);
   } else if (hat === "chips") {
     // Gainzy: a stack of poker chips balanced on top.
-    add(group, "#f4f6fa", 0, 1.83, 0, 0.34, 0.1, 0.34);
-    add(group, "#16181f", 0, 1.9, 0, 0.34, 0.07, 0.34);
-    add(group, "#c1272d", 0, 1.97, 0, 0.34, 0.07, 0.34);
-    add(group, "#f4f6fa", 0, 2.04, 0, 0.3, 0.06, 0.3);
+    add(group, "#f4f6fa", 0, 1.78, 0, 0.3, 0.09, 0.3);
+    add(group, "#16181f", 0, 1.84, 0, 0.3, 0.06, 0.3);
+    add(group, "#c1272d", 0, 1.9, 0, 0.3, 0.06, 0.3);
+    add(group, "#f4f6fa", 0, 1.96, 0, 0.27, 0.05, 0.27);
   } else if (hat === "plume") {
     // Kaleo: Roman helmet with a crest.
-    add(group, "#d8a04a", 0, 1.86, 0, 0.46, 0.18, 0.46);
-    add(group, outfit, 0, 2.02, 0, 0.1, 0.24, 0.42);
-    add(group, "#d8a04a", 0, 1.78, 0.24, 0.4, 0.06, 0.06);
+    add(group, "#d8a04a", 0, 1.8, 0, 0.4, 0.16, 0.4);
+    add(group, outfit, 0, 1.95, 0, 0.09, 0.22, 0.36);
+    add(group, "#d8a04a", 0, 1.73, 0.2, 0.34, 0.05, 0.05);
   } else if (hat === "tophat") {
     // Top Hat: tall black cylinder + wide brim. (Sold but invisible
     // before — no branch existed, 2026-11-17 shop-items.)
-    add(group, "#16181f", 0, 1.86, 0, 0.5, 0.06, 0.5);
-    add(group, "#16181f", 0, 2.08, 0, 0.3, 0.4, 0.3);
-    add(group, "#e0b33a", 0, 1.94, 0, 0.32, 0.06, 0.32);
+    add(group, "#16181f", 0, 1.8, 0, 0.44, 0.05, 0.44);
+    add(group, "#16181f", 0, 2.0, 0, 0.26, 0.36, 0.26);
+    add(group, "#e0b33a", 0, 1.87, 0, 0.28, 0.05, 0.28);
   } else if (hat === "headphones") {
     // Headphones: band over the head + a cup on each ear. (Sold but
     // invisible before, 2026-11-17 shop-items.)
-    add(group, "#16181f", 0, 1.98, 0, 0.5, 0.08, 0.4);
-    add(group, "#c1272d", -0.26, 1.72, 0, 0.1, 0.22, 0.2);
-    add(group, "#c1272d", 0.26, 1.72, 0, 0.1, 0.22, 0.2);
+    add(group, "#16181f", 0, 1.9, 0, 0.44, 0.07, 0.36);
+    add(group, "#c1272d", -0.22, 1.66, 0, 0.09, 0.2, 0.18);
+    add(group, "#c1272d", 0.22, 1.66, 0, 0.09, 0.2, 0.18);
   } else if (hat === "visor") {
     // Sun visor: a wide brim with no crown, gold band. (Sold but
     // invisible before, 2026-11-17 shop-items.)
-    add(group, "#16181f", 0, 1.8, 0.24, 0.4, 0.05, 0.2);
-    add(group, "#e0b33a", 0, 1.86, 0.1, 0.42, 0.05, 0.06);
+    add(group, "#16181f", 0, 1.75, 0.2, 0.36, 0.04, 0.18);
+    add(group, "#e0b33a", 0, 1.8, 0.08, 0.38, 0.04, 0.05);
   }
   const extra = look.accessories.extra;
   // Wardrobe glasses replace the character's own glasses/shades/visor;
@@ -554,98 +592,98 @@ export function dressPerson(
   const wGlasses = shop.wardrobe?.glasses || "";
   const wChain = shop.wardrobe?.chain || "";
   if (wGlasses === "shades") {
-    add(group, "#12141a", 0, 1.6, 0.2, 0.34, 0.1, 0.06);
+    add(group, "#12141a", 0, 1.635, 0.14, 0.3, 0.09, 0.05);
   } else if (wGlasses === "readers") {
-    add(group, "#22262e", -0.1, 1.6, 0.21, 0.1, 0.06, 0.03);
-    add(group, "#22262e", 0.1, 1.6, 0.21, 0.1, 0.06, 0.03);
-    add(group, "#22262e", 0, 1.6, 0.21, 0.05, 0.02, 0.02);
-    add(group, "#22262e", 0, 1.66, 0.21, 0.26, 0.02, 0.02);
-    add(group, "#22262e", -0.16, 1.6, 0.21, 0.02, 0.08, 0.02);
-    add(group, "#22262e", 0.16, 1.6, 0.21, 0.02, 0.08, 0.02);
+    add(group, "#22262e", -0.09, 1.635, 0.145, 0.09, 0.055, 0.03);
+    add(group, "#22262e", 0.09, 1.635, 0.145, 0.09, 0.055, 0.03);
+    add(group, "#22262e", 0, 1.635, 0.145, 0.05, 0.02, 0.02);
+    add(group, "#22262e", 0, 1.685, 0.145, 0.24, 0.02, 0.02);
+    add(group, "#22262e", -0.15, 1.635, 0.145, 0.02, 0.07, 0.02);
+    add(group, "#22262e", 0.15, 1.635, 0.145, 0.02, 0.07, 0.02);
   } else if (wGlasses === "round") {
     // Gold-rim rounds with light lenses.
-    add(group, "#e0b33a", -0.1, 1.6, 0.21, 0.13, 0.1, 0.03);
-    add(group, "#e0b33a", 0.1, 1.6, 0.21, 0.13, 0.1, 0.03);
-    add(group, "#dbe7ef", -0.1, 1.6, 0.215, 0.09, 0.07, 0.02);
-    add(group, "#dbe7ef", 0.1, 1.6, 0.215, 0.09, 0.07, 0.02);
-    add(group, "#e0b33a", 0, 1.6, 0.21, 0.05, 0.02, 0.02);
+    add(group, "#e0b33a", -0.09, 1.635, 0.145, 0.12, 0.09, 0.03);
+    add(group, "#e0b33a", 0.09, 1.635, 0.145, 0.12, 0.09, 0.03);
+    add(group, "#dbe7ef", -0.09, 1.635, 0.15, 0.08, 0.06, 0.02);
+    add(group, "#dbe7ef", 0.09, 1.635, 0.15, 0.08, 0.06, 0.02);
+    add(group, "#e0b33a", 0, 1.635, 0.145, 0.05, 0.02, 0.02);
   } else if (wGlasses === "visor") {
     const stripes = ["#ff3b30", "#ff9500", "#34c759", "#0a84ff", "#af52de"];
     stripes.forEach((color, i) => {
-      add(group, color, -0.16 + i * 0.08, 1.6, 0.2, 0.08, 0.1, 0.06);
+      add(group, color, -0.14 + i * 0.07, 1.635, 0.14, 0.07, 0.09, 0.05);
     });
   } else if (extra === "glasses") {
     if (look.id === "cobie") {
       // Cobie: dark Bitcoin shades from his avatar art (not light lenses).
-      add(group, "#12141a", -0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
-      add(group, "#12141a", 0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
-      add(group, "#12141a", 0, 1.6, 0.21, 0.06, 0.03, 0.03);
-      add(group, "#e0b33a", 0.1, 1.6, 0.235, 0.05, 0.05, 0.02);
+      add(group, "#12141a", -0.09, 1.635, 0.145, 0.11, 0.07, 0.04);
+      add(group, "#12141a", 0.09, 1.635, 0.145, 0.11, 0.07, 0.04);
+      add(group, "#12141a", 0, 1.635, 0.145, 0.06, 0.03, 0.03);
+      add(group, "#e0b33a", 0.09, 1.635, 0.165, 0.05, 0.05, 0.02);
     } else if (look.id === "hsaka") {
       // Hsaka: black frames + purple-tinted lenses.
-      add(group, "#8a5cf6", -0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
-      add(group, "#8a5cf6", 0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
-      add(group, "#111111", 0, 1.6, 0.21, 0.06, 0.03, 0.03);
-      add(group, "#111111", 0, 1.65, 0.21, 0.3, 0.03, 0.03);
-      add(group, "#111111", -0.17, 1.6, 0.21, 0.03, 0.1, 0.03);
-      add(group, "#111111", 0.17, 1.6, 0.21, 0.03, 0.1, 0.03);
+      add(group, "#8a5cf6", -0.09, 1.635, 0.145, 0.11, 0.07, 0.04);
+      add(group, "#8a5cf6", 0.09, 1.635, 0.145, 0.11, 0.07, 0.04);
+      add(group, "#111111", 0, 1.635, 0.145, 0.06, 0.03, 0.03);
+      add(group, "#111111", 0, 1.68, 0.145, 0.28, 0.03, 0.03);
+      add(group, "#111111", -0.15, 1.635, 0.145, 0.03, 0.09, 0.03);
+      add(group, "#111111", 0.15, 1.635, 0.145, 0.03, 0.09, 0.03);
     } else if (look.id === "murad") {
       // Murad: black-framed glasses, smoke lenses.
-      add(group, "#3a3f4a", -0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
-      add(group, "#3a3f4a", 0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
-      add(group, "#111111", 0, 1.6, 0.21, 0.06, 0.03, 0.03);
-      add(group, "#111111", 0, 1.65, 0.21, 0.3, 0.03, 0.03);
-      add(group, "#111111", -0.17, 1.6, 0.21, 0.03, 0.1, 0.03);
-      add(group, "#111111", 0.17, 1.6, 0.21, 0.03, 0.1, 0.03);
+      add(group, "#3a3f4a", -0.09, 1.635, 0.145, 0.11, 0.07, 0.04);
+      add(group, "#3a3f4a", 0.09, 1.635, 0.145, 0.11, 0.07, 0.04);
+      add(group, "#111111", 0, 1.635, 0.145, 0.06, 0.03, 0.03);
+      add(group, "#111111", 0, 1.68, 0.145, 0.28, 0.03, 0.03);
+      add(group, "#111111", -0.15, 1.635, 0.145, 0.03, 0.09, 0.03);
+      add(group, "#111111", 0.15, 1.635, 0.145, 0.03, 0.09, 0.03);
     } else {
-      add(group, "#dbe7ef", -0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
-      add(group, "#dbe7ef", 0.1, 1.6, 0.21, 0.12, 0.08, 0.04);
-      add(group, "#dbe7ef", 0, 1.6, 0.21, 0.06, 0.03, 0.03);
+      add(group, "#dbe7ef", -0.09, 1.635, 0.145, 0.11, 0.07, 0.04);
+      add(group, "#dbe7ef", 0.09, 1.635, 0.145, 0.11, 0.07, 0.04);
+      add(group, "#dbe7ef", 0, 1.635, 0.145, 0.06, 0.03, 0.03);
     }
   } else if (extra === "shades") {
-    add(group, "#12141a", 0, 1.6, 0.2, 0.34, 0.1, 0.06);
+    add(group, "#12141a", 0, 1.635, 0.14, 0.3, 0.09, 0.05);
   } else if (extra === "headset") {
-    add(group, accent, 0, 1.7, 0, 0.5, 0.06, 0.12);
-    add(group, "#22262e", -0.22, 1.58, 0, 0.1, 0.16, 0.12);
-    add(group, "#22262e", 0.22, 1.58, 0, 0.1, 0.16, 0.12);
+    add(group, accent, 0, 1.68, 0, 0.44, 0.06, 0.1);
+    add(group, "#22262e", -0.2, 1.56, 0, 0.09, 0.15, 0.11);
+    add(group, "#22262e", 0.2, 1.56, 0, 0.09, 0.15, 0.11);
   } else if (extra === "cup") {
     add(group, "#fff6fb", 0.28, 1.05, 0.16, 0.12, 0.16, 0.12);
     add(group, accent, 0.28, 1.16, 0.16, 0.14, 0.04, 0.14);
   } else if (extra === "mic") {
-    add(group, "#222", 0.12, 1.35, 0.28, 0.04, 0.28, 0.04);
-    add(group, "#111", 0.12, 1.5, 0.36, 0.1, 0.1, 0.1);
+    add(group, "#222", 0.11, 1.33, 0.24, 0.04, 0.26, 0.04);
+    add(group, "#111", 0.11, 1.47, 0.3, 0.09, 0.09, 0.09);
   } else if (extra === "mask") {
-    add(group, "#101216", 0, 1.52, 0.18, 0.28, 0.16, 0.06);
+    add(group, "#101216", 0, 1.52, 0.13, 0.24, 0.13, 0.05);
   } else if (extra === "visor") {
     // Threadguy: rainbow visor shades, from his pixel-ape avatar.
     const stripes = ["#ff3b30", "#ff9500", "#34c759", "#0a84ff", "#af52de"];
     stripes.forEach((color, i) => {
-      add(group, color, -0.16 + i * 0.08, 1.6, 0.2, 0.08, 0.1, 0.06);
+      add(group, color, -0.14 + i * 0.07, 1.635, 0.14, 0.07, 0.09, 0.05);
     });
   } else if (extra === "bolt") {
     // Gold lightning bolt zigzag on the chest (Dash Vance, the Blur).
     // Pushed proud of the chest stripe (z 0.21, front 0.225 vs 0.215).
-    add(group, "#e0b33a", 0.06, 1.18, 0.21, 0.08, 0.16, 0.03, 0.35);
-    add(group, "#e0b33a", -0.02, 1.02, 0.21, 0.08, 0.16, 0.03, -0.35);
-    add(group, "#e0b33a", 0.05, 0.88, 0.21, 0.08, 0.14, 0.03, 0.35);
+    add(group, "#e0b33a", 0.06, 1.14, 0.18, 0.08, 0.16, 0.03, 0.35);
+    add(group, "#e0b33a", -0.02, 1.0, 0.18, 0.08, 0.16, 0.03, -0.35);
+    add(group, "#e0b33a", 0.05, 0.86, 0.18, 0.08, 0.14, 0.03, 0.35);
   }
   // Sunglasses from the clothes shop: dark shades across the eyes.
   // Skipped when the look already wears glasses/shades of its own.
   if (clothes.glasses === "sunglasses" && !shop.wardrobe?.glasses && extra !== "glasses" && extra !== "shades") {
-    add(group, "#12141a", 0, 1.6, 0.2, 0.34, 0.1, 0.06);
+    add(group, "#12141a", 0, 1.635, 0.14, 0.3, 0.09, 0.05);
   }
   // Wardrobe chain (neck) — its own slot, so it renders alongside
   // glasses/headset/etc. It replaces the character's own chain; Frank's
   // beaded necklaces stay when no wardrobe chain is worn.
   if (wChain) {
     if (wChain === "beads") {
-      add(group, "#7ec8e3", 0, 1.26, 0.18, 0.36, 0.06, 0.08);
-      add(group, "#c1272d", 0, 1.19, 0.18, 0.36, 0.06, 0.08);
+      add(group, "#7ec8e3", 0, 1.24, 0.16, 0.34, 0.06, 0.08);
+      add(group, "#c1272d", 0, 1.18, 0.16, 0.34, 0.06, 0.08);
     } else {
-      add(group, CHAIN_COLORS[wChain] ?? "#e0b33a", 0, 1.22, 0.18, 0.36, 0.08, 0.08);
+      add(group, CHAIN_COLORS[wChain] ?? "#e0b33a", 0, 1.24, 0.16, 0.34, 0.08, 0.08);
       if (wChain === "diamond") {
         // Diamond pendant hanging on the chest.
-        add(group, "#ffffff", 0, 1.12, 0.2, 0.1, 0.12, 0.05);
+        add(group, "#ffffff", 0, 1.14, 0.17, 0.1, 0.12, 0.05);
       }
     }
   } else if (extra === "chain") {
@@ -653,10 +691,10 @@ export function dressPerson(
       // Frank: beaded necklaces, light blue + red (his public avatar).
       // Ansem's gold chain stays gold — this is a Frank-specific branch,
       // not a recolor of the chain.
-      add(group, "#7ec8e3", 0, 1.26, 0.18, 0.36, 0.06, 0.08);
-      add(group, "#c1272d", 0, 1.19, 0.18, 0.36, 0.06, 0.08);
+      add(group, "#7ec8e3", 0, 1.24, 0.16, 0.34, 0.06, 0.08);
+      add(group, "#c1272d", 0, 1.18, 0.16, 0.34, 0.06, 0.08);
     } else {
-      add(group, "#e0b33a", 0, 1.22, 0.18, 0.36, 0.08, 0.08);
+      add(group, "#e0b33a", 0, 1.24, 0.16, 0.34, 0.08, 0.08);
     }
   }
   // Wardrobe watch — a band on the left wrist. The walker's left arm
@@ -665,14 +703,14 @@ export function dressPerson(
   // it sits at the rest position and is visible in every camera.
   if (shop.wardrobe?.watch && WATCH_COLORS[shop.wardrobe.watch]) {
     // Built exact so the walker's watch re-hang still matches.
-    addExact(group, UNIT_ROUNDED, WATCH_COLORS[shop.wardrobe.watch], -0.38, 0.72, 0, 0.22, 0.09, 0.22);
-    addExact(group, UNIT_ROUNDED, "#f4f6fa", -0.38, 0.72, 0.1, 0.1, 0.05, 0.02);
+    addExact(group, UNIT_ROUNDED, WATCH_COLORS[shop.wardrobe.watch], -0.32, 0.72, 0, 0.22, 0.09, 0.22);
+    addExact(group, UNIT_ROUNDED, "#f4f6fa", -0.32, 0.72, 0.1, 0.1, 0.05, 0.02);
   }
   // Threadguy: the mic is his job (Spaces host) — his extra is the
   // rainbow visor, so the mic branch above never fires for him.
   if (look.id === "threadguy") {
-    add(group, "#222", 0.12, 1.35, 0.28, 0.04, 0.28, 0.04);
-    add(group, "#111", 0.12, 1.5, 0.36, 0.1, 0.1, 0.1);
+    add(group, "#222", 0.11, 1.33, 0.24, 0.04, 0.26, 0.04);
+    add(group, "#111", 0.11, 1.47, 0.3, 0.09, 0.09, 0.09);
   }
   // Hero gear: signature weapon carried diagonally on the back (heroes
   // pack, wave 1). All pieces share one diagonal (rotZ 0.6) across the
