@@ -4,18 +4,24 @@ import type { Runtime, Snap } from "./game/runtime";
 import { FURNITURE_CATALOG } from "./game/runtime";
 import { EMOTES, EMOTE_LABELS, FURNITURE } from "./game/life";
 import { CUSTOM_PAINT_HEX, CUSTOM_PAINT_NAMES, CUSTOM_PAINT_PRICE, VEHICLE_COLORS } from "./game/vehicles";
+import "./site-pages.css";
 
 export function FeaturePanel({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
-  if (snap.panel === "daily") return <Daily snap={snap} rt={rt} />;
-  if (snap.panel === "wallet") return <Wallet snap={snap} rt={rt} />;
-  if (snap.panel === "leaders") return <Leaders snap={snap} />;
-  if (snap.panel === "arcade") return <Arcade rt={rt} />;
-  if (snap.panel === "hq") return <Hq snap={snap} rt={rt} />;
-  if (snap.panel === "race") return <Race snap={snap} rt={rt} />;
-  if (snap.panel === "home") return <Home snap={snap} rt={rt} />;
-  if (snap.panel === "talk") return <Talk snap={snap} rt={rt} />;
-  if (snap.panel === "paint") return <PaintShop snap={snap} rt={rt} />;
-  return null;
+  // Round 5 skin: every panel renders inside the site-feature scope
+  // (site-pages.css) — glass article cards, compact buttons, gold
+  // section heads. No logic change: the panels below are untouched.
+  let body: React.ReactNode = null;
+  if (snap.panel === "daily") body = <Daily snap={snap} rt={rt} />;
+  else if (snap.panel === "wallet") body = <Wallet snap={snap} rt={rt} />;
+  else if (snap.panel === "leaders") body = <Leaders snap={snap} />;
+  else if (snap.panel === "arcade") body = <Arcade rt={rt} />;
+  else if (snap.panel === "hq") body = <Hq snap={snap} rt={rt} />;
+  else if (snap.panel === "race") body = <Race snap={snap} rt={rt} />;
+  else if (snap.panel === "home") body = <Home snap={snap} rt={rt} />;
+  else if (snap.panel === "talk") body = <Talk snap={snap} rt={rt} />;
+  else if (snap.panel === "paint") body = <PaintShop snap={snap} rt={rt} />;
+  if (!body) return null;
+  return <div className="site-feature">{body}</div>;
 }
 
 export function featureTitle(panel: Snap["panel"]) {

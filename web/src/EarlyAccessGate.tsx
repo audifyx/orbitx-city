@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { world, type EarlyAccessStatus } from "./game/world";
+import "./site-pages.css";
 
 // EARLY ACCESS gate screen (pre-launch burn gate). This is the front
 // door: when the server says the gate is active and this account has

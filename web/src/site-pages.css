@@ -1,0 +1,379 @@
+/* ------------------------------------------------------------------ */
+/* Round 5 — site pages (home / info pages / auth / feature panels)   */
+/* Premium neon-realistic skin for the OrbitX City site pages, per    */
+/* the AI style-video keyframes: dusk indigo, gold + cyan neon, wet-   */
+/* asphalt glass. Imported by MenuHome, HomePages, AuthPanel,         */
+/* Features and EarlyAccessGate — AFTER index.css, so these rules win  */
+/* on equal specificity. Visuals + layout only: no logic changes.      */
+/* Palette (contrast rule): white text on black glass, gold primary,   */
+/* cyan secondary (blue family). No rainbow.                          */
+/* ------------------------------------------------------------------ */
+
+/* ---- Menu home: neon kicker glow + glass stat pill ---- */
+.menu-kicker {
+  text-shadow: 0 0 18px rgba(224, 179, 58, 0.55), 0 1px 3px #000000;
+}
+
+.menu-stats {
+  width: max-content;
+  max-width: 100%;
+  margin: 26px auto 0;
+  padding: 10px 22px;
+  background: rgba(8, 12, 24, 0.66);
+  -webkit-backdrop-filter: var(--ox-blur-soft);
+  backdrop-filter: var(--ox-blur-soft);
+  border: 1px solid var(--ox-hairline-soft);
+  border-radius: 999px;
+  box-shadow: var(--ox-shadow-soft);
+}
+
+/* ---- Menu home: neon horizon (replaces the old blocky skyline bars) -- */
+/* A dusk skyline silhouette with lit windows and a cyan neon horizon  */
+/* line, drawn as one SVG so it reads as a city graphic, not voxels.   */
+.menu-neon-horizon {
+  position: relative;
+  height: 110px;
+  margin-top: 8px;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 110'%3E%3Crect width='1200' height='110' fill='none'/%3E%3Cg fill='%230a142e'%3E%3Crect x='0' y='40' width='56' height='70'/%3E%3Crect x='62' y='64' width='36' height='46'/%3E%3Crect x='104' y='22' width='72' height='88'/%3E%3Crect x='182' y='52' width='42' height='58'/%3E%3Crect x='230' y='30' width='60' height='80'/%3E%3Crect x='296' y='66' width='34' height='44'/%3E%3Crect x='336' y='14' width='68' height='96'/%3E%3Crect x='410' y='48' width='46' height='62'/%3E%3Crect x='462' y='60' width='38' height='50'/%3E%3Crect x='506' y='26' width='74' height='84'/%3E%3Crect x='586' y='54' width='40' height='56'/%3E%3Crect x='632' y='32' width='58' height='78'/%3E%3Crect x='696' y='62' width='34' height='48'/%3E%3Crect x='736' y='18' width='70' height='92'/%3E%3Crect x='812' y='50' width='44' height='60'/%3E%3Crect x='862' y='28' width='62' height='82'/%3E%3Crect x='930' y='58' width='36' height='52'/%3E%3Crect x='972' y='20' width='68' height='90'/%3E%3Crect x='1046' y='46' width='42' height='64'/%3E%3Crect x='1094' y='34' width='58' height='76'/%3E%3Crect x='1158' y='56' width='42' height='54'/%3E%3C/g%3E%3Cg fill='%23f2cc60' opacity='0.9'%3E%3Crect x='12' y='50' width='4' height='5'/%3E%3Crect x='26' y='62' width='4' height='5'/%3E%3Crect x='40' y='76' width='4' height='5'/%3E%3Crect x='118' y='34' width='4' height='5'/%3E%3Crect x='140' y='52' width='4' height='5'/%3E%3Crect x='158' y='70' width='4' height='5'/%3E%3Crect x='244' y='42' width='4' height='5'/%3E%3Crect x='266' y='60' width='4' height='5'/%3E%3Crect x='350' y='26' width='4' height='5'/%3E%3Crect x='372' y='46' width='4' height='5'/%3E%3Crect x='388' y='66' width='4' height='5'/%3E%3Crect x='520' y='38' width='4' height='5'/%3E%3Crect x='548' y='58' width='4' height='5'/%3E%3Crect x='646' y='44' width='4' height='5'/%3E%3Crect x='668' y='64' width='4' height='5'/%3E%3Crect x='750' y='30' width='4' height='5'/%3E%3Crect x='776' y='52' width='4' height='5'/%3E%3Crect x='876' y='40' width='4' height='5'/%3E%3Crect x='902' y='60' width='4' height='5'/%3E%3Crect x='986' y='32' width='4' height='5'/%3E%3Crect x='1010' y='54' width='4' height='5'/%3E%3Crect x='1108' y='46' width='4' height='5'/%3E%3Crect x='1130' y='64' width='4' height='5'/%3E%3C/g%3E%3Cg fill='%2300e5ff' opacity='0.9'%3E%3Crect x='70' y='74' width='4' height='5'/%3E%3Crect x='196' y='64' width='4' height='5'/%3E%3Crect x='424' y='60' width='4' height='5'/%3E%3Crect x='598' y='66' width='4' height='5'/%3E%3Crect x='824' y='62' width='4' height='5'/%3E%3Crect x='1058' y='58' width='4' height='5'/%3E%3C/g%3E%3Crect x='367' y='4' width='2' height='10' fill='%2300e5ff'/%3E%3Ccircle cx='368' cy='4' r='2.5' fill='%2300e5ff'/%3E%3Crect x='768' y='8' width='2' height='10' fill='%23f2cc60'/%3E%3Ccircle cx='769' cy='8' r='2.5' fill='%23f2cc60'/%3E%3C/svg%3E")
+      center bottom / 100% 110px no-repeat,
+    linear-gradient(180deg, transparent 0%, rgba(2, 6, 17, 0.35) 55%, rgba(0, 229, 255, 0.07) 100%);
+}
+
+/* Cyan neon line at the horizon + its reflection glow. */
+.menu-neon-horizon::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #00e5ff 18%, #f2cc60 50%, #00e5ff 82%, transparent);
+  box-shadow: 0 0 18px rgba(0, 229, 255, 0.65), 0 0 34px rgba(0, 229, 255, 0.25);
+}
+
+.menu-neon-horizon::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  height: 26px;
+  background: linear-gradient(180deg, rgba(0, 229, 255, 0.14), transparent);
+  pointer-events: none;
+}
+
+/* Feature cards: a cyan hairline on the top edge so the grid reads   */
+/* neon, not flat — the gold name + inset highlight stay as they are.  */
+.menu-feature {
+  border-top: 2px solid rgba(0, 229, 255, 0.4);
+}
+
+/* ---- Auth panel: a real glass sign-in card on the home hero ---- */
+.menu-auth .auth {
+  background: linear-gradient(180deg, rgba(13, 20, 38, 0.9) 0%, rgba(4, 7, 15, 0.94) 100%);
+  -webkit-backdrop-filter: var(--ox-blur);
+  backdrop-filter: var(--ox-blur);
+  border: 1px solid var(--ox-hairline-gold);
+  border-radius: 20px;
+  box-shadow: var(--ox-shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  padding: 20px 18px 16px;
+  gap: 12px;
+}
+
+.menu-auth .auth .tag {
+  margin: 0 0 2px;
+  text-align: center;
+  color: #f2cc60;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.05em;
+}
+
+.menu-auth .auth label {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #dbeafe;
+}
+
+.menu-auth .auth input {
+  width: 100%;
+  min-height: 48px;
+  font-size: 16px;
+  border-radius: 12px;
+}
+
+.menu-auth .auth-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.menu-auth .auth-actions button {
+  margin: 0;
+  min-height: 48px;
+  padding: 12px 10px;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  border-radius: 12px;
+}
+
+/* Log in: full-width gold primary. */
+.menu-auth #auth-login {
+  grid-column: 1 / -1;
+}
+
+/* Sign up / magic link: ghost buttons on the glass. */
+.menu-auth #auth-signup,
+.menu-auth #auth-magic {
+  background: rgba(255, 255, 255, 0.07);
+  color: #ffffff;
+  border: 1px solid var(--ox-hairline);
+  box-shadow: none;
+}
+
+/* Continue with X: black button, white text, like X itself. */
+.menu-auth #auth-x {
+  grid-column: 1 / -1;
+  background: #000000;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: none;
+}
+
+.menu-auth #auth-guest {
+  margin: 2px 0 0;
+  padding: 10px;
+  background: none;
+  color: #60a5fa;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  text-decoration: underline;
+  box-shadow: none;
+}
+
+.menu-auth .auth .help {
+  margin: 2px 0 0;
+  text-align: center;
+}
+
+.menu-auth #auth-note {
+  color: #ffe7a3;
+}
+
+/* ---- Info pages (About / Settings / Privacy / Terms) ---- */
+/* Hero banner on the About page: the style-video home frame, framed   */
+/* in glass with a gold base line. aria-hidden, no copy inside.        */
+.menu-page-hero {
+  height: 150px;
+  border-radius: 14px;
+  border: 1px solid var(--ox-hairline-gold);
+  border-bottom: 2px solid #e0b33a;
+  background:
+    linear-gradient(180deg, rgba(2, 6, 17, 0.25) 0%, rgba(2, 6, 17, 0.55) 100%),
+    url("/home-hero.jpg") center 32% / cover no-repeat;
+  box-shadow: var(--ox-shadow-soft), 0 0 28px rgba(0, 229, 255, 0.1);
+  margin-bottom: 16px;
+}
+
+/* Section separation inside the legal pages. */
+.site-page .legal h3 {
+  margin-top: 24px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ox-hairline-soft);
+}
+
+.site-page .legal h3:first-child {
+  margin-top: 12px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.site-page .legal p {
+  line-height: 1.6;
+}
+
+/* Settings rows: the pill buttons already read well; give the page    */
+/* a little more air between sections.                                 */
+.site-page .legal .days {
+  margin: 10px 0 6px;
+}
+
+/* ---- Feature panels (Daily / Wallet / Arcade / HQ / Race / Property */
+/* / Chat / Paint Shop): glass article cards, compact buttons, gold    */
+/* section heads — same language as the menu, sized for the phone.     */
+.site-feature {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.site-feature h3 {
+  margin: 14px 0 2px;
+  padding-bottom: 6px;
+  color: #f2cc60;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--ox-hairline-gold);
+}
+
+.site-feature h3:first-child {
+  margin-top: 0;
+}
+
+.site-feature .list {
+  gap: 10px;
+}
+
+.site-feature .list article {
+  background: var(--ox-glass-soft);
+  border: 1px solid var(--ox-hairline-soft);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.site-feature .list article div {
+  gap: 2px;
+}
+
+.site-feature .list article b {
+  color: #ffffff;
+  font-size: 15px;
+}
+
+.site-feature .list article span {
+  color: #dbeafe;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Primary panel actions: compact gold, no giant top margin. */
+.site-feature .list > button {
+  margin-top: 0;
+  min-height: 46px;
+  padding: 11px 18px;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  border-radius: 12px;
+}
+
+/* Row actions inside articles (Buy / Enter / Visit / Start): ghost. */
+.site-feature .list article button {
+  margin-top: 0;
+  min-height: 40px;
+  padding: 8px 16px;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #ffffff;
+  border: 1px solid var(--ox-hairline);
+  box-shadow: none;
+  white-space: nowrap;
+}
+
+/* Confirm sheets inside panels: gold top edge. */
+.site-feature .sheet {
+  border-color: var(--ox-hairline-gold);
+}
+
+.site-feature .sheet button {
+  margin-top: 0;
+  min-height: 44px;
+  padding: 10px 16px;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  border-radius: 12px;
+}
+
+/* Danger action (NPC hold-up): red outline on dark, still readable. */
+.site-feature .danger {
+  background: rgba(220, 38, 38, 0.16);
+  color: #fecaca;
+  border: 1px solid rgba(220, 38, 38, 0.55);
+  box-shadow: none;
+}
+
+/* Form rows inside panels stack label over input on phone widths. */
+.site-feature .list label {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.site-feature .list input {
+  width: 100%;
+  min-height: 44px;
+}
+
+/* Play-money notice: gold-tinted glass bar. */
+.site-feature .play-money {
+  border-radius: 12px;
+  background: rgba(224, 179, 58, 0.1);
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.site-feature .quiet {
+  color: #c6cadb;
+}
+
+.site-feature p {
+  line-height: 1.55;
+}
+
+/* Paint swatches keep their own look; just tighten the grid. */
+.site-feature .paint-swatches button {
+  margin-top: 0;
+  letter-spacing: 0;
+}
+
+/* ---- Early access gate: neon top line (gate is hidden behind the   */
+/* kill switch, but the screen should match when it comes back).       */
+.ea-gate::before {
+  content: "";
+  display: block;
+  height: 3px;
+  margin-bottom: 14px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, transparent, #00e5ff, #f2cc60, #00e5ff, transparent);
+  box-shadow: 0 0 16px rgba(0, 229, 255, 0.5);
+}
+
+.ea-gate .ea-chip b {
+  color: #f2cc60;
+}
+
+/* ---- Phone-first tweaks ---- */
+@media (max-width: 560px) {
+  .menu-neon-horizon {
+    height: 84px;
+  }
+
+  .menu-stats {
+    gap: 14px;
+    padding: 9px 16px;
+    font-size: 13px;
+  }
+
+  .menu-stats b {
+    font-size: 17px;
+  }
+
+  .menu-page-hero {
+    height: 118px;
+  }
+
+  .menu-auth .auth {
+    padding: 18px 14px 14px;
+  }
+}

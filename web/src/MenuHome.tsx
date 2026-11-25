@@ -4,6 +4,7 @@ import type { Account } from "./auth";
 import { CITY_URL, GITHUB_URL, MenuFooter, MenuHeader, TELEGRAM_URL, X_URL, type HomePage } from "./HomePages";
 import { CITY_FACTS, FEATURE_HIGHLIGHTS } from "./game/cityFacts";
 import { universeDisplayName } from "./game/multiverse";
+import "./site-pages.css";
 
 const TIPS = [
   "E at a door opens it",
@@ -35,7 +36,6 @@ const TOUR = [
   { src: "/intro-plaza.jpg", alt: "Downtown plaza in bright morning light, crowds and market stalls", name: "DOWNTOWN", blurb: "Morning crowds, market stalls, Route 12." },
   { src: "/world-night.jpg", alt: "The neon nightlife district in the rain", name: "NEON DISTRICT", blurb: "Rain, clubs, wet streets that glow." },
 ];
-
 interface MenuHomeProps {
   gate: "login" | "city";
   who: Account | null;
@@ -199,7 +199,10 @@ export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogi
             ))}
           </div>
         </div>
-        <div className="menu-neon-line" aria-hidden="true" />
+        {/* Neon horizon: a dusk skyline silhouette with lit windows and
+            a cyan horizon line (site-pages.css) — replaces the old
+            blocky CSS-bar skyline. */}
+        <div className="menu-neon-horizon" aria-hidden="true" />
         <MenuFooter onNavigate={onOpenPage} />
       </div>
     </div>

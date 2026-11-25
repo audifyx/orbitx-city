@@ -1,6 +1,7 @@
 import type { Account } from "./auth";
 import type { Snap } from "./game/runtime";
 import { CITY_FACTS } from "./game/cityFacts";
+import "./site-pages.css";
 
 // Home rebrand — the shared header, footer, and info pages for the OrbitX
 // City home. Everything here is honest copy: real counts, real links, no
@@ -78,9 +79,10 @@ export function MenuFooter({ onNavigate }: { onNavigate: (page: HomePage) => voi
   );
 }
 
-function PageShell({ title, children }: { title: string; children: React.ReactNode }) {
+function PageShell({ title, hero, children }: { title: string; hero?: boolean; children: React.ReactNode }) {
   return (
-    <div className="card menu-wide menu-page-card">
+    <div className="card menu-wide menu-page-card site-page">
+      {hero ? <div className="menu-page-hero" aria-hidden="true" /> : null}
       <h2>{title}</h2>
       <div className="legal">{children}</div>
     </div>
@@ -89,7 +91,7 @@ function PageShell({ title, children }: { title: string; children: React.ReactNo
 
 export function AboutPage() {
   return (
-    <PageShell title="About OrbitX City">
+    <PageShell title="About OrbitX City" hero>
       <p>
         <b>OrbitX City</b> is a realistic city you can own — a GTA-style open world that runs in your browser, on your
         phone or your PC. {CITY_FACTS.states} states, one city: {CITY_FACTS.stateNames}, joined by real bridges you

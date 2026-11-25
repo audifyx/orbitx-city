@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { finishMagic, loadAuthConfig, requestExportCode, restoreAccount, sendMagicLink, signIn, signInWithX, signUp, type Account, type AuthConfig } from "./auth";
+import "./site-pages.css";
 
 type Props = {
   onAccount: (account: Account) => void;
