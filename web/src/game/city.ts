@@ -294,14 +294,28 @@ export interface City {
   spawn: { x: number; y: number; z: number; yaw: number; pitch: number };
   focus: { x: number; y: number; z: number };
   fountain: { x: number; z: number };
-  /** Realistic palm positions (landmarks.ts renders them shaped). */
-  palms: Array<{ x: number; y: number; z: number }>;
+  /** Realistic palm positions (landmarks.ts renders them shaped).
+   *  kind "oak" (round 7) = a leafy street tree, every 4th tree — the
+   *  avenues are no longer a monoculture of identical palms. */
+  palms: Array<{ x: number; y: number; z: number; kind?: "palm" | "oak" }>;
   /** Street props recorded by city.ts, rendered shaped by landmarks.ts
    * (round-2 de-boxing — the old box puts are gone, colliders stay). */
   benches: Array<{ x: number; z: number; alongX: boolean }>;
   planters: Array<{ x: number; z: number }>;
   bins: Array<{ x: number; z: number; i: number }>;
   lamps: Array<{ x: number; z: number; y0: number }>;
+  /** Round-7 street clutter: hydrants, mailboxes, parking meters,
+   *  dumpsters, newspaper boxes, traffic cones, manholes — recorded by
+   *  city.ts, rendered instanced by landmarks.ts. Cones + manholes are
+   *  visual only (no collider); the rest keep small solid colliders
+   *  like the bins, so walking/driving is unchanged. */
+  hydrants: Array<{ x: number; z: number; alongX: boolean }>;
+  mailboxes: Array<{ x: number; z: number; alongX: boolean }>;
+  meters: Array<{ x: number; z: number; alongX: boolean }>;
+  dumpsters: Array<{ x: number; z: number; alongX: boolean }>;
+  newsboxes: Array<{ x: number; z: number; alongX: boolean }>;
+  cones: Array<{ x: number; z: number; alongX: boolean }>;
+  manholes: Array<{ x: number; z: number; alongX: boolean }>;
   kiosks: Array<{ x: number; z: number; top: Mat }>;
   fuelStations: Array<{ x: number; z: number; axis: "ew" | "ns" }>;
   chargePoints: Array<{ x: number; z: number; axis: "ew" | "ns" }>;
@@ -369,13 +383,25 @@ let visualHide = false;
 const facades: Facade[] = [];
 const art: Art[] = [];
 /** Palm positions recorded by addTree (rendered shaped by landmarks.ts). */
-const palms: Array<{ x: number; y: number; z: number }> = [];
+const palms: Array<{ x: number; y: number; z: number; kind?: "palm" | "oak" }> = [];
+/** Round-7 tree variety: every 4th planted tree is a leafy oak, so
+ *  the avenues are not a monoculture of identical palms. Reset in
+ *  buildCity alongside the arrays. */
+let treeSeq = 0;
 /** Street-prop positions recorded by the add* builders below (rendered
  * shaped by landmarks.ts — same record+render pattern as the palms). */
 const benches: Array<{ x: number; z: number; alongX: boolean }> = [];
 const planters: Array<{ x: number; z: number }> = [];
 const bins: Array<{ x: number; z: number; i: number }> = [];
 const lamps: Array<{ x: number; z: number; y0: number }> = [];
+/** Round-7 street clutter (rendered instanced by landmarks.ts). */
+const hydrants: Array<{ x: number; z: number; alongX: boolean }> = [];
+const mailboxes: Array<{ x: number; z: number; alongX: boolean }> = [];
+const meters: Array<{ x: number; z: number; alongX: boolean }> = [];
+const dumpsters: Array<{ x: number; z: number; alongX: boolean }> = [];
+const newsboxes: Array<{ x: number; z: number; alongX: boolean }> = [];
+const cones: Array<{ x: number; z: number; alongX: boolean }> = [];
+const manholes: Array<{ x: number; z: number; alongX: boolean }> = [];
 const kiosks: Array<{ x: number; z: number; top: Mat }> = [];
 const fuelStations: Array<{ x: number; z: number; axis: "ew" | "ns" }> = [];
 const chargePoints: Array<{ x: number; z: number; axis: "ew" | "ns" }> = [];
@@ -823,7 +849,11 @@ function addTree(_boxes: Box[], cols: Collider[], x: number, z: number, y0: numb
   // box trunk + box leaf cubes. The trunk collider stays, so walking,
   // driving and door approaches are unchanged. The palm itself is only
   // recorded when visuals are on (mirrors put()'s visualHide guard).
-  if (!visualHide) palms.push({ x, y: y0, z });
+  // Round 7: every 4th tree is a leafy oak (landmarks.ts renders it as
+  // a trunk + foliage canopy, no neon rings) — same collider, so the
+  // only change is visual variety.
+  if (!visualHide) palms.push({ x, y: y0, z, kind: treeSeq % 4 === 3 ? "oak" : "palm" });
+  treeSeq++;
   cols.push(col(x, y0 + 2.1, z, 0.85, 4.2, 0.85));
 }
 
@@ -859,6 +889,44 @@ function addBin(_boxes: Box[], cols: Collider[], x: number, z: number, i: number
 function addPlanter(_boxes: Box[], cols: Collider[], x: number, z: number) {
   if (!visualHide) planters.push({ x, z });
   cols.push(col(x, 0.6, z, 0.9, 1.2, 0.9));
+}
+
+// Round-7 street clutter (GTA street level: the avenues were lamps +
+// benches + bins only). Same record+render pattern as the bins: the
+// visual is recorded for landmarks.ts, the collider stays the solid
+// prop's footprint. Cones + manholes are visual only (no collider) —
+// a cone is knocked over, a manhole is flush with the road.
+function addHydrant(_boxes: Box[], cols: Collider[], x: number, z: number, alongX: boolean) {
+  if (!visualHide) hydrants.push({ x, z, alongX });
+  cols.push(col(x, 0.45, z, 0.5, 0.9, 0.5));
+}
+
+function addMailbox(_boxes: Box[], cols: Collider[], x: number, z: number, alongX: boolean) {
+  if (!visualHide) mailboxes.push({ x, z, alongX });
+  cols.push(col(x, 0.7, z, alongX ? 0.9 : 0.5, 1.4, alongX ? 0.5 : 0.9));
+}
+
+function addMeter(_boxes: Box[], cols: Collider[], x: number, z: number, alongX: boolean) {
+  if (!visualHide) meters.push({ x, z, alongX });
+  cols.push(col(x, 0.6, z, 0.3, 1.2, 0.3));
+}
+
+function addDumpster(_boxes: Box[], cols: Collider[], x: number, z: number, alongX: boolean) {
+  if (!visualHide) dumpsters.push({ x, z, alongX });
+  cols.push(col(x, 0.65, z, alongX ? 2.3 : 1.3, 1.3, alongX ? 1.3 : 2.3));
+}
+
+function addNewsbox(_boxes: Box[], cols: Collider[], x: number, z: number, alongX: boolean) {
+  if (!visualHide) newsboxes.push({ x, z, alongX });
+  cols.push(col(x, 0.55, z, alongX ? 0.9 : 0.6, 1.1, alongX ? 0.6 : 0.9));
+}
+
+function addCone(_boxes: Box[], _cols: Collider[], x: number, z: number, alongX: boolean) {
+  if (!visualHide) cones.push({ x, z, alongX });
+}
+
+function addManhole(_boxes: Box[], _cols: Collider[], x: number, z: number, alongX: boolean) {
+  if (!visualHide) manholes.push({ x, z, alongX });
 }
 
 function disc(_boxes: Box[], cx: number, cy: number, cz: number, r: number, h: number, mat: Mat, hole = 0) {
@@ -1900,6 +1968,19 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng, zones: DoorZone
         if (lampI % 12 === 11 && !inBusRoad(x, z - 8) && !lampBlockedByDoor(x, z - 8, zones)) {
           put(boxes, x, 0.2, z - 8, 0.55, 0.08, 3.0, lampI % 24 === 11 ? "white" : "red");
         }
+        // Round 7: street clutter on the free residue classes (mod 12 =
+        // 1 and 7 have no lamp/bin/bench/planter/flower) at offsets that
+        // clear the neighbours — hydrant -6 / mailbox +6, meter +2.6 /
+        // newsbox -2.6 / cone -2.6, dumpster +11, manhole on the road
+        // centre. Door-guarded like the rest; cones + manholes are
+        // visual only, so they never block a walk-up or a drive line.
+        if (lampI % 24 === 1 && !inBusRoad(x, z - 6) && !lampBlockedByDoor(x, z - 6, zones)) addHydrant(boxes, cols, x, z - 6, false);
+        if (lampI % 24 === 13 && !inBusRoad(x, z + 6) && !lampBlockedByDoor(x, z + 6, zones)) addMailbox(boxes, cols, x, z + 6, false);
+        if (lampI % 12 === 7 && !inBusRoad(x, z + 2.6) && !lampBlockedByDoor(x, z + 2.6, zones)) addMeter(boxes, cols, x, z + 2.6, false);
+        if (lampI % 24 === 19 && !inBusRoad(x, z - 2.6) && !lampBlockedByDoor(x, z - 2.6, zones)) addNewsbox(boxes, cols, x, z - 2.6, false);
+        if (lampI % 24 === 7 && !inBusRoad(x, z - 2.6) && !lampBlockedByDoor(x, z - 2.6, zones)) addCone(boxes, cols, x, z - 2.6, false);
+        if (lampI % 48 === 31 && !inBusRoad(x, z + 11) && !lampBlockedByDoor(x, z + 11, zones)) addDumpster(boxes, cols, x, z + 11, false);
+        if (lampI % 24 === 11) addManhole(boxes, cols, cx, z, false);
       }
     }
   }
@@ -1924,6 +2005,15 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng, zones: DoorZone
         if (slot % 12 === 11 && !inBusRoad(x - 8, z) && !lampBlockedByDoor(x - 8, z, zones)) {
           put(boxes, x - 8, 0.2, z, 3.0, 0.08, 0.55, slot % 24 === 11 ? "white" : "red");
         }
+        // Round 7: street clutter, mirrored from the N/S loop (offsets
+        // along x now, alongX = true). Same free residues, same clears.
+        if (slot % 24 === 1 && !inBusRoad(x - 6, z) && !lampBlockedByDoor(x - 6, z, zones)) addHydrant(boxes, cols, x - 6, z, true);
+        if (slot % 24 === 13 && !inBusRoad(x + 6, z) && !lampBlockedByDoor(x + 6, z, zones)) addMailbox(boxes, cols, x + 6, z, true);
+        if (slot % 12 === 7 && !inBusRoad(x + 2.6, z) && !lampBlockedByDoor(x + 2.6, z, zones)) addMeter(boxes, cols, x + 2.6, z, true);
+        if (slot % 24 === 19 && !inBusRoad(x - 2.6, z) && !lampBlockedByDoor(x - 2.6, z, zones)) addNewsbox(boxes, cols, x - 2.6, z, true);
+        if (slot % 24 === 7 && !inBusRoad(x - 2.6, z) && !lampBlockedByDoor(x - 2.6, z, zones)) addCone(boxes, cols, x - 2.6, z, true);
+        if (slot % 48 === 31 && !inBusRoad(x + 11, z) && !lampBlockedByDoor(x + 11, z, zones)) addDumpster(boxes, cols, x + 11, z, true);
+        if (slot % 24 === 11) addManhole(boxes, cols, x, cz, true);
       }
     }
   }
@@ -6761,10 +6851,18 @@ export function buildCity(seed: number): City {
   facades.length = 0;
   art.length = 0;
   palms.length = 0;
+  treeSeq = 0;
   benches.length = 0;
   planters.length = 0;
   bins.length = 0;
   lamps.length = 0;
+  hydrants.length = 0;
+  mailboxes.length = 0;
+  meters.length = 0;
+  dumpsters.length = 0;
+  newsboxes.length = 0;
+  cones.length = 0;
+  manholes.length = 0;
   kiosks.length = 0;
   fuelStations.length = 0;
   chargePoints.length = 0;
@@ -6845,6 +6943,13 @@ export function buildCity(seed: number): City {
     planters: [...planters],
     bins: [...bins],
     lamps: [...lamps],
+    hydrants: [...hydrants],
+    mailboxes: [...mailboxes],
+    meters: [...meters],
+    dumpsters: [...dumpsters],
+    newsboxes: [...newsboxes],
+    cones: [...cones],
+    manholes: [...manholes],
     kiosks: [...kiosks],
     fuelStations: [...fuelStations],
     chargePoints: [...chargePoints],
