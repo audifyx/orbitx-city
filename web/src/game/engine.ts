@@ -21,6 +21,7 @@ import {
   type Material,
 } from "three";
 import { buildCity, type City, type Mat, type RailPoint, type ShipPath } from "./city";
+import { INTRO_LEN, introPose, type IntroPoseOut } from "./introPath";
 import { MATERIALS } from "./materials";
 import { createRuntime, wantsTouch, type Body, type Runtime, type TrainPose } from "./runtime";
 import { isWater, WATER_SURFACE_Y } from "./water";
@@ -403,76 +404,18 @@ export function createGame(
   let mode: PlayMode = "orbit";
   let playing = false;
 
-  // Intro flyover: a 5-act 30s cinematic trailer tour across the entire
-  // multi-state world — Act 1 (0-6s) is the style-video opening: a high
-  // aerial over the glass towers at dusk, sweeping down through the
-  // ORBITX CITY gate and into the plaza fountain; Act 2 (6-12s) soars
-  // across the Empire Span to New York, Los Angeles, and Florida; Act 3
-  // (12-18s) glides down through the furnished avenues, homes, and
-  // storefronts; Act 4 (18-24s) showcases the electric neon skyline
-  // alongside the elevated Loop Train and hover ships; Act 5 (24-30s)
-  // pulls back into the hero orbit circle (190, 78, 10 -> looking at
-  // 0, 26, 20) for a seamless handoff.
-  const INTRO_LEN = 30;
-  interface IntroKey {
-    t: number;
-    pos: [number, number, number];
-    look: [number, number, number];
-    fov: number;
-    roll: number;
-    cut?: boolean;
-  }
-  const INTRO_KEYS: IntroKey[] = [
-    // Act 1 (0..6s): Aerial over the glass towers at dusk -> down
-    // through the ORBITX CITY gate -> into the plaza fountain
-    { t: 0, pos: [60, 120, 180], look: [0, 40, 0], fov: 58, roll: 0 },
-    { t: 2.8, pos: [0, 55, 110], look: [0, 16, 44], fov: 54, roll: -0.03 },
-    { t: 6.0, pos: [0, 9, 62], look: [0, 10, 12], fov: 56, roll: 0.02 },
-    // Act 2 (6..12s): Empire Span & New York -> Los Angeles & Florida coast
-    { t: 6.01, pos: [-340, 58, 88], look: [-680, 36, -15], fov: 58, roll: -0.04, cut: true },
-    { t: 9.0, pos: [-620, 74, 155], look: [-780, 34, -35], fov: 52, roll: 0.03 },
-    { t: 9.01, pos: [480, 56, 230], look: [760, 28, 20], fov: 58, roll: -0.035, cut: true },
-    { t: 12.0, pos: [190, 66, 520], look: [0, 24, 860], fov: 54, roll: 0.025 },
-    // Act 3 (12..18s): Living economy — low street canyon & neighborhood homes pass
-    { t: 12.01, pos: [148, 20, 92], look: [36, 12, 52], fov: 64, roll: -0.03, cut: true },
-    { t: 15.0, pos: [54, 14, 56], look: [-24, 12, 36], fov: 60, roll: 0.025 },
-    { t: 18.0, pos: [-52, 18, 66], look: [0, 18, 8], fov: 56, roll: -0.02 },
-    // Act 4 (18..24s): Own It All — neon night pass along the Loop Train & HQ
-    { t: 18.01, pos: [-96, 33, 126], look: [0, 28, 32], fov: 56, roll: 0.04, cut: true },
-    { t: 21.0, pos: [14, 34, 118], look: [0, 32, -14], fov: 52, roll: -0.03 },
-    { t: 24.0, pos: [108, 46, 74], look: [-8, 30, 0], fov: 54, roll: 0.02 },
-    // Act 5 (24..30s): Grand finale pullback to the exact orbit camera pose
-    { t: 24.01, pos: [118, 52, 82], look: [0, 28, 12], fov: 56, roll: 0.02 },
-    { t: 27.0, pos: [164, 68, 54], look: [0, 27, 16], fov: 60, roll: 0.01 },
-    { t: 30.0, pos: [190, 78, 10], look: [0, 26, 20], fov: 62, roll: 0 },
-  ];
+  // Intro flyover path (see introPath.ts): 30s, 5 acts, Catmull-Rom
+  // spline through the keys — continuous velocity inside an act, hard
+  // cuts between acts, Act 1 dives through the ORBITX CITY gate into
+  // the plaza (video 03). The React overlay owns the timer; the
+  // engine only consumes the pose. INTRO_LEN is imported, not local,
+  // so the overlay (Intro.tsx) and the engine can never drift apart.
   let introOn = false;
   let introPaused = false;
   let introT = 0;
   let orbitClockOffset = 0;
-  // Smoothstep between two intro keyframes (position + look target + fov + roll).
-  function introPose(t: number, out: { pos: Vector3; look: Vector3; fov: number; roll: number }) {
-    const clamped = Math.max(0, Math.min(INTRO_LEN, t));
-    let i = 0;
-    while (i < INTRO_KEYS.length - 2 && INTRO_KEYS[i + 1].t <= clamped) i++;
-    const a = INTRO_KEYS[i];
-    const b = INTRO_KEYS[i + 1];
-    const span = Math.max(0.0001, b.t - a.t);
-    const raw = Math.max(0, Math.min(1, (clamped - a.t) / span));
-    const e = b.cut ? 1 : raw * raw * (3 - 2 * raw);
-    out.pos.set(
-      a.pos[0] + (b.pos[0] - a.pos[0]) * e,
-      a.pos[1] + (b.pos[1] - a.pos[1]) * e,
-      a.pos[2] + (b.pos[2] - a.pos[2]) * e,
-    );
-    out.look.set(
-      a.look[0] + (b.look[0] - a.look[0]) * e,
-      a.look[1] + (b.look[1] - a.look[1]) * e,
-      a.look[2] + (b.look[2] - a.look[2]) * e,
-    );
-    out.fov = a.fov + (b.fov - a.fov) * e;
-    out.roll = a.roll + (b.roll - a.roll) * e;
-  }
+  // Plain-array pose from introPath.ts, copied into introState below.
+  const introPoseOut: IntroPoseOut = { pos: [0, 0, 0], look: [0, 0, 0], fov: 62, roll: 0 };
   const introState = { pos: new Vector3(), look: new Vector3(), fov: 62, roll: 0 };
 
   const player: Body = {
@@ -1381,7 +1324,11 @@ export function createGame(
         // Intro flyover: the scripted path runs 30s, then holds the final
         // frame (the slow-orbit circle) until the overlay dismisses it.
         if (!introPaused) introT = Math.min(INTRO_LEN, introT + dt);
-        introPose(introT, introState);
+        introPose(introT, introPoseOut);
+        introState.pos.set(introPoseOut.pos[0], introPoseOut.pos[1], introPoseOut.pos[2]);
+        introState.look.set(introPoseOut.look[0], introPoseOut.look[1], introPoseOut.look[2]);
+        introState.fov = introPoseOut.fov;
+        introState.roll = introPoseOut.roll;
         camera.position.copy(introState.pos);
         if (Math.abs(camera.fov - introState.fov) > 0.05) {
           camera.fov = introState.fov;
