@@ -292,15 +292,18 @@ export function rankGreetingFor(rank: number, seed: number): string | null {
 }
 
 // --- enable flag (persisted) ---
+// OFF by default (user, 2026-11-24): NPC voices are annoying — a fresh
+// player hears none until they opt in via Settings → Audio. A stored
+// "on" from an earlier opt-in is still honoured.
 const ENABLED_KEY = "orbitx-city-npc-voice-v1";
 let enabledCache: boolean | null = null;
 
 export function npcVoiceEnabled(): boolean {
   if (enabledCache === null) {
     try {
-      enabledCache = localStorage.getItem(ENABLED_KEY) !== "off";
+      enabledCache = localStorage.getItem(ENABLED_KEY) === "on";
     } catch {
-      enabledCache = true;
+      enabledCache = false;
     }
   }
   return enabledCache;

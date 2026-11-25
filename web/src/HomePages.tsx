@@ -1,6 +1,8 @@
+import { useState } from "react";
 import type { Account } from "./auth";
 import type { Snap } from "./game/runtime";
 import { CITY_FACTS } from "./game/cityFacts";
+import { npcVoiceEnabled, setNpcVoiceEnabled } from "./game/npcvoice";
 import "./site-pages.css";
 
 // Home rebrand — the shared header, footer, and info pages for the OrbitX
@@ -151,6 +153,9 @@ export function SettingsPage({
   onIntroToggle: (on: boolean) => void;
   onReplayIntro: () => void;
 }) {
+  // NPC voices are OFF by default; this reads the persisted choice fresh
+  // every time Settings opens, so it stays in sync with the Talk panel.
+  const [voiceOn, setVoiceOn] = useState<boolean>(() => npcVoiceEnabled());
   return (
     <PageShell title="Settings">
       <h3>Graphics quality</h3>
@@ -167,6 +172,21 @@ export function SettingsPage({
       <div className="days">
         <button type="button" className={snap.haptics ? "on" : ""} onClick={() => onHaptics(!snap.haptics)}>
           Haptics: {snap.haptics ? "On" : "Off"}
+        </button>
+      </div>
+      <h3>Audio</h3>
+      <p>NPC voices — citizens speaking their lines aloud. Off by default; turn it on if you want to hear them. Voice chat, radio, and music are not affected.</p>
+      <div className="days">
+        <button
+          type="button"
+          className={voiceOn ? "on" : ""}
+          onClick={() => {
+            const next = !voiceOn;
+            setVoiceOn(next);
+            setNpcVoiceEnabled(next);
+          }}
+        >
+          NPC voices: {voiceOn ? "On" : "Off"}
         </button>
       </div>
       <h3>Time of day</h3>

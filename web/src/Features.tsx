@@ -76,7 +76,7 @@ function Talk({ snap, rt }: { snap: Snap; rt: Runtime | null }) {
   const [chatBusy, setChatBusy] = useState(false);
   // VOICES: NPCs speak their lines aloud. Stop the voice when the
   // talk panel closes; the toggle mutes voices city-wide.
-  const [voiceOn, setVoiceOn] = useState<boolean>(() => rt?.npcVoiceOn() ?? true);
+  const [voiceOn, setVoiceOn] = useState<boolean>(() => rt?.npcVoiceOn() ?? false);
   useEffect(() => () => rt?.stopTalkVoice(), [rt]);
   const talkName = talk?.name ?? "";
   useEffect(() => {
