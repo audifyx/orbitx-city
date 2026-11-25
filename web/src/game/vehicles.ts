@@ -2187,6 +2187,20 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
     // horizontal line, like the AI demo's cars.
     add(partMaterial("chrome", paint), 0, p.bodyY + p.bodyH / 2 + 0.02, p.width / 2 + 0.01, p.length - 0.4, 0.05, 0.03);
     add(partMaterial("chrome", paint), 0, p.bodyY + p.bodyH / 2 + 0.02, -p.width / 2 - 0.01, p.length - 0.4, 0.05, 0.03);
+    // Round 7: door handles — small chrome tabs on each side at the
+    // cabin, two per side on a 4-door cabin, one on a short 2-door
+    // cabin. The doors used to be blank slabs; handles + beltline now
+    // give the flank its shut lines.
+    if (p.cabinLen > 0) {
+      const handleXs = p.cabinLen >= 2.2
+        ? [p.cabinX - p.cabinLen / 4, p.cabinX + p.cabinLen / 4]
+        : [p.cabinX];
+      for (const hx of handleXs) {
+        for (const s of [-1, 1]) {
+          add(partMaterial("chrome", paint), hx, p.bodyY + 0.12, s * (p.width / 2 + 0.02), 0.3, 0.04, 0.05);
+        }
+      }
+    }
     // Rear license plate: "ORBITX" on white with a gold rule, like the
     // red sedan in the demo (plate "ORBITX 42"). One shared canvas
     // texture for every car; the plane faces -X (rear) and reads
