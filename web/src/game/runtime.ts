@@ -1440,22 +1440,47 @@ const PERSON_CONE = new ConeGeometry(0.5, 1, 10);
 
 function makePerson(color: string, hat: string) {
   const group = new Group();
+  // Round 4: deterministic variety from the (color, hat) pair — no
+  // name reaches this function, so the pair is the seed. Different
+  // strings per trait so skin / silhouette / height vary independently.
+  const hash = (s: string) => {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return h;
+  };
+  const shadeHex = (hex: string, factor: number) => {
+    const n = parseInt(hex.slice(1), 16);
+    const r = Math.max(0, Math.min(255, Math.round(((n >> 16) & 255) * factor)));
+    const g = Math.max(0, Math.min(255, Math.round(((n >> 8) & 255) * factor)));
+    const b = Math.max(0, Math.min(255, Math.round((n & 255) * factor)));
+    return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+  };
+  // Skin tones (round 4): warm/cool range by hash — NEVER white.
+  // The old head used MATERIALS.white, so every citizen looked like a
+  // mannequin. These are the same SKINS range as the plaza crowd.
+  const NPC_SKINS = ["#f1c27d", "#e0ac69", "#c68642", "#8d5524", "#ffdbac", "#a0663a"];
+  const skinHex = NPC_SKINS[hash(`${color}|${hat}`) % NPC_SKINS.length] as string;
+  const skinMat = new MeshLambertMaterial({ color: skinHex });
+  const noseMat = new MeshLambertMaterial({ color: shadeHex(skinHex, 0.82) });
+  const lipDarkMat = new MeshLambertMaterial({ color: "#8a4438" });
+  const lipLightMat = new MeshLambertMaterial({ color: "#c07a68" });
   const cloth = new MeshLambertMaterial({ color: COLORS[color] ?? COLORS.white });
-  // Realistic body: rounded-box torso + legs, sphere head — named so
-  // movement.ts finds them by name; same positions/scales as the old
-  // boxes, so the range fallback still matches.
+  // Round 4 proportions (match avatar.ts dressPerson): longer legs
+  // (hip 0.62), narrower torso (0.56), smaller head (0.32 at 1.60).
+  // Named so movement.ts finds them by name; same positions/scales
+  // as dressPerson, so the range fallback still matches.
   const body = new Mesh(PERSON_ROUNDED, cloth);
   body.name = "torso";
-  body.scale.set(0.62, 0.95, 0.4);
-  body.position.y = 0.85;
-  const head = new Mesh(PERSON_SPHERE, MATERIALS.white);
+  body.scale.set(0.56, 0.66, 0.34);
+  body.position.y = 0.98;
+  const head = new Mesh(PERSON_SPHERE, skinMat);
   head.name = "head";
-  head.scale.set(0.4, 0.4, 0.4);
-  head.position.y = 1.62;
+  head.scale.set(0.32, 0.32, 0.32);
+  head.position.y = 1.6;
   const legs = new Mesh(PERSON_ROUNDED, MATERIALS.black);
   legs.name = "legs";
-  legs.scale.set(0.58, 0.45, 0.36);
-  legs.position.y = 0.28;
+  legs.scale.set(0.44, 0.62, 0.3);
+  legs.position.y = 0.31;
   const ring = new Mesh(
     new TorusGeometry(0.62, 0.045, 8, 24),
     new MeshStandardMaterial({ color: 0x7ef6ff, emissive: 0x19d8ff, emissiveIntensity: 1.3 }),
@@ -1465,7 +1490,61 @@ function makePerson(color: string, hat: string) {
   ring.position.y = 0.05;
   ring.visible = false;
   group.add(body, head, legs, ring);
+  // Round 4: height variety — two citizens side by side are no longer
+  // clones. 0.95–1.05 by hash; total height stays ~1.67–1.85, inside
+  // the camera/door/collision envelope.
+  group.scale.setScalar(0.95 + (hash(`${color}|${hat}|h`) % 11) / 100);
+  // Round 4: a face, simplified from dressPerson — jaw taper, eye
+  // whites + iris + pupil, brows, nose bridge + tip, two-tone lips,
+  // ears. These are the named citizens the player talks to; they must
+  // not look like mannequins.
+  const face = (geo: SphereGeometry | CapsuleGeometry | RoundedBoxGeometry, material: Material, x: number, y: number, z: number, sx: number, sy: number, sz: number, rotZ = 0) => {
+    const m = new Mesh(geo, material);
+    m.position.set(x, y, z);
+    m.scale.set(sx, sy, sz);
+    if (rotZ) m.rotation.z = rotZ;
+    m.castShadow = true;
+    group.add(m);
+    return m;
+  };
+  const NPC_EYES = ["#3a2a1a", "#2a3a5a", "#2a5a3a", "#5a3a1a"];
+  const irisHex = NPC_EYES[hash(`${hat}|${color}|e`) % NPC_EYES.length] as string;
+  const irisMat = new MeshLambertMaterial({ color: irisHex });
+  face(PERSON_SPHERE, skinMat, 0, 1.52, 0.01, 0.24, 0.17, 0.24); // jaw/chin taper
+  face(PERSON_SPHERE, skinMat, -0.155, 1.6, 0, 0.035, 0.065, 0.03); // ear L
+  face(PERSON_SPHERE, skinMat, 0.155, 1.6, 0, 0.035, 0.065, 0.03); // ear R
+  for (const side of [-1, 1]) {
+    const ex = side * 0.062;
+    face(PERSON_CAPSULE_X, skinMat, ex, 1.705, 0.13, 0.0425, 0.022, 0.03, -side * 0.12); // brow
+    face(PERSON_SPHERE, MATERIALS.white, ex, 1.635, 0.125, 0.07, 0.05, 0.035); // eye white
+    face(PERSON_SPHERE, irisMat, ex, 1.635, 0.143, 0.045, 0.045, 0.02); // iris
+    face(PERSON_SPHERE, MATERIALS.black, ex, 1.635, 0.15, 0.026, 0.026, 0.02); // pupil
+  }
+  face(PERSON_CAPSULE, noseMat, 0, 1.59, 0.14, 0.02, 0.04, 0.015); // nose bridge
+  face(PERSON_SPHERE, noseMat, 0, 1.545, 0.145, 0.05, 0.04, 0.04); // nose tip
+  face(PERSON_CAPSULE_X, lipDarkMat, 0, 1.505, 0.135, 0.0425, 0.009, 0.0125); // upper lip
+  face(PERSON_CAPSULE_X, lipLightMat, 0, 1.485, 0.13, 0.0325, 0.011, 0.0125); // lower lip
+  // Round 4: a second torso silhouette by hash, so citizens don't all
+  // wear the same slab — plain (belt + collar), jacket (open front
+  // panels over an inner shirt), or hoodie (hood bunched at the neck).
+  const variant = hash(`${hat}|${color}|v`) % 3;
+  if (variant === 0) {
+    face(PERSON_ROUNDED, MATERIALS.black, 0, 0.68, 0, 0.58, 0.06, 0.36); // belt
+    face(PERSON_ROUNDED, cloth, 0, 1.28, 0, 0.34, 0.06, 0.36); // collar
+  } else if (variant === 1) {
+    face(PERSON_ROUNDED, MATERIALS.white, 0, 0.98, 0.165, 0.16, 0.5, 0.03); // inner shirt
+    face(PERSON_ROUNDED, MATERIALS.black, -0.14, 0.98, 0.17, 0.12, 0.5, 0.04); // jacket L
+    face(PERSON_ROUNDED, MATERIALS.black, 0.14, 0.98, 0.17, 0.12, 0.5, 0.04); // jacket R
+  } else {
+    face(PERSON_SPHERE, cloth, 0, 1.62, -0.1, 0.46, 0.36, 0.28); // hood
+    face(PERSON_SPHERE, cloth, 0, 1.86, 0, 0.44, 0.13, 0.42); // hood rim
+  }
   addHat(group, hat);
+  // addHat's positions assume the old 0.40 head (top 1.82); the round 4
+  // head tops out at 1.76, so drop the whole hat node a touch or every
+  // cap floats. (addHat itself is out of scope for this round.)
+  const hatNode = group.getObjectByName("hat");
+  if (hatNode) hatNode.position.y -= 0.04;
   return group;
 }
 
