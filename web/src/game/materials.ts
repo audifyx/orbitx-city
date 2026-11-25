@@ -581,11 +581,9 @@ const SPECS: Record<Mat, MatSpec> = {
   // Wet asphalt (realistic overhaul, 2026-11-24, deepened round 2,
   // deepened again round 3): lower roughness + more metalness + a
   // boosted env response so the street picks up neon + env reflections
-  // like the rain-slick roads in the style videos. NOTE: graphics.ts
-  // upgradeMaterials() still overrides roughness/metalness to 0.88/0.05
-  // on medium/high/ultra — the phone (low default) keeps this wet
-  // look; the desktop override needs its own one-line change in
-  // graphics.ts.
+  // like the rain-slick roads in the style videos. graphics.ts
+  // upgradeMaterials() matches these values on medium/high/ultra, so
+  // the wet look is the same on phone and desktop.
   asphalt: { color: 0x2a2f3a, tex: "asphalt", roughness: 0.22, metalness: 0.35, envMapIntensity: 1.6 },
   sidewalk: { color: 0xcfd3da, tex: "cement" },
   sidewalkField: { color: 0xcfd3da, tex: "pavement", polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2 },
