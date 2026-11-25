@@ -20,10 +20,12 @@
  * voxel discs (fountain/roulette/pond) and bus-shelter vaults.
  */
 import {
+  AdditiveBlending,
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
+  CircleGeometry,
   Color,
   ConeGeometry,
   CylinderGeometry,
@@ -46,7 +48,8 @@ import {
   TorusGeometry,
 } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import type { City, Facade, Mat } from "./city";
+import type { City, Facade, Mat, ShapedKind, ShapedPart } from "./city";
+import { MATERIALS } from "./materials";
 import { makeBillboard, makeNeonSign, type NeonColor } from "./signs";
 import type { QualityName } from "./pretty";
 
@@ -552,6 +555,63 @@ export function makeRain(count = 500): { lines: LineSegments; update: (dt: numbe
 }
 
 /**
+ * Round-4 shaped parts: the record+render half of city.ts's `shaped`
+ * list. Unit geometries scaled per instance, bucketed by (kind, mat) so
+ * each bucket is a single InstancedMesh draw call — the whole city's
+ * shaped furniture costs a handful of draw calls. Materials are the
+ * shared MATERIALS buckets, so textures + night glow apply as usual.
+ * `arch` is a half-torus (upper half, XY plane): scale (r, r, 1) and
+ * rotate Y to face the room. `taper4` is a square frustum (top 0.64x
+ * the base, flat faces on the axes) — the shaped sofa / pot / plinth.
+ */
+const SHAPED_GEOS: Record<ShapedKind, BufferGeometry> = {
+  cyl: new CylinderGeometry(0.5, 0.5, 1, 12),
+  sphere: new SphereGeometry(0.5, 12, 8),
+  cone: new ConeGeometry(0.5, 1, 12),
+  torus: new TorusGeometry(0.5, 0.09, 8, 20),
+  taper4: (() => {
+    const geo = new CylinderGeometry(0.32, 0.5, 1, 4);
+    geo.rotateY(Math.PI / 4);
+    return geo;
+  })(),
+  arch: new TorusGeometry(1, 0.1, 8, 24, Math.PI),
+};
+
+export function buildShaped(parts: ShapedPart[]): Group {
+  const g = new Group();
+  g.name = "shaped-parts";
+  if (!parts.length) return g;
+  const dummy = new Object3D();
+  const buckets = new Map<string, ShapedPart[]>();
+  for (const p of parts) {
+    const k = `${p.kind}|${p.mat}`;
+    let list = buckets.get(k);
+    if (!list) {
+      list = [];
+      buckets.set(k, list);
+    }
+    list.push(p);
+  }
+  for (const [key, list] of buckets) {
+    const [kind, mat] = key.split("|") as [ShapedKind, Mat];
+    const mesh = new InstancedMesh(SHAPED_GEOS[kind], MATERIALS[mat], list.length);
+    mesh.frustumCulled = false;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    list.forEach((p, i) => {
+      dummy.position.set(p.x, p.y, p.z);
+      dummy.rotation.set(p.rx ?? 0, p.ry ?? 0, p.rz ?? 0);
+      dummy.scale.set(p.sx, p.sy, p.sz);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    g.add(mesh);
+  }
+  return g;
+}
+
+/**
  * Round-2 street props: shaped benches / planters / bins / lamps /
  * kiosks / fuel stations / charge points / traffic lights / bollards,
  * instanced from the positions city.ts records. The old box puts are
@@ -581,6 +641,26 @@ export function buildStreetProps(city: City): Group {
     globes.instanceMatrix.needsUpdate = true;
     poles.castShadow = true;
     g.add(poles, globes);
+
+    // Round 4: warm spill pools under every lamp globe — the wet-asphalt
+    // reflection fake, extended from the shopfront spills (pretty.ts).
+    // One instanced additive disc per lamp, at sidewalk-top + 0.01 so it
+    // never z-fights the pavement (sidewalk top is y 0.16).
+    const lampSpills = new InstancedMesh(
+      new CircleGeometry(1, 20),
+      new MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.13, blending: AdditiveBlending, depthWrite: false }),
+      lamps.length,
+    );
+    lamps.forEach((l, i) => {
+      dummy.rotation.set(-Math.PI / 2, 0, 0);
+      dummy.scale.set(2.6, 2.6, 1);
+      dummy.position.set(l.x, l.y0 + 0.17, l.z);
+      dummy.updateMatrix();
+      lampSpills.setMatrixAt(i, dummy.matrix);
+    });
+    lampSpills.instanceMatrix.needsUpdate = true;
+    lampSpills.renderOrder = 1;
+    g.add(lampSpills);
   }
 
   // Benches: sloped wood seat + tilted backrest + cylinder legs.
@@ -726,6 +806,28 @@ export function buildStreetProps(city: City): Group {
       cg.add(mesh(new CylinderGeometry(0.24, 0.24, 0.1, 10), darkMetal, px, 1.32, pz));
     }
     g.add(cg);
+  }
+
+  // Round 4: cyan spill pools under the charge points, same fake as the
+  // lamps above — the forecourt reads wet after dark.
+  const cps = city.chargePoints ?? [];
+  if (cps.length) {
+    const cpSpills = new InstancedMesh(
+      new CircleGeometry(1, 20),
+      new MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.12, blending: AdditiveBlending, depthWrite: false }),
+      cps.length,
+    );
+    const dummyCp = new Object3D();
+    cps.forEach((cp, i) => {
+      dummyCp.rotation.set(-Math.PI / 2, 0, 0);
+      dummyCp.scale.set(2.2, 2.2, 1);
+      dummyCp.position.set(cp.x, 0.17, cp.z);
+      dummyCp.updateMatrix();
+      cpSpills.setMatrixAt(i, dummyCp.matrix);
+    });
+    cpSpills.instanceMatrix.needsUpdate = true;
+    cpSpills.renderOrder = 1;
+    g.add(cpSpills);
   }
 
   // Traffic lights: cylinder pole + head + glowing lenses (red/amber/green).
@@ -923,6 +1025,7 @@ export function mountLandmarks(city: City, _quality: QualityName): Group {
   }
   g.add(mountDistrictSigns(city.facades));
   g.add(buildStreetProps(city));
+  g.add(buildShaped(city.shaped ?? []));
   g.add(buildCurbs(city.curbs ?? []));
   g.add(buildDiscs(city.discs ?? []));
   g.add(buildShelterVaults(city.shelters ?? []));

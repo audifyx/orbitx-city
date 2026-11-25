@@ -312,6 +312,15 @@ export interface City {
   bollards: Array<{ x: number; z: number }>;
   /** Bus shelter / station canopies (rendered as barrel vaults). */
   shelters: Array<{ x: number; z: number; axis: "ns" | "ew"; rw: number; rd: number; y: number }>;
+  /** Round-4 shaped furniture / props: cylinders, spheres, cones, tori
+   * and square frustums recorded by city.ts, rendered shaped by
+   * landmarks.ts (same record+render pattern as benches/planters).
+   * Visual only — every shaped part sits inside the collider its box
+   * version had, so gameplay is unchanged. Scale is the full size:
+   * cyl/sphere/cone/torus use unit geometries (r 0.5 / R 0.5) scaled by
+   * (sx, sy, sz); taper4 is a square frustum (top 0.64x the base);
+   * arch is a half-torus of radius 1 scaled by (sx, sy, sz). */
+  shaped: ShapedPart[];
   anchors: Anchor[];
   boards: BoardSlot[];
   cars: CarSpawn[];
@@ -328,6 +337,22 @@ export interface Citizen {
   color: string;
   x: number;
   z: number;
+}
+
+/** One shaped (non-box) visual part. See `shaped` on the City object. */
+export type ShapedKind = "cyl" | "sphere" | "cone" | "torus" | "taper4" | "arch";
+export interface ShapedPart {
+  kind: ShapedKind;
+  x: number;
+  y: number;
+  z: number;
+  sx: number;
+  sy: number;
+  sz: number;
+  mat: Mat;
+  ry?: number;
+  rx?: number;
+  rz?: number;
 }
 
 const CENTERS = [-180, -144, -108, -72, -36, 0, 36, 72, 108, 144, 180];
@@ -356,6 +381,21 @@ const trafficLights: Array<{ x: number; z: number }> = [];
 const discs: Array<{ x: number; y: number; z: number; r: number; h: number; mat: Mat; hole: number }> = [];
 const curbs: Array<{ x: number; z: number; len: number; alongX: boolean }> = [];
 const bollards: Array<{ x: number; z: number }> = [];
+/** Round-4 shaped parts (rendered shaped by landmarks.ts). */
+const shaped: ShapedPart[] = [];
+
+/** Record one shaped visual part. Visual only — callers keep their
+ * existing `cols.push(col(...))` exactly as-is, so colliders are
+ * byte-identical; only the box `put` lines are replaced by this. */
+function recordShaped(
+  kind: ShapedKind,
+  x: number, y: number, z: number,
+  sx: number, sy: number, sz: number,
+  mat: Mat,
+  ry = 0, rx = 0, rz = 0,
+) {
+  shaped.push({ kind, x, y, z, sx, sy, sz, mat, ry, rx, rz });
+}
 
 /** One beveled curb run: centre + length along its axis. */
 function recordCurb(x: number, z: number, len: number, alongX: boolean) {
@@ -924,9 +964,10 @@ function addTower(boxes: Box[], cols: Collider[]): { top: number; zone: Zone; an
   put(boxes, cx, 1.15, cz - 6, 4.4, 0.12, 1.3, "stone");
   put(boxes, cx, 1.45, cz - 6.4, 2.6, 0.5, 0.1, "cyan");
   for (const side of [-1, 1]) {
-    put(boxes, cx + side * 8, 0.38, cz + 2, 3.4, 0.45, 1.1, "red");
+    // Round 4: shaped sofa (frustum base + sphere cushions + cylinder
+    // armrests / back bolster) instead of two boxes. Collider unchanged.
+    shapedSofa(cx + side * 8, cz + 2, true, "red", 0, 3.4, 1);
     cols.push(col(cx + side * 8, 0.38, cz + 2, 3.4, 0.45, 1.1));
-    put(boxes, cx + side * 8, 0.85, cz + 2.55, 3.4, 0.7, 0.2, "red");
     put(boxes, cx + side * 8, 1.9, cz - 9, 2.2, 1.5, 0.15, "gold");
     put(boxes, cx + side * 5, 0.5, cz + 8, 0.7, 0.9, 0.7, "leavesDark");
     cols.push(col(cx + side * 5, 0.5, cz + 8, 0.7, 0.9, 0.7));
@@ -2383,12 +2424,17 @@ function furnishShop(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   ceilingBeams(boxes, x0, z0, w, d);
   doorCornerPlants(boxes, cols, x0, z0, w, d, door);
   doorWallWindows(boxes, x0, z0, w, d, door, "red");
+  doorArch(x0, z0, w, d, door);
   const back = opposite(door, x0, z0, w, d, 2.4);
   const counterAlongX = door === "n" || door === "s";
   put(boxes, back.x, 0.55, back.z, counterAlongX ? 7.2 : 1.15, 1.05, counterAlongX ? 1.15 : 7.2, "wood");
   cols.push(col(back.x, 0.55, back.z, counterAlongX ? 7.2 : 1.15, 1.05, counterAlongX ? 1.15 : 7.2));
   put(boxes, back.x, 1.15, back.z, counterAlongX ? 7.4 : 1.25, 0.12, counterAlongX ? 1.25 : 7.4, "stone");
   put(boxes, back.x, 1.55, back.z, 0.35, 0.55, 0.35, "gold");
+  // Round 4: curved gold bullnose on the counter front + a round clock
+  // on the back wall above it.
+  counterBullnose(back, counterAlongX, 7.2, door, 1.08);
+  backWallClock(x0, z0, w, d, door, back);
   const shelfZ = [z0 + 2.3, z0 + d - 2.3];
   const goods: Mat[] = ["cyan", "gold", "red", "white", "warm", "cyan"];
   for (const z of shelfZ) {
@@ -2558,6 +2604,7 @@ function furnishCafe(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   ceilingBeams(boxes, x0, z0, w, d);
   doorCornerPlants(boxes, cols, x0, z0, w, d, door);
   doorWallWindows(boxes, x0, z0, w, d, door, "red");
+  doorArch(x0, z0, w, d, door);
   put(boxes, cx, 0.145, cz, 4.5, 0.05, 3.4, "red");
   const back = opposite(door, x0, z0, w, d, 2.3);
   const alongX = door === "n" || door === "s";
@@ -2565,6 +2612,10 @@ function furnishCafe(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   cols.push(col(back.x, 0.6, back.z, alongX ? 8 : 1.05, 1.15, alongX ? 1.05 : 8));
   put(boxes, back.x, 1.25, back.z, alongX ? 8.2 : 1.2, 0.14, alongX ? 1.2 : 8.2, "stone");
   put(boxes, back.x, 1.7, back.z, 0.7, 0.55, 0.45, "warm");
+  // Round 4: curved gold bullnose on the counter front + a round clock
+  // on the back wall above it.
+  counterBullnose(back, alongX, 8, door, 1.18);
+  backWallClock(x0, z0, w, d, door, back);
   const seats: Array<[number, number]> = [
     [cx - 3.2, cz - 3.4],
     [cx + 3.2, cz - 3.4],
@@ -2572,11 +2623,12 @@ function furnishCafe(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
     [cx + 3.2, cz + 3.4],
   ];
   for (const [x, z] of seats) {
-    put(boxes, x, 0.72, z, 1.35, 0.1, 1.35, "wood");
-    put(boxes, x, 0.38, z, 0.22, 0.6, 0.22, "black");
+    // Round 4: round tables + round stools instead of square tops and
+    // cube seats. Collider unchanged.
+    roundTable(x, z, "wood");
     cols.push(col(x, 0.55, z, 1.35, 0.9, 1.35));
     for (const [dx, dz] of [[0.85, 0], [-0.85, 0], [0, 0.85], [0, -0.85]] as Array<[number, number]>) {
-      put(boxes, x + dx, 0.42, z + dz, 0.38, 0.42, 0.38, "red");
+      roundStool(x + dx, z + dz, "red");
     }
   }
   const service = opposite(door, x0, z0, w, d, 4);
@@ -2624,6 +2676,7 @@ function furnishRestaurant(
   ceilingBeams(boxes, x0, z0, w, d);
   doorCornerPlants(boxes, cols, x0, z0, w, d, door);
   doorWallWindows(boxes, x0, z0, w, d, door, accent);
+  doorArch(x0, z0, w, d, door);
   put(boxes, cx, 0.145, cz, 4.5, 0.05, 3.4, accent);
   const back = opposite(door, x0, z0, w, d, 2.3);
   const alongX = door === "n" || door === "s";
@@ -2632,6 +2685,10 @@ function furnishRestaurant(
   cols.push(col(back.x, 0.6, back.z, alongX ? 8 : 1.05, 1.15, alongX ? 1.05 : 8));
   put(boxes, back.x, 1.25, back.z, alongX ? 8.2 : 1.2, 0.14, alongX ? 1.2 : 8.2, "stone");
   put(boxes, back.x, 1.7, back.z, 0.7, 0.55, 0.45, "warm");
+  // Round 4: curved gold bullnose on the counter front + a round clock
+  // on the back wall above it.
+  counterBullnose(back, alongX, 8, door, 1.18);
+  backWallClock(x0, z0, w, d, door, back);
   const seats: Array<[number, number]> = [
     [cx - 3.2, cz - 3.4],
     [cx + 3.2, cz - 3.4],
@@ -2639,11 +2696,12 @@ function furnishRestaurant(
     [cx + 3.2, cz + 3.4],
   ];
   for (const [x, z] of seats) {
-    put(boxes, x, 0.72, z, 1.35, 0.1, 1.35, "wood");
-    put(boxes, x, 0.38, z, 0.22, 0.6, 0.22, "black");
+    // Round 4: round tables + round stools instead of square tops and
+    // cube seats. Collider unchanged.
+    roundTable(x, z, "wood");
     cols.push(col(x, 0.55, z, 1.35, 0.9, 1.35));
     for (const [dx, dz] of [[0.85, 0], [-0.85, 0], [0, 0.85], [0, -0.85]] as Array<[number, number]>) {
-      put(boxes, x + dx, 0.42, z + dz, 0.38, 0.42, 0.38, accent);
+      roundStool(x + dx, z + dz, accent);
     }
   }
   const service = opposite(door, x0, z0, w, d, 4);
@@ -3691,9 +3749,10 @@ function furnishLibrary(boxes: Box[], cols: Collider[], x0: number, z0: number, 
     put(boxes, cx + 1.2, 1.25, tz, 0.35, 0.4, 0.35, "warm");
     for (const side of [-1, 1]) {
       const ax = cx + side * 2.9;
-      put(boxes, ax, 0.38, tz, 1.1, 0.45, 1.1, "red");
+      // Round 4: shaped armchair instead of base + back boxes. The back
+      // faces away from the table (outward). Collider unchanged.
+      shapedSofa(ax, tz, false, "red", 0, 1.1, side < 0 ? -1 : 1);
       cols.push(col(ax, 0.38, tz, 1.1, 0.45, 1.1));
-      put(boxes, ax + (side < 0 ? -0.55 : 0.55), 0.85, tz, 0.2, 0.7, 1.1, "red");
     }
   }
   // Librarian desk by the door, offset to the side so it never blocks the
@@ -3936,6 +3995,7 @@ function furnishHotel(boxes: Box[], cols: Collider[], x0: number, z0: number, w:
   ceilingBeams(boxes, x0, z0, w, d);
   doorCornerPlants(boxes, cols, x0, z0, w, d, door);
   doorWallWindows(boxes, x0, z0, w, d, door, "red");
+  doorArch(x0, z0, w, d, door);
   put(boxes, cx, 0.145, cz, 5, 0.05, 4, "red");
   const desk = opposite(door, x0, z0, w, d, 2.4);
   const alongX = door === "n" || door === "s";
@@ -3945,13 +4005,19 @@ function furnishHotel(boxes: Box[], cols: Collider[], x0: number, z0: number, w:
   cols.push(col(desk.x, 0.55, desk.z, alongX ? 6.4 : 1.2, 1.05, alongX ? 1.2 : 6.4));
   put(boxes, desk.x, 1.15, desk.z, alongX ? 6.6 : 1.35, 0.12, alongX ? 1.35 : 6.6, "gold");
   put(boxes, desk.x, 1.3, desk.z, 0.3, 0.2, 0.3, "gold");
+  // Round 4: curved gold bullnose on the desk front + a round clock on
+  // the back wall above it.
+  counterBullnose(desk, alongX, 6.4, door, 1.08);
+  backWallClock(x0, z0, w, d, door, desk);
   // Lobby armchairs + a small table, clear of the desk service point.
   for (const az of [cz - 4, cz + 4]) {
-    put(boxes, cx + 3, 0.45, az, 1.1, 0.45, 1.1, "red");
-    put(boxes, cx + 3, 0.9, az + (az < cz ? -0.5 : 0.5), 1.1, 0.9, 0.25, "red");
+    // Round 4: shaped armchair instead of base + back boxes. The back
+    // faces away from the table (outward). Collider unchanged.
+    shapedSofa(cx + 3, az, true, "red", 0, 1.1, az < cz ? -1 : 1);
     cols.push(col(cx + 3, 0.6, az, 1.3, 1.2, 1.3));
   }
-  put(boxes, cx + 3, 0.4, cz, 1.0, 0.7, 1.0, "wood");
+  // Round 4: round side table instead of a square one. Collider unchanged.
+  roundTable(cx + 3, cz, "wood", 0, 0.55);
   cols.push(col(cx + 3, 0.4, cz, 1.0, 0.7, 1.0));
   // Gold-framed room doors on the north wall (decorative, flush — no
   // collider, so nobody gets stuck on a door that never opens).
@@ -4075,15 +4141,18 @@ function furnishNightclub(boxes: Box[], cols: Collider[], x0: number, z0: number
   wallpaperWalls(boxes, x0, z0, w, d, door, "gray", "cyanhot");
   ceilingBeams(boxes, x0, z0, w, d);
   doorCornerPlants(boxes, cols, x0, z0, w, d, door);
+  doorArch(x0, z0, w, d, door);
   // Lounge corner opposite the bar: two sofas + coffee table + rug.
   const lx = door === "n" || door === "s" ? x0 + 4.5 : cx - 5.5;
   const lz = door === "n" || door === "s" ? z0 + 4.5 : z0 + d - 4.5;
   put(boxes, lx, 0.145, lz, 5, 0.05, 4, "red");
-  put(boxes, lx - 1.6, 0.4, lz, 1.1, 0.45, 3.0, "red");
+  // Round 4: shaped sofas facing each other across the table, round
+  // coffee table. Colliders unchanged.
+  shapedSofa(lx - 1.6, lz, false, "red", 0, 3.0, -1);
   cols.push(col(lx - 1.6, 0.4, lz, 1.1, 0.45, 3.0));
-  put(boxes, lx + 1.6, 0.4, lz, 1.1, 0.45, 3.0, "red");
+  shapedSofa(lx + 1.6, lz, false, "red", 0, 3.0, 1);
   cols.push(col(lx + 1.6, 0.4, lz, 1.1, 0.45, 3.0));
-  put(boxes, lx, 0.4, lz, 1.4, 0.35, 0.8, "wood");
+  roundTable(lx, lz, "wood", 0, 0.6);
   cols.push(col(lx, 0.4, lz, 1.4, 0.35, 0.8));
   // Dance floor: 4x4 checkerboard tiles, 1.5 each.
   for (let i = 0; i < 4; i++) {
@@ -4666,22 +4735,124 @@ function ceilingBeams(boxes: Box[], x0: number, z0: number, w: number, d: number
   }
 }
 
-// A potted plant: stone pot + dark leaves. Collider so it reads solid.
+// A potted plant: tapered stone pot + sphere foliage. Collider so it reads solid.
 function pottedPlant(boxes: Box[], cols: Collider[], x: number, z: number, y0 = 0) {
-  put(boxes, x, y0 + 0.2, z, 0.9, 0.4, 0.9, "stone");
-  put(boxes, x, y0 + 0.42, z, 1.0, 0.12, 1.0, "stone");
-  put(boxes, x, y0 + 0.55, z, 0.8, 0.9, 0.8, "leavesDark");
-  put(boxes, x, y0 + 1.05, z, 0.5, 0.4, 0.5, "leaves");
+  // Round 4: the pot is a square frustum (narrower at the rim, like a
+  // real planter) and the foliage is two squashed spheres, not stacked
+  // boxes. Collider unchanged.
+  void boxes;
+  recordShaped("taper4", x, y0 + 0.2, z, 0.9, 0.4, 0.9, "stone");
+  recordShaped("cyl", x, y0 + 0.42, z, 1.0, 0.12, 1.0, "stone");
+  recordShaped("sphere", x, y0 + 0.75, z, 0.85, 0.75, 0.85, "leavesDark");
+  recordShaped("sphere", x + 0.12, y0 + 1.15, z, 0.55, 0.45, 0.55, "leaves");
   cols.push(col(x, y0 + 0.5, z, 0.8, 0.9, 0.8));
 }
 
-// A standing floor lamp: gray pole + warm head.
+// A standing floor lamp: cylinder base + pole, drum shade + glow dome.
 function floorLamp(boxes: Box[], cols: Collider[], x: number, z: number, y0 = 0) {
-  put(boxes, x, y0 + 0.05, z, 0.34, 0.1, 0.34, "black");
-  put(boxes, x, y0 + 0.9, z, 0.15, 1.8, 0.15, "gray");
-  put(boxes, x, y0 + 1.85, z, 0.5, 0.3, 0.5, "warm");
-  put(boxes, x, y0 + 2.02, z, 0.6, 0.08, 0.6, "warm");
+  // Round 4: round base / pole / drum shade + a warm glow dome instead
+  // of four stacked boxes. Collider unchanged.
+  void boxes;
+  recordShaped("cyl", x, y0 + 0.05, z, 0.34, 0.1, 0.34, "black");
+  recordShaped("cyl", x, y0 + 0.9, z, 0.15, 1.8, 0.15, "gray");
+  recordShaped("cyl", x, y0 + 1.85, z, 0.5, 0.3, 0.5, "warm");
+  recordShaped("sphere", x, y0 + 2.02, z, 0.55, 0.18, 0.55, "warm");
   cols.push(col(x, y0 + 0.9, z, 0.3, 1.8, 0.3));
+}
+
+// ---- Round 4: shaped interior furniture (visual only — callers keep
+// their existing cols.push(col(...)) exactly as-is, so colliders are
+// byte-identical; only the box `put` lines are replaced). ----
+
+/** A round stool: cylinder seat + stem + disc foot. */
+function roundStool(x: number, z: number, seatMat: Mat, y0 = 0) {
+  recordShaped("cyl", x, y0 + 0.55, z, 0.56, 0.12, 0.56, seatMat);
+  recordShaped("cyl", x, y0 + 0.28, z, 0.16, 0.44, 0.16, "black");
+  recordShaped("cyl", x, y0 + 0.03, z, 0.5, 0.06, 0.5, "black");
+}
+
+/** A round cafe / dining table: cylinder top + pedestal + disc foot. */
+function roundTable(x: number, z: number, topMat: Mat, y0 = 0, r = 0.7) {
+  recordShaped("cyl", x, y0 + 0.72, z, r * 2, 0.1, r * 2, topMat);
+  recordShaped("cyl", x, y0 + 0.38, z, 0.22, 0.6, 0.22, "black");
+  recordShaped("cyl", x, y0 + 0.05, z, 0.9, 0.1, 0.9, "black");
+}
+
+/**
+ * A shaped sofa: tapered-frustum base (wider at the floor, like a real
+ * sofa plinth), two squashed-sphere cushions, cylinder armrests and a
+ * cylinder back bolster. alongX = the sofa runs along X; backSign is
+ * +1/-1 toward the back edge along the depth axis (toward the wall the
+ * sofa faces away from).
+ */
+function shapedSofa(x: number, z: number, alongX: boolean, mat: Mat, y0 = 0, len = 3.4, backSign = 1) {
+  const w = alongX ? len : 1.1;
+  const d = alongX ? 1.1 : len;
+  // Base centre matches the old box sofa (y0+0.38) so the plinth sits
+  // on the floor slab exactly like before, not sunk into it.
+  recordShaped("taper4", x, y0 + 0.38, z, w, 0.56, d, mat);
+  for (const s of [-1, 1]) {
+    const cx = alongX ? x + s * (len / 4 - 0.1) : x;
+    const cz = alongX ? z : z + s * (len / 4 - 0.1);
+    recordShaped("sphere", cx, y0 + 0.72, cz, alongX ? len / 2 - 0.15 : 0.95, 0.3, alongX ? 0.95 : len / 2 - 0.15, mat);
+  }
+  for (const s of [-1, 1]) {
+    const ax = alongX ? x + s * (len / 2 - 0.12) : x;
+    const az = alongX ? z : z + s * (len / 2 - 0.12);
+    // Horizontal cylinder: scale (diameter, length, diameter), then lay
+    // it down — rx for along-Z, rz for along-X.
+    if (alongX) recordShaped("cyl", ax, y0 + 0.78, az, 0.24, 1.0, 0.24, mat, 0, Math.PI / 2, 0);
+    else recordShaped("cyl", ax, y0 + 0.78, az, 0.24, 1.0, 0.24, mat, 0, 0, Math.PI / 2);
+  }
+  const bx = alongX ? x : x + backSign * 0.42;
+  const bz = alongX ? z + backSign * 0.42 : z;
+  if (alongX) recordShaped("cyl", bx, y0 + 0.92, bz, 0.34, len - 0.2, 0.34, mat, 0, 0, Math.PI / 2);
+  else recordShaped("cyl", bx, y0 + 0.92, bz, 0.34, len - 0.2, 0.34, mat, 0, Math.PI / 2, 0);
+}
+
+/** A round wall clock: gold torus ring + white face disc + black hub.
+ * rotY follows voxelPainting (0 = faces +z). */
+function wallClock(x: number, y: number, z: number, rotY: number) {
+  recordShaped("torus", x, y, z, 0.9, 0.9, 0.5, "gold", rotY);
+  recordShaped("cyl", x, y, z, 0.72, 0.06, 0.72, "white", rotY, Math.PI / 2, 0);
+  recordShaped("sphere", x, y, z, 0.1, 0.1, 0.1, "black", rotY);
+}
+
+/**
+ * A gold half-torus arch over the interior side of a door gap — the
+ * doorway reads arched instead of a square hole cut in a wall. The arch
+ * springs from the wall at y 1.0 and peaks at the lintel (y 3.0), proud
+ * of the clad liner like the door-wall windows.
+ */
+function doorArch(x0: number, z0: number, w: number, d: number, door: Face, y0 = 0) {
+  const { cx, cz } = roomCenter(x0, z0, w, d);
+  const r = 2.0;
+  if (door === "n") recordShaped("arch", cx, y0 + 1.0, z0 + 1.35, r, r, 1, "gold", 0);
+  else if (door === "s") recordShaped("arch", cx, y0 + 1.0, z0 + d - 1.35, r, r, 1, "gold", 0);
+  else if (door === "w") recordShaped("arch", x0 + 1.35, y0 + 1.0, cz, r, r, 1, "gold", Math.PI / 2);
+  else recordShaped("arch", x0 + w - 1.35, y0 + 1.0, cz, r, r, 1, "gold", Math.PI / 2);
+}
+
+/** A rounded gold bullnose along the front top edge of a back-wall
+ * counter — the counter front reads curved, not a sharp box edge.
+ * `back` is the counter centre (opposite() point); the front faces the
+ * door side. */
+function counterBullnose(back: { x: number; z: number }, alongX: boolean, len: number, door: Face, y = 1.15) {
+  if (alongX) {
+    const fz = back.z + (door === "n" ? -0.55 : 0.55);
+    recordShaped("cyl", back.x, y, fz, 0.28, len, 0.28, "gold", 0, 0, Math.PI / 2);
+  } else {
+    const fx = back.x + (door === "w" ? -0.55 : 0.55);
+    recordShaped("cyl", fx, y, back.z, 0.28, len, 0.28, "gold", 0, Math.PI / 2, 0);
+  }
+}
+
+/** A round wall clock on the back wall above the counter / desk. */
+function backWallClock(x0: number, z0: number, w: number, d: number, door: Face, back: { x: number; z: number }) {
+  const rot = door === "n" ? Math.PI : door === "s" ? 0 : door === "w" ? -Math.PI / 2 : Math.PI / 2;
+  const x = door === "n" || door === "s" ? back.x : door === "w" ? x0 + w - 1.35 : x0 + 1.35;
+  const z = door === "n" ? z0 + d - 1.35 : door === "s" ? z0 + 1.35 : back.z;
+  wallClock(x, 2.6, z, rot);
 }
 
 // A wall shelf with books. rotY follows voxelPainting (0 = faces +z).
@@ -5002,14 +5173,15 @@ function furnishHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   ceilingBeams(boxes, x0, z0, w, d);
   doorCornerPlants(boxes, cols, x0, z0, w, d, door);
   doorWallWindows(boxes, x0, z0, w, d, door, "red");
+  doorArch(x0, z0, w, d, door);
   // Dining set in the north-west corner (bed is south, kitchen is on the
   // back wall) + a floor lamp + a book shelf.
-  put(boxes, x0 + 3.5, 0.45, z0 + 3.5, 1.8, 0.08, 1.0, "wood");
-  put(boxes, x0 + 3.5, 0.22, z0 + 3.5, 0.3, 0.4, 0.3, "black");
+  // Round 4: round dining table + round stools. Colliders unchanged.
+  roundTable(x0 + 3.5, z0 + 3.5, "wood", 0, 0.85);
   cols.push(col(x0 + 3.5, 0.45, z0 + 3.5, 1.8, 0.8, 1.0));
-  put(boxes, x0 + 2.4, 0.3, z0 + 3.5, 0.5, 0.5, 0.5, "red");
+  roundStool(x0 + 2.4, z0 + 3.5, "red");
   cols.push(col(x0 + 2.4, 0.3, z0 + 3.5, 0.5, 0.5, 0.5));
-  put(boxes, x0 + 4.6, 0.3, z0 + 3.5, 0.5, 0.5, 0.5, "red");
+  roundStool(x0 + 4.6, z0 + 3.5, "red");
   cols.push(col(x0 + 4.6, 0.3, z0 + 3.5, 0.5, 0.5, 0.5));
   // Floor lamp in the free north corner (north-west when the kitchen is
   // north-east, north-east otherwise).
@@ -5032,17 +5204,21 @@ function furnishHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
     // TV is on the far wall (south for door n, north for door s); sofa sits
     // on the door side of center, facing the TV.
     const s = door === "s" ? 1 : -1;
-    put(boxes, cx, 0.38, cz + s * 1.5, 3.4, 0.45, 1.1, "red");
+    // Round 4: shaped sofa instead of base + back boxes. The back faces
+    // away from the TV. Collider unchanged.
+    shapedSofa(cx, cz + s * 1.5, true, "red", 0, 3.4, s);
     cols.push(col(cx, 0.38, cz + s * 1.5, 3.4, 0.45, 1.1));
-    put(boxes, cx, 0.85, cz + s * 2.05, 3.4, 0.7, 0.2, "red");
-    put(boxes, cx, 0.4, cz - s * 0.3, 1.6, 0.35, 0.9, "wood");
+    // Round 4: round coffee table instead of a square one.
+    roundTable(cx, cz - s * 0.3, "wood", 0, 0.7);
     cols.push(col(cx, 0.4, cz - s * 0.3, 1.6, 0.35, 0.9));
   } else {
     const s = door === "e" ? 1 : -1;
-    put(boxes, cx + s * 1.5, 0.38, cz, 1.1, 0.45, 3.4, "red");
+    // Round 4: shaped sofa instead of base + back boxes. The back faces
+    // away from the TV. Collider unchanged.
+    shapedSofa(cx + s * 1.5, cz, false, "red", 0, 3.4, s);
     cols.push(col(cx + s * 1.5, 0.38, cz, 1.1, 0.45, 3.4));
-    put(boxes, cx + s * 2.05, 0.85, cz, 0.2, 0.7, 3.4, "red");
-    put(boxes, cx - s * 0.3, 0.4, cz, 0.9, 0.35, 1.6, "wood");
+    // Round 4: round coffee table instead of a square one.
+    roundTable(cx - s * 0.3, cz, "wood", 0, 0.7);
     cols.push(col(cx - s * 0.3, 0.4, cz, 0.9, 0.35, 1.6));
   }
   // Kitchenette along the back wall: counter + cabinets + fridge.
@@ -5328,11 +5504,13 @@ function meetingTable(boxes: Box[], cols: Collider[], cx: number, y0: number, cz
 // (wall = the room face the paintings hang on, wallCoord = its inner surface).
 function loungeSet(boxes: Box[], cols: Collider[], cx: number, y0: number, cz: number, wall: Face, wallCoord: number) {
   put(boxes, cx, y0 + 0.12, cz, 6, 0.05, 4.4, "gold");
-  put(boxes, cx - 2.2, y0 + 0.38, cz, 1.1, 0.45, 3.4, "red");
+  // Round 4: shaped sofas facing each other across the table, round
+  // coffee table. Colliders unchanged.
+  shapedSofa(cx - 2.2, cz, false, "red", y0, 3.4, -1);
   cols.push(col(cx - 2.2, y0 + 0.38, cz, 1.1, 0.45, 3.4));
-  put(boxes, cx + 2.2, y0 + 0.38, cz, 1.1, 0.45, 3.4, "red");
+  shapedSofa(cx + 2.2, cz, false, "red", y0, 3.4, 1);
   cols.push(col(cx + 2.2, y0 + 0.38, cz, 1.1, 0.45, 3.4));
-  put(boxes, cx, y0 + 0.4, cz, 1.6, 0.35, 0.9, "wood");
+  roundTable(cx, cz, "wood", y0, 0.7);
   cols.push(col(cx, y0 + 0.4, cz, 1.6, 0.35, 0.9));
   if (wall === "n") {
     voxelPainting(boxes, cx - 3, y0 + 1.9, wallCoord, Math.PI, 2.2, 1.5);
@@ -5475,9 +5653,11 @@ function addMegaMall(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: 
   // Atrium: benches + planters, glass skylight in the roof. (The zone sign
   // by the west door carries the directory text.)
   for (const bz of [-6, 6]) {
-    put(boxes, 66, 0.38, bz, 1.1, 0.45, 3.4, "red");
+    // Round 4: shaped atrium benches (backs toward the atrium edge).
+    // Colliders unchanged.
+    shapedSofa(66, bz, false, "red", 0, 3.4, -1);
     cols.push(col(66, 0.38, bz, 1.1, 0.45, 3.4));
-    put(boxes, 78, 0.38, bz, 1.1, 0.45, 3.4, "red");
+    shapedSofa(78, bz, false, "red", 0, 3.4, 1);
     cols.push(col(78, 0.38, bz, 1.1, 0.45, 3.4));
   }
   for (const [px, pz] of [[64, -8], [80, -8], [64, 8], [80, 8]] as Array<[number, number]>) {
@@ -5500,10 +5680,10 @@ function addMegaMall(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: 
   put(boxes, 53, 0.145, 0, 17, 0.05, 2.4, "gold");
   // Seating clusters on the north strip: bench + table + planter, with colliders.
   for (const [bx, bz] of [[66, -18], [80, -18]] as Array<[number, number]>) {
-    put(boxes, bx, 0.38, bz, 1.1, 0.45, 3.4, "red");
+    // Round 4: shaped bench facing its round table. Colliders unchanged.
+    shapedSofa(bx, bz, false, "red", 0, 3.4, -1);
     cols.push(col(bx, 0.38, bz, 1.1, 0.45, 3.4));
-    put(boxes, bx + 2.6, 0.72, bz, 1.35, 0.1, 1.35, "wood");
-    put(boxes, bx + 2.6, 0.38, bz, 0.22, 0.6, 0.22, "black");
+    roundTable(bx + 2.6, bz, "wood", 0, 0.7);
     cols.push(col(bx + 2.6, 0.55, bz, 1.35, 0.9, 1.35));
     put(boxes, bx - 2.6, 0.5, bz, 0.8, 0.9, 0.8, "leavesDark");
     cols.push(col(bx - 2.6, 0.5, bz, 0.8, 0.9, 0.8));
@@ -5643,10 +5823,13 @@ function furnishOfficeSuite(boxes: Box[], cols: Collider[], spec: OfficeSuiteSpe
   if (voidEdge) {
     put(boxes, cx, y0 + 0.12, z1 - 2, 8, 0.06, 5, "gold");
     put(boxes, cx, y0 + 0.16, z1 - 2, 6.5, 0.06, 3.5, "red");
-    put(boxes, cx, y0 + 0.4, z1 - 2, 1.6, 0.35, 0.9, "wood");
+    // Round 4: round coffee table instead of a square one. Collider unchanged.
+    roundTable(cx, z1 - 2, "wood", y0, 0.6);
     cols.push(col(cx, y0 + 0.4, z1 - 2, 1.6, 0.35, 0.9));
     for (const bz of [z1 - 3.2, z1 - 0.8]) {
-      put(boxes, cx, y0 + 0.38, bz, 3.4, 0.45, 1.1, "red");
+      // Round 4: shaped sofas facing each other across the table.
+      // Collider unchanged.
+      shapedSofa(cx, bz, true, "red", y0, 3.4, bz < z1 - 2 ? -1 : 1);
       cols.push(col(cx, y0 + 0.38, bz, 3.4, 0.45, 1.1));
     }
     for (const px of [x0 + 1.3, x1 - 1.3]) {
@@ -5743,7 +5926,8 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   // original was moved out for the v56 glass meeting room and returns
   // in v57 now the room sits on the south wall, clear of the lift.
   for (const [px, pz] of [[-52, -20], [-97.5, -12]] as Array<[number, number]>) {
-    put(boxes, px, 0.38, pz, 1.1, 0.45, 3.4, "red");
+    // Round 4: shaped lobby bench. Collider unchanged.
+    shapedSofa(px, pz, false, "red", 0, 3.4, 1);
     cols.push(col(px, 0.38, pz, 1.1, 0.45, 3.4));
     put(boxes, px, 0.5, pz + 2.6, 0.8, 0.9, 0.8, "leavesDark");
     cols.push(col(px, 0.5, pz + 2.6, 0.8, 0.9, 0.8));
@@ -5753,10 +5937,14 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   // just at the edges.
   put(boxes, -72, 0.12, -8, 12, 0.06, 9, "gold");
   put(boxes, -72, 0.16, -8, 10.5, 0.06, 7.5, "red");
-  put(boxes, -72, 0.5, -8, 3.2, 0.5, 1.6, "wood");
+  // Round 4: round centrepiece table instead of a square one. Collider unchanged.
+  roundTable(-72, -8, "wood", 0, 0.9);
   cols.push(col(-72, 0.5, -8, 3.2, 0.5, 1.6));
   for (const [bx, bz, bw, bd] of [[-72, -13.2, 3.4, 1.1], [-72, -2.8, 3.4, 1.1], [-77.5, -8, 1.1, 3.4], [-66.5, -8, 1.1, 3.4]] as Array<[number, number, number, number]>) {
-    put(boxes, bx, 0.38, bz, bw, 0.45, bd, "red");
+    // Round 4: shaped sofas facing the centre table (back away from it).
+    // Collider unchanged.
+    const alongX = bw > bd;
+    shapedSofa(bx, bz, alongX, "red", 0, 3.4, alongX ? (bz < -8 ? -1 : 1) : (bx < -72 ? -1 : 1));
     cols.push(col(bx, 0.38, bz, bw, 0.45, bd));
   }
   for (const [px, pz] of [[-79.5, -13.5], [-64.5, -13.5]] as Array<[number, number]>) {
@@ -5938,9 +6126,10 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   // Window lounge: two gold armchairs facing the west windows (the city
   // view) in the Founder's Office.
   for (const cz of [-4.5, 0.8]) {
-    put(boxes, -97.5, 16.35, cz, 1.0, 0.45, 1.1, "gold");
+    // Round 4: shaped armchair, back toward the room (east). The old back
+    // box had its own collider — keep it exactly as-is.
+    shapedSofa(-97.5, cz, false, "gold", 16, 1.1, 1);
     cols.push(col(-97.5, 16.35, cz, 1.0, 0.45, 1.1));
-    put(boxes, -96.9, 16.75, cz, 0.25, 0.9, 1.1, "gold");
     cols.push(col(-96.9, 16.75, cz, 0.25, 0.9, 1.1));
   }
   put(boxes, -88, 16.12, -8, 10, 0.06, 8, "gold");
@@ -6025,9 +6214,11 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   put(boxes, -50, 20.12, 0, 9, 0.06, 14, "gold");
   put(boxes, -50, 20.16, 0, 7.5, 0.06, 12.5, "black");
   for (const bz of [-4.5, 4.5]) {
-    put(boxes, -47.2, 20.38, bz, 1.1, 0.45, 3.4, "white");
+    // Round 4: shaped sofas facing each other across the table.
+    // Colliders unchanged.
+    shapedSofa(-47.2, bz, false, "white", 20, 3.4, 1);
     cols.push(col(-47.2, 20.38, bz, 1.1, 0.45, 3.4));
-    put(boxes, -52.8, 20.38, bz, 1.1, 0.45, 3.4, "white");
+    shapedSofa(-52.8, bz, false, "white", 20, 3.4, -1);
     cols.push(col(-52.8, 20.38, bz, 1.1, 0.45, 3.4));
   }
   put(boxes, -50, 20.5, 0, 3.2, 0.5, 1.6, "wood");
@@ -6056,7 +6247,8 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   }
   for (const [px, pz] of [[-92, 18], [-52, 18], [-92, -18], [-52, -18]] as Array<[number, number]>) {
     addTree(boxes, cols, px, pz, 24);
-    put(boxes, px + 3, 24.38, pz, 1.1, 0.45, 3.4, "red");
+    // Round 4: shaped roof bench facing its tree. Collider unchanged.
+    shapedSofa(px + 3, pz, false, "red", 24, 3.4, 1);
     cols.push(col(px + 3, 24.38, pz, 1.1, 0.45, 3.4));
   }
   roomSign("hq-roof", -43.4, 26.2, 0, Math.PI / 2, 12, 2.4, ["ORBITX"], "Roof terrace · the city below");
@@ -6064,7 +6256,9 @@ function addMegaOffice(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors
   put(boxes, -60, 24.12, -14, 9, 0.06, 10, "gold");
   put(boxes, -60, 24.16, -14, 7.5, 0.06, 8.5, "black");
   for (const bz of [-17, -11]) {
-    put(boxes, -60, 24.38, bz, 3.4, 0.45, 1.1, "white");
+    // Round 4: shaped sofas facing each other across the table.
+    // Colliders unchanged.
+    shapedSofa(-60, bz, true, "white", 24, 3.4, bz < -14 ? -1 : 1);
     cols.push(col(-60, 24.38, bz, 3.4, 0.45, 1.1));
   }
   put(boxes, -60, 24.5, -14, 1.6, 0.5, 3.2, "wood");
@@ -6373,6 +6567,7 @@ export function buildCity(seed: number): City {
   discs.length = 0;
   curbs.length = 0;
   bollards.length = 0;
+  shaped.length = 0;
   const rng = makeRng(seed || 1);
   const boxes: Box[] = [];
   const colliders: Collider[] = [];
@@ -6452,6 +6647,7 @@ export function buildCity(seed: number): City {
     discs: [...discs],
     curbs: [...curbs],
     bollards: [...bollards],
+    shaped: [...shaped],
     shelters: [],
     anchors: [...fixed.anchors, ...built.anchors, ...mall.anchors, ...office.anchors, ...emergencyParts.anchors, tower.anchor, ...station.anchors],
     boards: fixed.boards,
