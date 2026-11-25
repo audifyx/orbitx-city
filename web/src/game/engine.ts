@@ -974,7 +974,21 @@ export function createGame(
     // phone (.ph-overlay) is a fixed overlay whose home grid and app
     // views scroll the same way — without it here, no finger scroll
     // inside the phone ever lands (found on a real phone, 2026-11-20).
-    if (target?.closest(".panel, .chat-log, .actions, .char-grid, .ph-overlay, input, textarea")) return;
+    // The classic menu (.menu, overflow:auto) and the info pages inside
+    // it (.site-page) are the same kind of fixed scroll container, as
+    // are the Round 7 console home and game pages (.console-home /
+    // .console-game, overflow-y:auto) — without them here, no finger
+    // scroll ever lands on the new website features (found on a real
+    // phone, 2026-11-24: the user could tap everything but not scroll).
+    // .stats-page (stats panel content) and .ws-overlay (home workshop,
+    // whose .ws-palette scrolls) are the same class of surface, listed
+    // explicitly so they scroll in any render context.
+    if (
+      target?.closest(
+        ".panel, .chat-log, .actions, .char-grid, .ph-overlay, .menu, .site-page, .console-home, .console-game, .stats-page, .ws-overlay, input, textarea",
+      )
+    )
+      return;
     event.preventDefault();
   }
   function onResize() {
