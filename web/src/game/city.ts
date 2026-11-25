@@ -2448,7 +2448,9 @@ function furnishShop(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   doorArch(x0, z0, w, d, door);
   const back = opposite(door, x0, z0, w, d, 2.4);
   const counterAlongX = door === "n" || door === "s";
-  put(boxes, back.x, 0.55, back.z, counterAlongX ? 7.2 : 1.15, 1.05, counterAlongX ? 1.15 : 7.2, "wood");
+  // Round 6: tapered counter body instead of the wood box. The bullnose
+  // (round 4) and the collider are unchanged.
+  recordShaped("taper4", back.x, 0.55, back.z, counterAlongX ? 7.2 : 1.15, 1.05, counterAlongX ? 1.15 : 7.2, "wood");
   cols.push(col(back.x, 0.55, back.z, counterAlongX ? 7.2 : 1.15, 1.05, counterAlongX ? 1.15 : 7.2));
   put(boxes, back.x, 1.15, back.z, counterAlongX ? 7.4 : 1.25, 0.12, counterAlongX ? 1.25 : 7.4, "stone");
   put(boxes, back.x, 1.55, back.z, 0.35, 0.55, 0.35, "gold");
@@ -2463,6 +2465,8 @@ function furnishShop(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
     put(boxes, cx, 1.2, z, w - 8, 2.4, 0.7, "wood");
     cols.push(col(cx, 1.2, z, w - 8, 2.4, 0.7));
     put(boxes, cx, 2.45, z, w - 8, 0.12, 0.78, "stone");
+    // Round 6: gold cylinder end-posts cap the shelf run.
+    shelfEndPosts(cx, z, w - 8, "x");
     for (let level = 0; level < 2; level++) {
       const y = level === 0 ? 0.95 : 1.95;
       for (let i = 0; i < 6; i++) {
@@ -2483,7 +2487,8 @@ function furnishShop(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
     }
   }
   // Central island display with goods on top.
-  put(boxes, cx, 0.5, cz, 3.2, 1.0, 1.6, "wood");
+  // Round 6: tapered island instead of the wood box. Collider unchanged.
+  recordShaped("taper4", cx, 0.5, cz, 3.2, 1.0, 1.6, "wood");
   cols.push(col(cx, 0.5, cz, 3.2, 1.0, 1.6));
   put(boxes, cx, 1.05, cz, 3.4, 0.12, 1.8, "stone");
   for (let i = 0; i < 4; i++) {
@@ -2495,7 +2500,8 @@ function furnishShop(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   put(boxes, cx + 4.5, 0.145, cz, 5, 0.05, 2.4, "red");
   for (const side of [-1, 1]) {
     const z = cz + side * 4.2;
-    put(boxes, cx - 1.5, 0.45, z, 1.6, 0.85, 1.1, "stone");
+    // Round 6: tapered stone plinth instead of the box. Collider unchanged.
+    recordShaped("taper4", cx - 1.5, 0.45, z, 1.6, 0.85, 1.1, "stone");
     cols.push(col(cx - 1.5, 0.45, z, 1.6, 0.85, 1.1));
     put(boxes, cx - 1.5, 1.05, z, 0.45, 0.7, 0.45, "white");
     put(boxes, cx - 0.9, 1.45, z, 0.35, 0.2, 0.35, "gold");
@@ -2541,8 +2547,11 @@ function furnishGrocery(boxes: Box[], cols: Collider[], x0: number, z0: number, 
   const back = opposite(door, x0, z0, w, d, 2.4);
   const counterAlongX = door === "n" || door === "s";
   // Checkout counter on the back wall + stone top + gold till.
-  put(boxes, back.x, 0.55, back.z, counterAlongX ? 7.2 : 1.15, 1.05, counterAlongX ? 1.15 : 7.2, "wood");
+  // Round 6: tapered counter body + gold bullnose instead of the wood
+  // box. Collider unchanged.
+  recordShaped("taper4", back.x, 0.55, back.z, counterAlongX ? 7.2 : 1.15, 1.05, counterAlongX ? 1.15 : 7.2, "wood");
   cols.push(col(back.x, 0.55, back.z, counterAlongX ? 7.2 : 1.15, 1.05, counterAlongX ? 1.15 : 7.2));
+  counterBullnose(back, counterAlongX, 7.2, door, 1.08);
   put(boxes, back.x, 1.15, back.z, counterAlongX ? 7.4 : 1.25, 0.12, counterAlongX ? 1.25 : 7.4, "stone");
   put(boxes, back.x, 1.55, back.z, 0.35, 0.55, 0.35, "gold");
   // Two aisle rows, each split at the center walkway (x = cx) so the
@@ -2554,6 +2563,8 @@ function furnishGrocery(boxes: Box[], cols: Collider[], x0: number, z0: number, 
       put(boxes, sx, 1.2, z, sw, 2.4, 0.7, "wood");
       cols.push(col(sx, 1.2, z, sw, 2.4, 0.7));
       put(boxes, sx, 2.45, z, sw, 0.12, 0.78, "stone");
+      // Round 6: gold cylinder end-posts cap the shelf run.
+      shelfEndPosts(sx, z, sw, "x");
       for (let level = 0; level < 2; level++) {
         const y = level === 0 ? 0.95 : 1.95;
         for (let i = 0; i < 3; i++) {
@@ -2566,7 +2577,8 @@ function furnishGrocery(boxes: Box[], cols: Collider[], x0: number, z0: number, 
   // low stand with green + red + warm fruit on top.
   const px = cx - 5.5;
   const pz = z0 + 14.5;
-  put(boxes, px, 0.5, pz, 3.2, 1.0, 1.6, "wood");
+  // Round 6: tapered island instead of the wood box. Collider unchanged.
+  recordShaped("taper4", px, 0.5, pz, 3.2, 1.0, 1.6, "wood");
   cols.push(col(px, 0.5, pz, 3.2, 1.0, 1.6));
   put(boxes, px, 1.05, pz, 3.4, 0.12, 1.8, "stone");
   const fruit: Mat[] = ["leaves", "red", "warm", "leavesDark"];
@@ -3659,15 +3671,17 @@ function furnishCinema(boxes: Box[], cols: Collider[], x0: number, z0: number, w
     if (alongX) {
       const z = rowZs![r];
       for (const x of seatAtX) {
-        put(boxes, x, 0.45, z, 1.4, 0.45, 1.1, "red");
-        put(boxes, x, 0.9, z + (door === "n" ? 0.5 : -0.5), 1.4, 0.9, 0.25, "red");
+        // Round 6: shaped theatre seat instead of the base + back box
+        // pair. Same footprint — the row collider is unchanged.
+        shapedTheatreSeat(x, z, true, 0, door === "n" ? 1 : -1, "red");
       }
       cols.push(col(cx, 0.6, z, 11, 1.2, 1.4));
     } else {
       const x = rowXs![r];
       for (const z of seatAt) {
-        put(boxes, x, 0.45, z, 1.1, 0.45, 1.4, "red");
-        put(boxes, x + (door === "w" ? 0.5 : -0.5), 0.9, z, 0.25, 0.9, 1.4, "red");
+        // Round 6: shaped theatre seat instead of the base + back box
+        // pair. Same footprint — the row collider is unchanged.
+        shapedTheatreSeat(x, z, false, door === "w" ? 1 : -1, 0, "red");
       }
       cols.push(col(x, 0.6, cz, 1.4, 1.2, 11));
     }
@@ -3677,7 +3691,9 @@ function furnishCinema(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   else put(boxes, cx, 0.145, cz, w - 6, 0.05, 2.4, "red");
   // Concession counter by the door (east corner for door e/w, north for n/s).
   const cc = door === "e" ? { x: x0 + w - 3.2, z: z0 + 3.2 } : door === "w" ? { x: x0 + 3.2, z: z0 + d - 3.2 } : door === "n" ? { x: x0 + 3.2, z: z0 + 3.2 } : { x: x0 + w - 3.2, z: z0 + d - 3.2 };
-  put(boxes, cc.x, 0.55, cc.z, 3.4, 1.05, 1.2, "wood");
+  // Round 6: tapered concession counter instead of the wood box.
+  // Collider unchanged.
+  recordShaped("taper4", cc.x, 0.55, cc.z, 3.4, 1.05, 1.2, "wood");
   cols.push(col(cc.x, 0.55, cc.z, 3.4, 1.05, 1.2));
   put(boxes, cc.x, 1.15, cc.z, 3.6, 0.12, 1.35, "stone");
   put(boxes, cc.x - 1, 1.35, cc.z, 0.45, 0.35, 0.45, "gold");
@@ -4839,6 +4855,79 @@ function wallClock(x: number, y: number, z: number, rotY: number) {
   recordShaped("sphere", x, y, z, 0.1, 0.1, 0.1, "black", rotY);
 }
 
+// ---- Round 6: shaped theatre seats + more shaped furniture (visual
+// only — callers keep their existing cols.push(col(...)) exactly as-is,
+// so colliders are byte-identical; only box `put` lines are replaced). ----
+
+/**
+ * A shaped theatre / waiting chair: tapered base, squashed-sphere
+ * cushion, leaning tapered backrest, cylinder armrests. (backDX, backDZ)
+ * is the step toward the backrest (0 / ±1 per axis); seatW/seatD is the
+ * old box footprint, so the collider stays valid. The backrest leans
+ * ~8.6° and sits 0.48 off-centre, so its top stays inside the seat's
+ * plan footprint (0.48 + 0.15 + sin(0.15) * 0.475 ≈ 0.70).
+ */
+function shapedTheatreSeat(
+  x: number, z: number, alongX: boolean,
+  backDX: number, backDZ: number, mat: Mat,
+  seatW = 1.4, seatD = 1.1,
+) {
+  const w = alongX ? seatW : seatD;
+  const d = alongX ? seatD : seatW;
+  recordShaped("taper4", x, 0.28, z, w - 0.1, 0.5, d - 0.1, mat);
+  recordShaped("sphere", x, 0.58, z, w - 0.15, 0.24, d - 0.15, mat);
+  const bx = x + backDX * 0.48;
+  const bz = z + backDZ * 0.48;
+  const bw = alongX ? w - 0.1 : 0.3;
+  const bd = alongX ? 0.3 : d - 0.1;
+  recordShaped("taper4", bx, 0.98, bz, bw, 0.95, bd, mat, 0, backDZ * 0.15, -backDX * 0.15);
+  for (const s of [-1, 1]) {
+    if (alongX) recordShaped("cyl", x + s * (w / 2 - 0.08), 0.72, z, 0.16, 0.55, 0.16, mat);
+    else recordShaped("cyl", x, 0.72, z + s * (d / 2 - 0.08), 0.16, 0.55, 0.16, mat);
+  }
+}
+
+/**
+ * A shaped bed: tapered wood frame, tapered white mattress, squashed-
+ * sphere pillow, tapered wood headboard. Replaces the home bed's three
+ * box puts (frame / mattress / pillow); the headboard is new visual
+ * only, inside the bed's plan footprint.
+ */
+function shapedBed(x: number, z: number) {
+  recordShaped("taper4", x, 0.32, z, 2.4, 0.6, 3.4, "wood");
+  recordShaped("taper4", x, 0.68, z, 2.2, 0.22, 3.2, "white");
+  recordShaped("sphere", x, 0.86, z - 1.4, 1.6, 0.28, 0.5, "red");
+  recordShaped("taper4", x, 0.85, z - 1.62, 2.4, 1.1, 0.3, "wood");
+}
+
+/**
+ * Gold cylinder end-posts capping a shelf run (library / shop /
+ * grocery): one post at each end of the run, same height as the shelf.
+ * `axis` is the run's long axis.
+ */
+function shelfEndPosts(x: number, z: number, len: number, axis: "x" | "z") {
+  const e = len / 2 - 0.1;
+  if (axis === "x") {
+    recordShaped("cyl", x - e, 1.2, z, 0.2, 2.4, 0.2, "gold");
+    recordShaped("cyl", x + e, 1.2, z, 0.2, 2.4, 0.2, "gold");
+  } else {
+    recordShaped("cyl", x, 1.2, z - e, 0.2, 2.4, 0.2, "gold");
+    recordShaped("cyl", x, 1.2, z + e, 0.2, 2.4, 0.2, "gold");
+  }
+}
+
+/** Rounded white dome cap on a fridge top (home kitchen / kitchenette).
+ * `yTop` is the top face of the fridge box. */
+function fridgeDome(x: number, yTop: number, z: number, w = 0.9, d = 0.9) {
+  recordShaped("sphere", x, yTop + 0.05, z, w, 0.25, d, "white");
+}
+
+/** The face opposite `door` — a desk by the door fronts the room, so
+ * its bullnose needs the flipped face, not the door face. */
+function flipFace(door: Face): Face {
+  return door === "n" ? "s" : door === "s" ? "n" : door === "e" ? "w" : "e";
+}
+
 /**
  * A gold half-torus arch over the interior side of a door gap — the
  * doorway reads arched instead of a square hole cut in a wall. The arch
@@ -5247,10 +5336,15 @@ function furnishHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   // Kitchenette along the back wall: counter + cabinets + fridge.
   const kx = alongX ? cx + 5 : back.x;
   const kz = alongX ? back.z : cz + 5;
-  put(boxes, kx, 0.55, kz, alongX ? 4.6 : 1.1, 1.05, alongX ? 1.1 : 4.6, "stone");
+  // Round 6: tapered stone counter + gold bullnose on the front instead
+  // of the box counter. Collider unchanged.
+  recordShaped("taper4", kx, 0.55, kz, alongX ? 4.6 : 1.1, 1.05, alongX ? 1.1 : 4.6, "stone");
   cols.push(col(kx, 0.55, kz, alongX ? 4.6 : 1.1, 1.05, alongX ? 1.1 : 4.6));
+  counterBullnose({ x: kx, z: kz }, alongX, 4.6, door, 1.08);
   put(boxes, kx, 1.2, kz, alongX ? 4.8 : 1.2, 0.14, alongX ? 1.2 : 4.8, "wood");
   put(boxes, alongX ? kx + 2.8 : kx, 1.0, alongX ? kz : kz + 2.8, 0.9, 2, 0.9, "white");
+  // Round 6: rounded dome cap on the fridge top.
+  fridgeDome(alongX ? kx + 2.8 : kx, 2.0, alongX ? kz : kz + 2.8);
   cols.push(col(alongX ? kx + 2.8 : kx, 1.0, alongX ? kz : kz + 2.8, 0.9, 2, 0.9));
   // FOOD: the kitchen stand point — 1.7 units off the counter, toward the
   // middle of the room. E here opens the kitchen panel (only in a home
@@ -5265,10 +5359,10 @@ function furnishHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   const bedSE = door === "s" || door === "e";
   const bedX = bedSE ? x0 + w - 3.4 : x0 + 3.4;
   const bedZ = z0 + d - 3.4;
-  put(boxes, bedX, 0.35, bedZ, 2.4, 0.55, 3.4, "wood");
+  // Round 6: shaped bed (frame + mattress + pillow + headboard) instead
+  // of the frame / mattress / pillow box puts. Collider unchanged.
+  shapedBed(bedX, bedZ);
   cols.push(col(bedX, 0.35, bedZ, 2.4, 0.55, 3.4));
-  put(boxes, bedX, 0.7, bedZ, 2.2, 0.22, 3.2, "white");
-  put(boxes, bedX, 0.85, bedZ - 1.4, 1.6, 0.3, 0.5, "red");
   put(boxes, bedX + 1.6, 0.4, bedZ + 1.6, 0.6, 0.7, 0.6, "black");
   // Closet (style theme): a wardrobe in the bedroom nook, against the
   // same side wall as the bed, north of it. The Home panel's "Open
@@ -5553,23 +5647,29 @@ function loungeSet(boxes: Box[], cols: Collider[], cx: number, y0: number, cz: n
 // A kitchenette: counter + stools + fridge.
 function kitchenette(boxes: Box[], cols: Collider[], x: number, y0: number, z: number, alongX: boolean) {
   if (alongX) {
-    put(boxes, x, y0 + 0.55, z, 4.6, 1.05, 1.1, "stone");
+    // Round 6: tapered counter + round stools + domed fridge instead of
+    // the box counter / stools. Colliders unchanged.
+    recordShaped("taper4", x, y0 + 0.55, z, 4.6, 1.05, 1.1, "stone");
     cols.push(col(x, y0 + 0.55, z, 4.6, 1.05, 1.1));
-    put(boxes, x - 1.4, y0 + 0.3, z + 1.2, 0.7, 0.5, 0.7, "gray");
+    roundStool(x - 1.4, z + 1.2, "gray", y0);
     cols.push(col(x - 1.4, y0 + 0.3, z + 1.2, 0.7, 0.5, 0.7));
-    put(boxes, x + 1.4, y0 + 0.3, z + 1.2, 0.7, 0.5, 0.7, "gray");
+    roundStool(x + 1.4, z + 1.2, "gray", y0);
     cols.push(col(x + 1.4, y0 + 0.3, z + 1.2, 0.7, 0.5, 0.7));
     put(boxes, x + 2.9, y0 + 1.0, z, 0.9, 2, 0.9, "white");
     cols.push(col(x + 2.9, y0 + 1.0, z, 0.9, 2, 0.9));
+    fridgeDome(x + 2.9, y0 + 2.0, z);
   } else {
-    put(boxes, x, y0 + 0.55, z, 1.1, 1.05, 4.6, "stone");
+    // Round 6: tapered counter + round stools + domed fridge instead of
+    // the box counter / stools. Colliders unchanged.
+    recordShaped("taper4", x, y0 + 0.55, z, 1.1, 1.05, 4.6, "stone");
     cols.push(col(x, y0 + 0.55, z, 1.1, 1.05, 4.6));
-    put(boxes, x + 1.2, y0 + 0.3, z - 1.4, 0.7, 0.5, 0.7, "gray");
+    roundStool(x + 1.2, z - 1.4, "gray", y0);
     cols.push(col(x + 1.2, y0 + 0.3, z - 1.4, 0.7, 0.5, 0.7));
-    put(boxes, x + 1.2, y0 + 0.3, z + 1.4, 0.7, 0.5, 0.7, "gray");
+    roundStool(x + 1.2, z + 1.4, "gray", y0);
     cols.push(col(x + 1.2, y0 + 0.3, z + 1.4, 0.7, 0.5, 0.7));
     put(boxes, x, y0 + 1.0, z + 2.9, 0.9, 2, 0.9, "white");
     cols.push(col(x, y0 + 1.0, z + 2.9, 0.9, 2, 0.9));
+    fridgeDome(x, y0 + 2.0, z + 2.9);
   }
 }
 
