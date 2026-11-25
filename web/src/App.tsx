@@ -2344,51 +2344,39 @@ export default function App() {
       {pad && padMin && pad.phase !== "closed" ? (
         <button
           type="button"
+          className="pad-pill"
           onClick={() => setPadMin(false)}
-          style={{
-            position: "fixed", top: 64, left: "50%", transform: "translateX(-50%)", zIndex: 70,
-            background: "#101014", border: "1px solid #2c2c34", borderRadius: 999,
-            padding: "6px 14px", color: "#ffffff", fontSize: 13, fontWeight: 700,
-            boxShadow: "0 6px 20px rgba(0,0,0,0.5)", cursor: "pointer",
-          }}
         >
-          <span style={{ color: pad.phase === "paired" ? "#46a758" : "#f2b544" }}>●</span>{" "}
+          <span className={pad.phase === "paired" ? "pad-dot-ok" : "pad-dot-wait"}>●</span>{" "}
           {pad.phase === "paired" ? "Pad connected" : pad.phase === "waiting" ? "Pad — tap to see code" : "Pad — connecting…"}
         </button>
       ) : null}
       {pad && (!padMin || pad.phase === "closed") ? (
-        <div
-          style={{
-            position: "fixed", top: 64, left: "50%", transform: "translateX(-50%)", zIndex: 70,
-            background: "#101014", border: "2px solid #f2b544", borderRadius: 14,
-            padding: "14px 20px", color: "#ffffff", textAlign: "center", maxWidth: "92vw",
-            boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
-          }}
-        >
+        <div className="pad-card">
           {pad.phase === "connecting" ? (
-            <p style={{ margin: 0, fontWeight: 700 }}>Connecting to the controller relay…</p>
+            <p>Connecting to the controller relay…</p>
           ) : null}
           {pad.phase === "waiting" ? (
             <>
-              <p style={{ margin: "0 0 2px", fontWeight: 700 }}>Phone controller code</p>
-              <p style={{ margin: "2px 0", fontSize: 38, fontWeight: 900, letterSpacing: 10, color: "#f2b544" }}>{pad.code}</p>
-              <p style={{ margin: "2px 0 0", fontSize: 13, color: "#c9c9d1" }}>
+              <p>Phone controller code</p>
+              <p className="pad-code">{pad.code}</p>
+              <p className="pad-sub">
                 On your phone, open <b>orbitx-city.pages.dev/controller</b> and type this code.
               </p>
             </>
           ) : null}
           {pad.phase === "paired" ? (
-            <p style={{ margin: 0, fontWeight: 700 }}>Phone connected — you are live. Play on this screen, drive from your phone.</p>
+            <p>Phone connected — you are live. Play on this screen, drive from your phone.</p>
           ) : null}
-          {pad.phase === "closed" ? <p style={{ margin: 0, fontWeight: 700 }}>{pad.message}</p> : null}
-          <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "center" }}>
+          {pad.phase === "closed" ? <p>{pad.message}</p> : null}
+          <div className="pad-row">
             {pad.phase === "closed" ? (
-              <button type="button" onClick={startPad} style={{ background: "#f2b544", color: "#14100a", border: 0, borderRadius: 10, fontWeight: 800, padding: "8px 14px" }}>Try again</button>
+              <button type="button" className="pad-primary" onClick={startPad}>Try again</button>
             ) : null}
             {pad.phase !== "closed" ? (
-              <button type="button" onClick={() => setPadMin(true)} style={{ background: "#f2b544", color: "#14100a", border: 0, borderRadius: 10, fontWeight: 800, padding: "8px 14px" }}>Minimize</button>
+              <button type="button" className="pad-primary" onClick={() => setPadMin(true)}>Minimize</button>
             ) : null}
-            <button type="button" onClick={stopPad} style={{ background: "none", color: "#ffffff", border: "1px solid #2c2c34", borderRadius: 10, fontWeight: 700, padding: "8px 14px" }}>
+            <button type="button" className="pad-ghost" onClick={stopPad}>
               {pad.phase === "paired" ? "Disconnect" : "Close"}
             </button>
           </div>
@@ -2502,7 +2490,7 @@ export default function App() {
                     nearest road, facing along it. Driving only, never the
                     loop train (a train has no steering to wedge with). */}
                 {snap.driving ? (
-                  <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.unstuckCar(); }}>Unstuck</button>
+                  <button type="button" className="unstuck-btn" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.unstuckCar(); }}>Unstuck</button>
                 ) : null}
               </div>
             ) : null}
@@ -2944,7 +2932,7 @@ export default function App() {
                     <h3>Grocery — OrbitX Grocery</h3>
                     <p>Balance {(shopData?.shop.balance ?? snap.balance)} City Sol · Hunger {snap.hunger}/100{snap.hunger <= 0 ? " — Hungry: walking is slower until you eat." : ""}</p>
                     {snap.foodMsg ? <p>{snap.foodMsg}</p> : null}
-                    {!snap.foodLoaded ? <p>Loading the shelves…</p> : null}
+                    {!snap.foodLoaded ? <p className="ox-loading">Loading the shelves…</p> : null}
                     {snap.foodCatalog.map((item) => {
                       const owned = snap.food[item.id] || 0;
                       return (
@@ -3531,7 +3519,7 @@ export default function App() {
                   Six missions, in order — each one pays City Sol into this universe&apos;s save. 800 in total. Steps are confirmed by the city server: visit a place, say hello in chat, take a car for a drive, work a job, claim your daily, or buy from the shop.
                 </p>
                 {snap.missionMsg ? <p>{snap.missionMsg}</p> : null}
-                {!snap.missionsLoaded && !snap.missionMsg ? <p>Loading missions…</p> : null}
+                {!snap.missionsLoaded && !snap.missionMsg ? <p className="ox-loading">Loading missions…</p> : null}
                 {snap.missions.map((mission, index) => {
                   const prev = snap.missions[index - 1];
                   return (
@@ -4028,7 +4016,7 @@ export default function App() {
                 </p>
                 <p>Your balance {snap.balance} City Sol</p>
                 {officeMsg ? <p>{officeMsg}</p> : null}
-                {offices.length === 0 && !officeMsg ? <p>Loading the directory…</p> : null}
+                {offices.length === 0 && !officeMsg ? <p className="ox-loading">Loading the directory…</p> : null}
                 {([2, 3, 4] as const).map((floor) => (
                   <div key={floor}>
                     <h3>Floor {floor}{floor === 4 ? " — premium" : " — standard"}</h3>
@@ -4413,7 +4401,7 @@ export default function App() {
                   );
                 })()}
                 {myPropsMsg ? <p>{myPropsMsg}</p> : null}
-                {myProps === null && !myPropsMsg ? <p>Loading your properties…</p> : null}
+                {myProps === null && !myPropsMsg ? <p className="ox-loading">Loading your properties…</p> : null}
                 {myProps !== null && myProps.length === 0 ? (
                   <p>You do not own anything on this universe yet — buy the HQ, claim an office, or buy a home.</p>
                 ) : null}
@@ -7309,7 +7297,7 @@ function CityStatsPanel({ stats, loading, error, onRefresh }: { stats: CityStats
       <strong style={{ fontSize: 20, color: "#e0b33a" }}>{value}</strong>
     </article>
   );
-  if (loading && !stats) return <div className="list"><p>Loading stats…</p></div>;
+  if (loading && !stats) return <div className="list"><p className="ox-loading">Loading stats…</p></div>;
   if (error && !stats) {
     return (
       <div className="list">

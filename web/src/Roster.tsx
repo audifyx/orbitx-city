@@ -220,7 +220,7 @@ export function CharacterSelect({ seedText, setSeedText, webglMissing, busy, onP
               type="button"
               className="menu-ghost"
               aria-pressed={group === key}
-              style={group === key ? { borderColor: "#e0b33a", color: "#e0b33a" } : undefined}
+              style={group === key ? { borderColor: "#ff2ea6", color: "#ff5ec4" } : undefined}
               onClick={() => pickGroup(key)}
             >
               {GROUP_LABELS[key]}

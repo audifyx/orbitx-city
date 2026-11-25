@@ -9,11 +9,13 @@ body,
 }
 
 /* ------------------------------------------------------------------ */
-/* ORBITX OS DESIGN SYSTEM (v45) — one language for every surface:    */
-/* dark frosted glass, hairline borders, gold accents, rounded        */
-/* geometry, spring motion. The phone (bottom of this file) set the   */
-/* bar; panels, menus, HUD and intro all consume these tokens now.    */
-/* Contrast law: white/bright text on dark glass, black text on gold. */
+/* ORBITX OS DESIGN SYSTEM (v46, R5) — one language for every        */
+/* surface: dark frosted glass, hairline borders, NEON PINK / CYAN   */
+/* accents on a dusk-indigo base, gold kept for money + KOL premium. */
+/* The neon-realistic style-video look: pink is the primary action    */
+/* accent, cyan is secondary/info, gold is economy only.              */
+/* Contrast law: white/bright text on dark glass, black text on      */
+/* pink/gold. No rainbow gradients — one accent at a time.            */
 /* ------------------------------------------------------------------ */
 :root {
   --ox-gold: #e0b33a;
@@ -24,6 +26,15 @@ body,
   --ox-neon-pink: #ff2ea6;
   --ox-neon-cyan: #00e5ff;
   --ox-blue: #60a5fa;
+  --ox-neon-pink: #ff2ea6;
+  --ox-neon-pink-bright: #ff5ec4;
+  --ox-neon-cyan: #00e5ff;
+  --ox-neon-violet: #8b5cf6;
+  --ox-hairline-pink: rgba(255, 46, 166, 0.55);
+  --ox-hairline-cyan: rgba(0, 229, 255, 0.35);
+  --ox-glow-pink: 0 0 18px rgba(255, 46, 166, 0.45);
+  --ox-glow-cyan: 0 0 18px rgba(0, 229, 255, 0.35);
+  --ox-dusk: linear-gradient(160deg, #1b1440 0%, #0b0b1e 55%, #12041f 100%);
   --ox-ink: #020611;
   --ox-glass: rgba(13, 18, 32, 0.72);
   --ox-glass-strong: rgba(7, 11, 22, 0.92);
@@ -258,24 +269,33 @@ body,
   -webkit-backdrop-filter: var(--ox-blur);
   backdrop-filter: var(--ox-blur);
   padding: 10px 0 12px;
-  border-top: 1px solid var(--ox-hairline-gold);
+  border-top: 1px solid var(--ox-hairline-pink);
 }
 
 .char-playbar #play {
   width: 100%;
-  min-height: 52px;
+  min-height: 56px;
   font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
   margin: 0;
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--ox-neon-pink-bright), var(--ox-neon-pink));
+  color: #000000;
+  border: none;
+  box-shadow: 0 8px 22px rgba(255, 46, 166, 0.45), 0 0 24px rgba(255, 46, 166, 0.3);
 }
 
 .char-view-img {
   width: 100%;
   height: 280px;
   object-fit: contain;
-  background: #07142b;
-  border: 1px solid var(--ox-hairline);
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 68%, rgba(255, 46, 166, 0.26), rgba(0, 229, 255, 0.2) 48%, rgba(7, 20, 43, 0) 74%),
+    #0a0618;
+  border: 1px solid var(--ox-hairline-pink);
   border-radius: 20px;
-  box-shadow: var(--ox-shadow-soft);
+  box-shadow: var(--ox-shadow-soft), 0 0 28px rgba(255, 46, 166, 0.18);
   display: block;
 }
 
@@ -682,6 +702,7 @@ body,
   font-size: 26px;
   letter-spacing: 0.08em;
   color: #ffffff;
+  text-shadow: 0 0 24px rgba(255, 46, 166, 0.4);
 }
 
 .char-head p {
@@ -703,15 +724,15 @@ body,
 .char-view {
   width: 100%;
   height: 280px;
-  /* Soft gold + royal blue glow behind the character so the preview reads as a
-     spotlight stage, not a flat dark box — the canvas is transparent,
-     so this shows through around the character. */
+  /* Neon stage: pink + cyan glow behind the character so the preview
+     reads as a neon-district spotlight, not a flat dark box — the canvas
+     is transparent, so this shows through around the character. */
   background:
-    radial-gradient(ellipse 70% 55% at 50% 68%, rgba(224, 179, 58, 0.24), rgba(37, 99, 235, 0.22) 48%, rgba(7, 20, 43, 0) 74%),
-    #07142b;
-  border: 1px solid var(--ox-hairline);
+    radial-gradient(ellipse 70% 55% at 50% 68%, rgba(255, 46, 166, 0.26), rgba(0, 229, 255, 0.2) 48%, rgba(7, 20, 43, 0) 74%),
+    #0a0618;
+  border: 1px solid var(--ox-hairline-pink);
   border-radius: 20px;
-  box-shadow: var(--ox-shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow: var(--ox-shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 28px rgba(255, 46, 166, 0.18);
   display: block;
 }
 
@@ -818,9 +839,9 @@ body,
 
 .char-card.on {
   outline: none;
-  border-color: var(--ox-gold);
-  background: rgba(26, 21, 7, 0.85);
-  box-shadow: 0 0 0 1px var(--ox-gold), 0 10px 24px rgba(0, 0, 0, 0.5), 0 0 18px rgba(224, 179, 58, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  border-color: var(--ox-neon-pink);
+  background: rgba(32, 8, 26, 0.9);
+  box-shadow: 0 0 0 1px var(--ox-neon-pink), 0 10px 24px rgba(0, 0, 0, 0.5), 0 0 22px rgba(255, 46, 166, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .char-foot {
@@ -1016,9 +1037,9 @@ body {
   backdrop-filter: var(--ox-blur);
   color: #ffffff;
   border: 1px solid var(--ox-hairline);
-  border-top: 2px solid rgba(224, 179, 58, 0.75);
+  border-top: 2px solid rgba(255, 46, 166, 0.75);
   border-radius: 18px;
-  box-shadow: var(--ox-shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow: var(--ox-shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 22px rgba(255, 46, 166, 0.18);
   pointer-events: none;
   font-size: 14px;
 }
@@ -1108,7 +1129,8 @@ body {
   font-size: 13px;
 }
 
-/* GTA-style circular minimap: a gold ring, like GTA's round map. The
+/* GTA-style circular minimap: a gold ring, like GTA's round map, with a
+   soft neon-pink halo so it reads as part of the dusk-neon HUD. The
    canvas is square underneath (the static layer draws a square), the
    circle clips it — corners are just map edge, same as GTA. */
 .minimap {
@@ -1117,7 +1139,7 @@ body {
   height: 132px;
   border: 2px solid #e0b33a;
   border-radius: 50%;
-  box-shadow: 0 0 0 3px rgba(8, 12, 24, 0.55), 0 10px 26px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 0 3px rgba(8, 12, 24, 0.55), 0 10px 26px rgba(0, 0, 0, 0.6), 0 0 24px rgba(255, 46, 166, 0.22);
   background: rgba(5, 14, 32, 0.84);
 }
 
@@ -1208,9 +1230,9 @@ body {
   -webkit-backdrop-filter: var(--ox-blur);
   backdrop-filter: var(--ox-blur);
   border: 1px solid var(--ox-hairline);
-  border-top: 2px solid rgba(224, 179, 58, 0.75);
+  border-top: 2px solid rgba(255, 46, 166, 0.75);
   border-radius: 18px;
-  box-shadow: var(--ox-shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow: var(--ox-shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 22px rgba(255, 46, 166, 0.16);
   color: #ffffff;
   font-size: 13px;
   pointer-events: none;
@@ -1229,7 +1251,7 @@ body {
 }
 
 /* Compass pill, top-center (Fortnite-style heading). Obsidian-blue bg, white
-   cardinal, gold degrees. */
+   cardinal, cyan degrees (info accent). */
 .compass {
   position: fixed;
   top: max(10px, env(safe-area-inset-top));
@@ -1254,7 +1276,7 @@ body {
 }
 
 .compass b {
-  color: #e0b33a;
+  color: #00e5ff;
 }
 
 /* Phone: the top row is crowded (HUD left, top bar right), so the
@@ -1387,8 +1409,9 @@ body {
   backdrop-filter: var(--ox-blur);
   color: #ffffff;
   border: 1px solid var(--ox-hairline);
+  border-top: 2px solid rgba(255, 46, 166, 0.65);
   border-radius: 24px;
-  box-shadow: var(--ox-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 0 0 1px rgba(224, 179, 58, 0.12);
+  box-shadow: var(--ox-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 0 0 1px rgba(255, 46, 166, 0.14), 0 0 32px rgba(255, 46, 166, 0.12);
   padding: 16px 16px 32px;
   touch-action: pan-y;
   animation: ox-rise 0.32s var(--ox-spring) both;
@@ -1415,9 +1438,9 @@ body {
   width: 44px;
   height: 10px;
   background-image:
-    radial-gradient(circle, var(--ox-gold-bright) 0 4px, transparent 5px),
+    radial-gradient(circle, var(--ox-neon-pink-bright) 0 4px, transparent 5px),
     radial-gradient(circle, rgba(255, 255, 255, 0.35) 0 4px, transparent 5px),
-    radial-gradient(circle, rgba(96, 165, 250, 0.55) 0 4px, transparent 5px);
+    radial-gradient(circle, rgba(0, 229, 255, 0.65) 0 4px, transparent 5px);
   background-size: 10px 10px;
   background-position: 0 50%, 17px 50%, 34px 50%;
   background-repeat: no-repeat;
@@ -1639,11 +1662,11 @@ body {
 }
 
 .days button.on {
-  background: linear-gradient(180deg, var(--ox-gold-bright), var(--ox-gold));
+  background: linear-gradient(180deg, var(--ox-neon-pink-bright), var(--ox-neon-pink));
   color: #000000;
   border-color: transparent;
   outline: none;
-  box-shadow: 0 4px 14px rgba(224, 179, 58, 0.35);
+  box-shadow: 0 4px 16px rgba(255, 46, 166, 0.45), 0 0 18px rgba(255, 46, 166, 0.3);
 }
 
 /* Universe picker: premium cards, not plain text rectangles. Each card
@@ -1871,12 +1894,13 @@ body.touch .touch-ui {
   min-height: 48px;
 }
 
-/* Fly button, active while flying: gold outline + tint so the toggle state
-   is visible at a glance (before, the button looked identical on and off). */
+/* Fly button, active while flying: neon-pink outline + tint so the toggle
+   state is visible at a glance (before, the button looked identical on
+   and off). */
 .pad-buttons button.on {
-  outline: 2px solid #e0b33a;
-  background: rgba(224, 179, 58, 0.28);
-  color: #ffe1a1;
+  outline: 2px solid var(--ox-neon-pink);
+  background: rgba(255, 46, 166, 0.28);
+  color: #ffd7ef;
 }
 
 .hud .flying-chip {
@@ -1977,25 +2001,57 @@ body.touch .touch-ui {
 /* The base `button` rule gives every button margin-top: 16px and
    padding: 12px 42px — reset both here, or the container grows 16px
    tall (and the buttons shrink under flex) and the top strip pokes
-   into the minimap. box-sizing keeps width: 76px exact. */
+   into the minimap. box-sizing keeps width: 76px exact. Phone-first:
+   68px tall touch targets, 17px labels, rounded 14px — a thumb can
+   hold Gas without hunting for it. */
 .drive-buttons button {
   box-sizing: border-box;
   width: 76px;
-  min-height: 64px;
+  min-height: 68px;
   margin: 0;
   padding: 12px 8px;
-  font-size: 16px;
-  font-weight: 700;
-  border-radius: 12px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  border-radius: 14px;
 }
 
-/* Brake: white. Gas: gold. Black text on both, per the contrast rule. */
-.drive-buttons button:first-child {
+/* Brake: white. Gas: neon pink, black text, pink glow — the primary
+   action. Black text on both, per the contrast rule. */
+.drive-buttons:not(.boxing-buttons) button:first-child {
   background: #fff;
   color: #000;
 }
 
-.drive-buttons button:last-child {
+.drive-buttons:not(.boxing-buttons) button:nth-child(2) {
+  background: linear-gradient(180deg, var(--ox-neon-pink-bright), var(--ox-neon-pink));
+  color: #000;
+  box-shadow: 0 6px 18px rgba(255, 46, 166, 0.45), 0 0 20px rgba(255, 46, 166, 0.3);
+}
+
+/* Unstuck (round 3): the escape hatch when the car wedges — cyan
+   outline on dark glass, so it reads as a tool, not a throttle. Same
+   68px touch target as Gas/Brake; in the touch cluster it shares the
+   row and stretches with the others. */
+.drive-buttons .unstuck-btn {
+  background: rgba(0, 229, 255, 0.1);
+  color: #a5f3fc;
+  border: 2px solid rgba(0, 229, 255, 0.6);
+  box-shadow: 0 0 14px rgba(0, 229, 255, 0.18);
+}
+
+.drive-buttons .unstuck-btn:active {
+  background: rgba(0, 229, 255, 0.24);
+}
+
+/* BOXING buttons keep their old first/last treatment (Jab white, Dodge
+   gold) — the Gas/Brake rules above are scoped out of this row. */
+.boxing-buttons button:first-child {
+  background: #fff;
+  color: #000;
+}
+
+.boxing-buttons button:last-child {
   background: #e0b33a;
   color: #000;
 }
@@ -2729,9 +2785,9 @@ body.touch .touch-ui {
   backdrop-filter: var(--ox-blur);
   color: #ffffff;
   border: 1px solid var(--ox-hairline);
-  border-left: 3px solid var(--ox-gold);
+  border-left: 3px solid var(--ox-neon-pink);
   border-radius: 16px;
-  box-shadow: var(--ox-shadow-soft);
+  box-shadow: var(--ox-shadow-soft), 0 0 20px rgba(255, 46, 166, 0.16);
   cursor: pointer;
   animation: toast-in 0.18s ease-out;
 }
@@ -3526,7 +3582,7 @@ body.touch .touch-ui {
   justify-content: space-between;
   gap: 8px;
   padding: 10px 12px;
-  border-bottom: 2px solid #e0b33a;
+  border-bottom: 2px solid var(--ox-neon-pink);
   background: #02050d;
   flex: none;
 }
@@ -3674,9 +3730,10 @@ body.touch .touch-ui {
 
 .ws-actions button:first-child {
   flex: 1;
-  background: #e0b33a;
-  color: #101418;
-  border-color: #e0b33a;
+  background: linear-gradient(180deg, var(--ox-neon-pink-bright), var(--ox-neon-pink));
+  color: #000000;
+  border-color: var(--ox-neon-pink);
+  box-shadow: 0 4px 16px rgba(255, 46, 166, 0.4);
 }
 
 .ws-msg {
@@ -3709,9 +3766,9 @@ body.touch .touch-ui {
 }
 
 .ws-tabs button.on {
-  background: #e0b33a;
-  color: #101418;
-  border-color: #e0b33a;
+  background: linear-gradient(180deg, var(--ox-neon-pink-bright), var(--ox-neon-pink));
+  color: #000000;
+  border-color: var(--ox-neon-pink);
 }
 
 .ws-palette {
@@ -3720,7 +3777,7 @@ body.touch .touch-ui {
   overflow-y: auto;
   overscroll-behavior: contain;
   background: #02050d;
-  border-top: 2px solid #e0b33a;
+  border-top: 2px solid var(--ox-neon-pink);
   padding: 10px 12px 24px;
 }
 
@@ -3939,7 +3996,7 @@ body.touch .touch-ui {
   border-radius: 46px;
   border: 1px solid #41424b;
   background: #000;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7), 0 0 0 5px #0a0a0d, inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7), 0 0 0 5px #0a0a0d, 0 0 44px rgba(255, 46, 166, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   overflow: hidden;
   position: relative;
   font-family: -apple-system, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
@@ -5098,5 +5155,193 @@ body.touch .touch-ui {
 
   .ea-connect {
     width: 100%;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* ROUND 5 — NEON-REALISTIC UI (2026-11-24). One design system for    */
+/* every in-game surface, from the style-video frames: dusk-indigo    */
+/* glass, neon pink primary accent, cyan secondary, gold for money    */
+/* and KOL premium only. New markup should reach for these classes    */
+/* first; existing class names above are untouched.                    */
+/* ------------------------------------------------------------------ */
+
+/* Brand eyebrow — "ORBITX CITY" kicker above a panel/section title. */
+.ox-kicker {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ox-neon-pink-bright);
+  text-shadow: 0 0 14px rgba(255, 46, 166, 0.55);
+}
+
+/* Primary CTA: neon-pink gradient, black text (contrast-safe), glow. */
+.ox-btn-primary {
+  min-height: 48px;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--ox-neon-pink-bright), var(--ox-neon-pink));
+  color: #000000;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  box-shadow: 0 6px 18px rgba(255, 46, 166, 0.45), 0 0 20px rgba(255, 46, 166, 0.28);
+  cursor: pointer;
+}
+
+.ox-btn-primary:active {
+  transform: scale(0.98);
+}
+
+/* Secondary CTA: cyan outline on dark glass, cyan text. */
+.ox-btn-neon {
+  min-height: 48px;
+  padding: 12px 20px;
+  border: 2px solid rgba(0, 229, 255, 0.6);
+  border-radius: 14px;
+  background: rgba(0, 229, 255, 0.1);
+  color: #a5f3fc;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  box-shadow: 0 0 14px rgba(0, 229, 255, 0.18);
+  cursor: pointer;
+}
+
+.ox-btn-neon:active {
+  background: rgba(0, 229, 255, 0.24);
+}
+
+/* A panel in the neon language: dusk glass + pink top edge + glow.
+   For new panels; the shared .panel already carries the same accents. */
+.ox-neon-panel {
+  background: linear-gradient(180deg, rgba(13, 20, 38, 0.94) 0%, rgba(4, 7, 15, 0.96) 100%);
+  border: 1px solid var(--ox-hairline);
+  border-top: 2px solid rgba(255, 46, 166, 0.65);
+  border-radius: 24px;
+  box-shadow: var(--ox-shadow), 0 0 32px rgba(255, 46, 166, 0.12);
+  color: #ffffff;
+}
+
+/* Loading line inside a panel: a neon spinner ring + text, so a panel
+   that is still fetching reads as alive, not as a blank placeholder. */
+.ox-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #dbeafe;
+}
+
+.ox-loading::before {
+  content: "";
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: var(--ox-neon-pink);
+  animation: ox-spin 0.8s linear infinite;
+}
+
+@keyframes ox-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Phone-controller pairing card + minimized pill (moved out of inline
+   styles in App.tsx — same look, now themable). The code is big gold
+   numerals on dark glass; the primary button is gold (pairing is a
+   setup flow, not an in-world action). */
+.pad-card {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 70;
+  background: linear-gradient(180deg, rgba(13, 20, 38, 0.94), rgba(4, 7, 15, 0.96));
+  border: 2px solid var(--ox-gold);
+  border-radius: 14px;
+  padding: 14px 20px;
+  color: #ffffff;
+  text-align: center;
+  max-width: 92vw;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), 0 0 28px rgba(224, 179, 58, 0.18);
+}
+
+.pad-card p {
+  margin: 0;
+  font-weight: 700;
+}
+
+.pad-code {
+  margin: 2px 0;
+  font-size: 38px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  color: #f2b544;
+  text-shadow: 0 0 22px rgba(242, 181, 68, 0.45);
+}
+
+.pad-card .pad-sub {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-weight: 400;
+  color: #c9c9d1;
+}
+
+.pad-card .pad-row {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.pad-primary {
+  background: #f2b544;
+  color: #14100a;
+  border: 0;
+  border-radius: 10px;
+  font-weight: 800;
+  padding: 8px 14px;
+  min-height: 40px;
+}
+
+.pad-ghost {
+  background: none;
+  color: #ffffff;
+  border: 1px solid #2c2c34;
+  border-radius: 10px;
+  font-weight: 700;
+  padding: 8px 14px;
+  min-height: 40px;
+}
+
+.pad-pill {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 70;
+  background: #101014;
+  border: 1px solid #2c2c34;
+  border-radius: 999px;
+  padding: 6px 14px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+
+.pad-pill .pad-dot-ok { color: #46a758; }
+.pad-pill .pad-dot-wait { color: #f2b544; }
+
+/* Phone: driving controls stay thumb-sized and never crowd the stick. */
+@media (max-width: 640px) {
+  .drive-buttons button {
+    min-height: 72px;
+    font-size: 16px;
   }
 }

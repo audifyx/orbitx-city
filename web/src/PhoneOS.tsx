@@ -118,10 +118,10 @@ const ROB_FLAVOR = [
 ];
 
 const WALLPAPERS: Record<string, { name: string; css: string }> = {
-  gold: { name: "Gold dusk", css: "linear-gradient(160deg, #241a05 0%, #0b0b0f 55%, #171106 100%)" },
-  night: { name: "Night city", css: "linear-gradient(160deg, #0d1830 0%, #05070d 60%, #0a1224 100%)" },
-  sunset: { name: "Sunset strip", css: "linear-gradient(160deg, #3a1c07 0%, #120a06 55%, #2b1408 100%)" },
-  carbon: { name: "Carbon", css: "linear-gradient(160deg, #17181d 0%, #0a0a0c 60%, #101116 100%)" },
+  gold: { name: "Neon dusk", css: "radial-gradient(120% 55% at 50% 0%, rgba(255,46,166,0.34), rgba(255,46,166,0) 62%), radial-gradient(90% 40% at 85% 100%, rgba(0,229,255,0.16), rgba(0,229,255,0) 60%), linear-gradient(160deg, #2b0f3d 0%, #0b0b1e 55%, #1a0b2e 100%)" },
+  night: { name: "Night city", css: "radial-gradient(120% 55% at 50% 0%, rgba(255,46,166,0.26), rgba(255,46,166,0) 62%), radial-gradient(90% 40% at 15% 100%, rgba(0,229,255,0.14), rgba(0,229,255,0) 60%), linear-gradient(160deg, #0d1830 0%, #05070d 60%, #0a1224 100%)" },
+  sunset: { name: "Sunset strip", css: "radial-gradient(120% 55% at 50% 0%, rgba(255,94,166,0.3), rgba(255,94,166,0) 62%), linear-gradient(160deg, #3a1c07 0%, #120a06 55%, #2b1408 100%)" },
+  carbon: { name: "Carbon", css: "radial-gradient(120% 55% at 50% 0%, rgba(255,46,166,0.14), rgba(255,46,166,0) 62%), linear-gradient(160deg, #17181d 0%, #0a0a0c 60%, #101116 100%)" },
 };
 
 function fmtClock(d: Date): string {
