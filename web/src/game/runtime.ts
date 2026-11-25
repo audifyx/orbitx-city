@@ -1546,6 +1546,39 @@ function makePerson(color: string, hat: string) {
     face(PERSON_SPHERE, cloth, 0, 1.62, -0.1, 0.46, 0.36, 0.28); // hood
     face(PERSON_SPHERE, cloth, 0, 1.86, 0, 0.44, 0.13, 0.42); // hood rim
   }
+  // Round 7: hair — citizens were bald under every hat but a cap, so
+  // every crowd face read as a mannequin. Four cheap styles by hash
+  // (buzz / side sweep / afro / long back panel, same anchors as
+  // avatar.ts's head: centre 1.60, radius 0.16, top 1.76) plus an
+  // occasional beard. Added BEFORE the hat, so caps and crowns sit on
+  // top of it; the walker reuses the head material for its arms.
+  const NPC_HAIR_COLORS = ["#1a1a1a", "#3a2a1a", "#5a3a22", "#8a8a8a", "#2a2a2a", "#6b4a2e"];
+  const hairHex = NPC_HAIR_COLORS[hash(`${color}|${hat}|hair`) % NPC_HAIR_COLORS.length] as string;
+  const hairMat = new MeshLambertMaterial({ color: hairHex });
+  const hairStyle = hash(`${hat}|${color}|hs`) % 4;
+  if (hairStyle === 0) {
+    // Buzz: close cap over the crown.
+    face(PERSON_SPHERE, hairMat, 0, 1.76, 0, 0.36, 0.09, 0.36);
+  } else if (hairStyle === 1) {
+    // Side sweep, pushed proud of the head front so it never flickers.
+    face(PERSON_SPHERE, hairMat, 0.03, 1.79, 0, 0.34, 0.11, 0.36);
+    face(PERSON_SPHERE, hairMat, -0.13, 1.72, 0.11, 0.14, 0.09, 0.18);
+  } else if (hairStyle === 2) {
+    // Afro puff + side puffs.
+    face(PERSON_SPHERE, hairMat, 0, 1.8, 0, 0.46, 0.26, 0.44);
+    face(PERSON_SPHERE, hairMat, -0.2, 1.72, 0, 0.16, 0.18, 0.18);
+    face(PERSON_SPHERE, hairMat, 0.2, 1.72, 0, 0.16, 0.18, 0.18);
+  } else {
+    // Long: back panel + side locks down to the shoulders.
+    face(PERSON_SPHERE, hairMat, 0, 1.62, -0.12, 0.38, 0.18, 0.2);
+    face(PERSON_SPHERE, hairMat, -0.15, 1.33, -0.05, 0.11, 0.5, 0.13);
+    face(PERSON_SPHERE, hairMat, 0.15, 1.33, -0.05, 0.11, 0.5, 0.13);
+  }
+  if (hash(`${color}|${hat}|beard`) % 4 === 0) {
+    // Beard + mustache, one citizen in four.
+    face(PERSON_SPHERE, hairMat, 0, 1.46, 0.11, 0.22, 0.1, 0.07);
+    face(PERSON_SPHERE, hairMat, 0, 1.52, 0.13, 0.17, 0.04, 0.04);
+  }
   addHat(group, hat);
   // addHat's positions assume the old 0.40 head (top 1.82); the round 4
   // head tops out at 1.76, so drop the whole hat node a touch or every
