@@ -12,26 +12,132 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="preload" as="image" href="/home-hero.jpg" />
     <meta name="description" content="OrbitX City is a free realistic city life-sim in your browser. No download — get a job, buy a home, drive cars, race, box, play mini-games and voice-chat with players worldwide. Play free at orbitxcity.world." />
     <title>OrbitX City — Free Realistic City Game in Your Browser</title>
     <style>
-      /* Boot splash (realistic overhaul): the style-video splash frame
-       * fills the screen before React mounts — the first thing the
-       * player sees, not a black page. The app canvas/menu cover it
-       * once they paint. */
+      /* Boot splash (Round 5 redesign): one continuous premium screen
+       * with the splash landing. The style-video gate frame fills the
+       * screen before React mounts; the wordmark, gold rule and loading
+       * bar sit on it in the same type treatment as the landing, so the
+       * boot and the landing read as one screen, not two styles. Pure
+       * inline CSS — no JS, no font load — so it paints instantly. */
       html,
       body {
         background: #020611;
+        margin: 0;
+        min-height: 100%;
       }
       body {
-        background-image: url("/splash-hero.jpg");
+        background-image:
+          linear-gradient(to bottom, rgba(2, 6, 17, 0.55) 0%, rgba(2, 6, 17, 0.08) 42%, rgba(2, 6, 17, 0.88) 100%),
+          url("/splash-hero.jpg");
         background-size: cover;
         background-position: center;
         background-repeat: no-repeat;
+        color: #ffffff;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      #boot {
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        padding: 24px;
+        box-sizing: border-box;
+        text-align: center;
+      }
+      #boot .boot-kicker {
+        margin: 0;
+        color: #e0b33a;
+        font-weight: 800;
+        letter-spacing: 0.34em;
+        font-size: 12px;
+        text-shadow: 0 1px 3px #000000;
+      }
+      #boot .boot-title {
+        margin: 0;
+        font-size: clamp(44px, 11vw, 84px);
+        line-height: 0.95;
+        font-weight: 900;
+        letter-spacing: 0.06em;
+        color: #ffffff;
+        text-shadow:
+          0 0 18px rgba(255, 46, 166, 0.55),
+          0 0 42px rgba(0, 229, 255, 0.35),
+          0 4px 0 #000000,
+          0 12px 36px rgba(0, 0, 0, 0.85);
+      }
+      #boot .boot-title span {
+        color: #e0b33a;
+      }
+      #boot .boot-rule {
+        width: 120px;
+        height: 4px;
+        border: 0;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #ff2ea6, #e0b33a 55%, #00e5ff);
+        box-shadow: 0 0 16px rgba(255, 46, 166, 0.6);
+      }
+      #boot .boot-sub {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        color: #ffffff;
+        text-shadow: 0 1px 3px #000000, 0 0 12px #000000;
+      }
+      #boot .boot-bar {
+        width: min(220px, 60vw);
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.16);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        overflow: hidden;
+      }
+      #boot .boot-bar i {
+        display: block;
+        height: 100%;
+        width: 40%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #e0b33a, #f2cc60);
+        box-shadow: 0 0 12px rgba(224, 179, 58, 0.7);
+        animation: boot-slide 1.4s ease-in-out infinite;
+      }
+      @keyframes boot-slide {
+        0% { transform: translateX(-110%); }
+        100% { transform: translateX(280%); }
+      }
+      #boot .boot-loading {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.28em;
+        color: #dbeafe;
+        text-shadow: 0 1px 3px #000000;
+        animation: boot-pulse 1.4s ease-in-out infinite;
+      }
+      @keyframes boot-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot .boot-bar i,
+        #boot .boot-loading { animation: none; }
       }
     </style>
   </head>
   <body>
+    <div id="boot" aria-hidden="true">
+      <p class="boot-kicker">ORBITX &middot; WE ARE LIVE</p>
+      <p class="boot-title">ORBIT<span>X</span> CITY</p>
+      <hr class="boot-rule" />
+      <p class="boot-sub">A realistic city you can own.</p>
+      <div class="boot-bar"><i></i></div>
+      <p class="boot-loading">LOADING THE CITY&hellip;</p>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
