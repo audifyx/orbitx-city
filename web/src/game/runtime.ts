@@ -11,7 +11,9 @@ import {
   InstancedMesh,
   Matrix4,
   Mesh,
+  MeshBasicMaterial,
   MeshLambertMaterial,
+  MeshPhysicalMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
   SphereGeometry,
@@ -194,6 +196,7 @@ import {
   normalizeWear,
   paintHex,
   repairCost,
+  spokeGeometry,
   washCost,
   DEFAULT_GARAGE,
   FLY_CONTROLS,
@@ -1637,13 +1640,19 @@ function makeCar(skin: string, style: number, vehicleId?: string) {
   group.rotation.order = "YXZ";
   const box = new BoxGeometry(1, 1, 1);
   const paints: MeshStandardMaterial[] = [];
+  // Round 6: the same round-3 clearcoat paint buildVehicle uses
+  // (MeshPhysicalMaterial IS a MeshStandardMaterial subclass, so
+  // retint()'s color.setHex on the paints array keeps working).
   const paint = () => {
-    const material = new MeshStandardMaterial({
+    const material = new MeshPhysicalMaterial({
       color: COLORS[skin] ?? COLORS.black,
       emissive: 0x12141c,
-      emissiveIntensity: 0.28,
-      roughness: 0.35,
+      emissiveIntensity: 0.18,
+      roughness: 0.28,
       metalness: 0.45,
+      clearcoat: 1,
+      clearcoatRoughness: 0.12,
+      envMapIntensity: 1.4,
     });
     paints.push(material);
     return material;
@@ -1652,18 +1661,22 @@ function makeCar(skin: string, style: number, vehicleId?: string) {
     const mesh = new Mesh(box, material);
     mesh.position.set(x, y, z);
     mesh.scale.set(sx, sy, sz);
+    mesh.castShadow = true;
     group.add(mesh);
+    return mesh;
   };
   const body = paint();
-  // Brighter glass canopy (not flat cyan) + dark grille + silver bumpers.
+  // Round 3 glass: low roughness + high metalness + env intensity so
+  // it catches the sky/neon like the catalog cars' glass.
   const glass = new MeshStandardMaterial({
     color: 0xbfe6ff,
     emissive: 0x3d7fa8,
     emissiveIntensity: 0.55,
-    roughness: 0.12,
-    metalness: 0.35,
+    roughness: 0.08,
+    metalness: 0.6,
+    envMapIntensity: 1.6,
     transparent: true,
-    opacity: 0.85,
+    opacity: 0.9,
   });
   const grille = new MeshStandardMaterial({ color: 0x111318, roughness: 0.5, metalness: 0.5 });
   const chrome = new MeshStandardMaterial({ color: 0xc9ced6, roughness: 0.25, metalness: 0.8 });
@@ -1673,7 +1686,10 @@ function makeCar(skin: string, style: number, vehicleId?: string) {
     group.add(extrudedBodyMesh(body, 3.7, 0.32, 1.72, 0.42, 0.15));
     add(body, 0.3, 0.56, 0, 1.1, 0.1, 1.5);
     add(body, -0.25, 0.68, 0, 1.55, 0.28, 1.42);
-    add(glass, -0.05, 0.74, 0, 1.05, 0.18, 1.2);
+    // Recessed: the glass top (0.81) sits just under the cabin top
+    // (0.82) instead of poking proud of it, like buildVehicle's inset
+    // canopy. (Sedan + wagon glass were already recessed.)
+    add(glass, -0.05, 0.72, 0, 1.05, 0.18, 1.2);
     add(body, -1.55, 0.86, 0, 0.12, 0.28, 1.55);
     add(body, -1.78, 1.02, 0, 0.5, 0.07, 1.5);
   } else if (style === 2) {
@@ -1691,13 +1707,14 @@ function makeCar(skin: string, style: number, vehicleId?: string) {
     add(body, -0.2, 0.88, 0, 1.65, 0.36, 1.42);
     add(glass, 0.02, 0.92, 0, 1.15, 0.22, 1.22);
   }
-  // Stepped hood lid + dark grille + silver bumpers.
-  add(body, 1.62, 0.4, 0, 0.62, 0.26, 1.28);
+  // Stepped hood lid, sloped like buildVehicle's (rz -0.10 rakes the
+  // front down toward the nose) + dark grille + silver bumpers.
+  add(body, 1.62, 0.4, 0, 0.62, 0.26, 1.28).rotation.z = -0.1;
   add(grille, 1.94, 0.42, 0, 0.08, 0.18, 0.9);
   add(chrome, 1.96, 0.3, 0, 0.06, 0.1, 1.3);
   add(chrome, -1.96, 0.34, 0, 0.06, 0.1, 1.3);
-  // White headlight lenses (red taillights stay).
-  const headlamp = new MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff6d8, emissiveIntensity: 1.4, roughness: 0.2 });
+  // LED headlights (round 3: emissive 2.2 + bloom reads as lit at dusk).
+  const headlamp = new MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff6d8, emissiveIntensity: 2.2, roughness: 0.15 });
   add(headlamp, 1.92, 0.46, 0.52, 0.1, 0.14, 0.34);
   add(headlamp, 1.92, 0.46, -0.52, 0.1, 0.14, 0.34);
   const lamp = new MeshStandardMaterial({ color: 0xff4b5c, emissive: 0xaa1830, emissiveIntensity: 0.8, roughness: 0.3 });
@@ -1705,31 +1722,68 @@ function makeCar(skin: string, style: number, vehicleId?: string) {
   add(lamp, -1.72, 0.46, -0.52, 0.1, 0.16, 0.34);
   add(MATERIALS.cyan, 0.05, 0.58, 0.84, 2.5, 0.08, 0.08);
   add(MATERIALS.cyan, 0.05, 0.58, -0.84, 2.5, 0.08, 0.08);
-  const wheel = new CylinderGeometry(0.28, 0.28, 0.22, 12);
+  // Round 3 wheels: a Group named "wheel" per corner so drive()'s spin
+  // loop (rotation.z) turns the whole wheel around its axle — the old
+  // flat cylinder + hubcap had rotation.x = PI/2, so rotation.z tumbled
+  // the axle instead of spinning it whenever this car was driven.
+  // Torus tire + rim disc + merged 5-spoke star, exactly as
+  // buildVehicle builds them (same r 0.28 / w 0.22 / positions as the
+  // city-sedan). Geometries/materials are shared across the 4 wheels.
   const wheelMat = new MeshStandardMaterial({ color: 0x111318, roughness: 0.6, metalness: 0.4 });
+  const tireGeo = new TorusGeometry(0.28 * 0.72, 0.28 * 0.28, 10, 20);
+  const rimGeo = new CylinderGeometry(0.28 * 0.6, 0.28 * 0.6, 0.24, 12);
+  const spokeGeo = spokeGeometry(0.28, 0.22);
   for (const [x, z] of [
     [1.15, 0.78],
     [1.15, -0.78],
     [-1.15, 0.78],
     [-1.15, -0.78],
   ] as Array<[number, number]>) {
-    const mesh = new Mesh(wheel, wheelMat);
-    mesh.rotation.x = Math.PI / 2;
-    mesh.position.set(x, 0.28, z);
-    mesh.name = "wheel";
-    group.add(mesh);
-    // Silver hubcap.
-    const hub = new Mesh(new CylinderGeometry(0.13, 0.13, 0.24, 10), chrome);
-    hub.rotation.x = Math.PI / 2;
-    hub.position.set(x, 0.28, z);
-    group.add(hub);
+    const wheel = new Group();
+    wheel.name = "wheel";
+    wheel.position.set(x, 0.28, z);
+    const tire = new Mesh(tireGeo, wheelMat);
+    tire.castShadow = true;
+    wheel.add(tire);
+    const rim = new Mesh(rimGeo, chrome);
+    rim.rotation.x = Math.PI / 2;
+    rim.castShadow = true;
+    wheel.add(rim);
+    const spokes = new Mesh(spokeGeo, chrome);
+    spokes.castShadow = true;
+    wheel.add(spokes);
+    group.add(wheel);
     const glow = new Mesh(box, MATERIALS.cyan);
     glow.position.set(x, 0.08, z);
     glow.scale.set(0.34, 0.06, 0.22);
     group.add(glow);
   }
   add(MATERIALS.cyan, 0.1, 0.05, 0, 2.3, 0.05, 0.28);
+  // Exhaust flames (round 3): dual cones at the rear bumper, hidden
+  // until drive() flares them while Ctrl-boosting — same mount, names
+  // and baked size as buildVehicle, so the flicker loop just works.
+  const flameMat = new MeshBasicMaterial({ color: 0xff7a1a, toneMapped: false, transparent: true, opacity: 0.95 });
+  const flameCoreMat = new MeshBasicMaterial({ color: 0xffd23c, toneMapped: false, transparent: true, opacity: 0.95 });
+  for (const side of [-1, 1]) {
+    const flame = new Mesh(new ConeGeometry(0.13, 0.65, 8), flameMat);
+    flame.rotation.z = Math.PI / 2; // cone tip points -X (rearward)
+    flame.position.set(-2.0, 0.3, side * 0.45);
+    flame.name = "flame";
+    flame.visible = false;
+    group.add(flame);
+    const core = new Mesh(new ConeGeometry(0.07, 0.45, 8), flameCoreMat);
+    core.rotation.z = Math.PI / 2;
+    core.position.set(-1.92, 0.3, side * 0.45);
+    core.name = "flame";
+    core.visible = false;
+    group.add(core);
+  }
   group.userData.paints = paints;
+  // drive() reads these for the drift-smoke origin (falls back to 4.4
+  // without them); length/width match this style's extruded body.
+  group.userData.length = style === 1 ? 3.7 : style === 2 ? 3.35 : 3.45;
+  group.userData.width = style === 1 ? 1.72 : 1.62;
+  group.userData.wheelR = 0.28;
   return group;
 }
 

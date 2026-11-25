@@ -1,5 +1,6 @@
 import { makeRng, type Rng } from "./seed";
 import { buildAllRegions, buildAllBridges, buildDocks, WORLD_BOUNDS } from "./states";
+import { GATE_POS } from "./landmarks";
 import { buildBusStation } from "./bus";
 import { buildAllHomes } from "./homes";
 import { buildAllDistricts, buildAllDistrictBridges, type CityParts } from "./emergency";
@@ -6745,6 +6746,17 @@ export function buildCity(seed: number): City {
     } else {
       city.colliders.push({ minX: d.x - t / 2, maxX: d.x + t / 2, minY: d.y0, maxY: d.y0 + 3, minZ: d.z - 2, maxZ: d.z + 2, tag: `door:${d.id}` });
     }
+  }
+  // Entrance gate pylons (landmarks.ts buildGate, GATE_POS): solid since
+  // round 6 — before this players walked straight through them. One AABB
+  // per pylon, 2.6 wide so it covers the 1.25-radius base with a small
+  // margin, full 10u height. The opening between the inner faces
+  // (x -7.2..7.2, 14.4 wide) stays clear: it fully contains the 10-wide
+  // x=0 road (ROAD_HALF 5), so spawn (0, ~62) still walks/drives north
+  // through the gate to the plaza. Turnstiles + side signs deliberately
+  // have no colliders — the turnstiles sit inside the opening.
+  for (const s of [-1, 1]) {
+    colliders.push(col(GATE_POS.x + s * 8.5, 5, GATE_POS.z, 2.6, 10, 2.6));
   }
   return city;
 }

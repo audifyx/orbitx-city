@@ -1758,9 +1758,11 @@ function partMaterial(mat: PartMat, paint: MeshStandardMaterial, tint = 0): Mate
  * wheel costs one spoke mesh, not five. Local space: the star lies in
  * the XY plane (axle = Z), spokes full-depth so it reads from both
  * sides. Cached per (radius, width) — the catalog only has a handful.
+ * Exported: runtime.makeCar builds the same round-3 wheels for the
+ * legacy (non-catalog) cars, so the two builders never drift apart.
  */
 const spokeGeoCache = new Map<string, BufferGeometry>();
-function spokeGeometry(r: number, w: number): BufferGeometry {
+export function spokeGeometry(r: number, w: number): BufferGeometry {
   const key = `${r.toFixed(2)}x${w.toFixed(2)}`;
   const hit = spokeGeoCache.get(key);
   if (hit) return hit;
