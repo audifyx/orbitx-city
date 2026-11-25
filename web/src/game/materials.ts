@@ -579,12 +579,17 @@ interface MatSpec {
 
 const SPECS: Record<Mat, MatSpec> = {
   // Wet asphalt (realistic overhaul, 2026-11-24, deepened round 2,
-  // deepened again round 3): lower roughness + more metalness + a
-  // boosted env response so the street picks up neon + env reflections
-  // like the rain-slick roads in the style videos. graphics.ts
-  // upgradeMaterials() matches these values on medium/high/ultra, so
-  // the wet look is the same on phone and desktop.
-  asphalt: { color: 0x2a2f3a, tex: "asphalt", roughness: 0.22, metalness: 0.35, envMapIntensity: 1.6 },
+  // deepened again round 3, env response raised round 4: 1.6 -> 1.9): lower
+  // roughness + more metalness + a boosted env response so the street
+  // picks up neon + env reflections like the rain-slick roads in the
+  // style videos. graphics.ts upgradeMaterials() matches these values
+  // on medium/high/ultra, so the wet look is the same on phone and desktop.
+  asphalt: { color: 0x2a2f3a, tex: "asphalt", roughness: 0.22, metalness: 0.35, envMapIntensity: 1.9 },
+  // Round 4: the downtown core's extra-wet asphalt — mirrorier than the
+  // outer ring, so the neon around the plaza reads in the street. Same
+  // aggregate texture, lower roughness + more metalness + a boosted env
+  // response. graphics.ts upgradeMaterials() matches these values.
+  asphaltWet: { color: 0x232830, tex: "asphalt", roughness: 0.16, metalness: 0.4, envMapIntensity: 2.1 },
   sidewalk: { color: 0xcfd3da, tex: "cement" },
   sidewalkField: { color: 0xcfd3da, tex: "pavement", polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2 },
   plaza: { color: 0xe4e7ee, tex: "pavers" },
@@ -683,14 +688,15 @@ export function applyNightGlow(f: number) {
     entry.mat.emissiveIntensity = entry.day + (entry.night - entry.day) * t;
   }
 }
-// The shared neon/lamp/water materials brighten after dark.
-registerNightGlow(MATERIALS.cyan, 0.95, 1.7);
-registerNightGlow(MATERIALS.cyanhot, 1.15, 2.0);
-registerNightGlow(MATERIALS.warm, 0.85, 1.5);
-registerNightGlow(MATERIALS.red, 0.45, 1.0);
-registerNightGlow(MATERIALS.gold, 0.35, 0.8);
-registerNightGlow(MATERIALS.ceil, 0.72, 1.3);
-registerNightGlow(MATERIALS.water, 0.55, 1.2);
+// The shared neon/lamp/water materials brighten after dark (round 4:
+// stronger night glow — the neon reads further down the wet street).
+registerNightGlow(MATERIALS.cyan, 0.95, 2.0);
+registerNightGlow(MATERIALS.cyanhot, 1.15, 2.3);
+registerNightGlow(MATERIALS.warm, 0.85, 1.8);
+registerNightGlow(MATERIALS.red, 0.45, 1.1);
+registerNightGlow(MATERIALS.gold, 0.35, 1.0);
+registerNightGlow(MATERIALS.ceil, 0.72, 1.4);
+registerNightGlow(MATERIALS.water, 0.55, 1.3);
 
 export const GOLD = MATERIALS.gold;
 

@@ -183,20 +183,25 @@ export function upgradeMaterials(quality: GraphicsQuality): string[] {
     roughness: number,
     metalness: number,
     emissiveIntensity?: number,
+    envMapIntensity?: number,
   ) => {
     const mat = MATERIALS[key];
     if (!mat) return;
     mat.roughness = roughness;
     mat.metalness = metalness;
     if (emissiveIntensity !== undefined) mat.emissiveIntensity = emissiveIntensity;
+    if (envMapIntensity !== undefined) mat.envMapIntensity = envMapIntensity;
     changed.push(key);
   };
 
   // Roads: rain-slick wet look (round 2, matches the videos) — low
   // roughness + metalness so neon/headlights read in the street via the
-  // env map. Matches the wet values in materials.ts (deepened round 3);
-  // the old 0.88/0.05 stomped them dry on medium/high/ultra.
-  set("asphalt", 0.22, 0.35);
+  // env map. Matches the wet values in materials.ts (deepened round 3,
+  // env response raised round 4: 1.6 -> 1.9); the old 0.88/0.05
+  // stomped them dry on medium/high/ultra.
+  set("asphalt", 0.22, 0.35, undefined, 1.9);
+  // Downtown core: extra-wet (round 4), matches materials.ts.
+  set("asphaltWet", 0.16, 0.4, undefined, 2.1);
   // Gold trim / OrbitX accents: real metal feel, emissive kept so the
   // gold still glows with no environment map (see module header).
   set("gold", 0.38, 0.55, 0.5);
@@ -233,10 +238,12 @@ export function applyDayNightLighting(
 ): void {
   const ultra = quality === "ultra" ? 0.05 : 0;
   if (clockName === "night") {
-    if (lights.sun) lights.sun.intensity = 0.4;
-    if (lights.hemi) lights.hemi.intensity = 0.3;
+    // Round 4: slightly stronger night lighting — the warm window glow
+    // and neon carry further down the street after dark.
+    if (lights.sun) lights.sun.intensity = 0.45;
+    if (lights.hemi) lights.hemi.intensity = 0.35;
     if (lights.ambient) lights.ambient.intensity = 0.1;
-    if (lights.fill) lights.fill.intensity = 0.12;
+    if (lights.fill) lights.fill.intensity = 0.18;
   } else if (clockName === "day") {
     if (lights.sun) lights.sun.intensity = 1.7;
     if (lights.hemi) lights.hemi.intensity = 0.95 + ultra;
@@ -280,8 +287,9 @@ export function applyEnvironment(
   pmrem.dispose();
   scene.environment = envTex;
   // Low intensity: the sunset look comes from the lights, the env map
-  // only feeds reflections. 0.35 (high) / 0.5 (ultra).
-  scene.environmentIntensity = quality === "ultra" ? 0.5 : 0.35;
+  // only feeds reflections. 0.5 (high) / 0.7 (ultra) — raised round 4 so
+  // the wetter asphalt + glass actually pick the env up on phones.
+  scene.environmentIntensity = quality === "ultra" ? 0.7 : 0.5;
   return "applied";
 }
 

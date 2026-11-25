@@ -7,6 +7,7 @@ import { CHARGE_POINTS, GAS_STATIONS, RESTAURANT_PLACES } from "./content";
 
 export type Mat =
   | "asphalt"
+  | "asphaltWet"
   | "sidewalk"
   | "sidewalkField"
   | "plaza"
@@ -1605,14 +1606,16 @@ function addRoads(boxes: Box[]) {
       cx === 0 ? plazaBlock : cx === 72 || cx === -72 ? [[MALL.z0, MALL.z1]] : [];
     const zSpans = gaps.length ? gapsOutside(gaps, -184, 184) : [[-184, 184] as [number, number]];
     for (const [z0, z1] of zSpans) {
-      put(boxes, cx, 0.055, (z0 + z1) / 2, HALF * 2, 0.05, z1 - z0, "asphalt");
+      // Round 4: downtown core avenues (|cx| <= 36, around the plaza)
+      // are extra-wet asphalt — the neon reads in the street there.
+      put(boxes, cx, 0.055, (z0 + z1) / 2, HALF * 2, 0.05, z1 - z0, Math.abs(cx) <= 36 ? "asphaltWet" : "asphalt");
     }
   }
   for (const cz of CENTERS) {
     const extra = cz === 0 ? [...plazaBlock, [MALL.x0, MALL.x1] as [number, number], [OFFICE.x0, OFFICE.x1] as [number, number]] : [];
     const xSpans = gapsOutside([...nsBlock, ...extra], -184, 184);
     for (const [x0, x1] of xSpans) {
-      put(boxes, (x0 + x1) / 2, 0.055, cz, x1 - x0, 0.05, HALF * 2, "asphalt");
+      put(boxes, (x0 + x1) / 2, 0.055, cz, x1 - x0, 0.05, HALF * 2, Math.abs(cz) <= 36 ? "asphaltWet" : "asphalt");
     }
   }
 
@@ -1727,8 +1730,8 @@ function addRoads(boxes: Box[]) {
       }
     }
   }
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
     bollards.push({ x: Math.cos(a) * 30.5, z: Math.sin(a) * 30.5 });
   }
   // Varied sidewalk slab tones: one thin slab per block, alternating
@@ -1887,6 +1890,15 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng, zones: DoorZone
         // like the lamps so one never lands in a door walk-up.
         if (lampI % 12 === 3 && !inBusRoad(x, z + 4) && !lampBlockedByDoor(x, z + 4, zones)) addBench(boxes, cols, x, z + 4, false);
         if (lampI % 12 === 9 && !inBusRoad(x, z - 4) && !lampBlockedByDoor(x, z - 4, zones)) addPlanter(boxes, cols, x, z - 4);
+        // Round 4: flat flower strips on the bare sidewalk between the
+        // bench/planter slots — 0.08 high, walkable, so no collider.
+        // Alternating red / white by slot, door-guarded like the rest.
+        if (lampI % 12 === 5 && !inBusRoad(x, z + 8) && !lampBlockedByDoor(x, z + 8, zones)) {
+          put(boxes, x, 0.2, z + 8, 0.55, 0.08, 3.0, lampI % 24 === 5 ? "red" : "white");
+        }
+        if (lampI % 12 === 11 && !inBusRoad(x, z - 8) && !lampBlockedByDoor(x, z - 8, zones)) {
+          put(boxes, x, 0.2, z - 8, 0.55, 0.08, 3.0, lampI % 24 === 11 ? "white" : "red");
+        }
       }
     }
   }
@@ -1903,6 +1915,14 @@ function addStreetLife(boxes: Box[], cols: Collider[], rng: Rng, zones: DoorZone
         const slot = (x + 170) / 16;
         if (slot % 12 === 3 && !inBusRoad(x + 4, z) && !lampBlockedByDoor(x + 4, z, zones)) addBench(boxes, cols, x + 4, z, true);
         if (slot % 12 === 9 && !inBusRoad(x - 4, z) && !lampBlockedByDoor(x - 4, z, zones)) addPlanter(boxes, cols, x - 4, z);
+        // Round 4: flat flower strips on the bare sidewalk (walkable, no
+        // collider), same pattern as the N/S streets above.
+        if (slot % 12 === 5 && !inBusRoad(x + 8, z) && !lampBlockedByDoor(x + 8, z, zones)) {
+          put(boxes, x + 8, 0.2, z, 3.0, 0.08, 0.55, slot % 24 === 5 ? "red" : "white");
+        }
+        if (slot % 12 === 11 && !inBusRoad(x - 8, z) && !lampBlockedByDoor(x - 8, z, zones)) {
+          put(boxes, x - 8, 0.2, z, 3.0, 0.08, 0.55, slot % 24 === 11 ? "white" : "red");
+        }
       }
     }
   }

@@ -21,6 +21,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { Facade, Face } from "./city";
 import { porchPosts, porchSlab } from "./city";
 import { applyNightGlow, textureFor } from "./materials";
+import { makeNeonSign } from "./signs";
 
 export type QualityName = "low" | "medium" | "high";
 
@@ -441,9 +442,43 @@ const CURTAIN_GLASS_MAT = new MeshStandardMaterial({
   transparent: true,
   opacity: 0.55,
 });
+/** Round 4: cool unlit office glass (upper window bands) + gold /
+ * magenta accent curtain glass — per-cell window variation so towers
+ * don't share one flat glass read. Palette stays restrained: cyan,
+ * warm, gold, magenta — the video frames' neon, no rainbow. */
+const COOL_GLASS_MAT = new MeshStandardMaterial({
+  color: 0x1a2f44,
+  emissive: 0x0a2a44,
+  emissiveIntensity: 0.15,
+  roughness: 0.08,
+  metalness: 0.5,
+  transparent: true,
+  opacity: 0.6,
+});
+const GOLD_GLASS_MAT = new MeshStandardMaterial({
+  color: 0xffd98a,
+  emissive: 0xffb347,
+  emissiveIntensity: 0.35,
+  roughness: 0.08,
+  metalness: 0.45,
+  transparent: true,
+  opacity: 0.55,
+});
+const MAGENTA_GLASS_MAT = new MeshStandardMaterial({
+  color: 0xff9ed2,
+  emissive: 0xff2ea6,
+  emissiveIntensity: 0.35,
+  roughness: 0.08,
+  metalness: 0.45,
+  transparent: true,
+  opacity: 0.55,
+});
 const FRAME_MAT = new MeshStandardMaterial({ color: 0x1a2028, roughness: 0.5, metalness: 0.4 });
 nightMats.push({ mat: WINDOW_GLASS_MAT, day: 0.3, night: 1.9 });
 nightMats.push({ mat: CURTAIN_GLASS_MAT, day: 0.35, night: 1.5 });
+nightMats.push({ mat: COOL_GLASS_MAT, day: 0.15, night: 0.5 });
+nightMats.push({ mat: GOLD_GLASS_MAT, day: 0.35, night: 1.6 });
+nightMats.push({ mat: MAGENTA_GLASS_MAT, day: 0.35, night: 1.6 });
 
 /** Glazing coverage, filled by mountPretty so the game page can report it. */
 export const glassStats = { homes: 0, offices: 0, windows: 0, panes: 0 };
@@ -822,6 +857,33 @@ function addFrustum(
   group.add(cap);
 }
 
+/** Round 4: split a window band into per-window cells between the
+ * mullions (mullions every 2.9u from origin+1.8, matching the frame
+ * boxes below). Returns [start, end] pairs along the band. */
+function windowCells(origin: number, span: number): Array<[number, number]> {
+  const mullions: number[] = [];
+  for (let a = origin + 1.8; a < origin + span - 1.5; a += 2.9) mullions.push(a);
+  const edges = [origin + 0.5, ...mullions.flatMap((m) => [m - 0.07, m + 0.07]), origin + span - 0.5];
+  const cells: Array<[number, number]> = [];
+  for (let i = 0; i + 1 < edges.length; i += 2) {
+    const c0 = edges[i]!;
+    const c1 = edges[i + 1]!;
+    if (c1 - c0 >= 0.5) cells.push([c0, c1]);
+  }
+  return cells;
+}
+
+/** Round 4: which glass a curtain cell gets — cool curtain by default,
+ * warm-lit on ~2 of 5 cells, gold on style-5 (OrbitX identity) accent
+ * cells, magenta on style-4 (neon commercial) accent cells. */
+function curtainCellMat(style: number, cellIdx: number, seed: number): MeshStandardMaterial {
+  const roll = (cellIdx * 7 + seed) % 5;
+  if (roll < 2) return WINDOW_GLASS_MAT;
+  if (style === 5 && roll === 2) return GOLD_GLASS_MAT;
+  if (style === 4 && roll === 2) return MAGENTA_GLASS_MAT;
+  return CURTAIN_GLASS_MAT;
+}
+
 /** Glass curtain bands on one step's upper walls (office towers only) —
  * the same bands hollow() paints on the ground shell, factored out so
  * stepped upper steps get them too. yStart/yEnd are absolute. */
@@ -833,9 +895,20 @@ function addCurtainBands(
   d: number,
   yStart: number,
   yEnd: number,
+  style = 0,
 ) {
-  const bandMat = CURTAIN_GLASS_MAT;
+  // Round 4: the band is no longer one continuous glass strip — each
+  // window is its own cell (warm-lit / cool / gold / magenta by style),
+  // divided by real mullions. Glass is merged per material (4 meshes
+  // per call, whatever the cell count), so draw calls stay flat.
+  const warmBoxes: BoxTuple[] = [];
+  const coolBoxes: BoxTuple[] = [];
+  const goldBoxes: BoxTuple[] = [];
+  const magentaBoxes: BoxTuple[] = [];
+  const mullionBoxes: BoxTuple[] = [];
+  const seed = Math.abs(Math.round(x * 3 + z * 7));
   for (let y = yStart; y + 0.9 < yEnd - 0.4; y += 4) {
+    const floorIdx = Math.round((y - yStart) / 4);
     for (const face of ["n", "s", "w", "e"] as const) {
       const alongX = face === "n" || face === "s";
       const span = alongX ? w : d;
@@ -843,22 +916,35 @@ function addCurtainBands(
       const mid = origin + span / 2;
       const len = span - 1;
       const off = 0.06;
-      if (face === "n") {
-        glassPane(group, bandMat, mid, y, z - off, len, 1.8, 0.1);
-        frameMesh(group, len, 1.8, mid, y, z - off - 0.02, faceRotY(face), true);
-      } else if (face === "s") {
-        glassPane(group, bandMat, mid, y, z + d + off, len, 1.8, 0.1);
-        frameMesh(group, len, 1.8, mid, y, z + d + off + 0.02, faceRotY(face), true);
-      } else if (face === "w") {
-        glassPane(group, bandMat, x - off, y, mid, 0.1, 1.8, len);
-        frameMesh(group, len, 1.8, x - off - 0.02, y, mid, faceRotY(face), true);
-      } else {
-        glassPane(group, bandMat, x + w + off, y, mid, 0.1, 1.8, len);
-        frameMesh(group, len, 1.8, x + w + off + 0.02, y, mid, faceRotY(face), true);
+      const plane = face === "n" ? z - off : face === "s" ? z + d + off : face === "w" ? x - off : x + w + off;
+      const framePlane = plane + (face === "n" || face === "w" ? -0.02 : 0.02);
+      const cells = windowCells(origin, span);
+      cells.forEach(([c0, c1], cellIdx) => {
+        const cm = (c0 + c1) / 2;
+        const cw = c1 - c0;
+        const mat = curtainCellMat(style, cellIdx + floorIdx * 3, seed);
+        const arr = mat === WINDOW_GLASS_MAT ? warmBoxes : mat === GOLD_GLASS_MAT ? goldBoxes : mat === MAGENTA_GLASS_MAT ? magentaBoxes : coolBoxes;
+        if (alongX) arr.push([cm, y, plane, cw, 1.8, 0.1]);
+        else arr.push([plane, y, cm, 0.1, 1.8, cw]);
+      });
+      // Mullions between the cells, proud of the glass.
+      for (let a = origin + 1.8; a < origin + span - 1.5; a += 2.9) {
+        if (alongX) mullionBoxes.push([a, y, plane - (face === "n" ? 0.02 : -0.02), 0.14, 1.8, 0.12]);
+        else mullionBoxes.push([plane - (face === "w" ? 0.02 : -0.02), y, a, 0.12, 1.8, 0.14]);
       }
+      // Rails + side stiles (the cached band frame, one mesh per band).
+      if (face === "n") frameMesh(group, len, 1.8, mid, y, framePlane, faceRotY(face), true);
+      else if (face === "s") frameMesh(group, len, 1.8, mid, y, framePlane, faceRotY(face), true);
+      else if (face === "w") frameMesh(group, len, 1.8, framePlane, y, mid, faceRotY(face), true);
+      else frameMesh(group, len, 1.8, framePlane, y, mid, faceRotY(face), true);
       glassStats.panes++;
     }
   }
+  addMergedBoxes(group, warmBoxes, WINDOW_GLASS_MAT, false);
+  addMergedBoxes(group, coolBoxes, CURTAIN_GLASS_MAT, false);
+  addMergedBoxes(group, goldBoxes, GOLD_GLASS_MAT, false);
+  addMergedBoxes(group, magentaBoxes, MAGENTA_GLASS_MAT, false);
+  addMergedBoxes(group, mullionBoxes, FRAME_MAT, false);
 }
 
 /**
@@ -888,7 +974,8 @@ function addUpperWindowBands(
 ) {
   if (y1 - y0 < 3.5) return;
   const frameBoxes: BoxTuple[] = [];
-  const glassBoxes: BoxTuple[] = [];
+  const warmGlassBoxes: BoxTuple[] = [];
+  const coolGlassBoxes: BoxTuple[] = [];
   const backBoxes: BoxTuple[] = [];
   let bands = 0;
   for (let cy = y0 + 2.65; cy + 0.65 < y1 - 0.3; cy += 3.5) {
@@ -911,7 +998,14 @@ function addUpperWindowBands(
       // glass (+0.055), frame front (+0.11) — the glass reads recessed
       // 0.05 behind the frame.
       boxAt(backBoxes, mid, cy, 0.01, len, 1.3, 0.04);
-      boxAt(glassBoxes, mid, cy, 0.035, len - 0.2, 1.14, 0.04);
+      // Round 4: the glass is no longer one continuous strip — each
+      // window is its own pane, ~40% warm-lit, the rest cool unlit
+      // office glass, so the band reads as individual windows.
+      const seed = Math.abs(Math.round(x * 3 + z * 7 + cy * 2));
+      windowCells(origin, span).forEach(([c0, c1], cellIdx) => {
+        const lit = ((cellIdx * 7 + seed) % 5) < 2;
+        boxAt(lit ? warmGlassBoxes : coolGlassBoxes, (c0 + c1) / 2, cy, 0.035, c1 - c0, 1.14, 0.04);
+      });
       boxAt(frameBoxes, mid, cy + 0.65, 0.05, len, 0.14, 0.12);
       boxAt(frameBoxes, mid, cy - 0.65, 0.05, len, 0.14, 0.12);
       boxAt(frameBoxes, mid, cy - 0.72, 0.08, len + 0.2, 0.12, 0.3);
@@ -923,7 +1017,8 @@ function addUpperWindowBands(
   }
   if (bands === 0) return;
   addMergedBoxes(group, backBoxes, DARK_MAT, false);
-  addMergedBoxes(group, glassBoxes, WINDOW_GLASS_MAT, false);
+  addMergedBoxes(group, warmGlassBoxes, WINDOW_GLASS_MAT, false);
+  addMergedBoxes(group, coolGlassBoxes, COOL_GLASS_MAT, false);
   addMergedBoxes(group, frameBoxes, FRAME_MAT, false);
   glassStats.panes += bands;
 }
@@ -1013,7 +1108,7 @@ function steppedHollow(facade: Facade, material: MeshStandardMaterial, glaze: bo
       addWorldUvBoxes(group, wallBoxes, material, 10, 14, true);
     }
     if (facade.glass === "curtain" && !taper) {
-      addCurtainBands(group, s.x, s.z, s.w, s.d, s.y0 + 2.0, top);
+      addCurtainBands(group, s.x, s.z, s.w, s.d, s.y0 + 2.0, top, facade.style);
     }
     // Round 3: recessed window bands on non-curtain upper steps.
     if (facade.glass !== "curtain" && !taper) {
@@ -1364,8 +1459,17 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
   // carries the look instead.
   if (glass === "curtain" && !facade.taper) {
     const startY = proud > 0 ? 9.8 : 5.8;
-    const bandMat = CURTAIN_GLASS_MAT;
+    // Round 4: per-cell glass (warm-lit / cool / gold / magenta by
+    // style) + real mullions, merged per material like addCurtainBands
+    // — the ground shell's bands were the last continuous strips.
+    const warmBoxes: BoxTuple[] = [];
+    const coolBoxes: BoxTuple[] = [];
+    const goldBoxes: BoxTuple[] = [];
+    const magentaBoxes: BoxTuple[] = [];
+    const mullionBoxes: BoxTuple[] = [];
+    const seed = Math.abs(Math.round(facade.x * 3 + facade.z * 7));
     for (let y = startY; y + 0.9 < h - 0.4; y += 4) {
+      const floorIdx = Math.round((y - startY) / 4);
       for (const face of ["n", "s", "w", "e"] as const) {
         const alongX = face === "n" || face === "s";
         const span = alongX ? w : d;
@@ -1384,23 +1488,33 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
           const mid = (a0 + a1) / 2;
           const len = a1 - a0;
           const off = proud + 0.06;
-          if (face === "n") {
-            glassPane(group, bandMat, mid, y, z - off, len, 1.8, 0.1);
-            frameMesh(group, len, 1.8, mid, y, z - off - 0.02, faceRotY(face), true);
-          } else if (face === "s") {
-            glassPane(group, bandMat, mid, y, z + d + off, len, 1.8, 0.1);
-            frameMesh(group, len, 1.8, mid, y, z + d + off + 0.02, faceRotY(face), true);
-          } else if (face === "w") {
-            glassPane(group, bandMat, x - off, y, mid, 0.1, 1.8, len);
-            frameMesh(group, len, 1.8, x - off - 0.02, y, mid, faceRotY(face), true);
-          } else {
-            glassPane(group, bandMat, x + w + off, y, mid, 0.1, 1.8, len);
-            frameMesh(group, len, 1.8, x + w + off + 0.02, y, mid, faceRotY(face), true);
+          const plane = face === "n" ? z - off : face === "s" ? z + d + off : face === "w" ? x - off : x + w + off;
+          const framePlane = plane + (face === "n" || face === "w" ? -0.02 : 0.02);
+          windowCells(a0, len).forEach(([c0, c1], cellIdx) => {
+            const cm = (c0 + c1) / 2;
+            const cw = c1 - c0;
+            const mat = curtainCellMat(facade.style, cellIdx + floorIdx * 3, seed);
+            const arr = mat === WINDOW_GLASS_MAT ? warmBoxes : mat === GOLD_GLASS_MAT ? goldBoxes : mat === MAGENTA_GLASS_MAT ? magentaBoxes : coolBoxes;
+            if (alongX) arr.push([cm, y, plane, cw, 1.8, 0.1]);
+            else arr.push([plane, y, cm, 0.1, 1.8, cw]);
+          });
+          for (let a = a0 + 1.8; a < a1 - 1.5; a += 2.9) {
+            if (alongX) mullionBoxes.push([a, y, plane - (face === "n" ? 0.02 : -0.02), 0.14, 1.8, 0.12]);
+            else mullionBoxes.push([plane - (face === "w" ? 0.02 : -0.02), y, a, 0.12, 1.8, 0.14]);
           }
+          if (face === "n") frameMesh(group, len, 1.8, mid, y, framePlane, faceRotY(face), true);
+          else if (face === "s") frameMesh(group, len, 1.8, mid, y, framePlane, faceRotY(face), true);
+          else if (face === "w") frameMesh(group, len, 1.8, framePlane, y, mid, faceRotY(face), true);
+          else frameMesh(group, len, 1.8, framePlane, y, mid, faceRotY(face), true);
           glassStats.panes++;
         }
       }
     }
+    addMergedBoxes(group, warmBoxes, WINDOW_GLASS_MAT, false);
+    addMergedBoxes(group, coolBoxes, CURTAIN_GLASS_MAT, false);
+    addMergedBoxes(group, goldBoxes, GOLD_GLASS_MAT, false);
+    addMergedBoxes(group, magentaBoxes, MAGENTA_GLASS_MAT, false);
+    addMergedBoxes(group, mullionBoxes, FRAME_MAT, false);
   }
 
   const capPad = proud > 0 ? 0.6 : 0;
@@ -1887,6 +2001,24 @@ function addStorefront(group: Group, f: Facade) {
         : [valPos, 3.78, cz, 0.08, 0.22, paneW + 1],
     ];
     addMergedBoxes(group, valBoxes, WHITE_MAT, false);
+    // Round 4: scalloped valance — a row of half-round fabric bumps
+    // along the valance's front edge instead of a straight drop strip.
+    // One merged mesh per awning.
+    const scallopGeos: BufferGeometry[] = [];
+    const nScallops = Math.max(2, Math.floor((paneW + 1) / 1.15));
+    for (let i = 0; i < nScallops; i++) {
+      const t = nScallops === 1 ? 0 : i / (nScallops - 1);
+      const along = -((paneW + 1) / 2 - 0.55) + t * (paneW + 1 - 1.1);
+      const sg = new SphereGeometry(0.16, 8, 6);
+      sg.scale(1, 0.75, 1);
+      if (alongX) sg.translate(cx + along, 3.68, valPos);
+      else sg.translate(valPos, 3.68, cz + along);
+      scallopGeos.push(sg);
+    }
+    const scallopMerged = mergeGeometries(scallopGeos) ?? scallopGeos[0]!;
+    const scallops = new Mesh(scallopMerged, WHITE_MAT);
+    group.add(scallops);
+    for (const g of scallopGeos) if (g !== scallopMerged) g.dispose();
     for (const s of [-1, 1]) {
       const off = s * (paneW * 0.44);
       darkBoxes.push(
@@ -1923,6 +2055,60 @@ function addStorefront(group: Group, f: Facade) {
     }
   }
   addMergedBoxes(group, mullionBoxes, DARK_MAT, false);
+
+  // Round 4: window display with depth — a shelf just inside the glass
+  // with goods at varied depths, so the shopfront reads as a real
+  // display, not a flat lit plane. Skips the door gap. One merged mesh
+  // per shop (shelf + goods share the shop's accent goods material).
+  const dispPlane = wallPlane - outSign * 0.9;
+  const dC = alongX ? cx : cz;
+  const dispSegs: Array<[number, number]> = [];
+  if (doorGap > 0) {
+    dispSegs.push([dC - paneW / 2 + 0.4, dC - doorGap - 0.2], [dC + doorGap + 0.2, dC + paneW / 2 - 0.4]);
+  } else {
+    dispSegs.push([dC - paneW / 2 + 0.4, dC + paneW / 2 - 0.4]);
+  }
+  const dispShelfBoxes: BoxTuple[] = [];
+  const dispGoodsBoxes: BoxTuple[] = [];
+  for (const [s0, s1] of dispSegs) {
+    if (s1 - s0 < 1.2) continue;
+    const sm = (s0 + s1) / 2;
+    const sw = s1 - s0;
+    if (alongX) dispShelfBoxes.push([sm, 1.0, dispPlane, sw, 0.1, 0.5]);
+    else dispShelfBoxes.push([dispPlane, 1.0, sm, 0.5, 0.1, sw]);
+    for (let gi = 0; gi < 3; gi++) {
+      const gx = s0 + 0.55 + gi * ((sw - 1.1) / 2);
+      const off = (gi === 1 ? 0.1 : -0.08) * outSign;
+      if (alongX) dispGoodsBoxes.push([gx, 1.28, dispPlane + off, 0.42, 0.42, 0.42]);
+      else dispGoodsBoxes.push([dispPlane + off, 1.28, gx, 0.42, 0.42, 0.42]);
+    }
+  }
+  addMergedBoxes(group, dispShelfBoxes, WOOD_MAT, false);
+  addMergedBoxes(group, dispGoodsBoxes, GOODS_MATS[Math.abs(f.id.length) % GOODS_MATS.length], false);
+
+  // Round 4: hanging blade sign — a perpendicular neon "OPEN" blade on
+  // a drop rod at the storefront edge, so the shop reads from down the
+  // street, not just head-on. Cyan / pink alternate by shop.
+  const blade = makeNeonSign("OPEN", {
+    width: 1.5,
+    color: Math.abs(f.id.length) % 2 === 0 ? "cyan" : "pink",
+    doubleSide: true,
+  });
+  if (blade) {
+    const bladeOff = paneW / 2 - 0.8;
+    const bx = alongX ? cx + bladeOff : wallPlane + outSign * 0.75;
+    const bz = alongX ? wallPlane + outSign * 0.75 : cz + bladeOff;
+    blade.position.set(bx, 2.95, bz);
+    blade.rotation.y = alongX ? Math.PI / 2 : 0;
+    group.add(blade);
+    // Drop rod from the sign band down to the blade's inner edge.
+    const rodBoxes: BoxTuple[] = [
+      alongX
+        ? [bx, 3.3, wallPlane + outSign * 0.05, 0.08, 0.7, 0.08]
+        : [wallPlane + outSign * 0.05, 3.3, bz, 0.08, 0.7, 0.08],
+    ];
+    addMergedBoxes(group, rodBoxes, DARK_MAT, false);
+  }
 
   // Round 3: neon spill — a soft additive glow pool on the sidewalk in
   // front of the shopfront, faking the wet-asphalt reflection of the
@@ -2213,7 +2399,7 @@ function addTiers(group: Group, f: Facade, material: MeshStandardMaterial) {
     // their glass bands, everything else gets recessed window bands.
     // (Tiered towers had no upper glass at all before this.)
     if (f.glass === "curtain") {
-      addCurtainBands(group, cx - tier.w / 2, cz - tier.d / 2, tier.w, tier.d, y + 2.0, y + tier.h);
+      addCurtainBands(group, cx - tier.w / 2, cz - tier.d / 2, tier.w, tier.d, y + 2.0, y + tier.h, f.style);
     } else {
       addUpperWindowBands(group, cx - tier.w / 2, cz - tier.d / 2, tier.w, tier.d, y, y + tier.h);
     }

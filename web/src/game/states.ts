@@ -371,9 +371,11 @@ export function buildRegionRoads(city: City, state: StateDef): void {
   for (const c of REGION_ROAD_CENTERS) {
     // N/S asphalt strip: c=0 splits around the State Office Tower superblock
     // (cz-72..cz-44) and the Central Plaza / Landmark Tower (cz-31..cz+31).
+    // Round 4: the central avenue (c=0) is extra-wet asphalt — the neon
+    // around the plaza reads in the street there.
     if (c === 0) {
-      pushBox(city, cx, 0.06, cz - 133.5, ROAD_HALF * 2, 0.12, 113, "asphalt");
-      pushBox(city, cx, 0.06, cz + 110.5, ROAD_HALF * 2, 0.12, 159, "asphalt");
+      pushBox(city, cx, 0.06, cz - 133.5, ROAD_HALF * 2, 0.12, 113, "asphaltWet");
+      pushBox(city, cx, 0.06, cz + 110.5, ROAD_HALF * 2, 0.12, 159, "asphaltWet");
     } else {
       pushBox(city, cx + c, 0.06, cz, ROAD_HALF * 2, 0.12, span, "asphalt");
     }
@@ -382,7 +384,7 @@ export function buildRegionRoads(city: City, state: StateDef): void {
       const inPlaza = Math.abs(b) <= 18;
       // Skip E/W road segments inside the Central Plaza (c=0) and the Office Tower back wall (c=-72).
       if (!((c === 0 || c === -72) && inPlaza)) {
-        pushBox(city, cx + b, 0.06, cz + c, blockSpan, 0.12, ROAD_HALF * 2, "asphalt");
+        pushBox(city, cx + b, 0.06, cz + c, blockSpan, 0.12, ROAD_HALF * 2, c === 0 ? "asphaltWet" : "asphalt");
       }
       // Sidewalks along each block edge (never crossing road intersections, the plaza, or the office tower).
       if (!(c === 0 && (Math.abs(b) <= 18 || b === -54))) {
