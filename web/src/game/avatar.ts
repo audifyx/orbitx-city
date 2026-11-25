@@ -368,7 +368,7 @@ export function dressPerson(
   // Named "legs"/"torso"/"head" so movement.ts finds them by name;
   // the walker replaces the legs with two capsule limbs pivoting at
   // HIP_Y and hangs arms from shoulder height (TORSO_Y + 0.32).
-  addExact(group, UNIT_ROUNDED, legsColor, 0, 0.31, 0, 0.44, 0.62, 0.3, "legs");
+  addExact(group, UNIT_ROUNDED, legsColor, 0, HIP_Y / 2, 0, 0.44, 0.62, 0.3, "legs");
   // Wardrobe shoes: two ROUND shoes at the feet (spheres, not boxes) —
   // built exact so the walker's static-shoe removal still matches.
   if (shop.wardrobe?.shoes && SHOE_COLORS[shop.wardrobe.shoes]) {
