@@ -35,12 +35,16 @@ import {
   Group,
   Mesh,
   MeshBasicMaterial,
+  MeshPhysicalMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
   Shape,
   SRGBColorSpace,
+  TorusGeometry,
+  type BufferGeometry,
   type Material,
 } from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { GOLD, MATERIALS } from "./materials";
 
 // ---------------------------------------------------------------------------
@@ -1719,15 +1723,17 @@ function partMaterial(mat: PartMat, paint: MeshStandardMaterial, tint = 0): Mate
       return paint;
     case "glass": {
       // Window tint: darker + less see-through as the level rises.
+      // Round 3: real depth — low roughness + high metalness + env
+      // intensity so the glass catches the sky/neon like the frames.
       const t = Math.max(0, Math.min(3, tint)) / 3;
       const c = new Color().setHex(0xbfe6ff).lerp(new Color().setHex(0x0a0f14), t);
       return new MeshStandardMaterial({
         color: c.getHex(), emissive: 0x3d7fa8, emissiveIntensity: 0.55 * (1 - t * 0.8),
-        roughness: 0.12, metalness: 0.35, transparent: true, opacity: 0.85 - t * 0.4,
+        roughness: 0.08, metalness: 0.6, envMapIntensity: 1.6, transparent: true, opacity: 0.9 - t * 0.4,
       });
     }
     case "chrome":
-      return new MeshStandardMaterial({ color: 0xc9ced6, roughness: 0.25, metalness: 0.8 });
+      return new MeshStandardMaterial({ color: 0xc9ced6, roughness: 0.18, metalness: 0.9, envMapIntensity: 1.5 });
     case "dark":
       return new MeshStandardMaterial({ color: 0x111318, roughness: 0.5, metalness: 0.5 });
     case "gold":
@@ -1735,14 +1741,40 @@ function partMaterial(mat: PartMat, paint: MeshStandardMaterial, tint = 0): Mate
     case "white":
       return new MeshStandardMaterial({ color: 0xf4f6fa, roughness: 0.4, metalness: 0.2 });
     case "headlight":
-      return new MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff6d8, emissiveIntensity: 1.4, roughness: 0.2 });
+      // Round 3: LED-bright — the frames' cars have angular glowing
+      // headlights; emissive 2.2 + bloom reads as lit at dusk.
+      return new MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff6d8, emissiveIntensity: 2.2, roughness: 0.15 });
     case "tail":
-      return new MeshStandardMaterial({ color: 0xff4b5c, emissive: 0xaa1830, emissiveIntensity: 0.8, roughness: 0.3 });
+      return new MeshStandardMaterial({ color: 0xff4b5c, emissive: 0xdd1028, emissiveIntensity: 1.6, roughness: 0.25 });
     case "tire":
       return new MeshStandardMaterial({ color: 0x111318, roughness: 0.6, metalness: 0.4 });
     case "glow":
       return MATERIALS.cyan;
   }
+}
+
+/**
+ * Round 3 — one 5-spoke alloy star, merged into a single geometry so a
+ * wheel costs one spoke mesh, not five. Local space: the star lies in
+ * the XY plane (axle = Z), spokes full-depth so it reads from both
+ * sides. Cached per (radius, width) — the catalog only has a handful.
+ */
+const spokeGeoCache = new Map<string, BufferGeometry>();
+function spokeGeometry(r: number, w: number): BufferGeometry {
+  const key = `${r.toFixed(2)}x${w.toFixed(2)}`;
+  const hit = spokeGeoCache.get(key);
+  if (hit) return hit;
+  const geos: BufferGeometry[] = [];
+  for (let i = 0; i < 5; i++) {
+    const g = new BoxGeometry(r * 0.58, 0.11, w * 0.9);
+    g.translate(r * 0.32, 0, 0);
+    g.rotateZ((i * Math.PI * 2) / 5);
+    geos.push(g);
+  }
+  const merged = mergeGeometries(geos) ?? geos[0]!;
+  for (const g of geos) if (g !== merged) g.dispose();
+  spokeGeoCache.set(key, merged);
+  return merged;
 }
 
 /**
@@ -1880,7 +1912,12 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
   group.rotation.order = "YXZ";
   const box = new BoxGeometry(1, 1, 1);
   const paints: MeshStandardMaterial[] = [];
-  const paint = new MeshStandardMaterial({
+  // Round 3: clearcoat paint — MeshPhysicalMaterial is a
+  // MeshStandardMaterial subclass, so retint() (color.setHex on the
+  // paints array) keeps working unchanged. Clearcoat + low roughness
+  // is the polished showroom look from the frames; dirt still kills
+  // the shine via the roughness climb.
+  const paint = new MeshPhysicalMaterial({
     color: dirtPaintHex(paintHex(color ?? v.defaultColor), wear.dirt),
     emissive: 0x12141c,
     emissiveIntensity: 0.18,
@@ -1889,6 +1926,9 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
     // cars read like the AI demo's glossy sedan, not matte plastic.
     roughness: 0.28 + 0.55 * (wear.dirt / 100),
     metalness: 0.45,
+    clearcoat: 1,
+    clearcoatRoughness: 0.12,
+    envMapIntensity: 1.4,
   });
   paints.push(paint);
   // Damage dulls the paint a touch more (a banged-up car never shines).
@@ -1904,6 +1944,15 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
     group.add(mesh);
     return mesh;
   };
+  // Round 3: rotated box part (sloped hoods, wrap-around lenses) — same
+  // unit box as add(), plus small rz/ry angles. Not added to the group
+  // by the caller: returns the mesh like add().
+  const addR = (material: Material, x: number, y: number, z: number, sx: number, sy: number, sz: number, rz = 0, ry = 0) => {
+    const mesh = add(material, x, y, z, sx, sy, sz);
+    if (rz) mesh.rotation.z = rz;
+    if (ry) mesh.rotation.y = ry;
+    return mesh;
+  };
   const addPart = (part: VehiclePart) => {
     const mesh = add(partMaterial(part.mat, paint, part.mat === "glass" ? mods.tint : 0), part.x, part.y, part.z, part.sx, part.sy, part.sz);
     if (part.name) mesh.name = part.name;
@@ -1914,9 +1963,15 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
   // nose, flat top for the hood/cabin/trunk, tapered tail — not a box.
   group.add(extrudedBodyMesh(paint, p.length, p.bodyH, p.width, p.bodyY));
 
-  // Hood / nose slab at the front (+X).
+  // Hood / nose slab at the front (+X). Round 3: sloped — the slab
+  // rakes down toward the nose (rz -0.10) instead of sitting flat, so
+  // the front reads as a real hood line, not a box lid. Sports cars
+  // get a centre power bulge on the hood.
   if (p.hoodLen > 0) {
-    add(paint, half - p.hoodLen / 2, p.bodyY + p.bodyH / 2 + p.hoodH / 2 - 0.02, 0, p.hoodLen, p.hoodH, p.width - 0.14);
+    addR(paint, half - p.hoodLen / 2, p.bodyY + p.bodyH / 2 + p.hoodH / 2 - 0.02, 0, p.hoodLen, p.hoodH, p.width - 0.14, -0.1);
+    if (v.stats.speed >= 8) {
+      addR(paint, half - p.hoodLen / 2, p.bodyY + p.bodyH / 2 + p.hoodH + 0.02, 0, p.hoodLen * 0.6, 0.08, 0.5, -0.1);
+    }
   }
 
   if (p.wedge) {
@@ -1941,6 +1996,25 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
       // Glass casts no solid shadow (three.js shadows ignore transparency).
       shield.castShadow = false;
       group.add(shield);
+      // Round 3: recessed side glass — a dark pocket proud of the cabin
+      // side, glass set 0.03 deeper inside it, split by a B-pillar, so
+      // the side windows read as real inset windows instead of a flat
+      // glass roof slab. Plus a raked rear window to match the shield.
+      for (const s of [-1, 1]) {
+        add(partMaterial("dark", paint), p.cabinX, cabinY + 0.02, s * (p.cabinW / 2 + 0.005), p.cabinLen - 0.55, p.cabinH * 0.62, 0.05);
+        // Glass outer face sits 0.005 proud of the cabin side (the cabin
+        // is a solid box — any deeper and the glass hides inside it);
+        // the dark pocket stands 0.03 proud, so the glass still reads
+        // as set into a recessed opening.
+        add(partMaterial("glass", paint, mods.tint), p.cabinX, cabinY + 0.02, s * (p.cabinW / 2 - 0.015), p.cabinLen - 0.75, p.cabinH * 0.5, 0.04);
+        add(partMaterial("dark", paint), p.cabinX, cabinY + 0.02, s * (p.cabinW / 2 + 0.01), 0.1, p.cabinH * 0.6, 0.05);
+      }
+      const rearGlass = new Mesh(box, partMaterial("glass", paint, mods.tint));
+      rearGlass.scale.set(0.08, p.cabinH * 0.8, p.cabinW - 0.3);
+      rearGlass.position.set(p.cabinX - p.cabinLen / 2 + 0.08, cabinY + p.cabinH * 0.08, 0);
+      rearGlass.rotation.z = -0.45;
+      rearGlass.castShadow = false;
+      group.add(rearGlass);
     } else {
       add(paint, p.cabinX, cabinY + p.cabinH / 2 + 0.05, 0, p.cabinLen - 0.2, 0.1, p.cabinW - 0.1);
     }
@@ -1968,16 +2042,25 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
       add(paint, gx, gy, 0, s?.w ?? 0.55, 0.06, p.width - 0.2);
       add(partMaterial("dark", paint), gx, gy - 0.16, 0.35, 0.08, 0.26, 0.08);
       add(partMaterial("dark", paint), gx, gy - 0.16, -0.35, 0.08, 0.26, 0.08);
+      // Round 3: end plates so the wing reads as bolted-on aero, not a
+      // floating blade.
+      add(partMaterial("dark", paint), gx, gy + 0.02, p.width / 2 - 0.12, 0.05, 0.3, 0.05);
+      add(partMaterial("dark", paint), gx, gy + 0.02, -p.width / 2 + 0.12, 0.05, 0.3, 0.05);
     } else if (spoilerStyle === "drag") {
       const dx = s ? s.x : -half + 0.25;
       const dy = s ? s.y + 0.2 : p.bodyY + p.bodyH / 2 + 0.45;
       add(paint, dx, dy, 0, 0.7, 0.05, p.width + 0.15);
       add(partMaterial("dark", paint), dx, dy - 0.2, 0.45, 0.08, 0.34, 0.08);
       add(partMaterial("dark", paint), dx, dy - 0.2, -0.45, 0.08, 0.34, 0.08);
+      add(partMaterial("dark", paint), dx, dy + 0.02, p.width / 2 + 0.05, 0.05, 0.34, 0.05);
+      add(partMaterial("dark", paint), dx, dy + 0.02, -p.width / 2 - 0.05, 0.05, 0.34, 0.05);
     } else if (s) {
       add(paint, s.x, s.y, 0, s.w, s.h, p.width - 0.2);
       add(partMaterial("dark", paint), s.x, s.y - 0.14, 0.35, 0.08, 0.22, 0.08);
       add(partMaterial("dark", paint), s.x, s.y - 0.14, -0.35, 0.08, 0.22, 0.08);
+      // Round 3: end plates on the plan spoiler too.
+      add(partMaterial("dark", paint), s.x, s.y + 0.02, p.width / 2 - 0.12, 0.05, 0.26, 0.05);
+      add(partMaterial("dark", paint), s.x, s.y + 0.02, -p.width / 2 + 0.12, 0.05, 0.26, 0.05);
     }
   }
 
@@ -1992,23 +2075,46 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
   if (p.skirt) {
     add(partMaterial("dark", paint), 0, p.bodyY - p.bodyH / 2 + 0.05, p.width / 2 - 0.02, p.length - 0.6, 0.1, 0.06);
     add(partMaterial("dark", paint), 0, p.bodyY - p.bodyH / 2 + 0.05, -p.width / 2 + 0.02, p.length - 0.6, 0.1, 0.06);
+    // Round 3: chrome lower edge on the skirts — the sill line the
+    // frames' sports cars carry.
+    add(partMaterial("chrome", paint), 0, p.bodyY - p.bodyH / 2 + 0.01, p.width / 2 + 0.01, p.length - 0.7, 0.03, 0.03);
+    add(partMaterial("chrome", paint), 0, p.bodyY - p.bodyH / 2 + 0.01, -p.width / 2 - 0.01, p.length - 0.7, 0.03, 0.03);
   }
 
-  // Fender flares over each wheel.
+  // Fender flares over each wheel. Round 3: real arches — a half-torus
+  // in paint, flared wider than the tire (z-scale), instead of the flat
+  // slab that used to sit over the wheel.
   if (p.fenders) {
     for (const w of v.wheels) {
-      add(paint, w.x, w.r + 0.18, w.z, w.r * 1.7, 0.12, w.w + 0.22);
+      const arch = new Mesh(new TorusGeometry(w.r * 1.04, 0.075, 8, 16, Math.PI), paint);
+      arch.position.set(w.x, w.r - 0.02, w.z);
+      arch.scale.set(1, 1, 1.9);
+      arch.castShadow = true;
+      group.add(arch);
     }
+  }
+
+  // Truck bed floor + tailgate handle (bed walls + roll bar already come
+  // from the plan extras). Round 3: the bed used to be open to the body
+  // top — now it has a real floor.
+  if (p.bedLen > 0) {
+    const bedX = -half + p.bedLen / 2;
+    add(partMaterial("dark", paint), bedX, p.bodyY + p.bodyH / 2 + 0.02, 0, p.bedLen - 0.1, 0.06, p.width - 0.3);
+    add(partMaterial("chrome", paint), -half + 0.03, p.bodyY + p.bodyH / 2 + 0.22, 0, 0.05, 0.05, 0.5);
   }
 
   // Full-width light bars (front + rear) for Cybertruck / Cybercab / Roadster.
   const isBoard = v.kind === "skateboard";
   const isBike = v.kind === "bike" || v.kind === "atv";
+  const isSports = v.stats.speed >= 8;
   if (p.lightBar) {
     add(partMaterial("headlight", paint), half - 0.02, p.bodyY + 0.08, 0, 0.06, 0.1, p.width - 0.3);
     add(partMaterial("tail", paint), -half + 0.02, p.bodyY + 0.08, 0, 0.06, 0.1, p.width - 0.3);
   } else if (!isBoard) {
-    // Standard lights: white headlight pair, red tail pair. Bikes get one each.
+    // Standard lights. Round 3: angular LED headlights — the lens wraps
+    // the front corner (ry) with a bright LED strip above it, like the
+    // red sports car in the night frame; sports cars get a full-width
+    // tail strip instead of two separate lamps.
     const frontX = half - 0.02;
     const rearX = -half + 0.02;
     const lightY = p.bodyY + 0.04;
@@ -2017,10 +2123,18 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
       add(partMaterial("tail", paint), rearX, lightY + 0.15, 0, 0.1, 0.14, 0.3);
     } else {
       const zOff = p.width / 2 - 0.3;
-      add(partMaterial("headlight", paint), frontX, lightY, zOff, 0.1, 0.14, 0.34);
-      add(partMaterial("headlight", paint), frontX, lightY, -zOff, 0.1, 0.14, 0.34);
-      add(partMaterial("tail", paint), rearX, lightY, zOff, 0.1, 0.16, 0.34);
-      add(partMaterial("tail", paint), rearX, lightY, -zOff, 0.1, 0.16, 0.34);
+      for (const s of [-1, 1]) {
+        addR(partMaterial("headlight", paint), frontX, lightY, s * zOff, 0.12, 0.15, 0.34, 0, s * 0.18);
+        add(partMaterial("headlight", paint), frontX + 0.01, lightY + 0.1, s * zOff, 0.06, 0.04, 0.3);
+      }
+      if (isSports) {
+        add(partMaterial("tail", paint), rearX, lightY, 0, 0.06, 0.1, p.width - 0.4);
+        add(partMaterial("tail", paint), rearX, lightY, p.width / 2 - 0.3, 0.1, 0.18, 0.3);
+        add(partMaterial("tail", paint), rearX, lightY, -p.width / 2 + 0.3, 0.1, 0.18, 0.3);
+      } else {
+        add(partMaterial("tail", paint), rearX, lightY, zOff, 0.1, 0.16, 0.34);
+        add(partMaterial("tail", paint), rearX, lightY, -zOff, 0.1, 0.16, 0.34);
+      }
     }
   }
 
@@ -2041,10 +2155,31 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
     // Front + rear bumpers: dark slabs that read as the car's chin.
     add(partMaterial("dark", paint), half - 0.06, p.bodyY - 0.08, 0, 0.16, 0.2, p.width - 0.08);
     add(partMaterial("dark", paint), -half + 0.06, p.bodyY - 0.08, 0, 0.16, 0.2, p.width - 0.08);
+    // Round 3: lower valances + a chrome chin strip so the bumpers have
+    // depth instead of one flat slab; sports cars get a front splitter
+    // lip and a rear diffuser with fins.
+    add(partMaterial("dark", paint), half - 0.02, p.bodyY - 0.22, 0, 0.12, 0.1, p.width - 0.2);
+    add(partMaterial("dark", paint), -half + 0.02, p.bodyY - 0.22, 0, 0.12, 0.1, p.width - 0.2);
+    add(partMaterial("chrome", paint), half + 0.03, p.bodyY + 0.02, 0, 0.04, 0.04, p.width - 0.3);
+    if (isSports) {
+      add(partMaterial("dark", paint), half + 0.12, p.bodyY - 0.28, 0, 0.4, 0.07, p.width - 0.1);
+      add(partMaterial("dark", paint), -half - 0.05, p.bodyY - 0.26, 0, 0.3, 0.08, p.width - 0.3);
+      for (const fz of [-0.4, 0, 0.4]) {
+        add(partMaterial("dark", paint), -half - 0.12, p.bodyY - 0.26, fz, 0.16, 0.14, 0.04);
+      }
+    }
     // Front grille: a dark slab on the front face, between the
     // headlights — the fascia used to be blank paint between the
-    // lights; now it reads as a grille.
-    add(partMaterial("dark", paint), half - 0.02, p.bodyY + 0.04, 0, 0.06, 0.16, p.width - 1.0);
+    // lights; now it reads as a grille. Round 3: chrome slats across
+    // it + a gold OrbitX roundel in the centre.
+    add(partMaterial("dark", paint), half - 0.02, p.bodyY + 0.04, 0, 0.06, 0.18, p.width - 1.0);
+    for (const gy of [-0.045, 0.045]) {
+      add(partMaterial("chrome", paint), half + 0.01, p.bodyY + 0.04 + gy, 0, 0.05, 0.03, p.width - 1.1);
+    }
+    const logo = new Mesh(new CylinderGeometry(0.09, 0.09, 0.06, 12), GOLD);
+    logo.rotation.z = Math.PI / 2;
+    logo.position.set(half + 0.02, p.bodyY + 0.04, 0);
+    group.add(logo);
     // Chrome beltline: a thin chrome strip along each side at the
     // window base — reads as window trim and gives the body a
     // horizontal line, like the AI demo's cars.
@@ -2069,30 +2204,36 @@ export function buildVehicle(id: string, color?: string, opts?: { mods?: Partial
     }
   }
 
-  // Wheels: named "wheel" so drive()'s spin loop finds them. Hubcaps + glow
-  // match makeCar; boards get no hubcaps or underglow (tiny wheels).
-  // Rim mod recolours the hub: stock chrome, sport dark, chrome bright,
-  // gold gold, stealth black.
+  // Wheels: a Group named "wheel" so drive()'s spin loop finds it
+  // (rotation.z spins the whole wheel around the axle). Round 3: a
+  // real tire torus + rim disc + merged 5-spoke star, all inside the
+  // group so the rim and spokes spin WITH the tire — before this the
+  // hub was a separate static disc while the tire spun. Hubcaps + glow
+  // match makeCar; boards get no spokes or underglow (tiny wheels).
+  // Rim mod recolours the rim + spokes: stock chrome, sport dark,
+  // chrome bright, gold gold, stealth black.
   const wheelMat = partMaterial("tire", paint);
   const rimMat =
     mods.rims === "gold" ? GOLD :
     mods.rims === "sport" || mods.rims === "black" ? partMaterial("dark", paint) :
     partMaterial("chrome", paint);
   for (const w of v.wheels) {
-    const wheel = new CylinderGeometry(w.r, w.r, w.w, 12);
-    const mesh = new Mesh(wheel, wheelMat);
-    mesh.rotation.x = Math.PI / 2;
-    mesh.position.set(w.x, w.r, w.z);
-    mesh.name = "wheel";
-    mesh.castShadow = true;
-    group.add(mesh);
+    const wheel = new Group();
+    wheel.name = "wheel";
+    wheel.position.set(w.x, w.r, w.z);
+    const tire = new Mesh(new TorusGeometry(w.r * 0.72, w.r * 0.28, 10, 20), wheelMat);
+    tire.castShadow = true;
+    wheel.add(tire);
     if (!isBoard) {
-      const hub = new Mesh(new CylinderGeometry(w.r * 0.45, w.r * 0.45, w.w + 0.02, 10), rimMat);
-      hub.rotation.x = Math.PI / 2;
-      hub.position.set(w.x, w.r, w.z);
-      hub.castShadow = true;
-      group.add(hub);
+      const rim = new Mesh(new CylinderGeometry(w.r * 0.6, w.r * 0.6, w.w + 0.02, 12), rimMat);
+      rim.rotation.x = Math.PI / 2;
+      rim.castShadow = true;
+      wheel.add(rim);
+      const spokes = new Mesh(spokeGeometry(w.r, w.w), rimMat);
+      spokes.castShadow = true;
+      wheel.add(spokes);
     }
+    group.add(wheel);
   }
   // Underglow: neon (when bought) replaces the stock cyan strip with the
   // chosen colour — bigger and brighter, so it reads at night.
