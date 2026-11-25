@@ -3051,7 +3051,9 @@ function furnishBank(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   const back = opposite(door, x0, z0, w, d, 2.4);
   // Teller counter + gold top on the back (east) wall; the zone sign sits
   // over the middle bay, so the glass windows live in the outer bays.
-  put(boxes, back.x - 0.6, 0.55, back.z, 1.2, 1.05, 8.0, "stone");
+  // Round 6: tapered counter body instead of the box. Gold top, glass
+  // windows and bell stay; collider unchanged.
+  recordShaped("taper4", back.x - 0.6, 0.55, back.z, 1.2, 1.05, 8.0, "stone");
   cols.push(col(back.x - 0.6, 0.55, back.z, 1.2, 1.05, 8.0));
   put(boxes, back.x - 0.6, 1.15, back.z, 1.35, 0.12, 8.2, "gold");
   for (const off of [-4.2, 4.2]) {
@@ -3068,24 +3070,32 @@ function furnishBank(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
     put(boxes, cx - 1.25, 0.55, rz, 9.5, 0.08, 0.12, "black");
     cols.push(col(cx - 1.25, 0.55, rz, 9.5, 1.1, 0.2));
     for (const px of [cx - 6, cx - 1.25, cx + 3.5]) {
-      put(boxes, px, 0.5, rz, 0.18, 1.0, 0.18, "gold");
+      // Round 6: round gold rail posts instead of the boxes.
+      recordShaped("cyl", px, 0.5, rz, 0.18, 1.0, 0.18, "gold");
     }
   }
   // Vault door on the north wall: gold rim, black door, gold wheel.
   put(boxes, cx + 3, 1.5, z0 + 1.32, 3.6, 3.0, 0.12, "gold");
   put(boxes, cx + 3, 1.45, z0 + 1.42, 3.2, 2.8, 0.2, "black");
-  put(boxes, cx + 3, 1.45, z0 + 1.58, 0.5, 0.5, 0.15, "gold");
+  // Round 6: round gold vault wheel instead of the box, spun to face
+  // into the room.
+  recordShaped("cyl", cx + 3, 1.45, z0 + 1.58, 0.5, 0.15, 0.5, "gold", 0, Math.PI / 2, 0);
   // ATMs on the south wall.
   for (const ax of [cx - 6, cx - 1.5]) {
-    put(boxes, ax, 0.9, z0 + d - 1.9, 1.4, 1.8, 0.8, "black");
+    // Round 6: tapered ATM body instead of the box. Cyan screen + gold
+    // trim stay; collider unchanged.
+    recordShaped("taper4", ax, 0.9, z0 + d - 1.9, 1.4, 1.8, 0.8, "black");
     cols.push(col(ax, 0.9, z0 + d - 1.9, 1.4, 1.8, 0.8));
-    put(boxes, ax, 1.15, z0 + d - 2.32, 0.9, 0.6, 0.1, "cyan");
+    // Round 6: the screen sits 0.31 proud of the tapered body, not 0.42
+    // — 0.42 would float in front of it.
+    put(boxes, ax, 1.15, z0 + d - 2.21, 0.9, 0.6, 0.1, "cyan");
     put(boxes, ax, 1.85, z0 + d - 1.9, 1.45, 0.1, 0.85, "gold");
   }
   // Waiting chairs on the north wall, plants flanking the teller counter.
   for (const chx of [cx - 7, cx - 4.4, cx - 1.8]) {
-    put(boxes, chx, 0.38, z0 + 2.6, 0.95, 0.45, 0.9, "red");
-    put(boxes, chx, 0.85, z0 + 2.15, 0.95, 0.9, 0.2, "red");
+    // Round 6: shaped waiting chairs (backs face the north wall) instead
+    // of the base + back box pairs. Same footprint — collider unchanged.
+    shapedTheatreSeat(chx, z0 + 2.6, true, 0, -1, "red", 0.95, 0.9);
     cols.push(col(chx, 0.5, z0 + 2.45, 1.0, 1.0, 1.1));
   }
   for (const pz of [cz - 7.8, cz + 7.8]) {
@@ -3303,11 +3313,15 @@ function furnishArcade(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   // on the side that looks into the room.
   const cabinet = (mx: number, mz: number, face: Face, mat: Mat) => {
     const wide = face === "n" || face === "s";
-    put(boxes, mx, 1.0, mz, wide ? 1.4 : 0.9, 2.0, wide ? 0.9 : 1.4, "black");
+    // Round 6: tapered cabinet instead of the box. Gold top, face and
+    // control deck stay; collider unchanged.
+    recordShaped("taper4", mx, 1.0, mz, wide ? 1.4 : 0.9, 2.0, wide ? 0.9 : 1.4, "black");
     cols.push(col(mx, 1.0, mz, wide ? 1.4 : 0.9, 2.0, wide ? 0.9 : 1.4));
     put(boxes, mx, 2.05, mz, wide ? 1.45 : 0.95, 0.15, wide ? 0.95 : 1.45, "gold");
-    const fx = mx + (face === "e" ? 0.48 : face === "w" ? -0.48 : 0);
-    const fz = mz + (face === "s" ? 0.48 : face === "n" ? -0.48 : 0);
+    // Round 6: the face + deck sit 0.40 proud, not 0.48 — the tapered
+    // cabinet's face is closer in at this height, and 0.48 would float.
+    const fx = mx + (face === "e" ? 0.4 : face === "w" ? -0.4 : 0);
+    const fz = mz + (face === "s" ? 0.4 : face === "n" ? -0.4 : 0);
     put(boxes, fx, 1.25, fz, wide ? 1.0 : 0.1, 0.8, wide ? 0.1 : 1.0, mat);
     put(boxes, fx, 0.65, fz, wide ? 0.9 : 0.1, 0.35, wide ? 0.1 : 0.9, "white");
   };
@@ -3324,7 +3338,9 @@ function furnishArcade(boxes: Box[], cols: Collider[], x0: number, z0: number, w
     cabinet(sx, z0 + d - 2.6, "n", sm);
   }
   // Prize counter in the south-west corner, goods on top.
-  put(boxes, x0 + 4, 0.55, z0 + d - 3.5, 4.0, 1.05, 1.2, "wood");
+  // Round 6: tapered counter instead of the box. Gold top + prizes stay;
+  // collider unchanged.
+  recordShaped("taper4", x0 + 4, 0.55, z0 + d - 3.5, 4.0, 1.05, 1.2, "wood");
   cols.push(col(x0 + 4, 0.55, z0 + d - 3.5, 4.0, 1.05, 1.2));
   put(boxes, x0 + 4, 1.15, z0 + d - 3.5, 4.2, 0.12, 1.35, "gold");
   const prizes: Mat[] = ["gold", "red", "cyan", "white"];
@@ -3332,14 +3348,15 @@ function furnishArcade(boxes: Box[], cols: Collider[], x0: number, z0: number, w
     put(boxes, x0 + 2.8 + i * 0.85, 1.4, z0 + d - 3.5, 0.45, 0.45, 0.45, prizes[i]);
   }
   // Gold stools in front of the cabinets (no colliders, like the club's).
+  // Round 6: round stools instead of the gold boxes.
   for (const sz of [cz - 6.5, cz - 3.25, cz + 3.25, cz + 6.5]) {
-    put(boxes, x0 + w - 4.8, 0.3, sz, 0.5, 0.6, 0.5, "gold");
+    roundStool(x0 + w - 4.8, sz, "gold");
   }
   for (const nx of [cx - 6, cx - 2, cx + 2]) {
-    put(boxes, nx, 0.3, z0 + 4.3, 0.5, 0.6, 0.5, "gold");
+    roundStool(nx, z0 + 4.3, "gold");
   }
   for (const sx of [cx - 1.5, cx + 3.5]) {
-    put(boxes, sx, 0.3, z0 + d - 4.5, 0.5, 0.6, 0.5, "gold");
+    roundStool(sx, z0 + d - 4.5, "gold");
   }
   // Neon strips above the cabinet rows (east one rides above the sign).
   put(boxes, cx, 2.9, z0 + 1.35, 12, 0.18, 0.15, "cyanhot");
@@ -3465,7 +3482,9 @@ function furnishMarket(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   const stall = (sx: number, sz: number, alongX: boolean, awn: Mat, goods: Mat[], tall = false) => {
     const cw = alongX ? 4.2 : 1.3;
     const cd = alongX ? 1.3 : 4.2;
-    put(boxes, sx, 0.55, sz, cw, 1.05, cd, "wood");
+    // Round 6: tapered stall counter instead of the box. Stone top,
+    // awning and goods stay; collider unchanged.
+    recordShaped("taper4", sx, 0.55, sz, cw, 1.05, cd, "wood");
     cols.push(col(sx, 0.55, sz, cw, 1.05, cd));
     put(boxes, sx, 1.15, sz, cw + 0.2, 0.12, cd + 0.2, "stone");
     const postY = tall ? 2.25 : 1.75;
@@ -3475,7 +3494,8 @@ function furnishMarket(boxes: Box[], cols: Collider[], x0: number, z0: number, w
     const pzs = alongX ? [sz - 0.55, sz + 0.55] : [sz - 1.9, sz + 1.9];
     for (const px of pxs) {
       for (const pz of pzs) {
-        put(boxes, px, postY, pz, 0.16, postH, 0.16, "black");
+        // Round 6: round awning posts instead of the black boxes.
+        recordShaped("cyl", px, postY, pz, 0.16, postH, 0.16, "black");
       }
     }
     put(boxes, sx, awnY, sz, alongX ? 4.6 : 1.9, 0.15, alongX ? 1.9 : 4.6, awn);
@@ -3493,7 +3513,9 @@ function furnishMarket(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   stall(x0 + w - 2.1, z0 + 12.5, false, "red", fruit);
   stall(cx, z0 + d - 2.7, true, "red", ["cyan", "gold", "red"], true);
   // Communal table east of the door lane, crate seats around it.
-  put(boxes, cx + 5.5, 0.45, z0 + 14, 3.0, 0.8, 1.6, "wood");
+  // Round 6: tapered table instead of the box. The warm/red boxes on top
+  // and the crate seats stay; collider unchanged.
+  recordShaped("taper4", cx + 5.5, 0.45, z0 + 14, 3.0, 0.8, 1.6, "wood");
   cols.push(col(cx + 5.5, 0.45, z0 + 14, 3.0, 0.8, 1.6));
   put(boxes, cx + 5.0, 0.95, z0 + 14, 0.4, 0.3, 0.4, "warm");
   put(boxes, cx + 6.0, 0.95, z0 + 14, 0.4, 0.3, 0.4, "red");
@@ -3539,7 +3561,9 @@ function furnishDock(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   pottedPlant(boxes, cols, x0 + 2.4, z0 + 2.4);
   // Map table, east of the door lane and south of its centre line, so the
   // way in from the door stays fully open.
-  put(boxes, cx + 3.5, 0.5, cz + 1.5, 3.0, 0.9, 1.8, "wood");
+  // Round 6: tapered map table instead of the box. Cyan chart + gold
+  // marker stay; collider unchanged.
+  recordShaped("taper4", cx + 3.5, 0.5, cz + 1.5, 3.0, 0.9, 1.8, "wood");
   cols.push(col(cx + 3.5, 0.5, cz + 1.5, 3.0, 0.9, 1.8));
   put(boxes, cx + 3.5, 1.0, cz + 1.5, 2.6, 0.1, 1.4, "cyan");
   put(boxes, cx + 3.5, 1.1, cz + 1.5, 0.35, 0.12, 0.35, "gold");
@@ -3764,6 +3788,8 @@ function furnishLibrary(boxes: Box[], cols: Collider[], x0: number, z0: number, 
   for (const s of shelfRuns) {
     put(boxes, s.x, 1.2, s.z, Math.max(s.sx, 0.7), 2.4, Math.max(s.sz, 0.7), "wood");
     cols.push(col(s.x, 1.2, s.z, Math.max(s.sx, 0.7), 2.4, Math.max(s.sz, 0.7)));
+    // Round 6: gold cylinder end-posts cap the shelf run.
+    shelfEndPosts(s.x, s.z, 8, alongX ? "z" : "x");
     for (let level = 0; level < 2; level++) {
       const y = level === 0 ? 0.85 : 1.85;
       const n = 6;
@@ -3780,10 +3806,12 @@ function furnishLibrary(boxes: Box[], cols: Collider[], x0: number, z0: number, 
   // Two reading tables in the middle, each with a warm lamp.
   for (const tz of [cz - 3.4, cz + 3.4]) {
     put(boxes, cx, 0.95, tz, 4.2, 0.14, 1.9, "wood");
-    put(boxes, cx, 0.45, tz, 0.5, 0.9, 0.5, "black");
+    // Round 6: cylinder pedestal instead of the box; round warm lamp
+    // globes instead of the lamp boxes. Collider unchanged.
+    recordShaped("cyl", cx, 0.45, tz, 0.5, 0.9, 0.5, "black");
     cols.push(col(cx, 0.55, tz, 4.2, 1.0, 1.9));
-    put(boxes, cx - 1.2, 1.25, tz, 0.35, 0.4, 0.35, "warm");
-    put(boxes, cx + 1.2, 1.25, tz, 0.35, 0.4, 0.35, "warm");
+    recordShaped("sphere", cx - 1.2, 1.25, tz, 0.4, 0.4, 0.4, "warm");
+    recordShaped("sphere", cx + 1.2, 1.25, tz, 0.4, 0.4, 0.4, "warm");
     for (const side of [-1, 1]) {
       const ax = cx + side * 2.9;
       // Round 4: shaped armchair instead of base + back boxes. The back
@@ -3802,6 +3830,9 @@ function furnishLibrary(boxes: Box[], cols: Collider[], x0: number, z0: number, 
   put(boxes, deskPos.x, 0.55, deskPos.z, deskPos.sx, 1.05, deskPos.sz, "stone");
   cols.push(col(deskPos.x, 0.55, deskPos.z, deskPos.sx, 1.05, deskPos.sz));
   put(boxes, deskPos.x, 1.15, deskPos.z, deskPos.sx + 0.2, 0.12, deskPos.sz + 0.2, "wood");
+  // Round 6: gold bullnose on the desk front (the desk fronts the room,
+  // so the flipped door face). The gold cube on top stays.
+  counterBullnose(deskPos, alongX, 3.4, flipFace(door), 1.08);
   put(boxes, deskPos.x, 1.45, deskPos.z, 0.4, 0.5, 0.4, "gold");
   // Framed painting on the back wall, clear of the zone sign and shelves.
   const paintPos =
@@ -3859,22 +3890,32 @@ function furnishGym(boxes: Box[], cols: Collider[], x0: number, z0: number, w: n
   const treadBase = alongX ? { x: x0 + w - 3.4, zs: [cz - 6, cz, cz + 6] } : { x: 0, zs: [] as number[] };
   if (alongX) {
     for (const tz of treadBase.zs) {
-      put(boxes, treadBase.x, 0.28, tz, 1.3, 0.5, 2.6, "black");
-      put(boxes, treadBase.x, 1.0, tz - 1.15, 0.35, 1.1, 0.9, "black");
-      put(boxes, treadBase.x, 1.35, tz - 1.15, 0.2, 0.35, 0.7, "cyanhot");
+      // Round 6: tapered treadmill base instead of the box. The console
+      // post + screen stay; collider unchanged.
+      recordShaped("taper4", treadBase.x, 0.28, tz, 1.3, 0.5, 2.6, "black");
+      // Round 6: the console post + screen sit 0.25 further onto the
+      // tapered belt, so the post still roots in the belt end.
+      put(boxes, treadBase.x, 1.0, tz - 0.9, 0.35, 1.1, 0.9, "black");
+      put(boxes, treadBase.x, 1.35, tz - 0.9, 0.2, 0.35, 0.7, "cyanhot");
       cols.push(col(treadBase.x, 0.6, tz, 1.3, 1.2, 2.6));
     }
   } else {
     for (const tx of [cx - 6, cx, cx + 6]) {
-      put(boxes, tx, 0.28, z0 + 3.4, 2.6, 0.5, 1.3, "black");
-      put(boxes, tx - 1.15, 1.0, z0 + 3.4, 0.9, 1.1, 0.35, "black");
-      put(boxes, tx - 1.15, 1.35, z0 + 3.4, 0.7, 0.35, 0.2, "cyanhot");
+      // Round 6: tapered treadmill base instead of the box. The console
+      // post + screen stay; collider unchanged.
+      recordShaped("taper4", tx, 0.28, z0 + 3.4, 2.6, 0.5, 1.3, "black");
+      // Round 6: the console post + screen sit 0.25 further onto the
+      // tapered belt, so the post still roots in the belt end.
+      put(boxes, tx - 0.9, 1.0, z0 + 3.4, 0.9, 1.1, 0.35, "black");
+      put(boxes, tx - 0.9, 1.35, z0 + 3.4, 0.7, 0.35, 0.2, "cyanhot");
       cols.push(col(tx, 0.6, z0 + 3.4, 2.6, 1.2, 1.3));
     }
   }
   // Two bench presses in the middle.
   for (const bz of [cz - 3.2, cz + 3.2]) {
-    put(boxes, cx - 3, 0.35, bz, 2.6, 0.45, 1.0, "stone");
+    // Round 6: tapered bench slab instead of the box. Posts, bar and
+    // plates stay; collider unchanged.
+    recordShaped("taper4", cx - 3, 0.35, bz, 2.6, 0.45, 1.0, "stone");
     cols.push(col(cx - 3, 0.35, bz, 2.6, 0.45, 1.0));
     put(boxes, cx - 4.4, 0.6, bz, 0.18, 1.1, 0.18, "gray");
     put(boxes, cx - 1.6, 0.6, bz, 0.18, 1.1, 0.18, "gray");
@@ -3889,7 +3930,8 @@ function furnishGym(boxes: Box[], cols: Collider[], x0: number, z0: number, w: n
       put(boxes, rx, 0.55, rz, 1.0, 1.0, 5.4, "wood");
       cols.push(col(rx, 0.55, rz, 1.0, 1.0, 5.4));
       for (let i = 0; i < 4; i++) {
-        put(boxes, rx, 1.15, rz - 2 + i * 1.35, 0.5, 0.3, 0.5, "gold");
+        // Round 6: round dumbbell heads instead of the gold boxes.
+        recordShaped("sphere", rx, 1.15, rz - 2 + i * 1.35, 0.5, 0.3, 0.5, "gold");
       }
     }
   } else {
@@ -3898,14 +3940,17 @@ function furnishGym(boxes: Box[], cols: Collider[], x0: number, z0: number, w: n
       put(boxes, rx, 0.55, rz, 5.4, 1.0, 1.0, "wood");
       cols.push(col(rx, 0.55, rz, 5.4, 1.0, 1.0));
       for (let i = 0; i < 4; i++) {
-        put(boxes, rx - 2 + i * 1.35, 1.15, rz, 0.5, 0.3, 0.5, "gold");
+        // Round 6: round dumbbell heads instead of the gold boxes.
+        recordShaped("sphere", rx - 2 + i * 1.35, 1.15, rz, 0.5, 0.3, 0.5, "gold");
       }
     }
   }
   // Punching bag hanging by the back wall + red training mats.
   const bag = alongX ? { x: cx + 6.5, z: back.z - (door === "n" ? 1.6 : -1.6) } : { x: back.x - (door === "w" ? 1.6 : -1.6), z: cz + 6.5 };
   put(boxes, bag.x, 3.1, bag.z, 0.12, 0.7, 0.12, "gray");
-  put(boxes, bag.x, 1.85, bag.z, 0.85, 2.2, 0.85, "black");
+  // Round 6: a real punching bag is a cylinder, not a box. The chain and
+  // the red top band stay; collider unchanged.
+  recordShaped("cyl", bag.x, 1.85, bag.z, 0.85, 2.2, 0.85, "black");
   put(boxes, bag.x, 2.95, bag.z, 0.95, 0.18, 0.95, "red");
   cols.push(col(bag.x, 1.85, bag.z, 0.85, 2.2, 0.85));
   const matX = alongX ? cx + 5.5 : cx - 5.5;
@@ -3921,13 +3966,18 @@ function furnishGym(boxes: Box[], cols: Collider[], x0: number, z0: number, w: n
   put(boxes, deskPos.x, 0.55, deskPos.z, deskPos.sx, 1.05, deskPos.sz, "wood");
   cols.push(col(deskPos.x, 0.55, deskPos.z, deskPos.sx, 1.05, deskPos.sz));
   put(boxes, deskPos.x, 1.15, deskPos.z, deskPos.sx + 0.2, 0.12, deskPos.sz + 0.2, "gold");
+  // Round 6: gold bullnose on the desk front (the desk fronts the room,
+  // so the flipped door face).
+  counterBullnose(deskPos, alongX, 3.4, flipFace(door), 1.08);
   // Service point at the front desk; sign on a side wall, never over the
   // mirror wall.
   const serviceX = deskPos.x + (door === "e" ? -2 : door === "w" ? 2 : 0);
   const serviceZ = deskPos.z + (door === "n" ? 2 : door === "s" ? -2 : 0);
   // Water cooler by the front desk.
   const wc = door === "e" ? { x: x0 + w - 3, z: z0 + 9 } : door === "w" ? { x: x0 + 3, z: z0 + d - 9 } : door === "n" ? { x: x0 + 9, z: z0 + 3 } : { x: x0 + w - 9, z: z0 + d - 3 };
-  put(boxes, wc.x, 0.6, wc.z, 0.8, 1.2, 0.8, "white");
+  // Round 6: a water cooler is a cylinder, not a box. The cyan bottle
+  // top stays; collider unchanged.
+  recordShaped("cyl", wc.x, 0.6, wc.z, 0.8, 1.2, 0.8, "white");
   cols.push(col(wc.x, 0.6, wc.z, 0.8, 1.2, 0.8));
   put(boxes, wc.x, 1.35, wc.z, 0.6, 0.4, 0.6, "cyan");
   const signPos =
@@ -3981,7 +4031,9 @@ function furnishMuseum(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   ];
   for (let i = 0; i < pedestals.length; i++) {
     const [px, pz] = pedestals[i];
-    put(boxes, px, 0.5, pz, 1.1, 1.0, 1.1, "stone");
+    // Round 6: tapered plinth instead of the box. Artifact + plaque
+    // stay; collider unchanged.
+    recordShaped("taper4", px, 0.5, pz, 1.1, 1.0, 1.1, "stone");
     cols.push(col(px, 0.5, pz, 1.1, 1.0, 1.1));
     put(boxes, px, 1.25, pz, 0.55, 0.5, 0.55, artifacts[i]);
     // Gold plaque on the room side of the plinth.
@@ -3989,15 +4041,22 @@ function furnishMuseum(boxes: Box[], cols: Collider[], x0: number, z0: number, w
     put(boxes, faceX, 0.75, pz, 0.08, 0.35, 0.6, "gold");
   }
   // Timeline case down the middle — clear of every exhibit stand point.
-  put(boxes, cx, 0.5, cz, 5, 0.9, 1.4, "wood");
+  // Round 6: tapered case instead of the box. Gold top stays; collider
+  // unchanged.
+  recordShaped("taper4", cx, 0.5, cz, 5, 0.9, 1.4, "wood");
   cols.push(col(cx, 0.5, cz, 5, 0.9, 1.4));
   put(boxes, cx, 1.0, cz, 5.2, 0.1, 1.6, "gold");
   // Ticket desk centered on the north wall — NOT a door corner: both east
   // corners hold exhibit pedestals, and a desk there would swallow one.
   // Service point 2.5 in front of the desk, clear of every exhibit spot.
-  put(boxes, cx, 0.55, z0 + 2.5, 3.4, 1.05, 1.2, "wood");
+  // Round 6: tapered desk body instead of the box. Stone top stays;
+  // collider unchanged.
+  recordShaped("taper4", cx, 0.55, z0 + 2.5, 3.4, 1.05, 1.2, "wood");
   cols.push(col(cx, 0.55, z0 + 2.5, 3.4, 1.05, 1.2));
   put(boxes, cx, 1.15, z0 + 2.5, 3.6, 0.12, 1.35, "stone");
+  // Round 6: gold bullnose on the desk front (the desk is on the north
+  // wall, so it fronts +z — the "s" face).
+  counterBullnose({ x: cx, z: z0 + 2.5 }, true, 3.4, "s", 1.08);
   roomSign("museum", cx - 6, 2.2, z0 + 1.35, 0, 4.2, 1.7, ["ORBITX MUSEUM", "Four exhibits · +10 City Sol each"], "First view of each exhibit pays");
   const serviceX = cx;
   const serviceZ = z0 + 5;
@@ -4064,7 +4123,9 @@ function furnishHotel(boxes: Box[], cols: Collider[], x0: number, z0: number, w:
   }
   // Luggage cart by the door.
   const cart = door === "e" ? { x: x0 + w - 3.2, z: z0 + d - 3.2 } : door === "w" ? { x: x0 + 3.2, z: z0 + 3.2 } : door === "n" ? { x: x0 + w - 3.2, z: z0 + 3.2 } : { x: x0 + 3.2, z: z0 + d - 3.2 };
-  put(boxes, cart.x, 0.4, cart.z, 1.2, 0.8, 0.8, "black");
+  // Round 6: tapered cart body instead of the box. Gold top stays;
+  // collider unchanged.
+  recordShaped("taper4", cart.x, 0.4, cart.z, 1.2, 0.8, 0.8, "black");
   cols.push(col(cart.x, 0.4, cart.z, 1.2, 0.8, 0.8));
   put(boxes, cart.x, 0.85, cart.z, 1.3, 0.1, 0.9, "gold");
   roomSign("hotel", cx - 6, 2.2, z0 + d - 1.35, Math.PI, 4.2, 1.7, ["ORBITX HOTEL", "Stay the night · 20 City Sol"], "Rested: job pay +10% for 10 minutes");
@@ -4101,7 +4162,9 @@ function furnishCasino(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   ceilingBeams(boxes, x0, z0, w, d);
   doorCornerPlants(boxes, cols, x0, z0, w, d, door);
   for (const [sx, sz] of [[cx - 3.2, cz], [cx + 3.2, cz], [cx, cz - 3.2], [cx, cz + 3.2]] as Array<[number, number]>) {
-    put(boxes, sx, 0.3, sz, 0.5, 0.6, 0.5, "gold");
+    // Round 6: round gold stools around the roulette table instead of
+    // the gold boxes (no colliders, like the club's).
+    roundStool(sx, sz, "gold");
   }
   const alongX = door === "n" || door === "s";
   // Red carpet runner from the door to the roulette table.
@@ -4111,11 +4174,15 @@ function furnishCasino(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   // room side. `face` is the axis the machine faces into the room.
   const machine = (mx: number, mz: number, face: "n" | "s" | "e" | "w", mat: Mat) => {
     const wide = face === "n" || face === "s";
-    put(boxes, mx, 0.8, mz, wide ? 1.3 : 0.8, 1.6, wide ? 0.8 : 1.3, "black");
+    // Round 6: tapered cabinet instead of the box. Gold top + face stay;
+    // collider unchanged.
+    recordShaped("taper4", mx, 0.8, mz, wide ? 1.3 : 0.8, 1.6, wide ? 0.8 : 1.3, "black");
     cols.push(col(mx, 0.8, mz, wide ? 1.3 : 0.8, 1.6, wide ? 0.8 : 1.3));
     put(boxes, mx, 1.65, mz, wide ? 1.35 : 0.85, 0.15, wide ? 0.85 : 1.35, "gold");
-    const fx = mx + (face === "e" ? 0.42 : face === "w" ? -0.42 : 0);
-    const fz = mz + (face === "s" ? 0.42 : face === "n" ? -0.42 : 0);
+    // Round 6: the face + deck sit 0.36 proud, not 0.42 — the tapered
+    // cabinet's face is closer in at this height, and 0.42 would float.
+    const fx = mx + (face === "e" ? 0.36 : face === "w" ? -0.36 : 0);
+    const fz = mz + (face === "s" ? 0.36 : face === "n" ? -0.36 : 0);
     put(boxes, fx, 0.95, fz, wide ? 0.9 : 0.1, 0.7, wide ? 0.1 : 0.9, mat);
   };
   // Three machines on the wall opposite the door, two on each side wall.
@@ -4200,26 +4267,33 @@ function furnishNightclub(boxes: Box[], cols: Collider[], x0: number, z0: number
   // DJ booth on the wall opposite the door + speaker stacks flanking it.
   const booth = opposite(door, x0, z0, w, d, 1.5);
   const alongX = door === "n" || door === "s";
-  put(boxes, booth.x, 0.6, booth.z, alongX ? 4.2 : 1.0, 1.2, alongX ? 1.0 : 4.2, "black");
+  // Round 6: tapered DJ booth instead of the box. Cyan deck stays;
+  // collider unchanged.
+  recordShaped("taper4", booth.x, 0.6, booth.z, alongX ? 4.2 : 1.0, 1.2, alongX ? 1.0 : 4.2, "black");
   cols.push(col(booth.x, 0.6, booth.z, alongX ? 4.2 : 1.0, 1.2, alongX ? 1.0 : 4.2));
   put(boxes, booth.x, 1.25, booth.z, alongX ? 4.2 : 1.0, 0.12, alongX ? 1.0 : 4.2, "cyan");
   for (const off of [-3.2, 3.2]) {
     const sx = alongX ? booth.x + off : booth.x;
     const sz = alongX ? booth.z : booth.z + off;
-    put(boxes, sx, 1.3, sz, 1.0, 2.6, 1.0, "black");
+    // Round 6: round speaker columns with a gold ring instead of the
+    // black box stacks + gold boxes. Collider unchanged.
+    recordShaped("cyl", sx, 1.3, sz, 1.0, 2.6, 1.0, "black");
     cols.push(col(sx, 1.3, sz, 1.0, 2.6, 1.0));
-    put(boxes, sx, 1.9, sz, 1.05, 0.5, 1.05, "gold");
+    recordShaped("torus", sx, 1.9, sz, 1.1, 1.1, 0.5, "gold", 0, Math.PI / 2, 0);
   }
   // Bar along a side wall: wood counter + gold stools.
   const barX = door === "n" || door === "s" ? x0 + w - 1.5 : cx + 5;
   const barZ = door === "n" || door === "s" ? cz : z0 + d - 1.5;
   const barAlongX = door === "n" || door === "s";
-  put(boxes, barX, 0.55, barZ, barAlongX ? 1.2 : 6.4, 1.05, barAlongX ? 6.4 : 1.2, "wood");
+  // Round 6: tapered bar counter instead of the box. Collider unchanged.
+  recordShaped("taper4", barX, 0.55, barZ, barAlongX ? 1.2 : 6.4, 1.05, barAlongX ? 6.4 : 1.2, "wood");
   cols.push(col(barX, 0.55, barZ, barAlongX ? 1.2 : 6.4, 1.05, barAlongX ? 6.4 : 1.2));
   for (const off of [-2, 0, 2]) {
     const stx = barAlongX ? barX - 1.2 : barX + off;
     const stz = barAlongX ? barZ + off : barZ - 1.2;
-    put(boxes, stx, 0.3, stz, 0.5, 0.6, 0.5, "gold");
+    // Round 6: round gold stools instead of the gold boxes (no
+    // colliders, like the casino's).
+    roundStool(stx, stz, "gold");
   }
   // Neon strips above the booth and above the bar (never over a sign —
   // the west wall carries the club sign, so its strip lives east).
@@ -5605,12 +5679,15 @@ function deskRow(boxes: Box[], cols: Collider[], x0: number, y0: number, z: numb
 // A meeting room: big table, chairs, wall screen.
 function meetingTable(boxes: Box[], cols: Collider[], cx: number, y0: number, cz: number, w: number, d: number) {
   put(boxes, cx, y0 + 0.45, cz, w, 0.1, d, "wood");
-  put(boxes, cx, y0 + 0.22, cz, 0.4, 0.4, 0.4, "black");
+  // Round 6: cylinder pedestal instead of the box.
+  recordShaped("cyl", cx, y0 + 0.22, cz, 0.4, 0.4, 0.4, "black");
   cols.push(col(cx, y0 + 0.5, cz, w, 0.9, d));
   for (let i = 0; i < 3; i++) {
-    put(boxes, cx - w / 2 + 1 + i * (w / 3), y0 + 0.3, cz - d / 2 - 0.9, 0.7, 0.5, 0.7, "red");
+    // Round 6: round stools instead of the red chair boxes. Colliders
+    // unchanged.
+    roundStool(cx - w / 2 + 1 + i * (w / 3), cz - d / 2 - 0.9, "red", y0);
     cols.push(col(cx - w / 2 + 1 + i * (w / 3), y0 + 0.3, cz - d / 2 - 0.9, 0.7, 0.5, 0.7));
-    put(boxes, cx - w / 2 + 1 + i * (w / 3), y0 + 0.3, cz + d / 2 + 0.9, 0.7, 0.5, 0.7, "red");
+    roundStool(cx - w / 2 + 1 + i * (w / 3), cz + d / 2 + 0.9, "red", y0);
     cols.push(col(cx - w / 2 + 1 + i * (w / 3), y0 + 0.3, cz + d / 2 + 0.9, 0.7, 0.5, 0.7));
   }
   put(boxes, cx, y0 + 1.6, cz - d / 2 - 1.5, w - 1, 1.6, 0.2, "black");
@@ -5677,7 +5754,9 @@ function kitchenette(boxes: Box[], cols: Collider[], x: number, y0: number, z: n
 function receptionDesk(boxes: Box[], cols: Collider[], x: number, y0: number, z: number, alongX: boolean) {
   const w = alongX ? 6 : 1.4;
   const d = alongX ? 1.4 : 6;
-  put(boxes, x, y0 + 0.6, z, w, 1.15, d, "stone");
+  // Round 6: tapered desk body instead of the box. Gold top + plants
+  // stay; collider unchanged.
+  recordShaped("taper4", x, y0 + 0.6, z, w, 1.15, d, "stone");
   cols.push(col(x, y0 + 0.6, z, w, 1.15, d));
   put(boxes, x, y0 + 1.25, z, w + 0.3, 0.16, d + 0.3, "gold");
   for (const s of [-1, 1]) {
