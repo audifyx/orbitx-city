@@ -5672,7 +5672,8 @@ function deskRow(boxes: Box[], cols: Collider[], x0: number, y0: number, z: numb
     put(boxes, px, y0 + 0.2, pz, 0.2, 0.4, 0.7, "black");
     cols.push(col(px, y0 + 0.45, pz, 1.8, 0.8, 0.9));
     put(boxes, px, y0 + 1.0, pz - 0.22, 0.9, 0.6, 0.08, "cyan");
-    put(boxes, px, y0 + 0.25, pz + 0.55, 0.6, 0.45, 0.6, "gray");
+    // Round 6: round stool instead of the gray chair box.
+    roundStool(px, pz + 0.55, "gray", y0);
   }
 }
 
@@ -6013,10 +6014,12 @@ function furnishOfficeSuite(boxes: Box[], cols: Collider[], spec: OfficeSuiteSpe
   } else {
     // Narrow suite: hand-rolled breakout table + chairs, no floating screen.
     put(boxes, x1 - 2.2, y0 + 0.45, z0 + 8.5, 2.4, 0.1, 1.6, "wood");
-    put(boxes, x1 - 2.2, y0 + 0.22, z0 + 8.5, 0.3, 0.4, 0.3, "black");
+    // Round 6: cylinder pedestal + round stools instead of the box
+    // pedestal / chair boxes. Colliders unchanged.
+    recordShaped("cyl", x1 - 2.2, y0 + 0.22, z0 + 8.5, 0.3, 0.4, 0.3, "black");
     cols.push(col(x1 - 2.2, y0 + 0.5, z0 + 8.5, 2.4, 0.9, 1.6));
     for (const [chx, chz] of [[x1 - 0.9, z0 + 8.5], [x1 - 2.2, z0 + 10.1]] as Array<[number, number]>) {
-      put(boxes, chx, y0 + 0.3, chz, 0.7, 0.5, 0.7, "red");
+      roundStool(chx, chz, "red", y0);
       cols.push(col(chx, y0 + 0.3, chz, 0.7, 0.5, 0.7));
     }
   }
