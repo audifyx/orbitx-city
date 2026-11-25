@@ -41,6 +41,7 @@ import type {
 } from "./city";
 import { makeRng, type Rng } from "./seed";
 import { buildStraitWater } from "./water";
+import { buildSeaBeach } from "./sea";
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -1502,6 +1503,9 @@ export function buildAllRegions(city: City, seed = 1): void {
   // seabed at y=-6. Runs after the region ground slabs so the shorelines
   // abut the slab edges exactly.
   buildStraitWater(city);
+  // Round 7 sea: sand beaches + umbrellas/towels along every strait
+  // shore (sea.ts) — after the water so the sand abuts the shoreline.
+  buildSeaBeach(city);
 }
 
 // ---------------------------------------------------------------------------

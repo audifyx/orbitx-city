@@ -31,6 +31,7 @@ import { mountPretty, setPrettyNight, type QualityName } from "./pretty";
 import { makeRain, mountLandmarks } from "./landmarks";
 import { setSignGlow } from "./signs";
 import { buildSkyLayer, type SkyLayer } from "./sky";
+import { buildSeaLayer, type SeaLayer } from "./sea";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
@@ -387,6 +388,9 @@ export function createGame(
   // Round 2 AIR layer (sky.ts): flying cars, drones, holograms, beams,
   // crowds. Rebuilt per city in buildMovers, like trains/ships.
   let skyLayer: SkyLayer | null = null;
+  // Round 7 SEA layer (sea.ts): wave planes + sea animals. Same pattern
+  // as the sky layer — rebuilt per city in buildMovers.
+  let seaLayer: SeaLayer | null = null;
   let rail: RailPoint[] = [];
   let railDist: number[] = [];
   let railLen = 1;
@@ -780,6 +784,10 @@ export function createGame(
     if (skyLayer) scene.remove(skyLayer.group);
     skyLayer = buildSkyLayer(city, quality);
     scene.add(skyLayer.group);
+    // SEA layer: wave planes + sea animals, same rebuild pattern.
+    if (seaLayer) scene.remove(seaLayer.group);
+    seaLayer = buildSeaLayer(city, quality);
+    scene.add(seaLayer.group);
   }
 
   function placeTrain(group: Group, distance: number) {
@@ -1317,6 +1325,7 @@ export function createGame(
     // beams, crowds) follow the same time-of-day drive.
     skyMat.uniforms.uTime.value = clock;
     skyLayer?.update(dt, clock, nightF, dayF, !!runtime.indoors());
+    seaLayer?.update(dt, clock, nightF, dayF, !!runtime.indoors());
     scene.fog = runtime.indoors() ? null : baseFog;
     const tookCamera = runtime.after(dt, player, camera, { orbit: mode === "orbit", fountain, trains: trainPoses });
     if (mode === "orbit") {

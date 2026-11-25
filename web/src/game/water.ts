@@ -91,10 +91,14 @@ export function buildStraitWater(city: City): void {
     const cz = (r.z0 + r.z1) / 2;
     const w = r.x1 - r.x0;
     const d = r.z1 - r.z0;
-    // Surface: thin "water" slab (same material as the harbor water),
-    // top face exactly at WATER_SURFACE_Y, spanning the FULL rect so
-    // there is no void anywhere in the middle.
-    pushWaterBox(city, cx, WATER_SURFACE_Y - 0.04, cz, w, 0.08, d, "water");
+    // Surface: ROUND 7 (sea.ts) renders the strait surface as an animated
+    // shader wave plane (buildSeaLayer) — the flat "water" slab is kept
+    // only as hidden fallback data so the surface is a SINGLE transparent
+    // layer and the sea animals below it stay visible from the ferry,
+    // bridges and beach. Do NOT un-hide this without removing the wave
+    // planes: two stacked transparent surfaces would hide the animals.
+    const surface = pushWaterBox(city, cx, WATER_SURFACE_Y - 0.04, cz, w, 0.08, d, "water");
+    surface.hide = true;
     // Seabed: dark sand/rock slab ("hill"), top face exactly at
     // WATER_FLOOR_Y, so the water reads as DEEP and you cannot see
     // through the world to the skybox / void below.
