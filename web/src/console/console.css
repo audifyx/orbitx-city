@@ -1,0 +1,654 @@
+/* OrbitX console (Round 7) — PS5-style boot, home, and game pages.
+ * Phone first; desktop second. Contrast rule: black bg (#020611) =
+ * white text, gold (#e0b33a) accent only — no rainbow colors. */
+
+/* ---------- Boot ---------- */
+.console-boot {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  text-align: center;
+  cursor: pointer;
+  color: #ffffff;
+  background-color: #020611;
+  background-image:
+    linear-gradient(to bottom, rgba(2, 6, 17, 0.55) 0%, rgba(2, 6, 17, 0.08) 42%, rgba(2, 6, 17, 0.88) 100%),
+    url("/splash-hero.jpg");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.console-boot-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 560px;
+}
+.console-boot-mark {
+  width: 84px;
+  height: 84px;
+  filter: drop-shadow(0 0 18px rgba(224, 179, 58, 0.55));
+  animation: console-boot-rise 0.7s ease-out both;
+}
+.console-boot-kicker {
+  margin: 0;
+  color: #e0b33a;
+  font-weight: 800;
+  letter-spacing: 0.34em;
+  font-size: 12px;
+  text-shadow: 0 1px 3px #000000;
+}
+.console-boot-title {
+  margin: 0;
+  font-size: clamp(44px, 11vw, 84px);
+  line-height: 0.95;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: #ffffff;
+  text-shadow:
+    0 0 18px rgba(255, 46, 166, 0.55),
+    0 0 42px rgba(0, 229, 255, 0.35),
+    0 4px 0 #000000,
+    0 12px 36px rgba(0, 0, 0, 0.85);
+}
+.console-boot-title span {
+  color: #e0b33a;
+}
+.console-boot-rule {
+  width: 120px;
+  height: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ff2ea6, #e0b33a 55%, #00e5ff);
+  box-shadow: 0 0 16px rgba(255, 46, 166, 0.6);
+}
+.console-boot-sub {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #ffffff;
+  text-shadow: 0 1px 3px #000000, 0 0 12px #000000;
+}
+.console-boot-bar {
+  width: min(220px, 60vw);
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+}
+.console-boot-bar i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e0b33a, #f2cc60);
+  box-shadow: 0 0 12px rgba(224, 179, 58, 0.7);
+  transform-origin: left;
+  animation: console-boot-fill linear both;
+}
+.console-boot-line {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  color: #dbeafe;
+  text-shadow: 0 1px 3px #000000;
+  min-height: 14px;
+}
+.console-boot-skip {
+  margin: 18px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 1px 3px #000000;
+  animation: console-boot-pulse 1.4s ease-in-out infinite;
+}
+/* Staged reveal: the wordmark, rule, and sub fade in at stage 1. */
+.console-boot.stage-0 .console-boot-title,
+.console-boot.stage-0 .console-boot-rule,
+.console-boot.stage-0 .console-boot-sub,
+.console-boot.stage-0 .console-boot-line {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.console-boot.stage-1 .console-boot-title,
+.console-boot.stage-1 .console-boot-rule,
+.console-boot.stage-1 .console-boot-sub,
+.console-boot.stage-1 .console-boot-line,
+.console-boot.stage-2 .console-boot-title,
+.console-boot.stage-2 .console-boot-rule,
+.console-boot.stage-2 .console-boot-sub,
+.console-boot.stage-2 .console-boot-line {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+}
+@keyframes console-boot-rise {
+  from { opacity: 0; transform: scale(0.86); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes console-boot-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes console-boot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* ---------- Shared console shell ---------- */
+.console-home,
+.console-game {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: #020611;
+  color: #ffffff;
+}
+.console-kicker {
+  margin: 0;
+  color: #e0b33a;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  font-size: 12px;
+}
+.console-btn-gold,
+.console-btn-ghost {
+  font: inherit;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  border-radius: 999px;
+  padding: 12px 22px;
+  cursor: pointer;
+}
+.console-btn-gold {
+  background: #e0b33a;
+  color: #020611;
+  border: 2px solid #e0b33a;
+}
+.console-btn-ghost {
+  background: rgba(2, 6, 17, 0.55);
+  color: #ffffff;
+  border: 2px solid rgba(255, 255, 255, 0.65);
+}
+.console-btn-gold:focus-visible,
+.console-btn-ghost:focus-visible,
+.console-tile:focus-visible,
+.console-quick button:focus-visible,
+.console-game-links button:focus-visible,
+.console-back:focus-visible,
+.console-play:focus-visible,
+.console-link:focus-visible {
+  outline: 3px solid #e0b33a;
+  outline-offset: 2px;
+}
+
+/* ---------- Home ---------- */
+.console-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(2, 6, 17, 0.88);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.console-wordmark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  font-size: 18px;
+  color: #ffffff;
+}
+.console-wordmark span {
+  color: #e0b33a;
+}
+.console-word-mark {
+  width: 28px;
+  height: 28px;
+}
+.console-top-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.console-clock {
+  font-weight: 700;
+  font-size: 14px;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+.console-chip {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffffff;
+  border: 1px solid rgba(224, 179, 58, 0.7);
+  border-radius: 999px;
+  padding: 5px 10px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.console-hero {
+  position: relative;
+  min-height: 300px;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+.console-hero-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.console-hero-body {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  padding: 48px 16px 20px;
+  background: linear-gradient(to top, rgba(2, 6, 17, 0.95) 20%, rgba(2, 6, 17, 0.35) 70%, transparent);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.console-hero-title {
+  margin: 0;
+  font-size: clamp(34px, 9vw, 56px);
+  line-height: 0.95;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+  text-shadow: 0 2px 0 #000000, 0 8px 28px rgba(0, 0, 0, 0.9);
+}
+.console-hero-sub {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  text-shadow: 0 1px 3px #000000;
+}
+.console-hero-meta {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #dbeafe;
+  text-shadow: 0 1px 3px #000000;
+}
+.console-hero-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.console-section {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+}
+.console-section h2,
+.console-game-body h2 {
+  font-size: 13px;
+  letter-spacing: 0.24em;
+  font-weight: 800;
+  color: #e0b33a;
+  margin: 0 0 12px;
+}
+.console-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.console-tile {
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  color: #ffffff;
+  background: #0a1122;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 16px;
+  overflow: hidden;
+  transition: transform 0.15s ease-out, border-color 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+.console-tile:hover,
+.console-tile:focus-visible {
+  transform: translateY(-2px) scale(1.02);
+  border-color: #e0b33a;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6), 0 0 0 1px #e0b33a;
+}
+.console-tile-art {
+  display: block;
+  width: 100%;
+  height: 108px;
+  object-fit: cover;
+}
+.console-tile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 12px 14px;
+}
+.console-tile-body b {
+  font-size: 16px;
+  font-weight: 800;
+  color: #ffffff;
+}
+.console-tile-body > span {
+  font-size: 12px;
+  line-height: 1.35;
+  color: #cbd5e1;
+}
+.console-tile-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.console-tile-foot i {
+  font-style: normal;
+  font-weight: 800;
+  color: #e0b33a;
+  letter-spacing: 0.06em;
+}
+.console-tile-foot em {
+  font-style: normal;
+  color: #94a3b8;
+  font-size: 11px;
+}
+.console-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.console-quick button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  padding: 9px 16px;
+  cursor: pointer;
+}
+.console-foot {
+  margin: 24px 0 0;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+/* ---------- Game page ---------- */
+.console-game-hero {
+  position: relative;
+  height: 210px;
+  overflow: hidden;
+}
+.console-game-hero-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.console-game-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, #020611 4%, rgba(2, 6, 17, 0.25) 55%, rgba(2, 6, 17, 0.45));
+}
+.console-back {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 1;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #ffffff;
+  background: rgba(2, 6, 17, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  padding: 9px 14px;
+  cursor: pointer;
+}
+.console-game-body {
+  max-width: 720px;
+  margin: -28px auto 0;
+  padding: 0 16px 40px;
+  position: relative;
+  z-index: 1;
+}
+.console-game-title {
+  margin: 6px 0 10px;
+  font-size: clamp(32px, 9vw, 52px);
+  line-height: 0.95;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+  text-shadow: 0 2px 0 #000000, 0 8px 28px rgba(0, 0, 0, 0.9);
+}
+.console-game-desc {
+  margin: 0 0 14px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: #e2e8f0;
+}
+.console-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.console-badge {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #020611;
+  background: #e0b33a;
+  border-radius: 999px;
+  padding: 6px 12px;
+}
+.console-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.console-stats span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: #0a1122;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 12px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #cbd5e1;
+  text-align: center;
+}
+.console-stats b {
+  font-size: 22px;
+  font-weight: 900;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+.console-online {
+  margin: 0 0 20px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #dbeafe;
+}
+.console-features,
+.console-howto {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.console-features li {
+  background: #0a1122;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.console-features b {
+  font-size: 14px;
+  color: #ffffff;
+}
+.console-features span {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #cbd5e1;
+}
+.console-howto li {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #e2e8f0;
+  border-left: 3px solid #e0b33a;
+  padding-left: 12px;
+}
+.console-howto b {
+  color: #ffffff;
+}
+.console-auth h2 {
+  margin-top: 4px;
+}
+.console-auth .auth {
+  text-align: left;
+}
+.console-play-block {
+  margin-top: 4px;
+}
+.console-play {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  text-decoration: none;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: #020611;
+  background: #e0b33a;
+  border: 2px solid #e0b33a;
+  border-radius: 999px;
+  padding: 15px 22px;
+  cursor: pointer;
+}
+.console-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #cbd5e1;
+  text-align: center;
+}
+.console-link {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: #e0b33a;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.console-game-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 26px;
+}
+.console-game-links button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  padding: 9px 16px;
+  cursor: pointer;
+}
+
+@media (min-width: 640px) {
+  .console-hero {
+    min-height: 340px;
+  }
+  .console-hero-body,
+  .console-section {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+  .console-tiles {
+    gap: 16px;
+  }
+  .console-tile-art {
+    height: 150px;
+  }
+  .console-game-hero {
+    height: 260px;
+  }
+  .console-stats {
+    grid-template-columns: repeat(6, 1fr);
+  }
+  .console-play {
+    max-width: 420px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .console-boot-mark,
+  .console-boot-bar i,
+  .console-boot-skip,
+  .console-tile {
+    animation: none !important;
+    transition: none !important;
+  }
+  .console-boot.stage-0 .console-boot-title,
+  .console-boot.stage-0 .console-boot-rule,
+  .console-boot.stage-0 .console-boot-sub,
+  .console-boot.stage-0 .console-boot-line {
+    opacity: 1;
+    transform: none;
+  }
+}

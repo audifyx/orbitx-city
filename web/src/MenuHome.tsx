@@ -19,7 +19,7 @@ const TIPS = [
   "Street races start at the gate by the mall",
 ];
 
-const HOW_TO = [
+export const HOW_TO = [
   ["Move", "WASD · click or drag to look · arrows or Q/R turn"],
   ["Jump & fly", "Space jump · F fly"],
   ["Use things", "E use or drive · C camera · O spectator"],
@@ -51,9 +51,12 @@ interface MenuHomeProps {
   friendsOnline: Array<{ id: string; name: string; server: number | null }>;
   socialLive: boolean;
   onOpenPage: (page: HomePage) => void;
+  // Console home way back (Round 7): the classic landing stays
+  // reachable from the console, and the console from here.
+  onConsoleHome?: () => void;
 }
 
-export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogin, online, friendsOnline, socialLive, onOpenPage }: MenuHomeProps) {
+export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogin, online, friendsOnline, socialLive, onOpenPage, onConsoleHome }: MenuHomeProps) {
   const [showHow, setShowHow] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -99,6 +102,11 @@ export function MenuHome({ gate, who, onChoose, onAccount, onGuest, onBackToLogi
               <button type="button" className="menu-ghost" onClick={() => setShowHow((value) => !value)}>
                 {showHow ? "CLOSE HOW TO PLAY" : "HOW TO PLAY"}
               </button>
+              {onConsoleHome ? (
+                <button type="button" className="menu-ghost" onClick={onConsoleHome}>
+                  ← CONSOLE HOME
+                </button>
+              ) : null}
             </div>
             {showHow && (
               <div className="menu-howto">

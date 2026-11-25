@@ -10,6 +10,9 @@ import { parseSeed } from "./game/seed";
 import { cityMapModel } from "./game/city";
 import { CharacterSelect } from "./Roster";
 import { MenuHome } from "./MenuHome";
+import { ConsoleBoot } from "./console/ConsoleBoot";
+import { ConsoleHome, type ConsoleGameId } from "./console/ConsoleHome";
+import { GamePage } from "./console/GamePage";
 import { EarlyAccessGate } from "./EarlyAccessGate";
 import { IntroScene } from "./Intro";
 import { AboutPage, MenuFooter, MenuHeader, PrivacyPage, SettingsPage, TermsPage, type HomePage } from "./HomePages";
@@ -581,6 +584,12 @@ export default function App() {
   // Home rebrand: info pages (about / settings / privacy / terms) shown
   // inside the menu instead of the home step. "home" = the landing screen.
   const [menuPage, setMenuPage] = useState<"home" | HomePage>("home");
+  // OrbitX console (Round 7): PS5-style boot → home → game pages, the new
+  // front door. "menu" is the classic splash/menu flow, still reachable
+  // from the game page and the wordmark. Shot/rig mode skips the boot
+  // entirely (booted starts true) so ?shot= / autostart go straight in.
+  const [booted, setBooted] = useState(() => shotMode() !== null);
+  const [consoleView, setConsoleView] = useState<"home" | ConsoleGameId | "menu">("home");
   // Intro scene: the 30s flyover on open. Skipped in shot/rig mode and
   // when the player turned it off in Settings (orbitx-intro = "off").
   const [intro, setIntro] = useState(() => shotMode() === null && localStorage.getItem("orbitx-intro") !== "off");
@@ -967,6 +976,13 @@ export default function App() {
     }
     setMenuStep("roster");
   }, [eaLockedNow, fetchEaStatus]);
+  // Play from the console game page: leave the console for the classic
+  // menu, then the existing door (roster, or the gate for a locked
+  // account) takes over unchanged.
+  const playCityFromConsole = useCallback(() => {
+    setConsoleView("menu");
+    enterCity();
+  }, [enterCity]);
   const handleEaUnlocked = useCallback(() => {
     eaUnlockedRef.current = true;
     // One fresh status read after a verify attempt (the poll budget).
@@ -1317,6 +1333,9 @@ export default function App() {
         if (menuStep === "home" || menuStep === "gate") {
           setEaLandingGate(true);
           setMenuStep("gate");
+          // The gate is a classic-menu screen: leave the console home
+          // so the locked player actually sees it.
+          setConsoleView("menu");
         }
       } else if (menuStep === "gate" || !eaLandingDoneRef.current) {
         // Unlocked / inactive / admin: leave the checking park (or the
@@ -1503,6 +1522,8 @@ export default function App() {
     setMenu(true);
     setMenuStep("home");
     setMenuPage("home");
+    // A replayed intro lands on the console home, the front door.
+    setConsoleView("home");
     setIntro(true);
     gameRef.current?.setIntro(true);
   };
@@ -2598,6 +2619,7 @@ export default function App() {
               setGate("login");
               setMenu(true);
               setMenuStep("home");
+              setConsoleView("home");
               gameRef.current?.start(parseSeed(seedText || "1"), "orbit");
             });
           }} />}
@@ -6200,6 +6222,7 @@ export default function App() {
                     setMenu(true);
                     setMenuStep("home");
                     setMenuPage("home");
+                    setConsoleView("home");
                     gameRef.current?.start(parseSeed(seedText || "1"), "orbit");
                   }}
                 >
@@ -6290,8 +6313,61 @@ export default function App() {
           </>
         );
       })()}
-      {menu && intro && <IntroScene onDone={endIntro} />}
-      {menu && !intro && (
+      {/* OrbitX console (Round 7): boot → intro flyover → console home /
+          game page. The classic menu below is the same flow as before,
+          reached from a game page or the wordmark. */}
+      {menu && !booted && <ConsoleBoot onDone={() => setBooted(true)} />}
+      {menu && booted && intro && <IntroScene onDone={endIntro} />}
+      {menu && booted && !intro && consoleView !== "menu" && (
+        consoleView === "home" ? (
+          <ConsoleHome
+            who={who}
+            online={universesLive && universes ? universes.reduce((n, u) => n + u.playerCount, 0) : null}
+            onOpenGame={setConsoleView}
+            onOpenPage={(page) => {
+              setConsoleView("menu");
+              setMenuPage(page);
+            }}
+            onClassicMenu={() => {
+              setConsoleView("menu");
+              setMenuPage("home");
+              setMenuStep("home");
+            }}
+          />
+        ) : (
+          <GamePage
+            game={consoleView}
+            who={who}
+            gate={gate}
+            online={universesLive && universes ? universes.reduce((n, u) => n + u.playerCount, 0) : null}
+            onBack={() => setConsoleView("home")}
+            onPlayCity={playCityFromConsole}
+            onAccount={(account) => {
+              setWho(account);
+              setGate("city");
+            }}
+            onGuest={() => {
+              setWho(null);
+              setGate("city");
+            }}
+            onBackToLogin={() => {
+              eaAuthFlowRef.current = true;
+              setGate("login");
+              setWho(null);
+            }}
+            onOpenPage={(page) => {
+              setConsoleView("menu");
+              setMenuPage(page);
+            }}
+            onClassicMenu={() => {
+              setConsoleView("menu");
+              setMenuPage("home");
+              setMenuStep("home");
+            }}
+          />
+        )
+      )}
+      {menu && booted && !intro && consoleView === "menu" && (
         <section className={menuStep === "roster" || menuStep === "gate" || menuPage !== "home" ? "menu menu-roster" : "menu"} id="menu">
           {menu && looksFailed ? (
             <p
@@ -6306,7 +6382,7 @@ export default function App() {
               <MenuHeader
                 who={who}
                 onNavigate={setMenuPage}
-                onHome={() => { setMenuPage("home"); setMenuStep("home"); }}
+                onHome={() => { setMenuPage("home"); setMenuStep("home"); setConsoleView("home"); }}
                 onPlay={enterCity}
               />
               {menuPage === "about" ? <AboutPage /> : null}
@@ -6347,13 +6423,14 @@ export default function App() {
               friendsOnline={friendsHere.filter((f) => f.server !== null)}
               socialLive={universesLive}
               onOpenPage={setMenuPage}
+              onConsoleHome={() => setConsoleView("home")}
             />
           ) : menuStep === "gate" ? (
             <>
               <MenuHeader
                 who={who}
                 onNavigate={setMenuPage}
-                onHome={() => { setMenuPage("home"); setMenuStep("home"); }}
+                onHome={() => { setMenuPage("home"); setMenuStep("home"); setConsoleView("home"); }}
                 onPlay={enterCity}
               />
               {eaStatus ? (
@@ -6389,7 +6466,7 @@ export default function App() {
               <MenuHeader
                 who={who}
                 onNavigate={setMenuPage}
-                onHome={() => { setMenuPage("home"); setMenuStep("home"); }}
+                onHome={() => { setMenuPage("home"); setMenuStep("home"); setConsoleView("home"); }}
                 onPlay={() => setMenuStep("roster")}
               />
               <div className="card menu-wide">
