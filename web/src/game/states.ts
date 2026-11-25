@@ -368,7 +368,10 @@ export function buildRegionRoads(city: City, state: StateDef): void {
   const { x: cx, z: cz } = REGION_CENTERS[state.id];
   const span = REGION_HALF * 2;
   const blockSpan = 26; // 36 spacing - 2 * ROAD_HALF (10) = 26 clear between cross-roads
-  const sidewalkSpan = 24.4; // stops cleanly at each intersection corner
+  // 21, not 24.4: the N/S strip (half-length 10.5) ends at the
+  // perpendicular sidewalk's far edge, so the corner squares abut
+  // instead of overlapping 1.7 x 1.7 at identical y (coplanar flicker).
+  const sidewalkSpan = 21;
   for (const c of REGION_ROAD_CENTERS) {
     // N/S asphalt strip: c=0 splits around the State Office Tower superblock
     // (cz-72..cz-44) and the Central Plaza / Landmark Tower (cz-31..cz+31).
@@ -388,12 +391,22 @@ export function buildRegionRoads(city: City, state: StateDef): void {
         pushBox(city, cx + b, 0.06, cz + c, blockSpan, 0.12, ROAD_HALF * 2, c === 0 ? "asphaltWet" : "asphalt");
       }
       // Sidewalks along each block edge (never crossing road intersections, the plaza, or the office tower).
-      if (!(c === 0 && (Math.abs(b) <= 18 || b === -54))) {
+      // The plaza-facing strip of the +/-36 roads is also skipped: it
+      // overlaps the plaza slab edge by 0.5 (sidewalk bottom 0.04 vs
+      // plaza top 0.09 — an interpenetrating lip). For c=36 the
+      // plaza-facing strip is x=c-6.5; for c=-36 it is x=c+6.5.
+      if (!(c === 0 && (Math.abs(b) <= 18 || b === -54)) && !(c === 36 && Math.abs(b) <= 18)) {
         pushBox(city, cx + c - 6.5, 0.1, cz + b, 2, 0.12, sidewalkSpan, "sidewalk");
+      }
+      if (!(c === 0 && (Math.abs(b) <= 18 || b === -54)) && !(c === -36 && Math.abs(b) <= 18)) {
         pushBox(city, cx + c + 6.5, 0.1, cz + b, 2, 0.12, sidewalkSpan, "sidewalk");
       }
-      if (!(c === 0 && inPlaza)) {
+      // The plaza-facing strip of the +/-36 E/W roads is skipped for the
+      // same reason (z=c-6.5 faces the plaza for c=36, z=c+6.5 for c=-36).
+      if (!(c === 0 && inPlaza) && !(c === 36 && inPlaza)) {
         pushBox(city, cx + b, 0.1, cz + c - 6.5, sidewalkSpan, 0.12, 2, "sidewalk");
+      }
+      if (!(c === 0 && inPlaza) && !(c === -36 && inPlaza)) {
         if (!(c === -72 && inPlaza)) {
           pushBox(city, cx + b, 0.1, cz + c + 6.5, sidewalkSpan, 0.12, 2, "sidewalk");
         }
@@ -413,9 +426,12 @@ export function buildRegionRoads(city: City, state: StateDef): void {
       pushBox(city, cx, 0.13, cz + o, 0.8, 0.04, 8, state.theme.boulevard);
     }
   }
-  // Florida: a boardwalk strip along the region's south edge.
+  // Florida: a boardwalk strip along the region's south edge. At y 0.16
+  // (top 0.22) it clears the south sidewalk (top 0.16) instead of
+  // z-fighting it at identical y, and reads as a raised boardwalk
+  // where it crosses the N/S roads.
   if (state.id === "fl") {
-    pushBox(city, cx, 0.1, cz + 186, span, 0.12, 8, "warm");
+    pushBox(city, cx, 0.16, cz + 186, span, 0.12, 8, "warm");
   }
 }
 
@@ -454,17 +470,23 @@ export function buildRegionCore(city: City, state: StateDef): void {
   // Florida / Vice City: a neon band around the landmark tower near
   // the top — Ocean Drive hotels wear neon. Bright emissive cyan, so
   // it glows at dusk and night. FL only; the other states keep the
-  // gold beacon alone.
+  // gold beacon alone. Sized to the tower's taper at that height
+  // (taper 0.8 above y 3.6): the old full-width band floated 2.46
+  // proud of the narrowed tower on every side.
   if (state.id === "fl") {
-    pushBox(city, cx, t.towerH - 2, cz, tw + 0.6, 0.4, tw + 0.6, "cyanhot");
+    const bandY = t.towerH - 2;
+    const bandW = tw * (1 - 0.2 * (bandY - 3.6) / (t.towerH - 3.6)) + 0.6;
+    pushBox(city, cx, bandY, cz, bandW, 0.4, bandW, "cyanhot");
   }
-  // Plaza corner lamps + state props.
+  // Plaza corner lamps + state props. The props sit on the plaza slab
+  // at (+/-24, -/+24) — the old (+/-40, -/+40) put them dead inside
+  // the +/-36 road asphalt (4 from both centrelines).
   for (const [lx, lz] of [[-26, -26], [26, -26], [-26, 26], [26, 26]] as const) {
     pushBox(city, cx + lx, 1.5, cz + lz, 0.3, 3, 0.3, "black");
     pushBox(city, cx + lx, 3.1, cz + lz, 0.9, 0.5, 0.9, "gold");
   }
-  addStateProps(city, cx - 40, cz + 40, t);
-  addStateProps(city, cx + 40, cz - 40, t);
+  addStateProps(city, cx - 24, cz + 24, t);
+  addStateProps(city, cx + 24, cz - 24, t);
 }
 
 /** One palm (LA) or beach umbrella (FL) at a spot. NY gets none — dense. */
@@ -1006,8 +1028,14 @@ export function buildDistrictBlocks(city: City, state: StateDef, rng: Rng): void
       if (servicePlots.has(`${bx},${bz}`)) continue; // emergency services
       const district = districtForLocal(state, bx, bz);
       const h = t.bldMin + rng() * (t.bldMax - t.bldMin);
-      const fw = 20 + rng() * 6;
-      const fd = 20 + rng() * 6;
+      // Footprint capped at 20: the near sidewalk strip sits 10.5–12.5
+      // from the block centre, so any block wider than 21 swallows it
+      // (and stands on the asphalt edge — min wall-to-road gap was
+      // 0.05). At 20 the block edge is 10 from centre: 0.5 clear of
+      // the strip, 3.0 clear of the road edge at 13. Height, roof and
+      // style still vary, so the streets keep their variety.
+      const fw = 20;
+      const fd = 20;
       // Roofline: the theme's roof most of the time, a neighbour's sometimes.
       const roofRoll = rng();
       const roof = roofRoll < 0.7 ? t.roof : roofRoll < 0.85 ? "gable" : "flat";
@@ -1041,11 +1069,21 @@ export function buildDistrictBlocks(city: City, state: StateDef, rng: Rng): void
       // inside, E inside by the door steps back out. Anchor id = zone id.
       city.anchors.push(doorAnchorFor(facade.id, def.label, def.kind, bx0, bz0, fw, fd, "s", 0));
       // A gold band under the roofline for NY; a street awning for FL.
-      if (t.cornice) pushBox(city, cx + bx, h - 0.4, cz + bz, fw + 0.2, 0.5, fd + 0.2, "gold");
+      // The cornice is sized to the tower's taper at its height (taper
+      // 0.82 above y 3.6): the old full-footprint band floated ~2.0
+      // proud of the narrowed tower on every side.
+      if (t.cornice) {
+        const cY = h - 0.4;
+        const cF = h >= 20 ? 1 - 0.18 * (cY - 3.6) / (h - 3.6) : 1;
+        pushBox(city, cx + bx, cY, cz + bz, fw * cF + 0.2, 0.5, fd * cF + 0.2, "gold");
+      }
       if (t.awning) pushBox(city, cx + bx, 3.4, cz + bz + fd / 2 + 0.8, fw * 0.7, 0.25, 1.6, "white");
-      // State props at the block corner, so each street reads differently.
+      // State props at the block's SE corner, on the grass corner where
+      // the sidewalks meet (1.5 out from the wall, 1.2 clear of the
+      // road edge at 13). The old +3 put the trunk dead inside the
+      // road intersection.
       if (t.props !== "none" && rng() < 0.5) {
-        addStateProps(city, cx + bx + fw / 2 + 3, cz + bz + fd / 2 + 3, t);
+        addStateProps(city, cx + bx + fw / 2 + 1.5, cz + bz + fd / 2 + 1.5, t);
       }
       n++;
     }
@@ -1316,12 +1354,15 @@ function furnishStateTower(city: City, state: StateDef): void {
     pushCol(city, cx, floorY, cz - 58, 29.2, 0.12, 19.2);
     // Balcony under the lift landing anchor (cx+17, cz-54.6), 0.02 above
     // the floor slab so the overlap under the wall never z-fights.
-    pushBox(city, cx + 17.05, floorY + 0.02, cz - 53.35, 4.9, 0.12, 4.7, "cream");
-    pushCol(city, cx + 17.05, floorY + 0.02, cz - 53.35, 4.9, 0.12, 4.7);
-    pushBox(city, cx + 19.4, floorY + 0.55, cz - 53.35, 0.2, 1.1, 4.7, accent);
-    pushCol(city, cx + 19.4, floorY + 0.55, cz - 53.35, 0.2, 1.1, 4.7);
-    pushBox(city, cx + 17.25, floorY + 0.55, cz - 51.1, 4.5, 1.1, 0.2, accent);
-    pushCol(city, cx + 17.25, floorY + 0.55, cz - 51.1, 4.5, 1.1, 0.2);
+    // Sized to the exact balcony slot (z -55..-51.5): the old 4.7-long
+    // slab overlapped the voxel east-wall ends by 0.7 (north) and 0.5
+    // (south) at every suite floor.
+    pushBox(city, cx + 17.05, floorY + 0.02, cz - 53.25, 4.9, 0.12, 3.5, "cream");
+    pushCol(city, cx + 17.05, floorY + 0.02, cz - 53.25, 4.9, 0.12, 3.5);
+    pushBox(city, cx + 19.4, floorY + 0.55, cz - 53.25, 0.2, 1.1, 3.5, accent);
+    pushCol(city, cx + 19.4, floorY + 0.55, cz - 53.25, 0.2, 1.1, 3.5);
+    pushBox(city, cx + 17.25, floorY + 0.55, cz - 51.6, 4.5, 1.1, 0.2, accent);
+    pushCol(city, cx + 17.25, floorY + 0.55, cz - 51.6, 4.5, 1.1, 0.2);
     // Dark doorway panel on the tower's east face, in the balcony slot.
     pushBox(city, cx + 15.09, floorY + 1.5, cz - 53.25, 0.1, 3.4, 3.9, "gold");
     pushBox(city, cx + 15.14, floorY + 1.5, cz - 53.25, 0.12, 3.0, 3.5, "black");
@@ -1413,7 +1454,15 @@ export function buildOfficeTower(city: City, state: StateDef): void {
   // unreachable, and embedded the lobby's front desk).
   // The upper mass has NO street door — the lobby door below is the only
   // entrance, reached by the lift inside.
-  // Its old door:"s" drew a ground-floor gap into the lobby's back wall.
+  // door "s": the pretty south wall gets the same 4-wide ground-floor
+  // gap the voxel shell has, so the lobby-to-tower doorway reads as a
+  // doorway instead of a solid wall you walk through (the voxel gap's
+  // colliders always let you through; only the pretty wall was solid).
+  // The east lift/balcony slot stays backed by the pretty east wall:
+  // pretty cuts door gaps only on the face centre, and the slot sits
+  // 4.75 off-centre — but the gold/black doorway panels fill the slot
+  // and read as a door, so the walk-through there is a doorway, not a
+  // blank wall.
   const upW = 30;
   const upD = 20;
   const upH = t.officeH;
@@ -1423,7 +1472,7 @@ export function buildOfficeTower(city: City, state: StateDef): void {
   // balcony slot (face-centre offsets +2.5..+7, the slot at cz-55..cz-51.5).
   city.facades.push({
     id: `${state.id}-tower-upper`, x: cx - upW / 2, z: lz0 + 4, w: upW, d: upD, h: upH,
-    style: (t.style + 1) % 6, door: "", enterable: true, hero: false,
+    style: (t.style + 1) % 6, door: "s", enterable: true, hero: false,
     face: "s", roof: "stepped", roofMat: t.roofMat, cornice: t.cornice,
     glass: "curtain", glassProud: 0.36, glassSkip: { face: "e", from: 2.5, to: 7 },
   });
@@ -1445,17 +1494,23 @@ export function buildOfficeTower(city: City, state: StateDef): void {
     landing: "s",
   };
   city.lifts.push(lift);
-  // Glass shaft walls (visual) + solid colliders on three sides; the landing
-  // side stays open and is gated by the tagged door blockers below.
+  // Glass shaft walls (visual) + solid colliders on the east and north
+  // sides; the landing side stays open and is gated by the tagged door
+  // blockers below. There is deliberately NO west glass wall: the tower's
+  // own east wall (furnishStateTower) already closes the shaft's west
+  // side on the same plane — the old west glass sat embedded inside
+  // that cream wall (invisible from both sides, overlapping colliders).
+  // The shaft is capped at the tower roof (min 24, officeH): the old
+  // 24-high shaft poked 2.0–2.4 above FL's 22-high tower.
+  const shaftH = Math.min(24, upH);
   for (const [sx, sz, w, d] of [
-    [liftX - 2.1, liftZ, 0.3, 4.6],
     [liftX + 2.1, liftZ, 0.3, 4.6],
     [liftX, liftZ - 2.1, 4.6, 0.3],
   ] as const) {
-    pushBox(city, sx, 12, sz, w, 24, d, "cyan");
-    pushCol(city, sx, 12, sz, w, 24, d);
+    pushBox(city, sx, shaftH / 2, sz, w, shaftH, d, "cyan");
+    pushCol(city, sx, shaftH / 2, sz, w, shaftH, d);
   }
-  pushBox(city, liftX, 24.2, liftZ, 4.6, 0.4, 4.6, "black");
+  pushBox(city, liftX, shaftH + 0.2, liftZ, 4.6, 0.4, 4.6, "black");
   for (let f = 0; f < floors.length; f++) {
     pushCol(city, liftX, floors[f] + 1.5, liftZ + 2.1, 3.2, 3, 0.3, `lift-door:${liftId}:${f}`);
     city.anchors.push({
@@ -1617,20 +1672,32 @@ export function buildDistrictBridge(city: City, def: DistrictBridgeDef): void {
   // The rails stop 2 short of each deck end: a home / service door sits
   // at the deck end, and a rail run to the very end put its end post
   // across the doorway. The deck is at grade, so the gap is just open
-  // ground, not a fall.
+  // ground, not a fall. They also split over the perpendicular central
+  // avenue (+/-7.5 clears the road + sidewalks): the old full-length
+  // rails walled off the avenue at all 4 crossings per state.
   const railLen = Math.max(2, len - 4);
+  const railHalf = railLen / 2;
+  const avenueHalf = 7.5;
   for (const s of [-1, 1]) {
-    const rx = alongX ? cx : cx + s * railOff;
-    const rz = alongX ? cz + s * railOff : cz;
-    pushBox(city, rx, 0.7, rz, alongX ? railLen : 0.4, 0.5, alongX ? 0.4 : railLen, "gold");
-    pushCol(city, rx, 0.7, rz, alongX ? railLen : 0.4, 1.2, alongX ? 0.4 : railLen);
+    for (const [a0, a1] of [[-railHalf, -avenueHalf], [avenueHalf, railHalf]] as const) {
+      const mid = (a0 + a1) / 2;
+      const segLen = a1 - a0;
+      const rx = alongX ? cx + mid : cx + s * railOff;
+      const rz = alongX ? cz + s * railOff : cz + mid;
+      pushBox(city, rx, 0.7, rz, alongX ? segLen : 0.4, 0.5, alongX ? 0.4 : segLen, "gold");
+      pushCol(city, rx, 0.7, rz, alongX ? segLen : 0.4, 1.2, alongX ? 0.4 : segLen);
+    }
   }
-  // Lamps down the middle, every 12 units.
+  // Lamps on the deck edges, alternating sides, every 12 units — never
+  // down the middle (the old centre lamps stood uncollided in the
+  // 6-wide driving lane) and never in the avenue crossing (|o| < 7.5).
   const steps = Math.max(1, Math.floor(len / 12));
   for (let i = 0; i < steps; i++) {
     const o = (i - (steps - 1) / 2) * 12;
-    const lx = alongX ? cx + o : cx;
-    const lz = alongX ? cz : cz + o;
+    if (Math.abs(o) < avenueHalf) continue;
+    const edge = (i % 2 === 0 ? 1 : -1) * (width / 2 - 1);
+    const lx = alongX ? cx + o : cx + edge;
+    const lz = alongX ? cz + edge : cz + o;
     pushBox(city, lx, 1.5, lz, 0.3, 3, 0.3, "black");
     pushBox(city, lx, 3.1, lz, 0.9, 0.5, 0.9, "gold");
   }
