@@ -536,23 +536,40 @@ function stateWallpaperWall(
   band(0.12, 0.18, "black"); // baseboard
 }
 
-/** A potted plant: stone pot + dark leaves, with a collider. */
+/** A potted plant: stone pot + dark leaves, with a collider. Round 3:
+ * a tapered pot (rim overhang) + two-tier foliage, so it reads as a
+ * plant, not two stacked boxes. Collider unchanged. */
 function statePlant(city: City, x: number, z: number, y0 = 0): void {
   pushBox(city, x, y0 + 0.2, z, 0.9, 0.4, 0.9, "stone");
-  pushBox(city, x, y0 + 0.5, z, 0.8, 0.9, 0.8, "leavesDark");
+  pushBox(city, x, y0 + 0.42, z, 1.0, 0.12, 1.0, "stone");
+  pushBox(city, x, y0 + 0.55, z, 0.8, 0.9, 0.8, "leavesDark");
+  pushBox(city, x, y0 + 1.05, z, 0.5, 0.4, 0.5, "leaves");
   pushCol(city, x, y0 + 0.5, z, 0.8, 0.9, 0.8);
 }
 
-/** A standing floor lamp: gray pole + warm head, with a collider. */
+/** A standing floor lamp: gray pole + warm head, with a collider.
+ * Round 3: a base foot + a wider shade cap over the warm head.
+ * Collider unchanged. */
 function stateLamp(city: City, x: number, z: number, y0 = 0): void {
+  pushBox(city, x, y0 + 0.05, z, 0.34, 0.1, 0.34, "black");
   pushBox(city, x, y0 + 0.9, z, 0.15, 1.8, 0.15, "gray");
   pushBox(city, x, y0 + 1.85, z, 0.5, 0.3, 0.5, "warm");
+  pushBox(city, x, y0 + 2.02, z, 0.6, 0.08, 0.6, "warm");
   pushCol(city, x, y0 + 0.9, z, 0.3, 1.8, 0.3);
 }
 
-/** A low sofa / bench along X, with a collider. */
+/** A low sofa / bench along X, with a collider. Round 3: inset plinth
+ * + armrests at both ends + two seat cushions, so it reads as a sofa,
+ * not a slab. No backrest — these sofas face each other across lobbies
+ * and sit freestanding, so a one-sided back would face the wrong way
+ * half the time. Collider unchanged. */
 function stateSofa(city: City, x: number, z: number, y0: number, w: number, mat: Mat): void {
+  pushBox(city, x, y0 + 0.08, z, w - 0.3, 0.16, 0.9, "black");
   pushBox(city, x, y0 + 0.38, z, w, 0.45, 1.1, mat);
+  for (const s of [-1, 1]) {
+    pushBox(city, x + s * (w / 2 - 0.12), y0 + 0.55, z, 0.24, 0.5, 1.1, mat);
+    pushBox(city, x + s * (w / 4), y0 + 0.62, z, w / 2 - 0.3, 0.12, 0.95, "white");
+  }
   pushCol(city, x, y0 + 0.38, z, w, 0.45, 1.1);
 }
 
@@ -761,10 +778,15 @@ function furnishStateBlock(
     rput(S / 2, backT, Math.min(9, S - 4), 0.18, 0.12, 2.2, "wood");
     rput(S / 2, T - 0.75, Math.min(9, S - 4), 1.7, 1.6, 0.1, accent);
   } else {
+    // Round 3: a shaped counter — inset kick base, body, overhanging
+    // stone top, gold till, and an accent front panel on the room side.
+    // Collider unchanged (the body box).
+    rput(S / 2, backT, backW - 0.3, 0.08, 0.16, 0.95, "black");
     rput(S / 2, backT, backW, 0.55, 1.05, 1.15, kind === "hotel" ? "stone" : "wood");
     rcol(S / 2, backT, backW, 0.55, 1.05, 1.15);
     rput(S / 2, backT, backW + 0.2, 1.15, 0.12, 1.25, "stone");
     rput(S / 2, backT, 0.35, 1.55, 0.55, 0.35, "gold");
+    rput(S / 2, backT - 0.6, backW - 0.8, 0.55, 0.6, 0.06, accent);
     if (kind === "cafe" || kind === "office") {
       for (const side of [-1, 1]) {
         rput(S / 2 + side * 2.8, T - 2.8, 0.45, 0.4, 0.45, 0.45, "black");
@@ -780,22 +802,32 @@ function furnishStateBlock(
   // Side furniture: two units per side wall, at 38% and 66% of the depth.
   const sideUnit = (a: number, t: number) => {
     if (kind === "shop" || kind === "market") {
+      // Round 3: the shelf unit gets an overhanging cap slab + a gold
+      // divider strip on its room-facing side — a shaped shelf, not a
+      // solid block. Collider unchanged.
       rput(a, t, 0.9, 1.2, 2.4, 2.4, "wood");
       rcol(a, t, 0.9, 1.2, 2.4, 2.4);
+      rput(a, t, 1.1, 2.45, 0.1, 2.6, "wood");
+      rput(a, t - 1.26, 0.08, 1.2, 2.0, 0.08, "gold");
       for (let i = 0; i < 2; i++) {
-        rput(a, t - 0.6 + i * 1.2, 0.4, 2.6, 0.4, 0.4, (["cyan", "gold"] as Mat[])[i] as Mat);
+        rput(a, t - 0.6 + i * 1.2, 0.4, 2.7, 0.4, 0.4, (["cyan", "gold"] as Mat[])[i] as Mat);
       }
     } else if (kind === "cafe") {
       rput(a, t, 1.0, 0.75, 0.1, 1.4, "wood");
       rput(a, t, 0.2, 0.35, 0.7, 0.2, "black");
       rcol(a, t, 1.0, 0.4, 0.8, 1.4);
+      // Round 3: pedestal foot + a gold centrepiece on the tabletop.
+      rput(a, t, 0.5, 0.05, 0.1, 0.5, "black");
+      rput(a, t, 0.2, 0.88, 0.15, 0.2, "gold");
       rput(a + (a < S / 2 ? 1.1 : -1.1), t, 0.45, 0.4, 0.45, 0.45, "black");
       rcol(a + (a < S / 2 ? 1.1 : -1.1), t, 0.45, 0.4, 0.45, 0.45);
     } else if (kind === "library") {
+      // Round 3: overhanging cap slab on the bookcase.
       rput(a, t, 0.9, 1.1, 2.2, 2.4, "wood");
       rcol(a, t, 0.9, 1.1, 2.2, 2.4);
+      rput(a, t, 1.1, 2.25, 0.1, 2.6, "wood");
       for (let i = 0; i < 3; i++) {
-        rput(a, t - 0.7 + i * 0.7, 0.4, 2.4, 0.4, 0.4, (["red", "cyan", "gold"] as Mat[])[i] as Mat);
+        rput(a, t - 0.7 + i * 0.7, 0.4, 2.5, 0.4, 0.4, (["red", "cyan", "gold"] as Mat[])[i] as Mat);
       }
     } else if (kind === "gym") {
       rput(a, t, 1.0, 0.4, 0.45, 2.4, "wood");

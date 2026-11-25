@@ -1,4 +1,5 @@
 import {
+  AdditiveBlending,
   BoxGeometry,
   BufferGeometry,
   CanvasTexture,
@@ -7,9 +8,12 @@ import {
   ExtrudeGeometry,
   Group,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
+  PlaneGeometry,
   RepeatWrapping,
   Shape,
+  SphereGeometry,
   SRGBColorSpace,
   TorusGeometry,
 } from "three";
@@ -577,6 +581,14 @@ const CYAN_BEACON_MAT = new MeshStandardMaterial({
 nightMats.push({ mat: LANTERN_MAT, day: 0.85, night: 2.3 });
 nightMats.push({ mat: CYAN_BEACON_MAT, day: 1.2, night: 2.6 });
 
+// Round 3: neon spill — additive glow pools faking the wet-asphalt
+// reflection of shop signage (no real reflections in WebGL on a phone).
+// Cyan / magenta alternate by shop, matching the frame palette.
+const SPILL_MATS = [
+  new MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.13, blending: AdditiveBlending, depthWrite: false }),
+  new MeshBasicMaterial({ color: 0xff2ea6, transparent: true, opacity: 0.13, blending: AdditiveBlending, depthWrite: false }),
+];
+
 const SHUTTER_MATS = [
   new MeshStandardMaterial({ color: 0x1d3248, roughness: 0.6, metalness: 0.15 }),
   new MeshStandardMaterial({ color: 0x1f4232, roughness: 0.6, metalness: 0.15 }),
@@ -849,6 +861,73 @@ function addCurtainBands(
   }
 }
 
+/**
+ * Recessed 3D window bands on upper floors (round 3) — for towers whose
+ * upper walls are otherwise one flat textured box. The facade canvas is
+ * a 10u x 14u module with 8 painted window rows (row centres at
+ * y0 + 0.9 + r*1.75), and wall UVs are world-aligned, so these bands sit
+ * exactly on every other painted row: the dark backing hides the painted
+ * window behind it, the glass sits proud of the backing, and the frame
+ * rails + mullions + sill stand prouder still — a real recess with
+ * depth, not a texture. Curtain-glass towers already get
+ * addCurtainBands; tapered frustums carry their own glass canvas.
+ * Merged: 3 meshes per shell segment, whatever the floor count.
+ * `faces` skips faces with a proud feature in front (the hero tower's
+ * atrium). The bands are mounted proud of the wall, never cut through
+ * it, so interior liners are never exposed.
+ */
+function addUpperWindowBands(
+  group: Group,
+  x: number,
+  z: number,
+  w: number,
+  d: number,
+  y0: number,
+  y1: number,
+  faces: Face[] = ["n", "s", "w", "e"],
+) {
+  if (y1 - y0 < 3.5) return;
+  const frameBoxes: BoxTuple[] = [];
+  const glassBoxes: BoxTuple[] = [];
+  const backBoxes: BoxTuple[] = [];
+  let bands = 0;
+  for (let cy = y0 + 2.65; cy + 0.65 < y1 - 0.3; cy += 3.5) {
+    for (const face of faces) {
+      const alongX = face === "n" || face === "s";
+      const span = alongX ? w : d;
+      if (span < 4) continue;
+      const origin = alongX ? x : z;
+      const outSign = face === "n" || face === "w" ? -1 : 1;
+      const plane = face === "n" ? z : face === "s" ? z + d : face === "w" ? x : x + w;
+      const len = span - 1.0;
+      const mid = origin + span / 2;
+      // One box at (a, y), `off` out from the wall plane, `sa` along
+      // the wall, `so` out from it.
+      const boxAt = (arr: BoxTuple[], a: number, y: number, off: number, sa: number, sy: number, so: number) => {
+        if (alongX) arr.push([a, y, plane + outSign * off, sa, sy, so]);
+        else arr.push([plane + outSign * off, y, a, so, sy, sa]);
+      };
+      // Layers, outward from the wall: dark backing (front +0.03),
+      // glass (+0.055), frame front (+0.11) — the glass reads recessed
+      // 0.05 behind the frame.
+      boxAt(backBoxes, mid, cy, 0.01, len, 1.3, 0.04);
+      boxAt(glassBoxes, mid, cy, 0.035, len - 0.2, 1.14, 0.04);
+      boxAt(frameBoxes, mid, cy + 0.65, 0.05, len, 0.14, 0.12);
+      boxAt(frameBoxes, mid, cy - 0.65, 0.05, len, 0.14, 0.12);
+      boxAt(frameBoxes, mid, cy - 0.72, 0.08, len + 0.2, 0.12, 0.3);
+      for (let a = origin + 1.8; a < origin + span - 1.5; a += 2.9) {
+        boxAt(frameBoxes, a, cy, 0.05, 0.14, 1.3, 0.12);
+      }
+      bands++;
+    }
+  }
+  if (bands === 0) return;
+  addMergedBoxes(group, backBoxes, DARK_MAT, false);
+  addMergedBoxes(group, glassBoxes, WINDOW_GLASS_MAT, false);
+  addMergedBoxes(group, frameBoxes, FRAME_MAT, false);
+  glassStats.panes += bands;
+}
+
 /** Corner pilasters for one step — the stepped shell's replacement for
  * addArchitecturalDetails, whose full-height pilasters + belt courses
  * would float past the setbacks. */
@@ -935,6 +1014,10 @@ function steppedHollow(facade: Facade, material: MeshStandardMaterial, glaze: bo
     }
     if (facade.glass === "curtain" && !taper) {
       addCurtainBands(group, s.x, s.z, s.w, s.d, s.y0 + 2.0, top);
+    }
+    // Round 3: recessed window bands on non-curtain upper steps.
+    if (facade.glass !== "curtain" && !taper) {
+      addUpperWindowBands(group, s.x, s.z, s.w, s.d, s.y0, top);
     }
     // No pilasters on a tapered top step — a vertical pilaster at the
     // base corner would float past the sloping wall.
@@ -1243,6 +1326,14 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
     addWorldUvBoxes(group, upperWallBoxes, material, 10, 14, true);
   }
 
+  // Round 3: recessed 3D window bands on the upper floors — the upper
+  // walls used to be one flat textured box. Homes never reach here
+  // (baseH === h), curtain towers have their own bands, tapered
+  // frustums carry their own glass canvas.
+  if (proud === 0 && !facade.taper && facade.glass !== "curtain") {
+    addUpperWindowBands(group, x, z, w, d, baseH, h);
+  }
+
   // Tapered tower: the upper shell is a square frustum (full footprint
   // at the ground-floor top, `taper` × at the roof) instead of a straight
   // box. Ground-level trim here — addArchitecturalDetails is skipped for
@@ -1342,15 +1433,27 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
         const cc = s * (2.0 + counterW / 2 + 0.3);
         const ccx = sAlongX ? cx + cc : cx + sInX * 1.7;
         const ccz = sAlongX ? cz + sInZ * 1.7 : cz + cc;
+        // Round 3: a shaped counter, not a plain box — inset kick base,
+        // body, and an overhanging top slab the goods sit on.
+        const kick = new Mesh(box, DARK_MAT);
+        kick.position.set(ccx, 0.08, ccz);
+        kick.scale.set(sAlongX ? counterW - 0.3 : 0.9, 0.16, sAlongX ? 0.9 : counterW - 0.3);
+        group.add(kick);
         const counter = new Mesh(box, WOOD_MAT);
-        counter.position.set(ccx, 0.5, ccz);
-        counter.scale.set(sAlongX ? counterW : 1.2, 1.0, sAlongX ? 1.2 : counterW);
+        counter.position.set(ccx, 0.55, ccz);
+        counter.scale.set(sAlongX ? counterW : 1.2, 0.95, sAlongX ? 1.2 : counterW);
         counter.castShadow = true;
         counter.receiveShadow = true;
         group.add(counter);
+        const top = new Mesh(box, WOOD_MAT);
+        top.position.set(ccx, 1.07, ccz);
+        top.scale.set(sAlongX ? counterW + 0.3 : 1.5, 0.1, sAlongX ? 1.5 : counterW + 0.3);
+        top.castShadow = true;
+        top.receiveShadow = true;
+        group.add(top);
         const gOff = counterW / 2 - 0.5;
         for (const gs of [-1, 1]) {
-          goods(sAlongX ? ccx + gs * gOff : ccx, 1.22, sAlongX ? ccz : ccz + gs * gOff);
+          goods(sAlongX ? ccx + gs * gOff : ccx, 1.33, sAlongX ? ccz : ccz + gs * gOff);
         }
       }
     }
@@ -1366,8 +1469,26 @@ function hollow(facade: Facade, material: MeshStandardMaterial, glaze: boolean) 
       back.castShadow = true;
       back.receiveShadow = true;
       group.add(back);
+      // Round 3: cap slab + two shelf ledges proud of the shelf front
+      // (which faces back toward the shopfront), so the back unit reads
+      // as shelving, not a solid block.
+      const cap = new Mesh(box, WOOD_MAT);
+      cap.position.set(bxc, 2.46, bzc);
+      cap.scale.set(sAlongX ? bsx + 0.2 : 1.0, 0.12, sAlongX ? 1.0 : bsz + 0.2);
+      group.add(cap);
+      for (const sy of [0.9, 1.7]) {
+        const ledge = new Mesh(box, WOOD_MAT);
+        if (sAlongX) {
+          ledge.position.set(bxc, sy, bzc - sInZ * 0.5);
+          ledge.scale.set(bsx, 0.08, 0.3);
+        } else {
+          ledge.position.set(bxc - sInX * 0.5, sy, bzc);
+          ledge.scale.set(0.3, 0.08, bsz);
+        }
+        group.add(ledge);
+      }
       for (const off of [-1.2, 0, 1.2]) {
-        goods(sAlongX ? bxc + off : bxc, 2.61, sAlongX ? bzc : bzc + off);
+        goods(sAlongX ? bxc + off : bxc, 2.73, sAlongX ? bzc : bzc + off);
       }
     }
   }
@@ -1476,6 +1597,30 @@ function addRoofKit(group: Group, x: number, z: number, w: number, d: number, h:
   beacon.position.set(x + w * 0.85, h + 2.9, z + d * 0.2);
   beacon.scale.set(0.35, 0.35, 0.35);
   group.add(beacon);
+
+  // Round 3: tall roofs get a second mast + a tilted satellite dish, so
+  // the skyline's tallest rooflines stop carrying one identical antenna
+  // each. The dish is a squashed hemisphere shell, tilted skyward.
+  if (h >= 16 && w >= 13 && d >= 13) {
+    const mast2 = new Mesh(box, POLE_MAT);
+    mast2.position.set(x + w * 0.2, h + 1.8, z + d * 0.75);
+    mast2.scale.set(0.14, 3.6, 0.14);
+    group.add(mast2);
+    const beacon2 = new Mesh(box, CYAN_BEACON_MAT);
+    beacon2.position.set(x + w * 0.2, h + 3.7, z + d * 0.75);
+    beacon2.scale.set(0.3, 0.3, 0.3);
+    group.add(beacon2);
+    const dish = new Mesh(new SphereGeometry(0.55, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), METAL_MAT);
+    dish.position.set(x + w * 0.5, h + 0.9, z + d * 0.3);
+    dish.scale.set(1, 0.6, 1);
+    dish.rotation.x = -0.7;
+    dish.rotation.z = 0.5;
+    group.add(dish);
+    const dishPole = new Mesh(box, POLE_MAT);
+    dishPole.position.set(x + w * 0.5, h + 0.45, z + d * 0.3);
+    dishPole.scale.set(0.12, 0.9, 0.12);
+    group.add(dishPole);
+  }
 
   // Edge lighting (round-2): a thin emissive cyan strip along the
   // parapet rim top so the roofline glows at dusk like the frames.
@@ -1779,6 +1924,19 @@ function addStorefront(group: Group, f: Facade) {
   }
   addMergedBoxes(group, mullionBoxes, DARK_MAT, false);
 
+  // Round 3: neon spill — a soft additive glow pool on the sidewalk in
+  // front of the shopfront, faking the wet-asphalt reflection of the
+  // sign above (no real reflections in WebGL on a phone). Cyan / magenta
+  // alternate deterministically by shop.
+  const spill = new Mesh(
+    new PlaneGeometry(alongX ? paneW + 1.5 : 2.2, alongX ? 2.2 : paneW + 1.5),
+    SPILL_MATS[Math.abs(f.id.length) % 2],
+  );
+  spill.rotation.x = -Math.PI / 2;
+  if (alongX) spill.position.set(cx, 0.12, wallPlane + outSign * 1.5);
+  else spill.position.set(wallPlane + outSign * 1.5, 0.12, cz);
+  group.add(spill);
+
   // Recessed-entry portal: two splayed side returns angled out from the
   // wall at the door edges, so the doorway reads as a vestibule instead
   // of a flat hole. (The door leaf itself stays on the wall plane — the
@@ -2051,6 +2209,14 @@ function addTiers(group: Group, f: Facade, material: MeshStandardMaterial) {
         ]);
       }
     }
+    // Round 3: real window depth on the tier walls — curtain towers get
+    // their glass bands, everything else gets recessed window bands.
+    // (Tiered towers had no upper glass at all before this.)
+    if (f.glass === "curtain") {
+      addCurtainBands(group, cx - tier.w / 2, cz - tier.d / 2, tier.w, tier.d, y + 2.0, y + tier.h);
+    } else {
+      addUpperWindowBands(group, cx - tier.w / 2, cz - tier.d / 2, tier.w, tier.d, y, y + tier.h);
+    }
     y += tier.h;
   });
   addWorldUvBoxes(group, tierBoxes, material, 10, 14, true);
@@ -2131,6 +2297,19 @@ function solidTower(facade: Facade) {
     if (index > 0) {
       goldFinBoxes.push([0, y, cz, tier.w + 0.4, 0.38, tier.d + 0.4]);
     }
+    // Round 3: recessed window bands on every tier — the hero tower's
+    // walls were pure texture above the atrium. Tier 1's south face is
+    // skipped: the glass atrium stands in front of it.
+    addUpperWindowBands(
+      group,
+      -tier.w / 2,
+      cz - tier.d / 2,
+      tier.w,
+      tier.d,
+      y,
+      y + tier.h,
+      index === 0 ? ["n", "e", "w"] : ["n", "s", "w", "e"],
+    );
     // Illuminated corner columns + setback beacon caps on every tier
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
