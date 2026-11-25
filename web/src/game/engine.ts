@@ -29,6 +29,7 @@ import { applyDayNightLighting, applyEnvironment, applyGraphicsPreset, upgradeMa
 import { mountPretty, setPrettyNight, type QualityName } from "./pretty";
 import { makeRain, mountLandmarks } from "./landmarks";
 import { setSignGlow } from "./signs";
+import { buildSkyLayer, type SkyLayer } from "./sky";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
@@ -261,11 +262,12 @@ export function createGame(
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
-      uniforms: { uNight: { value: 0 }, uDay: { value: 0 } },
+      uniforms: { uNight: { value: 0 }, uDay: { value: 0 }, uTime: { value: 0 } },
       fragmentShader: `
         varying vec3 vDir;
         uniform float uNight;
         uniform float uDay;
+        uniform float uTime;
         // Value-noise clouds (2026-11-17, textures upgrade): the old sky
         // used sine-wave bands for clouds, which read as flat stripes, and
         // day mode mixed the whole sky to ONE flat blue, killing the
@@ -313,8 +315,11 @@ export function createGame(
           float cloudVal = 0.0;
           if (h > 0.02) {
             vec2 uv = dir.xz / max(h, 0.15);
-            float c = fbm(uv * 0.45 + vec2(3.7, 1.3));
-            float c2 = fbm(uv * 1.15 + vec2(9.1, 4.7));
+            // Clouds drift slowly with time (round 2): the sky is alive,
+            // not a painted backdrop.
+            vec2 drift = vec2(uTime * 0.004, uTime * 0.0015);
+            float c = fbm(uv * 0.45 + vec2(3.7, 1.3) + drift);
+            float c2 = fbm(uv * 1.15 + vec2(9.1, 4.7) + drift * 1.7);
             float cloud = smoothstep(0.52, 0.78, c * 0.65 + c2 * 0.35);
             cloud *= smoothstep(0.02, 0.22, h);
             cloud *= 1.0 - smoothstep(0.6, 0.95, h) * 0.45;
@@ -322,6 +327,17 @@ export function createGame(
             vec3 cloudCol = mix(vec3(1.0, 0.60, 0.34), vec3(1.0, 1.0, 1.0), uDay);
             col = mix(col, cloudCol, cloud * 0.6);
           }
+          // Dusk haze band (round 2): warm mauve smog-glow hugging the
+          // horizon at dusk, pale at day, deep blue at night — the haze
+          // of the splash frames. Plus the purple band between the
+          // orange horizon and the deep-blue zenith (dusk only).
+          vec3 hazeCol = mix(vec3(0.62, 0.32, 0.38), vec3(0.78, 0.86, 0.94), uDay);
+          hazeCol = mix(hazeCol, vec3(0.05, 0.08, 0.18), uNight);
+          float haze = (1.0 - smoothstep(0.0, 0.16, h)) * step(0.0, h);
+          col = mix(col, hazeCol, haze * 0.5);
+          float duskF = (1.0 - uDay) * (1.0 - uNight);
+          float band = smoothstep(0.14, 0.28, h) * (1.0 - smoothstep(0.28, 0.52, h));
+          col = mix(col, vec3(0.42, 0.20, 0.50), band * 0.45 * duskF);
           // Night sky gradient + stars + moon glow.
           vec3 nightZenith = vec3(0.015, 0.024, 0.065);
           vec3 nightHor = vec3(0.055, 0.105, 0.21);
@@ -367,6 +383,9 @@ export function createGame(
   const trains: Group[] = [];
   const ships: Group[] = [];
   const jets: Mesh[] = [];
+  // Round 2 AIR layer (sky.ts): flying cars, drones, holograms, beams,
+  // crowds. Rebuilt per city in buildMovers, like trains/ships.
+  let skyLayer: SkyLayer | null = null;
   let rail: RailPoint[] = [];
   let railDist: number[] = [];
   let railLen = 1;
@@ -813,6 +832,11 @@ export function createGame(
       jets.push(jet);
       scene.add(jet);
     }
+    // AIR layer: rebuild with the city (facades/roads are read-only data
+    // for it). The old group comes off the scene first.
+    if (skyLayer) scene.remove(skyLayer.group);
+    skyLayer = buildSkyLayer(city, quality);
+    scene.add(skyLayer.group);
   }
 
   function placeTrain(group: Group, distance: number) {
@@ -1341,6 +1365,10 @@ export function createGame(
     setSignGlow(Math.max(nightF, 1 - dayF));
     rain.lines.visible = nightF > 0.4 && !runtime.indoors();
     if (rain.lines.visible) rain.update(dt, camera.position.x, camera.position.z);
+    // Sky shader time + AIR layer (flying cars, drones, hologram,
+    // beams, crowds) follow the same time-of-day drive.
+    skyMat.uniforms.uTime.value = clock;
+    skyLayer?.update(dt, clock, nightF, dayF, !!runtime.indoors());
     scene.fog = runtime.indoors() ? null : baseFog;
     const tookCamera = runtime.after(dt, player, camera, { orbit: mode === "orbit", fountain, trains: trainPoses });
     if (mode === "orbit") {

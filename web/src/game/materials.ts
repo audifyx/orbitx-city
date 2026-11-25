@@ -48,6 +48,7 @@ function styledMaterial(opts: {
   polygonOffsetUnits?: number;
   roughness?: number;
   metalness?: number;
+  envMapIntensity?: number;
 }) {
   return new MeshStandardMaterial({
     color: opts.color,
@@ -55,6 +56,7 @@ function styledMaterial(opts: {
     emissiveIntensity: opts.emissiveIntensity ?? 1,
     roughness: opts.roughness ?? (opts.emissive ? 0.28 : 0.78),
     metalness: opts.metalness ?? (opts.emissive ? 0.22 : 0.04),
+    envMapIntensity: opts.envMapIntensity ?? 1,
     transparent: opts.transparent ?? false,
     opacity: opts.opacity ?? 1,
     polygonOffset: opts.polygonOffset ?? false,
@@ -459,6 +461,26 @@ function paintDirt(ctx: CanvasRenderingContext2D, rng: Rng) {
   speckle(ctx, rng, 500, ["#7a8a3a", "#5a6e2a", "#8a9a4a"], 0.2, 0.4, 1, 2.5);
 }
 
+/** Brushed metal: fine vertical streaks over a mid-grey base, so tower
+ *  trim reads as machined metal instead of flat grey. Tileable in x
+ *  (streaks are full-height, wrapped at the edges). */
+function paintBrushedMetal(ctx: CanvasRenderingContext2D, rng: Rng) {
+  ctx.fillStyle = "#9aa0a6";
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  for (let i = 0; i < 900; i++) {
+    const x = rng() * SIZE;
+    const w = 1 + rng() * 2;
+    const light = rng() > 0.5;
+    ctx.fillStyle = light
+      ? `rgba(210,215,222,${(0.12 + rng() * 0.22).toFixed(3)})`
+      : `rgba(70,76,84,${(0.12 + rng() * 0.22).toFixed(3)})`;
+    ctx.fillRect(x, 0, w, SIZE);
+    if (x < 3) ctx.fillRect(x + SIZE, 0, w, SIZE);
+    if (x > SIZE - 3) ctx.fillRect(x - SIZE, 0, w, SIZE);
+  }
+  speckle(ctx, rng, 1200, ["#7a8087", "#c5cad0"], 0.12, 0.28, 1, 2);
+}
+
 function paintDarkSurface(ctx: CanvasRenderingContext2D, rng: Rng) {
   ctx.fillStyle = "#141820";
   ctx.fillRect(0, 0, SIZE, SIZE);
@@ -522,6 +544,7 @@ const TEX: Partial<Record<string, TexSpec>> = {
   foliage: { paint: (c, r) => paintFoliage(c, r, false), repeat: 1, seed: 122 },
   foliageDark: { paint: (c, r) => paintFoliage(c, r, true), repeat: 1, seed: 123 },
   dirt: { paint: paintDirt, repeat: 2, seed: 133 },
+  brushedMetal: { paint: paintBrushedMetal, repeat: 1, seed: 144 },
 };
 
 const texCache = new Map<string, CanvasTexture>();
@@ -551,13 +574,18 @@ interface MatSpec {
   polygonOffsetUnits?: number;
   roughness?: number;
   metalness?: number;
+  envMapIntensity?: number;
 }
 
 const SPECS: Record<Mat, MatSpec> = {
-  // Wet asphalt (realistic overhaul, 2026-11-24): low roughness + a
-  // touch of metalness so the street picks up neon + env reflections
-  // like the rain-slick roads in the style videos.
-  asphalt: { color: 0x2a2f3a, tex: "asphalt", roughness: 0.42, metalness: 0.14 },
+  // Wet asphalt (realistic overhaul, 2026-11-24, deepened round 2):
+  // low roughness + real metalness + a boosted env response so the
+  // street picks up neon + env reflections like the rain-slick roads
+  // in the style videos. NOTE: graphics.ts upgradeMaterials() still
+  // overrides roughness/metalness to 0.88/0.05 on medium/high/ultra —
+  // the phone (low default) keeps this wet look; the desktop override
+  // needs its own one-line change in graphics.ts.
+  asphalt: { color: 0x2a2f3a, tex: "asphalt", roughness: 0.3, metalness: 0.25, envMapIntensity: 1.3 },
   sidewalk: { color: 0xcfd3da, tex: "cement" },
   sidewalkField: { color: 0xcfd3da, tex: "pavement", polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2 },
   plaza: { color: 0xe4e7ee, tex: "pavers" },
@@ -568,9 +596,9 @@ const SPECS: Record<Mat, MatSpec> = {
   leaves: { color: 0x37b24a, tex: "foliage" },
   leavesDark: { color: 0x1f8a34, tex: "foliageDark" },
   trunk: { color: 0x6b4a2e, tex: "wood" },
-  black: { color: 0x12151c, tex: "darkSurface", roughness: 0.42, metalness: 0.35 },
+  black: { color: 0x12151c, tex: "darkSurface", roughness: 0.42, metalness: 0.35, envMapIntensity: 1.1 },
   white: { color: 0xf4f6fa, tex: "stucco" },
-  gray: { color: 0x3a404c, tex: "concrete" },
+  gray: { color: 0x3a404c, tex: "concrete", envMapIntensity: 0.9 },
   cyan: {
     color: 0x7eefff,
     emissive: 0x19d8ff,
@@ -587,6 +615,7 @@ const SPECS: Record<Mat, MatSpec> = {
     emissiveIntensity: 0.55,
     transparent: true,
     opacity: 0.82,
+    envMapIntensity: 1.5,
   },
   stone: { color: 0xd5dae2, tex: "stone" },
   lane: { color: 0xf7f7f2, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 },
@@ -609,6 +638,7 @@ const SPECS: Record<Mat, MatSpec> = {
     color: 0xe0b33a,
     emissive: 0x8a5a10,
     emissiveIntensity: 0.35,
+    envMapIntensity: 1.3,
   },
   ceil: {
     color: 0xd5cfc3,
@@ -664,3 +694,28 @@ registerNightGlow(MATERIALS.ceil, 0.72, 1.3);
 registerNightGlow(MATERIALS.water, 0.55, 1.2);
 
 export const GOLD = MATERIALS.gold;
+
+/**
+ * Round 2 shared tower materials (for the GROUND agent's glazing pass
+ * — the Mat union in city.ts can't grow a "glass" key without a city.ts
+ * edit, so these live as named exports instead).
+ * TOWER_GLASS: the round-1 glass texture + a near-mirror env response,
+ * so curtain walls actually reflect the sky/env. BRUSHED_METAL:
+ * procedural brushed streaks for tower trim. Both are node-safe
+ * (textureFor returns undefined with no document).
+ */
+function glassMaterial(): MeshStandardMaterial {
+  const mat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.08, metalness: 0.9, envMapIntensity: 2.2 });
+  const tex = textureFor("glass");
+  if (tex) mat.map = tex;
+  return mat;
+}
+export const TOWER_GLASS = glassMaterial();
+
+function brushedMetalMaterial(): MeshStandardMaterial {
+  const mat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.34, metalness: 0.85, envMapIntensity: 1.5 });
+  const tex = textureFor("brushedMetal");
+  if (tex) mat.map = tex;
+  return mat;
+}
+export const BRUSHED_METAL = brushedMetalMaterial();
