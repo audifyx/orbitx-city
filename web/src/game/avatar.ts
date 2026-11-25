@@ -442,22 +442,27 @@ export function dressPerson(
     addExact(group, UNIT_SPHERE, skin, 0.15, HEAD_Y, 0, 0.035, 0.065, 0.03);
     for (const side of [-1, 1]) {
       const ex = side * 0.062;
+      const eyeTag = side < 0 ? "L" : "R";
       // Angled brow (capsule via add), sloping down toward the nose.
       add(group, hair, ex, HEAD_Y + 0.105, 0.13, 0.085, 0.022, 0.03, -side * 0.12);
       // Eye white, then the coloured iris, then the dark pupil —
       // three depths (z 0.125 / 0.143 / 0.15) so nothing z-fights and
-      // the pupil reads proud of the white.
-      addExact(group, UNIT_SPHERE, "#f4f6fa", ex, HEAD_Y + 0.035, 0.125, 0.07, 0.05, 0.035);
-      addExact(group, UNIT_SPHERE, eyes, ex, HEAD_Y + 0.035, 0.143, 0.045, 0.045, 0.02);
-      addExact(group, UNIT_SPHERE, "#14100c", ex, HEAD_Y + 0.035, 0.15, 0.026, 0.026, 0.02);
+      // the pupil reads proud of the white. Named (round 6) so the
+      // walker (movement.ts) can blink them — scale.y squash, no new
+      // meshes. Cupsy never reaches this block: still faceless.
+      addExact(group, UNIT_SPHERE, "#f4f6fa", ex, HEAD_Y + 0.035, 0.125, 0.07, 0.05, 0.035, `eye${eyeTag}-white`);
+      addExact(group, UNIT_SPHERE, eyes, ex, HEAD_Y + 0.035, 0.143, 0.045, 0.045, 0.02, `eye${eyeTag}-iris`);
+      addExact(group, UNIT_SPHERE, "#14100c", ex, HEAD_Y + 0.035, 0.15, 0.026, 0.026, 0.02, `eye${eyeTag}-pupil`);
     }
     // Nose: a vertical capsule bridge + a round tip, a shade darker
     // than the skin so it reads on every skin tone.
     add(group, shade(skin, 0.85), 0, HEAD_Y - 0.01, 0.14, 0.04, 0.08, 0.03);
     addExact(group, UNIT_SPHERE, shade(skin, 0.82), 0, HEAD_Y - 0.055, 0.145, 0.05, 0.04, 0.04);
-    // Lips: darker upper lip, fuller lighter lower lip.
+    // Lips: darker upper lip, fuller lighter lower lip. The lower lip
+    // is named (round 6) so the walker can move it while talking.
     add(group, lipDark, 0, HEAD_Y - 0.095, 0.135, 0.085, 0.018, 0.025);
-    add(group, lipLight, 0, HEAD_Y - 0.115, 0.13, 0.065, 0.022, 0.025);
+    const lipLower = add(group, lipLight, 0, HEAD_Y - 0.115, 0.13, 0.065, 0.022, 0.025);
+    lipLower.name = "lipLower";
   }
   if (look.accessories.beard) {
     add(group, hair, 0, 1.46, 0.11, 0.22, 0.1, 0.07);

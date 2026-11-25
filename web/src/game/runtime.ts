@@ -12691,7 +12691,7 @@ export function createRuntime(scene: Scene) {
         if (remoteWalker) {
           if (remoteJump > 5) resetWalkPose(remoteWalker);
           const remoteSpeed = remoteJump > 5 ? 0 : Math.min(30, remoteJump / Math.max(dt, 0.001));
-          animateWalk(remoteWalker, remoteSpeed, dt, remoteSpeed > 0.05, false);
+          animateWalk(remoteWalker, remoteSpeed, dt, remoteSpeed > 0.05, false, !!remote.state.speaking);
           // Their picked emote poses the limbs over the walk cycle —
           // presence carries the emote name, so remotes dance/wave/
           // facepalm exactly as the sender sees themselves.
@@ -12752,7 +12752,7 @@ export function createRuntime(scene: Scene) {
         const stickMoving = Math.hypot(stickX, stickY) > 0.15;
         // Blocked against a wall: stick held but no displacement — bump.
         if (playing && stickMoving && horizontalSpeed < 0.05 && body.onGround) triggerHaptic("bump");
-        animateWalk(localWalker, horizontalSpeed, dt, (horizontalSpeed > 0.3 || stickMoving) && body.onGround, body.flying);
+        animateWalk(localWalker, horizontalSpeed, dt, (horizontalSpeed > 0.3 || stickMoving) && body.onGround, body.flying, world.speaking);
         // A playing emote poses the limbs over the (idle) walk cycle.
         if (emoteNow) applyEmoteLimbs(localWalker, emoteNow);
         // BOXING: while a fight is armed, the guard/punch poses own the

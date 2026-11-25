@@ -20,6 +20,8 @@
  */
 import {
   AdditiveBlending,
+  BufferAttribute,
+  type BufferGeometry,
   CanvasTexture,
   CapsuleGeometry,
   Color,
@@ -249,6 +251,20 @@ function shopfrontSegment(f: Facade, off = 3): Array<{ x: number; z: number }> |
     { x: f.x - off, z: f.z + inset },
     { x: f.x - off, z: f.z + f.d - inset },
   ];
+}
+
+/** Fill a geometry's vertex-colour attribute with one flat colour
+ * (used by the crowd-head merge below: white head, dark eyes). */
+function paintVerts(geo: BufferGeometry, r: number, g: number, b: number): BufferGeometry {
+  const n = geo.attributes.position?.count ?? 0;
+  const arr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    arr[i * 3] = r;
+    arr[i * 3 + 1] = g;
+    arr[i * 3 + 2] = b;
+  }
+  geo.setAttribute("color", new BufferAttribute(arr, 3));
+  return geo;
 }
 
 function circlePoints(cx: number, cz: number, r: number, n: number): Array<{ x: number; z: number }> {
@@ -559,12 +575,25 @@ export function buildSkyLayer(city: City, quality: QualityName): SkyLayer {
   let crowdBodies: InstancedMesh | null = null;
   let crowdHeads: InstancedMesh | null = null;
   let crowdLegs: InstancedMesh | null = null;
+  let crowdArms: InstancedMesh | null = null;
   if (walkers.length) {
     // Shaped people (round-1 look): capsule torso + sphere head, NO boxes.
     const bodyGeo = new CapsuleGeometry(0.5, 1, 4, 10);
     const bodyMat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.72, metalness: 0.05 });
-    const headGeo = new SphereGeometry(0.5, 10, 8);
-    const headMat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, metalness: 0 });
+    // Round 6: faces for free — the head geometry is the sphere with
+    // two small dark eye spheres merged in (forward is local +X, the
+    // walkers' yaw convention: rotation.y = atan2(-dz, dx) maps +X to
+    // the travel direction). Vertex colours carry the face: white head
+    // verts take the per-instance skin/hair colour, dark eye verts
+    // stay dark under any instance colour. Zero extra draws — the
+    // eyes ride the existing heads InstancedMesh.
+    const headSphere = paintVerts(new SphereGeometry(0.5, 10, 8), 1, 1, 1);
+    const eyeGeoL = paintVerts(new SphereGeometry(0.095, 6, 5), 0.07, 0.06, 0.05);
+    eyeGeoL.translate(0.42, 0.08, -0.17);
+    const eyeGeoR = paintVerts(new SphereGeometry(0.095, 6, 5), 0.07, 0.06, 0.05);
+    eyeGeoR.translate(0.42, 0.08, 0.17);
+    const headGeo = mergeGeometries([headSphere, eyeGeoL, eyeGeoR]) ?? headSphere;
+    const headMat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, metalness: 0, vertexColors: true });
     crowdBodies = new InstancedMesh(bodyGeo, bodyMat, walkers.length);
     crowdBodies.frustumCulled = false;
     crowdHeads = new InstancedMesh(headGeo, headMat, walkers.length);
@@ -580,25 +609,42 @@ export function buildSkyLayer(city: City, quality: QualityName): SkyLayer {
     const legMat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.72, metalness: 0.05 });
     crowdLegs = new InstancedMesh(legGeo, legMat, walkers.length * 2);
     crowdLegs.frustumCulled = false;
+    // Round 6: arms — the ONE extra instanced draw this round (2
+    // instances per walker, one per arm, same pivot-at-top capsule
+    // pattern as the legs, swinging opposite phase to the same-side
+    // leg at the legs' cadence). Skin-coloured (bare arms), shoulder
+    // pivots at 1.28 * scale. Off on low, like the legs.
+    const armGeo = new CapsuleGeometry(0.5, 1, 4, 8);
+    armGeo.translate(0, -1, 0);
+    const armMat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.72, metalness: 0.05 });
+    crowdArms = new InstancedMesh(armGeo, armMat, walkers.length * 2);
+    crowdArms.frustumCulled = false;
     const c = new Color();
     for (let i = 0; i < walkers.length; i++) {
       c.set(CLOTHES[i % CLOTHES.length] as string);
       crowdBodies.setColorAt(i, c);
       crowdLegs.setColorAt(i * 2, c);
       crowdLegs.setColorAt(i * 2 + 1, c);
+      // Pick the skin first (the arms wear it), then decide whether
+      // this walker's head reads as haired/hatted instead.
+      const skin = SKINS[Math.floor(rng() * SKINS.length)] as string;
+      c.set(skin);
+      crowdArms.setColorAt(i * 2, c);
+      crowdArms.setColorAt(i * 2 + 1, c);
       // Round 4: a quarter of the crowd reads as haired/hatted — a dark
       // hair colour on the head instance instead of a skin tone.
       if (rng() < 0.25) {
         c.set(HAIR[Math.floor(rng() * HAIR.length)] as string);
       } else {
-        c.set(SKINS[Math.floor(rng() * SKINS.length)] as string);
+        c.set(skin);
       }
       crowdHeads.setColorAt(i, c);
     }
     if (crowdBodies.instanceColor) crowdBodies.instanceColor.needsUpdate = true;
     if (crowdHeads.instanceColor) crowdHeads.instanceColor.needsUpdate = true;
     if (crowdLegs.instanceColor) crowdLegs.instanceColor.needsUpdate = true;
-    group.add(crowdBodies, crowdHeads, crowdLegs);
+    if (crowdArms.instanceColor) crowdArms.instanceColor.needsUpdate = true;
+    group.add(crowdBodies, crowdHeads, crowdLegs, crowdArms);
   }
 
   const pose = { x: 0, z: 0, yaw: 0 };
@@ -756,9 +802,11 @@ export function buildSkyLayer(city: City, quality: QualityName): SkyLayer {
         // Round 4: legs swing with the walker's phase/speed, opposite
         // legs opposite phase, same cadence as the bob. Hip at
         // 0.55 * scale, leg 0.55 * scale long, so the foot plants at
-        // ground level at rest.
+        // ground level at rest. Round 6: the arms share this swing
+        // (opposite phase to the same-side leg, 70% amplitude, like
+        // the player walker in movement.ts) — one `swing` for both.
+        const swing = Math.sin(t * 5 * w.speed + w.phase * 9) * 0.45;
         if (crowdLegs) {
-          const swing = Math.sin(t * 5 * w.speed + w.phase * 9) * 0.45;
           for (let l = 0; l < 2; l++) {
             const side = l === 0 ? -0.11 : 0.11;
             rotOffset(side, 0, pose.yaw, off);
@@ -769,10 +817,27 @@ export function buildSkyLayer(city: City, quality: QualityName): SkyLayer {
             crowdLegs.setMatrixAt(i * 2 + l, dummy.matrix);
           }
         }
+        // Round 6: arms swing from the shoulder pivots (1.28 * scale,
+        // just inside the torso top at 1.30), opposite phase to the
+        // same-side leg. Arm 0.55 * scale long, so the wrist lands at
+        // ~0.73 * scale, like the player walker's wrist at 0.72.
+        if (crowdArms) {
+          const armSwing = swing * 0.7;
+          for (let l = 0; l < 2; l++) {
+            const side = l === 0 ? -0.19 : 0.19;
+            rotOffset(side * w.scale, 0, pose.yaw, off);
+            dummy.position.set(pose.x + off.x, (1.28 + bob) * w.scale, pose.z + off.z);
+            dummy.rotation.set(l === 0 ? -armSwing : armSwing, pose.yaw, 0);
+            dummy.scale.set(0.11 * w.scale, 0.275 * w.scale, 0.11 * w.scale);
+            dummy.updateMatrix();
+            crowdArms.setMatrixAt(i * 2 + l, dummy.matrix);
+          }
+        }
       }
       crowdBodies.instanceMatrix.needsUpdate = true;
       crowdHeads.instanceMatrix.needsUpdate = true;
       if (crowdLegs) crowdLegs.instanceMatrix.needsUpdate = true;
+      if (crowdArms) crowdArms.instanceMatrix.needsUpdate = true;
     }
   }
 

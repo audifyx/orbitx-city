@@ -29,6 +29,13 @@
  * top of applyEmote's rotation — both are recomputed every frame, so
  * calling animateWalk before after() would be overwritten and invisible.
  *
+ * Round 6 (2026-11-24): face animation on the same handle — blinking
+ * (eye-mesh scale.y squash on a per-character randomised timer) and
+ * talking (lower-lip dip/swell while the voice is live). No new meshes:
+ * the eyes/lip are found by name (dressPerson) or by position+scale
+ * (makePerson citizens), so Cupsy — no face meshes at all — is a
+ * no-op by construction.
+ *
  * Phone cost: 4 extra meshes + 2 extra groups per walker, shared unit
  * geometries, no new materials in the common path (colours are sampled
  * from the meshes dressPerson/makePerson already built). The per-frame
@@ -69,6 +76,26 @@ export interface WalkerHandle {
   head: Mesh | null;
   /** Head rest height, so the bob is additive and never drifts. */
   baseHeadY: number;
+  /** Eye meshes (round 6): white + iris + pupil per eye, with their
+   * rest Y scale — animateWalk squashes them for a blink. Empty for
+   * Cupsy (faceless by design) and for groups with no face. */
+  eyes: Array<{ mesh: Mesh; baseY: number }>;
+  /** Lower-lip mesh (round 6), with its rest position/scale — it
+   * dips and swells while the character is talking. Null when the
+   * group has no lips (Cupsy, or a never-faced group). */
+  lipLower: { mesh: Mesh; baseY: number; baseScaleY: number } | null;
+  /** Blink clock in seconds (accumulates only while animateWalk runs). */
+  blinkClock: number;
+  /** Seconds until the next blink starts (randomised per character,
+   * so a crowd never blinks in unison). */
+  nextBlinkIn: number;
+  /** Blink progress in seconds, or -1 when the eyes are open. */
+  blinkT: number;
+  /** Random phase for the talking-lip chatter, so two talkers don't
+   * flap in sync. */
+  talkSeed: number;
+  /** Current smoothed mouth-open amount (0 = shut). */
+  talkOpen: number;
   /** Walk-cycle phase in radians. */
   phase: number;
   /** Current swing amplitude (0 = standing still). Eased, never snapped. */
@@ -82,6 +109,9 @@ export interface WalkerHandle {
 const UNIT_CAPSULE = new CapsuleGeometry(0.5, 1, 4, 12);
 const UNIT_SPHERE = new SphereGeometry(0.5, 12, 10);
 const UNIT_ROUNDED = new RoundedBoxGeometry(1, 1, 1, 2, 0.09);
+
+/** One blink lasts this long, close + open (round 6). */
+const BLINK_DUR = 0.16;
 
 /** Fallback material, created once, only used when a group has no
  *  dressable meshes to sample colours from (should not happen in game). */
@@ -169,6 +199,62 @@ function findHead(group: Group): Mesh | null {
     const s = child.scale;
     if (p.y > 1.55 && p.y < 1.66 && s.x > 0.28 && s.x < 0.36 && s.y > 0.28 && s.y < 0.36) {
       return child;
+    }
+  }
+  return null;
+}
+
+/** Eye meshes: white + iris + pupil per eye. Name-first
+ * (dressPerson names them `eyeL-white` etc. since round 6), with a
+ * position+scale fallback for makePerson-built citizens (runtime.ts),
+ * whose eyes sit at the same coords but are unnamed. The scale caps
+ * keep glasses/shades/visor stripes out — only the three small eye
+ * parts per side match. Returns [] for Cupsy (no face at all). */
+function findEyes(group: Group): Array<{ mesh: Mesh; baseY: number }> {
+  const named: Mesh[] = [];
+  for (const child of group.children) {
+    if (isMesh(child) && child.name.startsWith("eye")) named.push(child);
+  }
+  const found = named.length
+    ? named
+    : group.children.filter((child): child is Mesh => {
+        if (!isMesh(child)) return false;
+        const p = child.position;
+        const s = child.scale;
+        return (
+          Math.abs(p.x) > 0.04 && Math.abs(p.x) < 0.09 &&
+          p.y > 1.6 && p.y < 1.67 &&
+          p.z > 0.11 && p.z < 0.16 &&
+          s.x > 0.02 && s.x < 0.08 &&
+          s.y > 0.02 && s.y < 0.06 &&
+          s.z > 0.015 && s.z < 0.04
+        );
+      });
+  return found.map((mesh) => ({ mesh, baseY: mesh.scale.y }));
+}
+
+/** Lower-lip mesh: named `lipLower` by dressPerson since round 6,
+ * position fallback (y ~1.485, centre front) for makePerson citizens.
+ * The upper lip sits at y 1.505, the nose tip at 1.545, so the y band
+ * below isolates the lower lip. Null for Cupsy (no lips). */
+function findLipLower(group: Group): { mesh: Mesh; baseY: number; baseScaleY: number } | null {
+  for (const child of group.children) {
+    if (isMesh(child) && child.name === "lipLower") {
+      return { mesh: child, baseY: child.position.y, baseScaleY: child.scale.y };
+    }
+  }
+  for (const child of group.children) {
+    if (!isMesh(child)) continue;
+    const p = child.position;
+    const s = child.scale;
+    if (
+      Math.abs(p.x) < 0.03 &&
+      p.y > 1.47 && p.y < 1.5 &&
+      p.z > 0.12 && p.z < 0.14 &&
+      s.x > 0.02 && s.x < 0.08 &&
+      s.y > 0.008 && s.y < 0.03
+    ) {
+      return { mesh: child, baseY: p.y, baseScaleY: s.y };
     }
   }
   return null;
@@ -399,6 +485,16 @@ export function makeWalker(group: Group, look?: Look): WalkerHandle {
     torso: torsoMesh,
     head: headMesh,
     baseHeadY: headMesh ? headMesh.position.y : 1.6,
+    // Round 6: eyes + lower lip for blinking / talking. Re-found on
+    // every rebuild (a re-dress swaps the face meshes). Blink state
+    // survives a rebuild so a look change doesn't resync the blink.
+    eyes: findEyes(group),
+    lipLower: findLipLower(group),
+    blinkClock: existing ? existing.blinkClock : 0,
+    nextBlinkIn: existing ? existing.nextBlinkIn : 0.8 + Math.random() * 4,
+    blinkT: existing ? existing.blinkT : -1,
+    talkSeed: existing ? existing.talkSeed : Math.random() * Math.PI * 2,
+    talkOpen: 0,
     phase: existing ? existing.phase : 0,
     amp: existing ? existing.amp : 0,
   };
@@ -437,6 +533,11 @@ export function ensureWalker(group: Group, look?: Look): WalkerHandle | null {
  * @param dt      frame delta in seconds (clamped by caller to ~0.05)
  * @param moving  false when the player has no move input / is standing
  * @param flying  true while flying — legs hang straight, no bob
+ * @param talking true while this character's voice is live (mic for the
+ *                local player, presence speaking for remotes) — the
+ *                lower lip chatters. NPC scripted lines are NOT wired
+ *                here (npcvoice has no read-only speaking query and is
+ *                out of scope for this round); NPCs pass false.
  */
 export function animateWalk(
   handle: WalkerHandle,
@@ -444,6 +545,7 @@ export function animateWalk(
   dt: number,
   moving: boolean,
   flying = false,
+  talking = false,
 ): void {
   const step = Math.min(dt, 0.05);
   // Cadence (walk-fix 2026-11-17): the old phase rate (speed * 1.35)
@@ -491,6 +593,52 @@ export function animateWalk(
   // them). Max ~4°, subtle, no new materials in the hot path.
   if (handle.torso) handle.torso.rotation.y = -Math.sin(handle.phase) * 0.07 * ampN;
 
+  // Round 6: BLINKING — an eyelid pulse as a scale.y squash of the
+  // eye meshes (white + iris + pupil together), 0.16 s close+open on
+  // a 2.2–6 s timer randomised per character at schedule time (and
+  // staggered at spawn), so a crowd never blinks in unison. No new
+  // meshes, no allocations; scale writes happen only while a blink is
+  // in progress or on the frame it ends. Runs whether the character
+  // is walking or standing — blinking is time-based, not stride-based.
+  // Cupsy has no eye meshes, so this is a no-op for them by construction.
+  const tick = Math.min(dt, 0.1);
+  handle.blinkClock += tick;
+  if (handle.eyes.length) {
+    if (handle.blinkT < 0) {
+      handle.nextBlinkIn -= tick;
+      if (handle.nextBlinkIn <= 0) {
+        handle.blinkT = 0;
+        handle.nextBlinkIn = 2.2 + Math.random() * 3.8;
+      }
+    } else {
+      handle.blinkT += tick;
+      if (handle.blinkT >= BLINK_DUR) {
+        handle.blinkT = -1;
+        for (const e of handle.eyes) e.mesh.scale.y = e.baseY;
+      } else {
+        const f = 1 - 0.88 * Math.sin((Math.PI * handle.blinkT) / BLINK_DUR);
+        for (const e of handle.eyes) e.mesh.scale.y = e.baseY * f;
+      }
+    }
+  }
+  // Round 6: TALKING — while the character's voice is live, the lower
+  // lip dips and swells in an irregular chatter (two sines at different
+  // rates, per-character phase), eased so the mouth shuts smoothly
+  // when speech stops instead of snapping. Same cheap mechanism as
+  // the blink; lip writes happen only while talking or settling shut.
+  if (handle.lipLower) {
+    const lip = handle.lipLower;
+    const target = talking
+      ? (0.5 + 0.5 * Math.sin(handle.blinkClock * 11 + handle.talkSeed)) *
+        (0.35 + 0.65 * Math.abs(Math.sin(handle.blinkClock * 3.1 + handle.talkSeed * 2.7)))
+      : 0;
+    handle.talkOpen += (target - handle.talkOpen) * Math.min(1, step * 18);
+    if (talking || handle.talkOpen > 0.002) {
+      lip.mesh.position.y = lip.baseY - handle.talkOpen * 0.012;
+      lip.mesh.scale.y = lip.baseScaleY * (1 + handle.talkOpen * 0.5);
+    }
+  }
+
   // Bob: two bounces per cycle, strongest at mid-stride. Additive on top
   // of the position runtime.after() already set this frame.
   const bob = Math.abs(Math.cos(handle.phase)) * 0.045 * ampN;
@@ -527,6 +675,16 @@ export function resetWalkPose(handle: WalkerHandle): void {
   handle.elbowR.rotation.x = 0;
   if (handle.torso) handle.torso.rotation.y = 0;
   if (handle.head) handle.head.position.y = handle.baseHeadY;
+  // Round 6: open the eyes back up and shut the mouth — a reset
+  // mid-blink / mid-sentence must not leave squashed eyes or a
+  // half-open lip behind.
+  handle.blinkT = -1;
+  for (const e of handle.eyes) e.mesh.scale.y = e.baseY;
+  handle.talkOpen = 0;
+  if (handle.lipLower) {
+    handle.lipLower.mesh.position.y = handle.lipLower.baseY;
+    handle.lipLower.mesh.scale.y = handle.lipLower.baseScaleY;
+  }
 }
 
 /**
