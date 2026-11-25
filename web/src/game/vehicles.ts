@@ -2201,7 +2201,10 @@ export function driveParamsFor(id: string, opts?: { mods?: Partial<VehicleMods> 
     maxSpeed: 7 + s.speed * 1.7,
     accel: 10 + s.accel * 1.2,
     steer: 0.8 + s.handling * 0.09,
-    reverse: -6,
+    // Reverse (round 3): -6 was too weak to back out of a tight spot —
+    // a car wedged nose-first needed a real reverse pull. -8 with the
+    // launch bonus in drive() gets it moving again.
+    reverse: -8,
     lean: 0.28,
     drag: 1.6,
     climb: 0,
@@ -2231,7 +2234,7 @@ export function driveParamsFor(id: string, opts?: { mods?: Partial<VehicleMods> 
   if (v.kind === "bike") {
     base.steer += 0.3;
     base.lean = 0.5;
-    base.reverse = -4;
+    base.reverse = -5;
     base.hover = 0.06;
   }
   if (v.kind === "atv") {

@@ -879,6 +879,11 @@ export function createGame(
     // Station (the Drive button does the same on a phone). Silent unless
     // the player is on the platform — see runtime.driveLoopTrain.
     if (event.code === "KeyK" && !event.repeat) runtime.driveLoopTrain();
+    // R unsticks the car while driving (round 3): the Unstuck button
+    // does the same on a phone. R also turns the camera while held, but
+    // a tap's swing is a few degrees and the car moves anyway — the
+    // recovery wins over the camera nudge.
+    if (event.code === "KeyR" && !event.repeat && runtime.driving()) runtime.unstuckCar();
     if (event.code === "KeyB" && !event.repeat) runtime.request("shop");
     if (event.code === "KeyJ" && !event.repeat) runtime.request("jobs");
     if (event.code === "KeyC" && !event.repeat) runtime.cycleCamera();

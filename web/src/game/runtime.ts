@@ -28,6 +28,11 @@ import type { Anchor, Art, BoardSlot, City, Collider, DoorDef, Lift, Zone } from
 import { TRAIN_LINE_Z, TRAIN_STATIONS, trainTrackY } from "./city";
 import { BUS_BOARD_DIST, BUS_LENGTH, BUS_WIDTH, BusSim, buildBusMesh } from "./bus";
 import {
+  createStuckTracker,
+  findNudgeSpot,
+  resolveCarMove,
+} from "./drivePhysics";
+import {
   BUSK_BASE,
   BUSK_BEATS,
   BUSK_BEAT_MS,
@@ -1964,6 +1969,14 @@ export function createRuntime(scene: Scene) {
   let driving = false;
   let carIndex = -1;
   let carSpeed = 0;
+  // STUCK (round 3, 2026-11-24): throttle held but the car is going
+  // nowhere for ~2 s — the wedge detector. drive() auto-nudges the car
+  // back along its entry path when it fires; R / the Unstuck button is
+  // the manual escape hatch (see unstuckCar). lastUnstuckAt throttles
+  // the manual recovery so one press is one recovery.
+  const stuckTracker = createStuckTracker();
+  let stuckHintShown = false;
+  let lastUnstuckAt = 0;
   // DRIVE FEEL: the direction the driven car's velocity actually
   // points. It chases car.yaw at a grip rate (see drive()), so a hard
   // steer at speed slides a little wide before the grip pulls it back.
@@ -9334,7 +9347,7 @@ export function createRuntime(scene: Scene) {
     if (driveParams && driveParams.climb > 0) say(touch ? FLY_CONTROLS.touchNote : FLY_CONTROLS.note);
     else if (kind === "skateboard") say(touch ? "Hold Gas to push." : "Hold W to push.");
     else if (kind === "boat") say(touch ? "Hold Gas to sail. Steer with the stick. E to get out." : "Hold W to sail — A / D to steer. E to get out.");
-    else say("Press E to get out.");
+    else say(touch ? "Stuck? Tap Unstuck to get back on the road." : "Press E to get out. R unsticks the car.");
     if (!droveQuest && world.online) {
       droveQuest = true;
       void world.questPing("drive").then(() => applyMe()).catch(() => {});
@@ -9844,6 +9857,63 @@ export function createRuntime(scene: Scene) {
     }
   }
 
+  /**
+   * Manual recovery (round 3): R key / Unstuck button while driving.
+   * Puts the car on the nearest road, facing along it (carSpawnSpot
+   * already finds a clear spot) — the escape hatch when the auto-nudge
+   * cannot free the car. Throttled to one recovery per second so a held
+   * key or a double-tap cannot yank the car around. If no road is
+   * nearby (off the grids), falls back to the nudge along the heading.
+   */
+  function unstuckCar(body: Body | null): void {
+    if (!driving || carIndex < 0) return;
+    if (Date.now() - lastUnstuckAt < 1000) return;
+    lastUnstuckAt = Date.now();
+    const car = cars[carIndex];
+    if (!car) return;
+    const spot = body ? carSpawnSpot(body) : null;
+    if (spot) {
+      car.x = spot.x;
+      car.z = spot.z;
+      car.yaw = spot.yaw;
+      car.alt = 0;
+      car.autoAlt = null;
+      carSpeed = 0;
+      velYaw = spot.yaw;
+      steerSm = 0;
+      stuckTracker.reset();
+      stuckHintShown = false;
+      say("Back on the road.");
+      return;
+    }
+    // No road nearby: same nudge as the auto-recovery, tested against
+    // the world colliders + parked cars (the engine's carHit predicate,
+    // rebuilt here because drive()'s `blocked` callback lives in the
+    // engine, not in this closure).
+    const blockedAt = (x: number, z: number) => {
+      const list = colsNear(x - 1.7, z - 1.25, x + 1.7, z + 1.25);
+      for (let i = 0; i < list.length; i++) {
+        const c = list[i];
+        if (c.maxY < 0.5) continue;
+        if (x > c.minX - 1.7 && x < c.maxX + 1.7 && z > c.minZ - 1.25 && z < c.maxZ + 1.25) return true;
+      }
+      return otherCarHit(x, z);
+    };
+    const nudge = findNudgeSpot(blockedAt, car.x, car.z, car.yaw);
+    if (nudge) {
+      car.x = nudge.x;
+      car.z = nudge.z;
+      carSpeed = 0;
+      velYaw = car.yaw;
+      steerSm = 0;
+      stuckTracker.reset();
+      stuckHintShown = false;
+      say("Nudged free — back on the road.");
+    } else {
+      say("No road nearby — try steering while you reverse out.");
+    }
+  }
+
   function drive(dt: number, body: Body, keys: Set<string>, blocked: (x: number, z: number) => boolean) {
     if (Date.now() < raceHoldUntil) {
       carSpeed = 0;
@@ -9914,8 +9984,12 @@ export function createRuntime(scene: Scene) {
       // bonus is exactly 1.0 AT the equilibrium, top speeds are the
       // numbers the stats always gave; clamp-limited cars still stop
       // at maxSpeed below.
+      // Launch bonus (round 3): it used to apply to forward only, so
+      // reversing out of a tight spot started with a dead pull. Now both
+      // directions get the same low-speed shove — full bonus at a
+      // standstill, fading to 1.0 at the drag equilibrium.
       const vEq = (params.accel * boost) / params.drag;
-      const launch = f > 0 ? 1 + 0.5 * (1 - Math.min(1, Math.max(0, carSpeed) / vEq)) : 1;
+      const launch = 1 + 0.5 * (1 - Math.min(1, Math.abs(carSpeed) / vEq));
       carSpeed += f * params.accel * boost * launch * dt;
     }
     carSpeed *= 1 - params.drag * dt;
@@ -9952,7 +10026,19 @@ export function createRuntime(scene: Scene) {
       (car.group.userData.kind as string) === "bike" ||
       (car.group.userData.kind as string) === "atv" ||
       (car.group.userData.kind as string) === "skateboard";
-    const steerTarget = s * (moving !== 0 ? moving : canPivot ? 1 : 0);
+    // STUCK FIX (round 3): a stopped car used to get steerTarget 0, so a
+    // car wedged nose-first into a wall could not turn at all — forward
+    // blocked, reverse blocked, steering dead. Now a stopped car steers
+    // in the throttle's direction (gas = forward sign, brake = reverse
+    // sign), and the turnSpeed floor below (1.7 while on the throttle)
+    // turns that into a slow parking shuffle (~11°/s at full lock), so
+    // the driver can swing the nose away from the wall and drive out.
+    // No throttle = no yaw (turnSpeed is 0 then), so the car never
+    // pivots by steering alone; open vehicles keep their no-throttle
+    // pivot from before.
+    const dirSign =
+      moving !== 0 ? moving : canPivot ? 1 : f < 0 ? -1 : f > 0 ? 1 : 0;
+    const steerTarget = s * dirSign;
     // ~120 ms steering time constant: a tap nudges, a hold commits —
     // the wheel never snaps lock-to-lock in one frame.
     steerSm += (steerTarget - steerSm) * (1 - Math.exp(-dt / 0.12));
@@ -10038,6 +10124,8 @@ export function createRuntime(scene: Scene) {
     // Parked cars are solid too (otherCarHit): before, the `blocked`
     // callback only covered world colliders, so parked cars were ghosts.
     const blockedAt = (x: number, z: number) => blocked(x, z) || otherCarHit(x, z);
+    const startX = car.x;
+    const startZ = car.z;
     if (isBoat) {
       // Boats sail on the water: world colliders do not apply — the boat
       // passes under the magic-bridge decks in its lane — but the hull
@@ -10049,38 +10137,75 @@ export function createRuntime(scene: Scene) {
         car.z = nz;
       } else if (boatOk(nx, car.z)) {
         car.x = nx;
-        carSpeed *= 0.6;
+        carSpeed *= 0.95;
       } else if (boatOk(car.x, nz)) {
         car.z = nz;
-        carSpeed *= 0.6;
+        carSpeed *= 0.95;
       } else {
-        carSpeed *= 0.2;
+        carSpeed *= 0.5;
         triggerHaptic("carHit");
       }
     } else if (car.alt > 2 || !blockedAt(nx, nz)) {
       car.x = nx;
       car.z = nz;
     } else {
-      // Slide along the wall instead of stopping dead: try each axis alone.
-      const canX = !blockedAt(nx, car.z);
-      const canZ = !blockedAt(car.x, nz);
-      if (canX && !canZ) {
-        car.x = nx;
-        carSpeed *= 0.6;
-      } else if (canZ && !canX) {
-        car.z = nz;
-        carSpeed *= 0.6;
-      } else {
-        // Soft stop, not a bounce: keep the direction, kill most of the
-        // speed. (The old code flipped the car into reverse at -0.25x.)
+      // Collision resolution lives in drivePhysics.resolveCarMove so the
+      // game suite can prove the wedge scenario (see
+      // tests/drive-physics.test.mjs): full move, slide along the wall,
+      // dead stop. Slides keep 0.95 of the speed (the old 0.6 bled a
+      // wall-grind to a halt in a few frames) and a dead stop keeps 0.5
+      // (the old 0.2 killed the speed every frame while blocked, so the
+      // car could never push out of a marginal block).
+      const res = resolveCarMove(blockedAt, car.x, car.z, nx, nz);
+      car.x = res.x;
+      car.z = res.z;
+      if (res.blocked) {
         // A dead stop at speed is a crash: damage for the owned car
         // (1s cooldown, so pushing against a wall is one crash, not sixty).
+        // Checked on the pre-crush speed, as before.
         if (carIndex === ownedCarIndex && Math.abs(carSpeed) > 3 && Date.now() - lastCrashAt > 1000) {
           lastCrashAt = Date.now();
           wearCrashes += 1;
         }
-        carSpeed *= 0.2;
+        // Push back a touch off the boundary so the centre does not rest
+        // exactly on it — the next frame's escape move starts from free
+        // ground instead of a blocked edge. Tested: only moves if free.
+        const bx = car.x - Math.sin(moveYaw) * 0.35;
+        const bz = car.z + Math.cos(moveYaw) * 0.35;
+        if (!blockedAt(bx, bz)) {
+          car.x = bx;
+          car.z = bz;
+        }
         triggerHaptic("carHit");
+      }
+      carSpeed *= res.speedFactor;
+    }
+    // STUCK (round 3): throttle held but the car is going nowhere — the
+    // wedge the user hit. After ~2 s the car auto-nudges back along its
+    // entry path (drivePhysics.findNudgeSpot); if even that is walled in,
+    // the player gets the Unstuck hint once until the car moves again.
+    // Boats are excluded — their predicate is water, not blockedAt.
+    if (!isBoat) {
+      const movedThisFrame = Math.hypot(car.x - startX, car.z - startZ);
+      if (movedThisFrame > 0.5) stuckHintShown = false;
+      if (stuckTracker.update(f !== 0, movedThisFrame, dt)) {
+        const spot = findNudgeSpot(blockedAt, car.x, car.z, velYaw);
+        if (spot) {
+          car.x = spot.x;
+          car.z = spot.z;
+          carSpeed = 0;
+          velYaw = car.yaw;
+          steerSm = 0;
+          stuckHintShown = false;
+          say("Nudged free — back on the road.");
+        } else if (!stuckHintShown) {
+          stuckHintShown = true;
+          say(
+            touch
+              ? "Stuck? Tap Unstuck to get back on the road."
+              : "Stuck? Press R to get back on the road.",
+          );
+        }
       }
     }
     // Bridges are real decks now (states.ts) — the car just drives across
@@ -16479,6 +16604,8 @@ export function createRuntime(scene: Scene) {
     indoors: () => (inBelowGrade ? insideName : ""),
     moveAxes,
     drive,
+    /** Manual recovery while driving (round 3): R key / Unstuck button. */
+    unstuckCar: () => unstuckCar(lastBody),
     rideTrain,
     rideBus,
     rideTransport,

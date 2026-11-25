@@ -2497,6 +2497,13 @@ export default function App() {
               <div className="drive-buttons">
                 <Hold label="Brake" onDown={() => gameRef.current?.runtime.hold("brake", true)} onUp={() => gameRef.current?.runtime.hold("brake", false)} />
                 <Hold label={snap.ridingBoard ? "Push" : "Gas"} onDown={() => { triggerHaptic("tap"); gameRef.current?.runtime.hold("gas", true); }} onUp={() => gameRef.current?.runtime.hold("gas", false)} />
+                {/* Unstuck (round 3): the car can wedge against a wall or a
+                    parked car with no way out — this puts it back on the
+                    nearest road, facing along it. Driving only, never the
+                    loop train (a train has no steering to wedge with). */}
+                {snap.driving ? (
+                  <button type="button" onClick={() => { triggerHaptic("tap"); gameRef.current?.runtime.unstuckCar(); }}>Unstuck</button>
+                ) : null}
               </div>
             ) : null}
             {/* BOXING (touch): the fight buttons ride above the pad grid
