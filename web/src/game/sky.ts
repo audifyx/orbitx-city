@@ -21,9 +21,10 @@
 import {
   AdditiveBlending,
   BufferAttribute,
-  type BufferGeometry,
+  BufferGeometry,
   CanvasTexture,
   CapsuleGeometry,
+  CircleGeometry,
   Color,
   CylinderGeometry,
   DoubleSide,
@@ -36,6 +37,8 @@ import {
   Object3D,
   OctahedronGeometry,
   PlaneGeometry,
+  Points,
+  PointsMaterial,
   SphereGeometry,
   SRGBColorSpace,
 } from "three";
@@ -647,6 +650,68 @@ export function buildSkyLayer(city: City, quality: QualityName): SkyLayer {
     group.add(crowdBodies, crowdHeads, crowdLegs, crowdArms);
   }
 
+  // ---- 7. Clouds + sun + moon + stars (round 7) ----------------------
+  // The sky itself was empty: no clouds by day, no sun/moon/stars by
+  // night. Clouds are one InstancedMesh of flattened white puffs
+  // drifting slowly on the wind (off on low); the sun + moon are flat
+  // discs that fade with dayF/nightF; stars are one Points cloud that
+  // fades in at night. All fog:false so they read at sky distance.
+  interface Cloud { x: number; y: number; z: number; s: number; speed: number }
+  const CLOUD_PUFFS = [
+    { dx: 0, dy: 0, dz: 0, s: 9 },
+    { dx: 7, dy: -1, dz: 2, s: 7 },
+    { dx: -7, dy: -1, dz: -2, s: 7.5 },
+    { dx: 2, dy: 2, dz: -3, s: 6 },
+  ];
+  const clouds: Cloud[] = [];
+  let cloudMesh: InstancedMesh | null = null;
+  if (quality !== "low") {
+    const nClouds = quality === "high" ? 12 : 8;
+    const puffMat = new MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, transparent: true, opacity: 0.88 });
+    cloudMesh = new InstancedMesh(new SphereGeometry(1, 10, 8), puffMat, nClouds * CLOUD_PUFFS.length);
+    cloudMesh.frustumCulled = false;
+    for (let i = 0; i < nClouds; i++) {
+      clouds.push({
+        x: -260 + rng() * 520,
+        y: 95 + rng() * 55,
+        z: -260 + rng() * 520,
+        s: 0.8 + rng() * 0.7,
+        speed: 1.2 + rng() * 1.6,
+      });
+    }
+    group.add(cloudMesh);
+  }
+  // Sun (day) + moon (night): flat discs, far out, facing the plaza.
+  const sunMat = new MeshBasicMaterial({ color: 0xfff2c0, toneMapped: false, fog: false, transparent: true, opacity: 0 });
+  const sun = new Mesh(new CircleGeometry(16, 24), sunMat);
+  sun.position.set(190, 150, -240);
+  sun.lookAt(0, 0, 0);
+  group.add(sun);
+  const moonMat = new MeshBasicMaterial({ color: 0xdde6f2, toneMapped: false, fog: false, transparent: true, opacity: 0 });
+  const moon = new Mesh(new CircleGeometry(11, 24), moonMat);
+  moon.position.set(-170, 130, 200);
+  moon.lookAt(0, 0, 0);
+  group.add(moon);
+  // Stars: one Points cloud on the upper hemisphere, faded in at night.
+  const starCount = quality === "low" ? 0 : quality === "high" ? 320 : 200;
+  const starMat = new PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false });
+  if (starCount) {
+    const starGeo = new BufferGeometry();
+    const pos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const a = rng() * Math.PI * 2;
+      const e = rng() * Math.PI * 0.48 + 0.02; // elevation ~1..87 deg
+      const r = 330;
+      pos[i * 3] = Math.cos(a) * Math.cos(e) * r;
+      pos[i * 3 + 1] = Math.sin(e) * r + 10;
+      pos[i * 3 + 2] = Math.sin(a) * Math.cos(e) * r;
+    }
+    starGeo.setAttribute("position", new BufferAttribute(pos, 3));
+    const stars = new Points(starGeo, starMat);
+    stars.frustumCulled = false;
+    group.add(stars);
+  }
+
   const pose = { x: 0, z: 0, yaw: 0 };
   const off = { x: 0, z: 0 };
   const blinkColor = new Color();
@@ -768,6 +833,28 @@ export function buildSkyLayer(city: City, quality: QualityName): SkyLayer {
     }
     // Light beams: dusk/night only.
     for (const m of beamMats) m.opacity = 0.015 + 0.11 * glowF;
+
+    // Clouds drift on the wind, wrapping around the map edge.
+    if (cloudMesh) {
+      for (let i = 0; i < clouds.length; i++) {
+        const cl = clouds[i] as Cloud;
+        cl.x += cl.speed * clampedDt;
+        if (cl.x > 300) cl.x = -300;
+        for (let k = 0; k < CLOUD_PUFFS.length; k++) {
+          const pf = CLOUD_PUFFS[k] as { dx: number; dy: number; dz: number; s: number };
+          dummy.position.set(cl.x + pf.dx * cl.s, cl.y + pf.dy * cl.s, cl.z + pf.dz * cl.s);
+          dummy.rotation.set(0, 0, 0);
+          dummy.scale.set(pf.s * cl.s, pf.s * cl.s * 0.42, pf.s * cl.s);
+          dummy.updateMatrix();
+          cloudMesh.setMatrixAt(i * CLOUD_PUFFS.length + k, dummy.matrix);
+        }
+      }
+      cloudMesh.instanceMatrix.needsUpdate = true;
+    }
+    // Sun by day, moon + stars by night.
+    sunMat.opacity = Math.max(0, Math.min(1, dayF));
+    moonMat.opacity = Math.max(0, Math.min(1, nightF));
+    starMat.opacity = Math.max(0, Math.min(1, nightF)) * 0.9;
 
     // Crowds.
     if (crowdBodies && crowdHeads) {
