@@ -8403,7 +8403,7 @@ export function createRuntime(scene: Scene) {
         lastBarkAt = clock;
         barkAtByNpc.set(index, clock);
         say(`${npc.name}: ${line}`);
-        speakNpc(npc.name, role, line);
+        speakNpc(npc.name, role, line, { kind: "bark", distance: d });
       }
     }
   }
@@ -8426,7 +8426,9 @@ export function createRuntime(scene: Scene) {
     const role = NPC_LINES[npc.name]?.role ?? "Citizen";
     const line = witnessBarkFor(kind, Math.floor(clock) + best * 7);
     say(`${npc.name}: ${line}`);
-    speakNpc(npc.name, role, line);
+    // bestD is the witness's distance from the crime — the player is
+    // standing at the crime, so it doubles as distance from the player.
+    speakNpc(npc.name, role, line, { kind: "bark", distance: bestD });
   }
 
   // COPS: patrol cars chase while wanted, park when the city is quiet.
@@ -12388,7 +12390,7 @@ export function createRuntime(scene: Scene) {
         barkAtByNpc.set(barkIndex, clock);
         lastBarkAt = clock;
         say(`${npc.name}: ${line}`);
-        speakNpc(npc.name, role, line);
+        speakNpc(npc.name, role, line, { kind: "bark", distance: barkDist });
       }
     }
     if (eventLeft > 0) {

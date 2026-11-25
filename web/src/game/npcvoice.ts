@@ -316,12 +316,66 @@ export function setNpcVoiceEnabled(on: boolean): void {
   if (!on) stopNpcVoice();
 }
 
+// --- levels: NPC voices were full-blast (volume unset = 1.0 on both
+// engines) with no distance falloff, so a citizen 30u away shouted as
+// loud as one next to you. Dialogue (a conversation the player opened)
+// stays louder than a passing bark; both fade with distance. ---
+export const NPC_VOICE_TALK_BASE = 0.45;
+export const NPC_VOICE_BARK_BASE = 0.3;
+/** Full volume inside this range (units from the player). */
+export const NPC_VOICE_FULL_RANGE = 6;
+/** Falloff reaches 10% of base here. */
+export const NPC_VOICE_FADE_END = 30;
+/** Silent at and beyond this distance. */
+export const NPC_VOICE_SILENT_RANGE = 40;
+/** Minimum gap between NPC voice starts (barks only — talk always speaks). */
+export const NPC_VOICE_MIN_GAP_MS = 1200;
+
+/**
+ * Distance falloff factor: 1.0 within NPC_VOICE_FULL_RANGE, linear down
+ * to 0.1 at NPC_VOICE_FADE_END, then linear to 0 at
+ * NPC_VOICE_SILENT_RANGE. Pure — safe to unit-test in node.
+ */
+export function npcVoiceFalloff(distance: number): number {
+  const d = Math.max(0, distance);
+  if (d <= NPC_VOICE_FULL_RANGE) return 1;
+  if (d >= NPC_VOICE_SILENT_RANGE) return 0;
+  if (d <= NPC_VOICE_FADE_END) {
+    return 1 - 0.9 * ((d - NPC_VOICE_FULL_RANGE) / (NPC_VOICE_FADE_END - NPC_VOICE_FULL_RANGE));
+  }
+  return 0.1 * ((NPC_VOICE_SILENT_RANGE - d) / (NPC_VOICE_SILENT_RANGE - NPC_VOICE_FADE_END));
+}
+
+export type NpcVoiceKind = "talk" | "bark";
+
+/** Effective volume for a line of this kind at this distance. */
+export function npcVoiceVolume(kind: NpcVoiceKind, distance = 0): number {
+  const base = kind === "bark" ? NPC_VOICE_BARK_BASE : NPC_VOICE_TALK_BASE;
+  return base * npcVoiceFalloff(distance);
+}
+
+export interface SpeakNpcOptions {
+  /** "talk" (dialogue, default — face-to-face) or "bark" (ambient / witness / scared). */
+  kind?: NpcVoiceKind;
+  /** Distance from the player in world units; default 0 (right next to you). */
+  distance?: number;
+}
+
 // --- playback state ---
 let currentAudio: HTMLAudioElement | null = null;
 let serverState: "unknown" | "ready" | "off" = "unknown";
 const audioCache = new Map<string, string>();
+/** Bumps on every stopCurrent() so a deferred speak from a superseded
+ * line can tell it lost the race and stay silent. */
+let voiceToken = 0;
+/** When the last NPC voice started (barks respect a minimum gap). */
+let lastVoiceStartAt = 0;
+/** Until when a talk/dialogue line is (estimated to be) still playing —
+ * barks wait; dialogue wins. */
+let dialogueUntilMs = 0;
 
 function stopCurrent(): void {
+  voiceToken++;
   try {
     window.speechSynthesis?.cancel();
   } catch {
@@ -357,19 +411,36 @@ function pickLocalVoice(persona: VoicePersona): SpeechSynthesisVoice | null {
   }
 }
 
-function speakLocal(text: string, persona: VoicePersona): void {
-  try {
-    const synth = window.speechSynthesis;
-    if (!synth) return;
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voice = pickLocalVoice(persona);
-    if (voice) utterance.voice = voice;
-    utterance.pitch = persona.pitch;
-    utterance.rate = persona.rate;
-    synth.speak(utterance);
-  } catch {
-    /* speech unavailable — the line is still on screen */
-  }
+/**
+ * Local speech. Deferred a tick after the cancel in stopCurrent():
+ * speechSynthesis.cancel() is async in Chrome, and a speak() issued
+ * in the same tick can be dropped — or the cancel can kill the new
+ * utterance. The token guard keeps a superseded line from speaking
+ * over the line that replaced it.
+ */
+function speakLocal(text: string, persona: VoicePersona, volume: number, token: number): void {
+  window.setTimeout(() => {
+    if (token !== voiceToken) return; // superseded — stay silent
+    try {
+      const synth = window.speechSynthesis;
+      if (!synth) return;
+      const utterance = new SpeechSynthesisUtterance(text);
+      const voice = pickLocalVoice(persona);
+      if (voice) utterance.voice = voice;
+      utterance.pitch = persona.pitch;
+      utterance.rate = persona.rate;
+      utterance.volume = volume;
+      synth.speak(utterance);
+    } catch {
+      /* speech unavailable — the line is still on screen */
+    }
+  }, 50);
+}
+
+/** Rough spoken length for a line, so barks know how long dialogue holds the mic. */
+function estimateDurationMs(text: string, rate: number): number {
+  const charsPerSec = 14 * Math.max(0.5, rate);
+  return Math.min(12000, Math.max(1500, (text.length / charsPerSec) * 1000));
 }
 
 async function fetchGeminiAudio(text: string, persona: VoicePersona): Promise<string | null> {
@@ -407,20 +478,51 @@ async function fetchGeminiAudio(text: string, persona: VoicePersona): Promise<st
  * Speak one scripted line as this NPC. Plays from the Gemini cache when
  * the audio is already warm; otherwise speaks locally right away and
  * warms the Gemini audio for the next time the line is heard.
+ *
+ * Levels: talk lines play at NPC_VOICE_TALK_BASE (0.45), barks at
+ * NPC_VOICE_BARK_BASE (0.3), both scaled by distance falloff (full
+ * within 6u, 10% of base at 30u, silent beyond 40u). A line too far to
+ * hear is skipped entirely — it never cuts off the voice playing now.
+ *
+ * Pacing: barks wait at least NPC_VOICE_MIN_GAP_MS (1.2s) after the
+ * previous voice start, and never start while a talk/dialogue line is
+ * (estimated to be) playing — dialogue wins, the bark is dropped (its
+ * text still shows on screen). Talk lines always speak immediately
+ * and cut off whatever was playing.
  */
-export function speakNpc(name: string, role: string, text: string): void {
+export function speakNpc(name: string, role: string, text: string, opts: SpeakNpcOptions = {}): void {
   if (!npcVoiceEnabled() || !text.trim()) return;
+  const kind: NpcVoiceKind = opts.kind ?? "talk";
+  const distance = Math.max(0, opts.distance ?? 0);
+  const volume = npcVoiceVolume(kind, distance);
+  if (volume <= 0) return; // too far to hear — don't interrupt anything
+  const now = Date.now();
+  if (kind === "bark") {
+    if (now < dialogueUntilMs) return; // dialogue wins; bark waits (dropped)
+    if (now - lastVoiceStartAt < NPC_VOICE_MIN_GAP_MS) return;
+  }
   const persona = personaFor(name, role);
   stopCurrent();
+  const token = voiceToken;
+  lastVoiceStartAt = now;
+  if (kind === "talk") dialogueUntilMs = now + estimateDurationMs(text, persona.rate);
   const key = `${persona.gemini}:${text}`;
   const cached = audioCache.get(key);
   if (cached && serverState !== "off") {
     const audio = new Audio(cached);
+    audio.volume = volume;
     currentAudio = audio;
-    void audio.play().catch(() => speakLocal(text, persona));
+    audio.onended = () => {
+      if (currentAudio === audio) currentAudio = null;
+    };
+    // Guard the fallback with the token: if this line was superseded
+    // while play() was pending, the local fallback must stay silent.
+    void audio.play().catch(() => {
+      if (token === voiceToken) speakLocal(text, persona, volume, token);
+    });
     return;
   }
-  speakLocal(text, persona);
+  speakLocal(text, persona, volume, token);
   if (serverState !== "off") void fetchGeminiAudio(text, persona);
 }
 
