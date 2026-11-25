@@ -25,6 +25,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
+  CapsuleGeometry,
   CircleGeometry,
   Color,
   ConeGeometry,
@@ -97,6 +98,22 @@ const goldDiscMat = new MeshStandardMaterial({ color: 0xe0b33a, roughness: 0.35,
 const vaultGoldMat = new MeshStandardMaterial({ color: 0xe0b33a, roughness: 0.35, metalness: 0.7, side: DoubleSide });
 /** Bin body colours by index (black / grey / green — the old BIN_MATS). */
 const BIN_COLORS = [0x141820, 0x6a7076, 0x2a7a33];
+
+// ---- round-7 street-clutter materials (hydrants / mailboxes / meters /
+// dumpsters / newsboxes / cones / manholes + leafy oak canopies). ----
+const hydrantMat = new MeshStandardMaterial({ color: 0xc1272d, roughness: 0.5, metalness: 0.25 });
+const hydrantCapMat = new MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.4, metalness: 0.7 });
+const mailboxMat = new MeshStandardMaterial({ color: 0x1f3a5f, roughness: 0.55, metalness: 0.4 });
+const meterMat = new MeshStandardMaterial({ color: 0x2a2e35, roughness: 0.5, metalness: 0.6 });
+const meterHeadMat = new MeshStandardMaterial({ color: 0x3a4048, roughness: 0.4, metalness: 0.7 });
+const dumpsterMat = new MeshStandardMaterial({ color: 0x2a5a34, roughness: 0.75, metalness: 0.2 });
+const dumpsterLidMat = new MeshStandardMaterial({ color: 0x1f4526, roughness: 0.8, metalness: 0.15 });
+const coneMat = new MeshStandardMaterial({ color: 0xff6a1a, roughness: 0.6, metalness: 0 });
+const coneBandMat = new MeshStandardMaterial({ color: 0xf4f6fa, roughness: 0.6, metalness: 0 });
+const manholeMat = new MeshStandardMaterial({ color: 0x23272e, roughness: 0.55, metalness: 0.5 });
+const oakFoliageMat = new MeshStandardMaterial({ color: 0x2f7a33, roughness: 0.85, metalness: 0 });
+/** Newspaper-box body colours by index (red / yellow / teal). */
+const NEWSBOX_COLORS = [0xc1272d, 0xf2c200, 0x0aa5a0];
 
 function mesh(geo: BufferGeometry, mat: import("three").Material, x = 0, y = 0, z = 0): Mesh {
   const m = new Mesh(geo, mat);
@@ -222,14 +239,20 @@ export function buildGate(): Group {
  * one InstancedMesh each for trunks, frond crowns, and neon rings —
  * 3 draw calls for the whole city's palms.
  */
-export function buildPalms(palms: Array<{ x: number; y: number; z: number }>): Group {
+export function buildPalms(palms: Array<{ x: number; y: number; z: number; kind?: "palm" | "oak" }>): Group {
   const g = new Group();
   g.name = "palms";
   if (!palms.length) return g;
   const dummy = new Object3D();
+  // Round 7: every 4th tree is a leafy oak (city.ts records kind) —
+  // palms keep the neon-ring look from the videos, oaks get a trunk +
+  // foliage canopy and no rings, so the avenues stop being a
+  // monoculture of identical palms.
+  const palmList = palms.filter((p) => p.kind !== "oak");
+  const oakList = palms.filter((p) => p.kind === "oak");
   // Trunks: tapered cylinders.
   const trunkGeo = new CylinderGeometry(0.26, 0.42, 5.4, 8);
-  const trunks = new InstancedMesh(trunkGeo, trunkMat, palms.length);
+  const trunks = new InstancedMesh(trunkGeo, trunkMat, palmList.length);
   trunks.castShadow = true;
   // Crowns: 7 drooping frond cones merged into one geometry. Each cone
   // is translated so its BASE sits at the local origin and its tip
@@ -246,13 +269,13 @@ export function buildPalms(palms: Array<{ x: number; y: number; z: number }>): G
     fronds.push(cone);
   }
   const crownGeo = mergeGeometries(fronds) ?? fronds[0]!;
-  const crowns = new InstancedMesh(crownGeo, frondMat, palms.length);
+  const crowns = new InstancedMesh(crownGeo, frondMat, palmList.length);
   crowns.castShadow = true;
   // Neon trunk rings (pink), two per palm.
   const ringGeo = new TorusGeometry(0.5, 0.055, 8, 20);
-  const rings = new InstancedMesh(ringGeo, ringMat, palms.length * 2);
+  const rings = new InstancedMesh(ringGeo, ringMat, palmList.length * 2);
   rings.castShadow = false;
-  palms.forEach((p, i) => {
+  palmList.forEach((p, i) => {
     const rot = (i * 2.39996) % (Math.PI * 2); // golden-angle spread
     dummy.position.set(p.x, p.y + 2.7, p.z);
     dummy.rotation.set(0, rot, 0);
@@ -275,6 +298,37 @@ export function buildPalms(palms: Array<{ x: number; y: number; z: number }>): G
   crowns.instanceMatrix.needsUpdate = true;
   rings.instanceMatrix.needsUpdate = true;
   g.add(trunks, crowns, rings);
+  // Leafy oaks: shorter, thicker trunk + two squashed foliage
+  // spheres (main canopy + top tuft), deterministic size variety by
+  // index. No neon rings — the oaks are the quiet green contrast to
+  // the pink-ringed palms.
+  if (oakList.length) {
+    const oakTrunks = new InstancedMesh(new CylinderGeometry(0.3, 0.46, 3.4, 8), trunkMat, oakList.length);
+    const oakCanopy = new InstancedMesh(new SphereGeometry(1.15, 10, 8), oakFoliageMat, oakList.length);
+    const oakTops = new InstancedMesh(new SphereGeometry(0.7, 8, 6), shrubDarkMat, oakList.length);
+    oakTrunks.castShadow = true;
+    oakCanopy.castShadow = true;
+    oakList.forEach((p, i) => {
+      const s = 0.9 + (((i * 53) % 25) / 100); // deterministic 0.9..1.14 variety
+      dummy.rotation.set(0, 0, 0);
+      dummy.position.set(p.x, p.y + 1.7, p.z);
+      dummy.scale.setScalar(s);
+      dummy.updateMatrix();
+      oakTrunks.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(p.x, p.y + 4.1 * s, p.z);
+      dummy.scale.set(s * 1.15, s * 0.85, s * 1.15);
+      dummy.updateMatrix();
+      oakCanopy.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(p.x + 0.4 * s, p.y + 4.9 * s, p.z - 0.2 * s);
+      dummy.scale.setScalar(s * 0.9);
+      dummy.updateMatrix();
+      oakTops.setMatrixAt(i, dummy.matrix);
+    });
+    oakTrunks.instanceMatrix.needsUpdate = true;
+    oakCanopy.instanceMatrix.needsUpdate = true;
+    oakTops.instanceMatrix.needsUpdate = true;
+    g.add(oakTrunks, oakCanopy, oakTops);
+  }
   return g;
 }
 
@@ -885,6 +939,180 @@ export function buildStreetProps(city: City): Group {
     caps.instanceMatrix.needsUpdate = true;
     bols.castShadow = true;
     g.add(bols, caps);
+  }
+
+  // Round 7: street clutter (city.ts records these) — hydrants,
+  // mailboxes, parking meters, dumpsters, newspaper boxes, traffic
+  // cones, manholes. One instanced mesh per part, shared geometry /
+  // materials, so the whole clutter layer costs ~14 draw calls.
+  // Hydrants: red body + dome + two side caps facing the road.
+  const hydrants = city.hydrants ?? [];
+  if (hydrants.length) {
+    const bodies = new InstancedMesh(new CylinderGeometry(0.2, 0.23, 0.75, 10), hydrantMat, hydrants.length);
+    const domes = new InstancedMesh(new SphereGeometry(0.2, 10, 8), hydrantMat, hydrants.length);
+    const capGeo = new CylinderGeometry(0.09, 0.09, 0.14, 8);
+    capGeo.rotateZ(Math.PI / 2); // caps stick out sideways (local X)
+    const caps = new InstancedMesh(capGeo, hydrantCapMat, hydrants.length * 2);
+    hydrants.forEach((h, i) => {
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(1);
+      dummy.position.set(h.x, 0.375, h.z);
+      dummy.updateMatrix();
+      bodies.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(h.x, 0.78, h.z);
+      dummy.scale.set(1, 0.8, 1);
+      dummy.updateMatrix();
+      domes.setMatrixAt(i, dummy.matrix);
+      // Caps face the road: alongX props face ±Z, the rest face ±X.
+      const ry = h.alongX ? Math.PI / 2 : 0;
+      for (let j = 0; j < 2; j++) {
+        const s = j === 0 ? -1 : 1;
+        dummy.rotation.set(0, ry, 0);
+        dummy.scale.setScalar(1);
+        dummy.position.set(h.alongX ? h.x : h.x + s * 0.24, 0.55, h.alongX ? h.z + s * 0.24 : h.z);
+        dummy.updateMatrix();
+        caps.setMatrixAt(i * 2 + j, dummy.matrix);
+      }
+    });
+    bodies.instanceMatrix.needsUpdate = true;
+    domes.instanceMatrix.needsUpdate = true;
+    caps.instanceMatrix.needsUpdate = true;
+    bodies.castShadow = true;
+    g.add(bodies, domes, caps);
+  }
+
+  // Mailboxes: dark-blue rounded body on a post, long axis along the street.
+  const mailboxes = city.mailboxes ?? [];
+  if (mailboxes.length) {
+    const posts = new InstancedMesh(new CylinderGeometry(0.06, 0.07, 0.95, 8), darkMetal, mailboxes.length);
+    const bodyGeo = new CapsuleGeometry(0.28, 0.5, 4, 8);
+    bodyGeo.rotateZ(Math.PI / 2); // capsule lies along local X
+    const bodies = new InstancedMesh(bodyGeo, mailboxMat, mailboxes.length);
+    mailboxes.forEach((m, i) => {
+      dummy.rotation.set(0, m.alongX ? 0 : Math.PI / 2, 0);
+      dummy.scale.setScalar(1);
+      dummy.position.set(m.x, 0.475, m.z);
+      dummy.updateMatrix();
+      posts.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(m.x, 1.12, m.z);
+      dummy.updateMatrix();
+      bodies.setMatrixAt(i, dummy.matrix);
+    });
+    posts.instanceMatrix.needsUpdate = true;
+    bodies.instanceMatrix.needsUpdate = true;
+    bodies.castShadow = true;
+    g.add(posts, bodies);
+  }
+
+  // Parking meters: thin post + domed head.
+  const meters = city.meters ?? [];
+  if (meters.length) {
+    const posts = new InstancedMesh(new CylinderGeometry(0.05, 0.06, 1.05, 8), meterMat, meters.length);
+    const heads = new InstancedMesh(new SphereGeometry(0.14, 8, 6), meterHeadMat, meters.length);
+    meters.forEach((m, i) => {
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(1);
+      dummy.position.set(m.x, 0.525, m.z);
+      dummy.updateMatrix();
+      posts.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(m.x, 1.18, m.z);
+      dummy.scale.set(1, 1.35, 0.8);
+      dummy.updateMatrix();
+      heads.setMatrixAt(i, dummy.matrix);
+    });
+    posts.instanceMatrix.needsUpdate = true;
+    heads.instanceMatrix.needsUpdate = true;
+    g.add(posts, heads);
+  }
+
+  // Dumpsters: dark-green square frustum (4-sided cylinder) + lid,
+  // long side along the street.
+  const dumpsters = city.dumpsters ?? [];
+  if (dumpsters.length) {
+    const bodyGeo = new CylinderGeometry(0.8, 0.72, 1.15, 4);
+    bodyGeo.rotateY(Math.PI / 4); // flat faces to the street, not a diamond
+    const bodies = new InstancedMesh(bodyGeo, dumpsterMat, dumpsters.length);
+    const lidGeo = new CylinderGeometry(0.84, 0.84, 0.1, 4);
+    lidGeo.rotateY(Math.PI / 4);
+    const lids = new InstancedMesh(lidGeo, dumpsterLidMat, dumpsters.length);
+    dumpsters.forEach((d, i) => {
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(d.alongX ? 1.5 : 0.85, 1, d.alongX ? 0.85 : 1.5);
+      dummy.position.set(d.x, 0.575, d.z);
+      dummy.updateMatrix();
+      bodies.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(d.x, 1.2, d.z);
+      dummy.updateMatrix();
+      lids.setMatrixAt(i, dummy.matrix);
+    });
+    bodies.instanceMatrix.needsUpdate = true;
+    lids.instanceMatrix.needsUpdate = true;
+    bodies.castShadow = true;
+    g.add(bodies, lids);
+  }
+
+  // Newspaper boxes: small square vending boxes, coloured by index
+  // (red / yellow / teal — the market-stall palette).
+  const newsboxes = city.newsboxes ?? [];
+  if (newsboxes.length) {
+    const bodyGeo = new CylinderGeometry(0.34, 0.34, 0.85, 4);
+    bodyGeo.rotateY(Math.PI / 4);
+    const bodies = new InstancedMesh(bodyGeo, binBodyMat, newsboxes.length);
+    const lidGeo = new CylinderGeometry(0.37, 0.37, 0.08, 4);
+    lidGeo.rotateY(Math.PI / 4);
+    const lids = new InstancedMesh(lidGeo, binLidMat, newsboxes.length);
+    newsboxes.forEach((n, i) => {
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(n.alongX ? 1.1 : 0.75, 1, n.alongX ? 0.75 : 1.1);
+      dummy.position.set(n.x, 0.425, n.z);
+      dummy.updateMatrix();
+      bodies.setMatrixAt(i, dummy.matrix);
+      bodies.setColorAt(i, new Color(NEWSBOX_COLORS[i % NEWSBOX_COLORS.length] as number));
+      dummy.position.set(n.x, 0.9, n.z);
+      dummy.updateMatrix();
+      lids.setMatrixAt(i, dummy.matrix);
+    });
+    if (bodies.instanceColor) bodies.instanceColor.needsUpdate = true;
+    bodies.instanceMatrix.needsUpdate = true;
+    lids.instanceMatrix.needsUpdate = true;
+    bodies.castShadow = true;
+    g.add(bodies, lids);
+  }
+
+  // Traffic cones: orange cone + white band (visual only, no collider).
+  const cones = city.cones ?? [];
+  if (cones.length) {
+    const coneMesh = new InstancedMesh(new ConeGeometry(0.24, 0.65, 10), coneMat, cones.length);
+    const bands = new InstancedMesh(new CylinderGeometry(0.13, 0.155, 0.12, 10), coneBandMat, cones.length);
+    cones.forEach((c, i) => {
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(1);
+      dummy.position.set(c.x, 0.325, c.z);
+      dummy.updateMatrix();
+      coneMesh.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(c.x, 0.25, c.z);
+      dummy.updateMatrix();
+      bands.setMatrixAt(i, dummy.matrix);
+    });
+    coneMesh.instanceMatrix.needsUpdate = true;
+    bands.instanceMatrix.needsUpdate = true;
+    g.add(coneMesh, bands);
+  }
+
+  // Manholes: flat dark discs on the road centre (y 0.13 sits just
+  // above the lane markings at 0.12, so no z-fight with the dashes).
+  const manholes = city.manholes ?? [];
+  if (manholes.length) {
+    const discs = new InstancedMesh(new CircleGeometry(0.55, 20), manholeMat, manholes.length);
+    manholes.forEach((m, i) => {
+      dummy.rotation.set(-Math.PI / 2, 0, 0);
+      dummy.scale.setScalar(1);
+      dummy.position.set(m.x, 0.13, m.z);
+      dummy.updateMatrix();
+      discs.setMatrixAt(i, dummy.matrix);
+    });
+    discs.instanceMatrix.needsUpdate = true;
+    g.add(discs);
   }
 
   return g;
