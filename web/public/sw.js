@@ -8,7 +8,7 @@
 // and cars, bloom by time of day, hero images, realistic copy.
 // v60 (2026-11-24): ROUND 2 — de-boxed buildings (stepped/tapered towers, glass
 // curtain walls), shaped streets/props, flying cars, drones, hologram, crowds.
-const CACHE = "orbitx-city-v64";
+const CACHE = "orbitx-city-v65";
 const PRECACHE = [
   "/",
   "/index.html",
