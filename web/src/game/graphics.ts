@@ -192,9 +192,11 @@ export function upgradeMaterials(quality: GraphicsQuality): string[] {
     changed.push(key);
   };
 
-  // Roads: slightly less chalky, a hint of sheen so headlights/bloom
-  // read at night. Never glossy — wet-look would need a roughness map.
-  set("asphalt", 0.88, 0.05);
+  // Roads: rain-slick wet look (round 2, matches the videos) — low
+  // roughness + metalness so neon/headlights read in the street via the
+  // env map. Matches the wet values in materials.ts; the old 0.88/0.05
+  // stomped them dry on medium/high/ultra.
+  set("asphalt", 0.3, 0.25);
   // Gold trim / OrbitX accents: real metal feel, emissive kept so the
   // gold still glows with no environment map (see module header).
   set("gold", 0.38, 0.55, 0.5);

@@ -6,7 +6,9 @@
 // pot games (Coin Flip + Dice Roll).
 // v59 (2026-11-24): REALISTIC OVERHAUL — neon signs, entrance gate, shaped people
 // and cars, bloom by time of day, hero images, realistic copy.
-const CACHE = "orbitx-city-v59";
+// v60 (2026-11-24): ROUND 2 — de-boxed buildings (stepped/tapered towers, glass
+// curtain walls), shaped streets/props, flying cars, drones, hologram, crowds.
+const CACHE = "orbitx-city-v60";
 const PRECACHE = [
   "/",
   "/index.html",
