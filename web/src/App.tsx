@@ -24,6 +24,7 @@ import { TradingFloorPanel } from "./TradingFloorPanel";
 import PhoneOS from "./PhoneOS";
 import { addGalleryShot, appendPhoneMessage } from "./phoneStore";
 import { EMPTY_LEADERS, EMPTY_RACE } from "./game/life";
+import { PET_CATALOG, PET_MAX, type PetSpecies } from "./game/pets";
 import { CAR_SHOP, FLY_CONTROLS, VEHICLE_COLORS, getVehicle } from "./game/vehicles";
 // CARS expansion — customize / wash / repair / garage upgrades.
 import {
@@ -376,6 +377,7 @@ const EMPTY: Snap = {
   hunger: 100,
   foodLoaded: false,
   foodMsg: "",
+  pets: [],
   eventLabel: "",
   panel: "",
   homeEditId: "",
@@ -1556,6 +1558,12 @@ export default function App() {
   const [shopCarColors, setShopCarColors] = useState<Record<string, string>>({});
   const [shopHomeState, setShopHomeState] = useState<"all" | "ny" | "la" | "fl">("all");
 
+  // PET SHOP (round 7): the name typed for the next adoption (or a
+  // rename), the coat picked per species, and the last pet message.
+  const [petName, setPetName] = useState("");
+  const [petCoat, setPetCoat] = useState<Record<string, string>>({});
+  const [petMsg, setPetMsg] = useState("");
+
   // A store venue in the world (Mega Mall shopfront) opens the Shop on
   // that store's tab — the runtime bumps shopStoreNonce so opening the
   // same store twice in a row still switches the tab. Tab clicks are
@@ -2467,6 +2475,7 @@ export default function App() {
           {snap.email.toLowerCase() === "audifyx@gmail.com" ? (
             <button type="button" onClick={() => open("stats")}>Stats</button>
           ) : null}
+          <button type="button" onClick={() => open("pets")}>Pets{snap.pets.length ? ` (${snap.pets.length})` : ""}</button>
           <button type="button" onClick={() => open("menu")}>Menu</button>
         </div>
       )}
@@ -2669,6 +2678,7 @@ export default function App() {
                 {panel === "events" && "Events"}
                 {panel === "chat" && "Chat"}
                 {panel === "menu" && "Menu"}
+                {panel === "pets" && "Pet Shop"}
                 {panel === "restaurant" && (RESTAURANT_BY_ID[snap.foodPlace]?.name ?? "Restaurant")}
                 {panel === "kitchen" && "Your kitchen"}
                 {panel === "gym" && "Harbor Gym"}
@@ -6215,6 +6225,13 @@ export default function App() {
                 <p>{HELP} · P phone · N day/night · V push to talk · 1-4 emotes</p>
                 <p>On a phone, use the stick to move, drag the right side to look, pinch to zoom, and the Camera button to change view.</p>
                 <h3>Game</h3>
+                <article>
+                  <div>
+                    <b>Pet Shop</b>
+                    <span>{snap.pets.length ? `${snap.pets.length} pet${snap.pets.length === 1 ? "" : "s"} following you.` : "Adopt a dog or a cat — it follows you around the city."}</span>
+                  </div>
+                  <button type="button" onClick={() => open("pets")}>Pet Shop</button>
+                </article>
                 <button
                   type="button"
                   onClick={() => {
@@ -6228,6 +6245,111 @@ export default function App() {
                 >
                   Back to title
                 </button>
+              </div>
+            )}
+            {panel === "pets" && (
+              <div className="list">
+                <p>Balance {snap.balance} City Sol · {snap.pets.length}/{PET_MAX} pets</p>
+                <p className="muted">Adopt a companion — it follows you everywhere in the city, trails behind you, and waits while you drive or fly. Pet it to keep it happy, tell it to stay when you want it to wait. City Sol only.</p>
+                {petMsg ? <p>{petMsg}</p> : null}
+                <h3>Adopt</h3>
+                <label>
+                  Name (optional — used for the next adoption, or a rename below)
+                  <input
+                    type="text"
+                    value={petName}
+                    maxLength={16}
+                    placeholder="Buddy"
+                    onChange={(event) => setPetName(event.target.value)}
+                  />
+                </label>
+                {(Object.keys(PET_CATALOG) as PetSpecies[]).map((species) => {
+                  const entry = PET_CATALOG[species];
+                  const coat = petCoat[species] ?? entry.coats[0].id;
+                  return (
+                    <article key={species}>
+                      <div>
+                        <b>{entry.name} — {entry.price} City Sol</b>
+                        <span>{entry.blurb}</span>
+                      </div>
+                      <div className="days">
+                        {entry.coats.map((c) => (
+                          <button key={c.id} type="button" className={coat === c.id ? "on" : ""} onClick={() => setPetCoat((prev) => ({ ...prev, [species]: c.id }))}>
+                            {c.name}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={snap.balance < entry.price || snap.pets.length >= PET_MAX}
+                        onClick={() => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          setPetMsg(rt.adoptPet(species, coat, petName));
+                          setPetName("");
+                        }}
+                      >
+                        {snap.pets.length >= PET_MAX ? "Full — release a pet first" : snap.balance < entry.price ? "Not enough City Sol" : `Adopt — ${entry.price} City Sol`}
+                      </button>
+                    </article>
+                  );
+                })}
+                <h3>Your pets</h3>
+                {snap.pets.length === 0 ? (
+                  <p className="muted">No pets yet — adopt one above.</p>
+                ) : (
+                  snap.pets.map((pet) => (
+                    <article key={pet.id}>
+                      <div>
+                        <b>{pet.name} · {PET_CATALOG[pet.species].name} ({pet.coatName})</b>
+                        <span>{pet.mood} · {pet.happiness}/100 happy · {pet.mode === "follow" ? `following, ${pet.dist}m away` : "staying put"}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          setPetMsg(rt.petCommand(pet.id, pet.mode === "follow" ? "stay" : "follow"));
+                        }}
+                      >
+                        {pet.mode === "follow" ? "Stay" : "Follow"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          setPetMsg(rt.petPet(pet.id));
+                        }}
+                      >
+                        Pet
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!petName.trim()}
+                        onClick={() => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          setPetMsg(rt.petRename(pet.id, petName));
+                          setPetName("");
+                        }}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const rt = gameRef.current?.runtime;
+                          if (!rt) return;
+                          setPetMsg(rt.petRelease(pet.id));
+                        }}
+                      >
+                        Release
+                      </button>
+                    </article>
+                  ))
+                )}
+                <p className="muted">Your home pet is separate — the dog or cat in your crib stays at home. These pets are your city companions.</p>
               </div>
             )}
             {panel === "lift" && snap.lift && (

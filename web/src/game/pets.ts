@@ -526,9 +526,10 @@ export function createPetSim(scene: Scene): PetSim {
         adoptedAt: Date.now(),
       };
       const pet = spawnLive(saved, spawn);
-      pet.placed = true;
       pet.stayX = spawn.x;
       pet.stayZ = spawn.z;
+      // placed stays false: the first update() puts the new pet trailing
+      // the player, wherever the player is standing right now.
       persist();
       return { ok: true, message: `${cleanName} the ${entry.name.toLowerCase()} is yours — trailing behind you now.`, pet: saved };
     },
@@ -592,12 +593,16 @@ export function createPetSim(scene: Scene): PetSim {
         let speed = entry.walkSpeed;
 
         if (!pet.placed) {
-          // First frame: appear trailing the player, never at the origin.
-          const t = followTargetFor(player, slotOf.get(pet.saved.id) ?? 0);
-          pet.x = t.x;
-          pet.z = t.z;
-          pet.stayX = t.x;
-          pet.stayZ = t.z;
+          // First frame: appear trailing the player — but never teleport
+          // to a driving / flying / riding player; an unplaced pet whose
+          // owner is not on foot waits at its spawn (stay anchor).
+          if (ctx.onFoot) {
+            const t = followTargetFor(player, slotOf.get(pet.saved.id) ?? 0);
+            pet.x = t.x;
+            pet.z = t.z;
+            pet.stayX = t.x;
+            pet.stayZ = t.z;
+          }
           pet.placed = true;
         } else if (pet.saved.mode === "stay" || !ctx.onFoot) {
           // Stay, or waiting while the player drives / flies / rides:

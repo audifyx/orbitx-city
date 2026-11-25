@@ -254,6 +254,7 @@ import {
 } from "./life";
 import { createLifeView } from "./lifeview";
 import { createCribView } from "./cribview";
+import { createPetSim, PET_CATALOG, PET_MAX, type PetMode, type PetSnap, type PetSpecies } from "./pets";
 import {
   bedSpot,
   cribBillAmount,
@@ -302,7 +303,7 @@ export interface TrainPose {
   dwelling: boolean;
 }
 
-export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "minigames" | "hq" | "race" | "home" | "homeedit" | "workshop" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats" | "trading" | "paint" | "boxing";
+export type PanelName = "shop" | "jobs" | "ads" | "events" | "chat" | "menu" | "phone" | "daily" | "wallet" | "leaders" | "arcade" | "minigames" | "hq" | "race" | "home" | "homeedit" | "workshop" | "homegarage" | "lift" | "talk" | "radio" | "offices" | "garage" | "multiverse" | "emergency" | "district-offices" | "myprops" | "grocery" | "restaurant" | "kitchen" | "gym" | "wardrobe" | "voice" | "transport" | "players" | "alerts" | "profile" | "stats" | "trading" | "paint" | "boxing" | "pets";
 
 // UNIFIED SHOP: the Shop panel's category tabs. "grocery" is a tab
 // now, not a panel — the grocery store in the world opens the Shop on
@@ -746,6 +747,9 @@ export interface Snap {
   hunger: number;
   foodLoaded: boolean;
   foodMsg: string;
+  /** PETS (round 7): adopted city companions — species, coat, name,
+   * follow/stay mode, happiness + mood, live distance to the player. */
+  pets: PetSnap[];
   eventLabel: string;
   panel: PanelName | "";
   /** The home the Home Editor panel is editing ("" when it is closed). */
@@ -2201,6 +2205,10 @@ export function createRuntime(scene: Scene) {
   let energyAnnounced0 = false;
   let lastEnergyPos = { x: 0, z: 0 };
   let cribView: ReturnType<typeof createCribView> | null = null;
+  // PETS (round 7): the city-companion sim (pets.ts). Its group hangs
+  // off the scene, not the world root — clearRoot() rebuilds the root on
+  // every begin(), and pets must survive that.
+  const petSim = createPetSim(scene);
   let notice = "";
   let noticeUntil = 0;
   // --- NOTIFICATIONS: toast history (newest first, max 30) + the
@@ -6776,6 +6784,7 @@ export function createRuntime(scene: Scene) {
       foodMeals: { ...foodMeals },
       foodFed,
       foodCarryCap,
+      pets: petSim.list(),
       eventLabel: eventLeft > 0 ? `Fountain lights in ${Math.ceil(eventLeft)}` : burstLeft > 0 ? "Fountain lights" : "",
       panel,
       homeEditId,
@@ -12363,6 +12372,12 @@ export function createRuntime(scene: Scene) {
       tickFavors(dt, body);
       tickBoard(dt, body);
       tickModes(dt, body);
+      // PETS (round 7): the one frame hook — follow / stay / idle + walk
+      // animation. Pets wait while the player drives, flies or rides.
+      petSim.update(dt, body, {
+        onFoot: !driving && !riding && !ridingBus && !drivingTrain && !body.flying,
+        lowQuality: quality() === "low",
+      });
     }
     // PEOPLE: a party or a guest that ran out while no panel was open
     // clears itself — no stale guest standing in the home, no party tag
@@ -15428,6 +15443,62 @@ export function createRuntime(scene: Scene) {
     }
   }
 
+  // PETS (round 7): city companions — adopt from the Pet Shop panel.
+  // City Sol only, no burn (buy+burn is ads/banners only, same as
+  // clothes), paid out of the local wallet and saved locally with the
+  // pet (pets.ts). No server op: the crib pet above is the server one
+  // (home-only); these follow the player around the city.
+  function adoptPet(species: PetSpecies, coat: string, name: string): string {
+    const entry = PET_CATALOG[species];
+    if (!entry) return "No such pet.";
+    if (petSim.count() >= PET_MAX) return `You already have ${PET_MAX} pets — release one first.`;
+    if (wallet.balance < entry.price) return `Not enough City Sol — a ${entry.name.toLowerCase()} costs ${entry.price}.`;
+    wallet.balance -= entry.price;
+    saveWallet(wallet);
+    const spawn = lastBody ? { x: lastBody.x, z: lastBody.z } : { x: 0, z: 0 };
+    const res = petSim.adopt(species, coat, name, spawn);
+    if (!res.ok) {
+      wallet.balance += entry.price;
+      saveWallet(wallet);
+      say(res.message);
+      publish();
+      return res.message;
+    }
+    triggerHaptic("success");
+    say(res.message);
+    publish();
+    return res.message;
+  }
+
+  function petCommand(id: string, mode: PetMode): string {
+    const message = petSim.setMode(id, mode);
+    say(message);
+    publish();
+    return message;
+  }
+
+  function petPet(id: string): string {
+    const message = petSim.pet(id);
+    triggerHaptic("success");
+    say(message);
+    publish();
+    return message;
+  }
+
+  function petRename(id: string, name: string): string {
+    const message = petSim.rename(id, name);
+    say(message);
+    publish();
+    return message;
+  }
+
+  function petRelease(id: string): string {
+    const message = petSim.release(id);
+    say(message);
+    publish();
+    return message;
+  }
+
   async function cribFeedPet() {
     if (!world.online || !currentUniverse) return cribNeedsSignIn();
     try {
@@ -16913,6 +16984,11 @@ export function createRuntime(scene: Scene) {
     cribSleep: sleepInBed,
     cribBuyPet,
     cribFeedPet,
+    adoptPet,
+    petCommand,
+    petPet,
+    petRename,
+    petRelease,
     cribBuyFood,
     cribEat,
     cribUpgrade,
