@@ -9,7 +9,11 @@
 //  2. Coplanar flush facades — two buildings sharing an exact edge plane
 //     with a long shared edge = z-fighting faces.
 //  3. House facades overlapping anything.
+//  4. (2026-11-25) The city.ts geometry repairs: trading floor moved off
+//     the mall west wall, casino road pass-through, tower tiers + porch,
+//     garage bays inside their plots.
 import { buildCity } from "../web/src/game/city.ts";
+import { buildHomeCatalog, garageLayoutFor } from "../web/src/game/homes.ts";
 
 const city = buildCity(1);
 const facades = city.facades;
@@ -121,6 +125,82 @@ const failures: string[] = [];
 if (realOverlaps.length > 0) failures.push(`${realOverlaps.length} facade overlaps`);
 if (flush.length > 0) failures.push(`${flush.length} coplanar flush pairs`);
 if (realRectOverlaps.length > 0) failures.push(`${realRectOverlaps.length} facade+wing rect overlaps`);
+
+// --- 2026-11-25 city.ts geometry repairs ---
+// Trading Floor moved 2u east: its west wall at x 46 leaves a 3-wide entry
+// slot between the mall west wall (43) and the store, and the food court /
+// kiosk / runner / sofas no longer sit inside its footprint.
+const trading = facades.find((f) => f.id === "trading");
+const mallF = facades.find((f) => f.id === "megamall");
+if (!trading || !mallF) failures.push("trading/megamall facades missing");
+else {
+  if (trading.x !== 46) failures.push(`trading west wall at x=${trading.x}, expected 46`);
+  if (trading.x - mallF.x !== 3) failures.push(`trading/mall entry slot is ${trading.x - mallF.x}u, expected 3`);
+  // No food-court table (wood 2x0.1x2 at y 0.45) inside the trading rect.
+  const tx1 = trading.x + trading.w;
+  const tz1 = trading.z + trading.d;
+  const tableInStore = city.boxes.filter(
+    (b) =>
+      b.mat === "wood" && b.sx === 2 && b.sy === 0.1 && b.sz === 2 && Math.abs(b.y - 0.45) < 0.01 &&
+      b.x > trading.x && b.x < tx1 && b.z > trading.z && b.z < tz1,
+  );
+  if (tableInStore.length > 0) failures.push(`${tableInStore.length} food-court table(s) inside the trading floor`);
+  // Trading floor (top 0.14) must sit proud of the mall stone floor (0.12),
+  // not coplanar with it.
+  const tFloor = city.boxes.find((b) => b.mat === "black" && b.sx === 19.6 && b.sz === 19.6 && Math.abs(b.x - 57) < 0.01 && Math.abs(b.z - -5) < 0.01);
+  const mFloor = city.boxes.find((b) => b.mat === "stone" && b.sx === 55.6 && b.sz === 55.6 && Math.abs(b.x - 72) < 0.01 && Math.abs(b.z) < 0.01);
+  if (!tFloor || !mFloor) failures.push("trading/mall floor slabs missing");
+  else if (Math.abs(tFloor.y + tFloor.sy / 2 - (mFloor.y + mFloor.sy / 2)) < 0.01) {
+    failures.push("trading floor top is coplanar with the mall floor (z-fight)");
+  }
+}
+// Casino: the z=-180 road passes through it (passThrough "n").
+const casino = facades.find((f) => f.id === "casino");
+if (!casino) failures.push("casino facade missing");
+else if (casino.passThrough !== "n") failures.push(`casino passThrough is ${casino.passThrough ?? "none"}, expected "n"`);
+// Tower: tiers match pretty's solidTower (facade h 60, not 72), and the
+// deleted porch left no invisible post collider in front of the south door.
+const tower = facades.find((f) => f.id === "tower");
+if (!tower) failures.push("tower facade missing");
+else if (tower.h > 60) failures.push(`tower facade h=${tower.h}, expected <= 60`);
+const porchPost = city.colliders.find((c) => {
+  const cx = (c.minX + c.maxX) / 2;
+  const cy = (c.minY + c.maxY) / 2;
+  const cz = (c.minZ + c.maxZ) / 2;
+  const sx = c.maxX - c.minX;
+  const sy = c.maxY - c.minY;
+  const sz = c.maxZ - c.minZ;
+  return (
+    Math.abs(cz - -0.6) < 0.4 &&
+    (Math.abs(cx - 4) < 0.4 || Math.abs(cx + 4) < 0.4 || Math.abs(cx - 8) < 0.4 || Math.abs(cx + 8) < 0.4) &&
+    Math.abs(cy - 2.7) < 0.4 && sx < 1 && sz < 1 && sy > 4
+  );
+});
+if (porchPost) failures.push("tower porch post collider still stands at the door");
+// Garage bays stay inside their home's 36x36 plot (worst case: 4 cars).
+// NOTE: bay.w is the LATERAL width and bay.d the OUTWARD depth — the x/z
+// extents follow the door axis (bay.fx/fz outward, bay.sx/sz lateral).
+const homes = buildHomeCatalog(1);
+let bayOut = 0;
+for (const home of homes) {
+  const layout = garageLayoutFor(home, 4);
+  const pcx = home.x0 + home.w / 2;
+  const pcz = home.z0 + home.d / 2;
+  const xHalf = Math.abs(layout.bay.fx) * layout.bay.d / 2 + Math.abs(layout.bay.sx) * layout.bay.w / 2;
+  const zHalf = Math.abs(layout.bay.fz) * layout.bay.d / 2 + Math.abs(layout.bay.sz) * layout.bay.w / 2;
+  const bx0 = layout.bay.cx - xHalf;
+  const bx1 = layout.bay.cx + xHalf;
+  const bz0 = layout.bay.cz - zHalf;
+  const bz1 = layout.bay.cz + zHalf;
+  if (bx0 < pcx - 18 || bx1 > pcx + 18 || bz0 < pcz - 18 || bz1 > pcz + 18) {
+    bayOut++;
+    if (bayOut <= 5) {
+      console.log(`  BAY-OUT ${home.id} bay x ${bx0.toFixed(1)}..${bx1.toFixed(1)} z ${bz0.toFixed(1)}..${bz1.toFixed(1)} plot centre (${pcx},${pcz})`);
+    }
+  }
+}
+console.log(`garage bays outside their plot (4 cars): ${bayOut}`);
+if (bayOut > 0) failures.push(`${bayOut} garage bays outside their home plot`);
 if (failures.length) {
   console.log(`WORLD OVERLAP CHECKS FAILED: ${failures.join("; ")}`);
   process.exit(1);

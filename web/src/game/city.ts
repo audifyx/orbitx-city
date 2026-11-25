@@ -818,22 +818,6 @@ function addCrown(boxes: Box[], cols: Collider[], x: number, y: number, z: numbe
   visualHide = false;
 }
 
-function addTowerPorch(boxes: Box[], cols: Collider[]) {
-  visualHide = true;
-  const zFace = SOUTH;
-  put(boxes, 0, 0.2, zFace + 1.7, 18, 0.32, 3.4, "stone");
-  put(boxes, 0, 0.48, zFace + 2.7, 12, 0.24, 1.5, "plaza");
-  for (const x of [-8, -4, 4, 8]) {
-    put(boxes, x, 2.7, zFace + 2.4, 0.75, 5.2, 0.75, "white");
-    put(boxes, x, 4.6, zFace + 2.4, 0.28, 1.4, 0.28, "cyan");
-    cols.push(col(x, 2.7, zFace + 2.4, 0.75, 5.2, 0.75));
-  }
-  put(boxes, 0, 5.5, zFace + 2.3, 18.5, 0.38, 4.4, "black");
-  put(boxes, 0, 5.82, zFace + 2.3, 18.8, 0.16, 0.35, "cyanhot");
-  cols.push(col(0, 5.5, zFace + 2.3, 18.5, 0.38, 4.4));
-  visualHide = false;
-}
-
 function towerSample(len: number) {
   return (u: number, ly: number) => {
     if (u <= 1 || u >= len - 2) return ly % 4 === 1 ? ("cyanhot" as Mat) : ("white" as Mat);
@@ -982,14 +966,17 @@ function frontFace(cx: number, cz: number): Face {
 }
 
 function addTower(boxes: Box[], cols: Collider[]): { top: number; zone: Zone; anchor: Anchor } {
+  // Tiers MUST match pretty.ts solidTower exactly (2026-11-25): the old
+  // list widened upward (20/26/30) past the visible tower, which shrinks
+  // to 10, and ran to y 72 while the visible roof is at 56 — colliders
+  // bulged 3–10u beyond the visible walls at y 40–72 plus 16u of pure-air
+  // collider above the roof. A flying car hit invisible walls.
   const tiers = [
     { w: 28, d: 26, h: 14 },
-    { w: 24, d: 22, h: 10 },
-    { w: 18, d: 16, h: 8 },
-    { w: 14, d: 12, h: 8 },
-    { w: 20, d: 16, h: 10 },
-    { w: 26, d: 20, h: 12 },
-    { w: 30, d: 16, h: 4 },
+    { w: 22, d: 20, h: 12 },
+    { w: 17, d: 15, h: 12 },
+    { w: 13, d: 11, h: 10 },
+    { w: 10, d: 8, h: 8 },
   ];
   let y = 0;
   const t0 = tiers[0] as Tier;
@@ -1048,7 +1035,10 @@ function addTower(boxes: Box[], cols: Collider[]): { top: number; zone: Zone; an
     const sample = towerSample(tier.w);
     y = shell(boxes, cols, tx0, y, tz0, tier.w, tier.h, tier.d, (u, ly) => sample(u, ly), "black");
   }
-  addTowerPorch(boxes, cols);
+  // No porch here (2026-11-25): addTowerPorch was deleted — its boxes were
+  // hidden (visualHide) so it rendered nothing, but its 4 post colliders +
+  // roof collider stood invisible in front of the south door, and pretty's
+  // solidTower already renders the glass atrium as the entrance.
   facades.push({
     id: "tower",
     x: -14,
@@ -1375,12 +1365,23 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
         // Real house footprint inside the lot: 18-23 wide, 18-22 deep, slid
         // to one side so no two houses on a street line up. (Furnishing
         // needs w>=18, d>=18 or the kitchen counter clips the wall.)
-        const hw = 18 + Math.floor(homeRng() * 6);
-        const hd = 18 + Math.floor(homeRng() * 5);
+        // Clamped to the lot: the old 23-wide house overhung its 19-wide
+        // buildable axis by up to 4 (2 into the road).
+        const hw = Math.min(18 + Math.floor(homeRng() * 6), bw);
+        const hd = Math.min(18 + Math.floor(homeRng() * 5), bd);
         const hx = bx + Math.floor(homeRng() * Math.max(1, bw - hw + 1));
         const hz = bz + Math.floor(homeRng() * Math.max(1, bd - hd + 1));
         const homeH = 5 + Math.floor(homeRng() * 3); // 5..7: one or two storeys
-        const home = addHome(boxes, cols, hx, hz, hw, hd, homeH, face, homesBuilt, homeRng);
+        // The compact backyard runs 0.6 + depth past the back wall, and
+        // the lot edge is only 2 from the asphalt — so the yard depth is
+        // clamped to the room behind the house. The old fixed 3.5 put the
+        // grass, bench and grill 2.1 into the road behind every home.
+        const backGap = face === "n" ? (bz + bd) - (hz + hd)
+          : face === "s" ? hz - bz
+          : face === "w" ? (bx + bw) - (hx + hw)
+          : hx - bx;
+        const yardDepth = Math.max(0, Math.min(3.5, backGap - 0.6));
+        const home = addHome(boxes, cols, hx, hz, hw, hd, homeH, face, homesBuilt, homeRng, yardDepth);
         zones.push(home.zone);
         anchors.push(home.anchor);
         addYardDoor(boxes, cols, x0, z0, x1, z1, face, home.anchor.x, home.anchor.z, yardPlan.tree, yardPlan.lamp);
@@ -1628,7 +1629,14 @@ function addBuildings(boxes: Box[], cols: Collider[], rng: Rng, seed: number): {
       if (height > 18) addBalcony(boxes, baseX, Math.min(12, roofY - 4), baseZ, baseW, baseD, face);
       if (height > 22) addCrown(boxes, cols, fbx + fbw / 2, roofY, fbz + fbd / 2, fbw, fbd);
       if (height > 22 && dist > 40 && dist < 140 && rng() > 0.55) {
-        addBillboard(boxes, baseX, 8, baseZ, baseW, baseD, face, Math.floor(rng() * 6));
+        // Anchor the billboard to the step that exists at its height
+        // (2026-11-25): on a stepped tower the rows above y 9 sit on the
+        // inset step, so a billboard hung on the base plane floats 2.28
+        // proud of the wall behind it. steps[1] is whatever rect exists
+        // at y 9..17 — inset when the setback fired, full-width otherwise.
+        const step = steps.length > 1 ? steps[1]! : null;
+        if (step) addBillboard(boxes, step.x, step.y0, step.z, step.w, step.d, face, Math.floor(rng() * 6));
+        else addBillboard(boxes, baseX, 8, baseZ, baseW, baseD, face, Math.floor(rng() * 6));
       }
     }
   }
@@ -2452,11 +2460,11 @@ function reservedPlot(x0: number, x1: number, z0: number, z1: number) {
     [187, 207, 48, 66],
     [78, 98, 230, 250],
     // Trading Floor (2026-11-19): the OrbitX exchange hall — a store
-    // INSIDE the Mega Mall, north half (44,-16,22,22, door south into the
+    // INSIDE the Mega Mall, north half (46,-16,22,22, door south into the
     // mall hall, one block from the plaza). The south-wall stores sit at
     // z 24.6, so the floor lives in the mall's north half, clear of them.
     // Reserved so no generated block spawns here. Do NOT build a block here.
-    [44, 66, -16, 6],
+    [46, 68, -16, 6],
     // Mega mall + mega OrbitX office superblocks.
     [43, 101, -29, 29],
     [-101, -43, -29, 29],
@@ -3470,7 +3478,11 @@ function furnishArcade(boxes: Box[], cols: Collider[], x0: number, z0: number, w
 // computer and press E to open the trading terminal.
 function furnishTrading(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face): Zone {
   const { cx, cz } = roomCenter(x0, z0, w, d);
-  put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "black");
+  // Black floor raised 0.02 (2026-11-25): this room sits INSIDE the mall,
+  // and at the standard 0.08 the floor top (0.12) was exactly coplanar with
+  // the mall's stone floor — the whole trading floor flickered black/stone.
+  // Top 0.14 now, a raised black platform over the mall floor.
+  put(boxes, cx, 0.1, cz, w - 2.4, 0.08, d - 2.4, "black");
   addCeiling(boxes, cols, x0, z0, w, d);
   cladWalls(boxes, x0, z0, w, d, door);
   // Ceiling skirt: addCeiling's slab stops ~1.08 short of the walls,
@@ -3486,7 +3498,8 @@ function furnishTrading(boxes: Box[], cols: Collider[], x0: number, z0: number, 
   wallpaperWalls(boxes, x0, z0, w, d, door, "black", "gold");
   ceilingBeams(boxes, x0, z0, w, d);
   // Gold runner down the door lane (south door → service point, north-south).
-  put(boxes, cx, 0.145, cz + 5.5, 3, 0.05, 11, "gold");
+  // y 0.165 so it sits on the raised black floor (top 0.14), not buried in it.
+  put(boxes, cx, 0.165, cz + 5.5, 3, 0.05, 11, "gold");
   // A trading desk: black slab, gold edge, an OrbitX computer (black
   // monitor + glowing cyan chart screen facing the room) and a keyboard.
   // face "w" = the screen looks west (toward the door); face "e" = east.
@@ -4251,7 +4264,14 @@ function furnishCasino(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   wallpaperWalls(boxes, x0, z0, w, d, door, "gray", "gold");
   ceilingBeams(boxes, x0, z0, w, d);
   doorCornerPlants(boxes, cols, x0, z0, w, d, door);
-  for (const [sx, sz] of [[cx - 3.2, cz], [cx + 3.2, cz], [cx, cz - 3.2], [cx, cz + 3.2]] as Array<[number, number]>) {
+  // Roulette table sits WEST of the room (2026-11-25): the casino straddles
+  // the z=-180 road and the road passes through it door-to-door (passThrough
+  // "n"), so the 4-wide lane down the room centre (x cx±2) must stay clear.
+  // The table used to stand dead centre in that lane. Two stools only —
+  // north/south of the table; an east/west pair would hit the lane / wall.
+  const tx = cx - 5;
+  const tz = cz;
+  for (const [sx, sz] of [[tx, tz - 3.2], [tx, tz + 3.2]] as Array<[number, number]>) {
     // Round 6: round gold stools around the roulette table instead of
     // the gold boxes (no colliders, like the club's).
     roundStool(sx, sz, "gold");
@@ -4280,8 +4300,10 @@ function furnishCasino(boxes: Box[], cols: Collider[], x0: number, z0: number, w
   const faceInto = door === "n" ? "n" : door === "s" ? "s" : door === "e" ? "e" : "w";
   const mats: Mat[] = ["red", "cyan", "warm", "red", "gold", "cyan", "warm"];
   if (alongX) {
+    // Two machines on the wall opposite the door (2026-11-25: was three —
+    // the middle one stood in the door-to-door lane, blocking the north
+    // door the road passes through).
     machine(cx - 4.5, opp.z, faceInto, mats[0]);
-    machine(cx, opp.z, faceInto, mats[1]);
     machine(cx + 4.5, opp.z, faceInto, mats[2]);
     machine(x0 + 1.5, cz - 4, "e", mats[3]);
     machine(x0 + 1.5, cz + 4, "e", mats[4]);
@@ -4297,14 +4319,14 @@ function furnishCasino(boxes: Box[], cols: Collider[], x0: number, z0: number, w
     machine(cx + 4, z0 + d - 1.5, "n", mats[6]);
   }
   // Roulette table: gold rim, black wheel, white ball.
-  disc(boxes, cx, 0.55, cz, 2.2, 0.5, "gold");
-  disc(boxes, cx, 0.62, cz, 1.6, 0.4, "black");
-  put(boxes, cx, 0.85, cz, 0.3, 0.2, 0.3, "white");
-  cols.push(col(cx, 0.55, cz, 4.4, 1.1, 4.4));
+  disc(boxes, tx, 0.55, tz, 2.2, 0.5, "gold");
+  disc(boxes, tx, 0.62, tz, 1.6, 0.4, "black");
+  put(boxes, tx, 0.85, tz, 0.3, 0.2, 0.3, "white");
+  cols.push(col(tx, 0.55, tz, 4.4, 1.1, 4.4));
   roomSign("casino", x0 + w - 1.35, 2.2, cz, -Math.PI / 2, 4.2, 1.7, ["NEON CASINO", "Slots · 5 City Sol a pull"], "E at the table pulls the lever");
   // Service point in front of the table, on the door side.
-  const serviceX = cx + (door === "e" ? 3.4 : door === "w" ? -3.4 : 0);
-  const serviceZ = cz + (door === "s" ? 3.4 : door === "n" ? -3.4 : 0);
+  const serviceX = tx + (door === "e" ? 3.4 : door === "w" ? -3.4 : 0);
+  const serviceZ = tz + (door === "s" ? 3.4 : door === "n" ? -3.4 : 0);
   return {
     id: "casino",
     name: "Neon Casino",
@@ -5208,10 +5230,21 @@ function doorCornerPlants(boxes: Box[], cols: Collider[], x0: number, z0: number
 // `depth` 5.5 + fence + tree is the full yard (state homes: 36-spaced
 // plots, 7+ units clear). The compact yard (depth 3.5, no fence, no tree)
 // is for the 8 original homes, which nearly fill their 22-unit lots —
-// bench + grill sit 1.4 past the back wall so nothing reaches the road.
+// so the caller clamps its depth to the room behind the house (the lot
+// edge is 2 from the asphalt) and it shrinks to a bare lawn, or nothing,
+// rather than spilling into the road. Bench + grill sit 1.4 past the
+// back wall and are skipped when the yard is too shallow to hold them.
 function backyard(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face, depth = 5.5, fenced = true, tree = true) {
   const { cx, cz } = roomCenter(x0, z0, w, d);
   const compact = depth < 5;
+  // No room behind the house (it fills its lot to the back edge):
+  // no yard at all, rather than one spilling into the road.
+  if (depth < 0.5) return;
+  // The compact grill/bench sit 2.0 out from the back wall (spanning to
+  // 2.55); a yard shallower than 2 cannot hold them, so it stays a bare
+  // lawn + path. The full yard's furniture sits off the far edge and
+  // always fits by construction.
+  const fitsFurniture = !compact || depth >= 2;
   // Yard rect, just past the back wall.
   let yz0: number;
   let yz1: number;
@@ -5242,13 +5275,15 @@ function backyard(boxes: Box[], cols: Collider[], x0: number, z0: number, w: num
     const gx = compact ? nearX + dirX * 1.4 : farX - dirX * 1.2;
     const bx = compact ? nearX + dirX * 1.4 : (yxx0 + yxx1) / 2;
     // Grill on the far side, bench + tree on the near half.
-    put(boxes, gx, 0.45, cz - 2.2, 1.1, 0.8, 0.8, "black");
-    put(boxes, gx, 0.9, cz - 2.2, 1.2, 0.12, 0.9, "gold");
-    cols.push(col(gx, 0.45, cz - 2.2, 1.1, 0.8, 0.8));
-    addBench(boxes, cols, bx, cz + 2.2, false);
-    if (tree) addTree(boxes, cols, (yxx0 + yxx1) / 2 - 1, cz - (w - 2) / 2 + 1.6, 0);
-    for (const side of [-1, 1]) {
-      put(boxes, gx, 0.25, cz + side * 3.4, 0.5, 0.4, 0.5, side < 0 ? "red" : "gold");
+    if (fitsFurniture) {
+      put(boxes, gx, 0.45, cz - 2.2, 1.1, 0.8, 0.8, "black");
+      put(boxes, gx, 0.9, cz - 2.2, 1.2, 0.12, 0.9, "gold");
+      cols.push(col(gx, 0.45, cz - 2.2, 1.1, 0.8, 0.8));
+      addBench(boxes, cols, bx, cz + 2.2, false);
+      if (tree) addTree(boxes, cols, (yxx0 + yxx1) / 2 - 1, cz - (w - 2) / 2 + 1.6, 0);
+      for (const side of [-1, 1]) {
+        put(boxes, gx, 0.25, cz + side * 3.4, 0.5, 0.4, 0.5, side < 0 ? "red" : "gold");
+      }
     }
     return;
   }
@@ -5272,13 +5307,15 @@ function backyard(boxes: Box[], cols: Collider[], x0: number, z0: number, w: num
   const gz = compact ? nearZ + dirZ * 1.4 : farZ - dirZ * 1.2;
   const bz = compact ? nearZ + dirZ * 1.4 : (yz0 + yz1) / 2;
   // Grill on the far side, bench + tree on the near half.
-  put(boxes, cx - 2.2, 0.45, gz, 1.1, 0.8, 0.8, "black");
-  put(boxes, cx - 2.2, 0.9, gz, 1.2, 0.12, 0.9, "gold");
-  cols.push(col(cx - 2.2, 0.45, gz, 1.1, 0.8, 0.8));
-  addBench(boxes, cols, cx + 2.2, bz, true);
-  if (tree) addTree(boxes, cols, cx - (w - 2) / 2 + 1.6, (yz0 + yz1) / 2 - 1, 0);
-  for (const side of [-1, 1]) {
-    put(boxes, cx + side * 3.4, 0.25, gz, 0.5, 0.4, 0.5, side < 0 ? "red" : "gold");
+  if (fitsFurniture) {
+    put(boxes, cx - 2.2, 0.45, gz, 1.1, 0.8, 0.8, "black");
+    put(boxes, cx - 2.2, 0.9, gz, 1.2, 0.12, 0.9, "gold");
+    cols.push(col(cx - 2.2, 0.45, gz, 1.1, 0.8, 0.8));
+    addBench(boxes, cols, cx + 2.2, bz, true);
+    if (tree) addTree(boxes, cols, cx - (w - 2) / 2 + 1.6, (yz0 + yz1) / 2 - 1, 0);
+    for (const side of [-1, 1]) {
+      put(boxes, cx + side * 3.4, 0.25, gz, 0.5, 0.4, 0.5, side < 0 ? "red" : "gold");
+    }
   }
 }
 
@@ -5437,7 +5474,7 @@ function doorAnchor(id: string, name: string, kind: Anchor["kind"], x0: number, 
 
 // A furnished home: living room (sofa, rug, TV, paintings), kitchenette,
 // bedroom nook. Ground floor only, like the other venues.
-function furnishHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face, index: number): Zone {
+function furnishHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: number, d: number, door: Face, index: number, yardDepth = 3.5): Zone {
   const { cx, cz } = roomCenter(x0, z0, w, d);
   put(boxes, cx, 0.08, cz, w - 2.4, 0.08, d - 2.4, "wood");
   addCeiling(boxes, cols, x0, z0, w, d);
@@ -5468,7 +5505,7 @@ function furnishHome(boxes: Box[], cols: Collider[], x0: number, z0: number, w: 
   // for doors s/e.
   if (door === "n" || door === "w") wallShelf(boxes, cx + 6, 1.8, z0 + d - 1.35, Math.PI, 3);
   else wallShelf(boxes, cx - 6, 1.8, z0 + 1.35, 0, 3);
-  backyard(boxes, cols, x0, z0, w, d, door, 3.5, false, false);
+  backyard(boxes, cols, x0, z0, w, d, door, yardDepth, false, false);
   const back = opposite(door, x0, z0, w, d, 2.4);
   const alongX = door === "n" || door === "s";
   // Living room: sofa + coffee table + rug, facing the TV on the far wall.
@@ -5577,6 +5614,7 @@ function addHome(
   door: Face,
   index: number,
   rng: Rng,
+  yardDepth = 3.5,
 ): { zone: Zone; anchor: Anchor } {
   const style = index % 2 === 0 ? 1 : 3;
   // A real house: pitched roof (ridge along the street), a porch over the
@@ -5641,7 +5679,7 @@ function addHome(
     for (const p of porchPosts(facade)) cols.push(col(p.x, 1.3, p.z, 0.3, 2.6, 0.3));
   }
   facades.push(facade);
-  const zone = furnishHome(boxes, cols, hx, hz, hw, hd, door, index);
+  const zone = furnishHome(boxes, cols, hx, hz, hw, hd, door, index, yardDepth);
   const anchor = doorAnchor(`home-${index}`, `Home ${index + 1}`, "hall", hx, hz, hw, hd, door, index);
   return { zone, anchor };
 }
@@ -5940,39 +5978,53 @@ function addMegaMall(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: 
     const sx = x0 + 6 + i * 8.6;
     mallShop(boxes, cols, sx, 0, z0 + d - 2.1, 8, true, Math.PI, [shops[i][0]], shops[i][1], shops[i][2]);
   }
-  // Food court, NW corner. The sign hangs on the north wall, facing in.
-  foodCourt(boxes, cols, x0 + 3, 0, z0 + 3, x0 + 17, z0 + 17);
-  roomSign("mall-food", x0 + 10, 2.6, z0 + 1.3, 0, 6, 1.2, ["FOOD COURT"], "Eat + drink");
+  // Food court, north strip east of the Trading Floor (2026-11-25: was
+  // the NW corner, where its south row of tables sat inside the Trading
+  // Floor — the new spot is clear of the store, the lift shaft at (93,-27)
+  // and the north-wall planters). The sign hangs on the north wall, facing in.
+  foodCourt(boxes, cols, x0 + 27, 0, z0 + 3, x0 + 41, z0 + 17);
+  roomSign("mall-food", x0 + 34, 2.6, z0 + 1.3, 0, 6, 1.2, ["FOOD COURT"], "Eat + drink");
   // Atrium: benches + planters, glass skylight in the roof. (The zone sign
   // by the west door carries the directory text.)
   for (const bz of [-6, 6]) {
     // Round 4: shaped atrium benches (backs toward the atrium edge).
-    // Colliders unchanged.
-    shapedSofa(66, bz, false, "red", 0, 3.4, -1);
-    cols.push(col(66, 0.38, bz, 1.1, 0.45, 3.4));
+    // Colliders unchanged. 2026-11-25: west benches at x 70 (were 66) —
+    // the Trading Floor moved to x 46..68, so 66 sat on its east wall.
+    shapedSofa(70, bz, false, "red", 0, 3.4, -1);
+    cols.push(col(70, 0.38, bz, 1.1, 0.45, 3.4));
     shapedSofa(78, bz, false, "red", 0, 3.4, 1);
     cols.push(col(78, 0.38, bz, 1.1, 0.45, 3.4));
   }
-  for (const [px, pz] of [[64, -8], [80, -8], [64, 8], [80, 8]] as Array<[number, number]>) {
+  for (const [px, pz] of [[70, -8], [80, -8], [64, 8], [80, 8]] as Array<[number, number]>) {
+    // 2026-11-25: NW planter at x 70 (was 64) — it stood inside the
+    // Trading Floor (x 46..68, z -16..6).
     put(boxes, px, 0.5, pz, 0.8, 0.9, 0.8, "leavesDark");
     cols.push(col(px, 0.5, pz, 0.8, 0.9, 0.8));
   }
   // Ground-floor center dressing: the atrium + food court read well, but the
   // north strip (z -29..-12, x 60..90) and the west entry (x 44..62, z -9..9)
-  // were flat empty stone. Directory kiosk by the west door, a gold runner
-  // down the entry walk, seating clusters + planters on the north strip.
-  // Directory kiosk at (48, -7) — offset from the west-door entry path so it
-  // never blocks the door. Stone base, cyan screen, gold trim, and a sign
+  // were flat empty stone. Directory kiosk in the hall south of the atrium,
+  // a gold runner from the Trading Floor door into the hall, seating clusters
+  // + planters on the north and south strips.
+  // Directory kiosk at (72, 12) — 2026-11-25: was (48, -7), inside the
+  // Trading Floor. Stone base, cyan screen, gold trim, and a sign
   // facing east into the mall (rotY pi/2).
-  put(boxes, 48, 0.5, -7, 1.6, 0.9, 1.2, "stone");
-  cols.push(col(48, 0.5, -7, 1.6, 0.9, 1.2));
-  put(boxes, 48, 1.1, -7, 1.4, 0.7, 0.1, "cyan");
-  put(boxes, 48, 1.55, -7, 1.7, 0.12, 1.3, "gold");
-  roomSign("mall-directory", 48.9, 2.2, -7, Math.PI / 2, 3.4, 1.1, ["DIRECTORY"], "Shops · Food court · Lift");
-  // Gold runner along z = 0 from the west door to the atrium.
-  put(boxes, 53, 0.145, 0, 17, 0.05, 2.4, "gold");
-  // Seating clusters on the north strip: bench + table + planter, with colliders.
-  for (const [bx, bz] of [[66, -18], [80, -18]] as Array<[number, number]>) {
+  put(boxes, 72, 0.5, 12, 1.6, 0.9, 1.2, "stone");
+  cols.push(col(72, 0.5, 12, 1.6, 0.9, 1.2));
+  put(boxes, 72, 1.1, 12, 1.4, 0.7, 0.1, "cyan");
+  put(boxes, 72, 1.55, 12, 1.7, 0.12, 1.3, "gold");
+  roomSign("mall-directory", 72.9, 2.2, 12, Math.PI / 2, 3.4, 1.1, ["DIRECTORY"], "Shops · Food court · Lift");
+  // Gold runner from the Trading Floor door south into the hall (2026-11-25:
+  // was along z = 0 from the west door — that line now runs through the
+  // Trading Floor's west wall. This one abuts the trading floor's own
+  // runner at z = 7, so the carpet runs unbroken from the trading desk
+  // out into the hall).
+  put(boxes, 57, 0.145, 13, 2.4, 0.05, 12, "gold");
+  // Seating clusters: one on the north strip, one on the south strip
+  // (2026-11-25: the north strip's east cluster was at (80, -18), inside
+  // the food court's new spot — it moved south). Bench + table + planter,
+  // with colliders.
+  for (const [bx, bz] of [[66, -18], [80, 18]] as Array<[number, number]>) {
     // Round 4: shaped bench facing its round table. Colliders unchanged.
     shapedSofa(bx, bz, false, "red", 0, 3.4, -1);
     cols.push(col(bx, 0.38, bz, 1.1, 0.45, 3.4));
@@ -5987,7 +6039,11 @@ function addMegaMall(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: 
     cols.push(col(px, 0.5, pz, 0.8, 0.9, 0.8));
   }
   // Mezzanine floor: slab with atrium + shaft + stairwell holes, atrium railing.
-  slabWithHoles(boxes, cols, x0, MALL_FLOOR2, z0, w, d, [[63, -9, 81, 9], [93, -27, 97, -23], [95, 5, 99, 25]], "cream");
+  // 2026-11-25: the Trading Floor's full rect is holed too — the slab was
+  // solid over x 46..63, z -16..6, a phantom floor inside the store's upper
+  // volume (its ceiling is at 3.6, the slab at 5). The atrium hole stays:
+  // it is the real opening over the hall east of the store.
+  slabWithHoles(boxes, cols, x0, MALL_FLOOR2, z0, w, d, [[46, -16, 68, 6], [63, -9, 81, 9], [93, -27, 97, -23], [95, 5, 99, 25]], "cream");
   for (const [rx, rz, rw, rd] of [[63, -9.15, 18, 0.3], [63, 8.85, 18, 0.3], [62.85, -9, 0.3, 18], [81.15, -9, 0.3, 18]] as Array<[number, number, number, number]>) {
     put(boxes, rx + rw / 2, MALL_FLOOR2 + 0.55, rz + rd / 2, rw, 1.1, rd, "cyan");
     cols.push({ minX: rx, maxX: rx + rw, minY: MALL_FLOOR2, maxY: MALL_FLOOR2 + 1.1, minZ: rz, maxZ: rz + rd });
@@ -6025,7 +6081,10 @@ function addMegaMall(boxes: Box[], cols: Collider[]): { zones: Zone[]; anchors: 
   buildGlassShaft(boxes, cols, "mall-lift", 93, -27, 4, 4, MALL_FLOOR2 + 2.8, [0, MALL_FLOOR2], "w");
   buildStairs(boxes, cols, 95, 5, 4, 0, MALL_FLOOR2);
   const zones: Zone[] = [
-    floorZone("mall-g", "Mega Mall", "mall", x0, z0, w, d, -0.1, 4.9, 72, 0, 44.6, 2.6, 0, Math.PI / 2),
+    // 2026-11-25: zone sign on the Trading Floor's east wall (68.6, 2.6, 0),
+    // facing east into the hall — it hung at x 44.6, inside the Trading
+    // Floor (and, before the store moved, in its west wall).
+    floorZone("mall-g", "Mega Mall", "mall", x0, z0, w, d, -0.1, 4.9, 72, 0, 68.6, 2.6, 0, Math.PI / 2),
     floorZone("mall-2", "Mega Mall — Mezzanine", "mall", x0, z0, w, d, 4.9, 9.4, 89, -1, 72, 7.2, -8.4, 0),
   ];
   const anchors: Anchor[] = [
@@ -6656,11 +6715,13 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     addVenue(boxes, cols, 43, 43, 22, 22, 8, "w", "arcade"),
     // TRADING FLOOR (2026-11-19): OrbitX exchange hall — real trading,
     // launchpad + scanner, a store INSIDE the Mega Mall's north half
-    // (44,-16,22,22, door south into the mall hall), one block from the
-    // plaza. The west door was blocked by the mall's west wall (same
-    // plane) and the south-wall stores sit at z 24.6, so the floor lives
-    // in the mall's north half with its door facing the hall.
-    addVenue(boxes, cols, 44, -16, 22, 22, 9, "s", "trading"),
+    // (46,-16,22,22, door south into the mall hall), one block from the
+    // plaza. 2026-11-25: moved 2u east (was x 44) — its west wall shared
+    // the mall west wall's plane, so the mall's west door opened onto a
+    // wall 1u away, and the food court / kiosk / runner / sofas all sat
+    // inside its footprint. The 2u slot (mall wall 43, trading wall 46)
+    // is the entry walk; the store's door faces south into the hall.
+    addVenue(boxes, cols, 46, -16, 22, 22, 9, "s", "trading"),
     addVenue(boxes, cols, -29, 79, 22, 22, 7, "n", "market"),
     // GROCERY (2026-11-12): OrbitX Grocery, the lot south of the shop
     // (7,79,22,22, door north onto the z=72 road) — between the Night
@@ -6692,7 +6753,10 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     // now sits at (-98,116): 3 clear of both roads, 17 from the library.
     addVenue(boxes, cols, -172, 152, 20, 20, 8, "e", "museum"),
     addVenue(boxes, cols, -98, 116, 20, 20, 8, "e", "hotel"),
-    addVenue(boxes, cols, -28, -190, 17, 20, 8, "s", "casino"),
+    // CASINO (2026-11-25): straddles the z=-180 road, so the road passes
+    // THROUGH it (passThrough "n", like the dock) instead of dead-ending
+    // into its north wall. The furnisher keeps the door-to-door lane clear.
+    addVenue(boxes, cols, -28, -190, 17, 20, 8, "s", "casino", 0, "n"),
     addVenue(boxes, cols, 172, 188, 20, 20, 8, "n", "nightclub"),
     // FOOD (2026-11-12): three restaurants, one kind, three ids (specs in
     // content.ts RESTAURANT_PLACES — lots verified CLEAR: no zone, no
@@ -6764,10 +6828,10 @@ function addFixedPlaces(boxes: Box[], cols: Collider[]): { anchors: Anchor[]; bo
     // (208.6, -69), yaw π/2.
     doorAnchor("carshop", "OrbitX Motors", "carshop", 210, -80, 26, 22, "w"),
     // TRADING FLOOR: OrbitX exchange hall door (south wall of the
-    // 44,-16 lot). E here walks the player in from the mall hall; E at
+    // 46,-16 lot). E here walks the player in from the mall hall; E at
     // the middle desk opens the terminal. Anchor: id "trading",
-    // (55, 7.4), yaw 0.
-    doorAnchor("trading", "OrbitX Trading Floor", "trading", 44, -16, 22, 22, "s"),
+    // (57, 7.4), yaw 0.
+    doorAnchor("trading", "OrbitX Trading Floor", "trading", 46, -16, 22, 22, "s"),
     { id: "arcade", name: "Neon Arcade", kind: "arcade", x: 41.6, y: 0, z: 54, yaw: Math.PI / 2, slot: 0 },
     { id: "market", name: "Night Market", kind: "market", x: -18, y: 0, z: 77.6, yaw: Math.PI, slot: 0 },
     // GROCERY: OrbitX Grocery door (north wall of the 7,79 lot). E here
